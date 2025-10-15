@@ -1,0 +1,116 @@
+/* Responsive styles for AdminHome */
+
+/* Base styles (desktop & mobile) */
+.adminhome-container {
+  min-height: 100vh;
+  display: flex;
+  background: linear-gradient(135deg, #e0e7ff 0%, #f8fafc 100%);
+}
+.adminhome-sidebar {
+  width: 220px;
+  min-width: 220px;
+  background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  padding: 32px 0;
+  box-shadow: 2px 0 8px 0 rgba(31, 38, 135, 0.08);
+  transition: all 0.3s;
+  height: 100vh;
+  overflow-y: auto;
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 100;
+}
+.adminhome-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  min-width: 0;
+}
+
+/* Responsive: Tablet and below */
+@media (max-width: 900px) {
+  .adminhome-main {
+    padding: 12px 4vw;
+  }
+}
+
+/* Responsive: Mobile */
+@media (max-width: 600px) {
+  .adminhome-sidebar {
+    width: 160px;
+    min-width: 120px;
+    padding: 12px 0;
+    font-size: 15px;
+  }
+  .adminhome-main {
+    padding: 8px 2vw;
+  }
+  .tally-config-card {
+    min-width: 0 !important;
+    max-width: 100vw !important;
+    width: 100% !important;
+    padding: 16px 4vw !important;
+    border-radius: 10px !important;
+  }
+  .tally-config-card h2 {
+    font-size: 20px !important;
+  }
+  .tally-config-card input {
+    font-size: 14px !important;
+    padding: 10px 12px !important;
+  }
+  .tally-config-card button {
+    font-size: 13px !important;
+    padding: 10px 16px !important;
+  }
+  .tally-logo {
+    width: 60px !important;
+    height: 60px !important;
+  }
+}
+
+/* Utility classes for fluid images and buttons */
+.tally-logo {
+  width: 120px;
+  height: 120px;
+  object-fit: contain;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+}
+.tally-config-card {
+  background: #fff;
+  padding: 48px 64px;
+  border-radius: 20px;
+  box-shadow: 0 20px 60px 0 rgba(31, 38, 135, 0.15);
+  min-width: 500px;
+  max-width: 600px;
+  text-align: center;
+  position: relative;
+  border: 1px solid rgba(59, 130, 246, 0.1);
+  margin: 0 auto;
+  transition: all 0.3s;
+}
+.tally-config-card input,
+.tally-config-card button {
+  width: 100%;
+  box-sizing: border-box;
+}
+.tally-config-btn-group {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 0;
+  margin-top: 0;
+  flex-wrap: nowrap;
+} 
