@@ -1,0 +1,132 @@
+import React from 'react';
+
+const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton }) => {
+  const maxValue = Math.max(...data.map(d => d.value));
+
+  return (
+    <div style={{
+      background: 'white',
+      borderRadius: '12px',
+      padding: '20px',
+      border: '1px solid #e2e8f0',
+      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+    }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: '16px'
+      }}>
+        <h3 style={{
+          margin: 0,
+          fontSize: '16px',
+          fontWeight: '600',
+          color: '#1e293b'
+        }}>
+          {title}
+        </h3>
+        {showBackButton && onBackClick && (
+          <button
+            onClick={onBackClick}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '6px 12px',
+              background: '#f1f5f9',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
+              color: '#64748b',
+              fontSize: '12px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#e2e8f0';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = '#f1f5f9';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: '16px' }}>arrow_back</span>
+            Back
+          </button>
+        )}
+      </div>
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        gap: '12px'
+      }}>
+        {data.map((item) => (
+          <div
+            key={item.label}
+            onClick={() => onBarClick?.(item.label)}
+            style={{
+              cursor: onBarClick ? 'pointer' : 'default',
+              padding: onBarClick ? '6px' : '0',
+              borderRadius: '8px',
+              transition: 'all 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              if (onBarClick) {
+                e.currentTarget.style.background = '#f8fafc';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (onBarClick) {
+                e.currentTarget.style.background = 'transparent';
+              }
+            }}
+          >
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '4px'
+            }}>
+              <span style={{
+                fontSize: '12px',
+                fontWeight: '500',
+                color: '#64748b',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                maxWidth: '60%'
+              }}>
+                {item.label}
+              </span>
+              <span style={{
+                fontSize: '12px',
+                fontWeight: '600',
+                color: '#1e293b'
+              }}>
+                {valuePrefix}{item.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div style={{
+              width: '100%',
+              background: '#e2e8f0',
+              borderRadius: '4px',
+              height: '8px',
+              overflow: 'hidden'
+            }}>
+              <div
+                style={{
+                  height: '8px',
+                  borderRadius: '4px',
+                  transition: 'all 0.5s ease-out',
+                  width: `${(item.value / maxValue) * 100}%`,
+                  backgroundColor: item.color || '#3b82f6',
+                }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default BarChart;

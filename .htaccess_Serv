@@ -1,0 +1,13 @@
+# React Router handling
+Options -MultiViews
+RewriteEngine On
+RewriteBase /Development/CustomerPortal/
+
+# If request is for /api/* → send to Node backend
+RewriteCond %{REQUEST_URI} ^/Development/CustomerPortal/api
+RewriteRule ^api/(.*)$ http://127.0.0.1:3001/api/$1 [P,L]
+
+# React app static files
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteRule ^ index.html [L]

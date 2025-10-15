@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="TallyCatalyst"
+    />
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    
+    <!-- Material Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <!-- Material Icons CSS -->
+    <style>
+      .material-icons {
+        font-family: 'Material Icons';
+        font-weight: normal;
+        font-style: normal;
+        font-size: 24px;
+        line-height: 1;
+        letter-spacing: normal;
+        text-transform: none;
+        display: inline-block;
+        white-space: nowrap;
+        word-wrap: normal;
+        direction: ltr;
+        -webkit-font-feature-settings: 'liga';
+        font-feature-settings: 'liga';
+        -webkit-font-smoothing: antialiased;
+        /* Fallback for when Material Icons don't load */
+        font-display: swap;
+      }
+      
+      /* Fallback for Material Icons */
+      .material-icons:before {
+        content: attr(data-icon);
+        font-family: 'Material Icons';
+      }
+      
+      /* Ensure icons are visible even if font doesn't load */
+      .material-icons {
+        min-width: 24px;
+        text-align: center;
+      }
+    </style>
+    
+    <!-- Cache Control Headers -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    
+    <title>TallyCatalyst</title>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+    
+    <!-- Version check script -->
+    <script>
+      // Force reload if version changes
+      const APP_VERSION = '%REACT_APP_VERSION%';
+      const STORAGE_KEY = 'tallycatalyst_version';
+      
+      function checkVersion() {
+        const storedVersion = localStorage.getItem(STORAGE_KEY);
+        if (storedVersion && storedVersion !== APP_VERSION) {
+          console.log('New version detected, clearing cache and reloading...');
+          localStorage.clear();
+          sessionStorage.clear();
+          // Clear all caches
+          if ('caches' in window) {
+            caches.keys().then(function(names) {
+              for (let name of names) {
+                caches.delete(name);
+              }
+            });
+          }
+          window.location.reload(true);
+        } else {
+          localStorage.setItem(STORAGE_KEY, APP_VERSION);
+        }
+      }
+      
+      // Check if Material Icons are loaded
+      function checkMaterialIcons() {
+        // Create a test element to check if Material Icons font is loaded
+        const testElement = document.createElement('span');
+        testElement.className = 'material-icons';
+        testElement.textContent = 'home';
+        testElement.style.position = 'absolute';
+        testElement.style.left = '-9999px';
+        testElement.style.fontSize = '16px';
+        document.body.appendChild(testElement);
+        
+        // Check if the font is loaded by comparing computed styles
+        const computedStyle = window.getComputedStyle(testElement);
+        const fontFamily = computedStyle.getPropertyValue('font-family');
+        
+        // Clean up test element
+        document.body.removeChild(testElement);
+        
+        // If Material Icons font is not loaded, show a warning
+        if (!fontFamily.includes('Material Icons')) {
+          console.warn('Material Icons font not loaded. Icons may not display correctly.');
+        } else {
+          console.log('Material Icons font loaded successfully.');
+        }
+      }
+      
+      // Run checks on page load
+      checkVersion();
+      
+      // Check Material Icons after a short delay to allow font loading
+      setTimeout(checkMaterialIcons, 1000);
+    </script>
+  </body>
+</html>
