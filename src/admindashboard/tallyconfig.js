@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { getApiUrl } from '../config';
+import React, { useState, useEffect, useCallback } from 'react';
 import { apiGet, apiPost, apiPut } from '../utils/apiUtils';
 
 function TallyConfig() {
@@ -16,6 +15,8 @@ function TallyConfig() {
   const [formSuccess, setFormSuccess] = useState('');
   const [tableError, setTableError] = useState('');
   const token = sessionStorage.getItem('token');
+  const [connectionCompanies, setConnectionCompanies] = useState({});
+  const [companiesLoading, setCompaniesLoading] = useState(false);
 
   // Fetch all connections
   const fetchConnections = async () => {
@@ -38,7 +39,49 @@ function TallyConfig() {
 
   useEffect(() => {
     fetchConnections();
+    fetchConnectionCompanies();
     // eslint-disable-next-line
+  }, []);
+
+  const fetchConnectionCompanies = useCallback(async () => {
+    setCompaniesLoading(true);
+    try {
+      const cacheBuster = Date.now();
+      const data = await apiGet(`/api/tally/user-connections?ts=${cacheBuster}`);
+      let companyList = [];
+
+      if (Array.isArray(data)) {
+        companyList = data;
+      } else if (data) {
+        const created = Array.isArray(data.createdByMe) ? data.createdByMe : [];
+        const shared = Array.isArray(data.sharedWithMe) ? data.sharedWithMe : [];
+        companyList = [...created, ...shared];
+      }
+
+      const grouped = {};
+      companyList
+        .filter(item => (item?.status || '').toLowerCase() === 'connected')
+        .forEach(item => {
+          const key = item.conn_name || item.connectionName || item.connection_name || item.name || '';
+          if (!key) return;
+          if (!grouped[key]) {
+            grouped[key] = [];
+          }
+          grouped[key].push({
+            guid: item.guid || `${key}-${item.company}`,
+            company: item.company,
+            accessType: item.access_type || item.accessType || 'Unknown',
+            status: item.status
+          });
+        });
+
+      setConnectionCompanies(grouped);
+    } catch (error) {
+      console.error('Failed to fetch connection companies:', error);
+      setConnectionCompanies({});
+    } finally {
+      setCompaniesLoading(false);
+    }
   }, []);
 
   // Handle form input
@@ -65,7 +108,8 @@ function TallyConfig() {
       if (data && data.success) {
       setFormSuccess(data.message || 'Tally connection successful and saved');
       setForm({ ip: '', port: '', connectionName: '', accessType: 'Tally' });
-      fetchConnections();
+      await fetchConnections();
+      await fetchConnectionCompanies();
       } else if (data) {
         throw new Error(data.message || 'Tally connection failed');
       }
@@ -83,7 +127,8 @@ function TallyConfig() {
       await apiPut(`/api/tally/connections/${id}?ts=${cacheBuster}`, {
         isActive: isActive
       });
-      fetchConnections();
+      await fetchConnections();
+      await fetchConnectionCompanies();
     } catch (err) {
       setTableError('Failed to update connection status');
     }
@@ -546,111 +591,147 @@ function TallyConfig() {
                     </tr>
                   </thead>
                   <tbody>
-                    {connections.map((connection, idx) => (
-                      <tr 
-                        key={connection.id} 
-                        style={{ 
-                          borderBottom: '1px solid #f1f5f9', 
-                          height: '60px',
-                          background: idx % 2 === 0 ? '#fff' : '#f8fafc',
-                          transition: 'all 0.2s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.target.style.background = '#f0f9ff';
-                          e.target.style.transform = 'translateY(-1px)';
-                          e.target.style.boxShadow = '0 4px 12px 0 rgba(59,130,246,0.10)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.target.style.background = idx % 2 === 0 ? '#fff' : '#f8fafc';
-                          e.target.style.transform = 'translateY(0)';
-                          e.target.style.boxShadow = 'none';
-                        }}
-                      >
-                        <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1e293b' }}>{connection.name}</td>
-                        <td style={{ padding: '10px 12px', color: '#64748b', fontFamily: 'monospace' }}>{connection.ip}</td>
-                        <td style={{ padding: '10px 12px', color: '#64748b', fontFamily: 'monospace' }}>{connection.port}</td>
-                        <td style={{ padding: '10px 12px' }}>
-                          <span style={{
-                            padding: '3px 6px',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            background: '#e0f2fe',
-                            color: '#0c4a6e',
-                            display: 'inline-block'
-                          }}>{connection.accessType || 'Tally'}</span>
-                        </td>
-                        <td style={{ padding: '10px 12px', width: 300 }}>
-                          <span style={{
-                            padding: '3px 6px',
-                            borderRadius: '8px',
-                            fontSize: '12px',
-                            fontWeight: 600,
-                            background: connection.status === 'active' ? '#dcfce7' : 
-                                      connection.status === 'pending' ? '#fef3c7' :
-                                      connection.status === 'rejected' ? '#fef2f2' : 
-                                      connection.status === 'approved' ? '#dcfce7' : '#f1f5f9',
-                            color: connection.status === 'active' ? '#166534' : 
-                                   connection.status === 'pending' ? '#92400e' :
-                                   connection.status === 'rejected' ? '#dc2626' : 
-                                   connection.status === 'approved' ? '#166534' : '#64748b',
-                            display: 'inline-block',
-                            maxWidth: '280px',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis'
-                          }} title={connection.statusMessage || connection.status}>
-                            {connection.statusMessage || connection.status}
-                          </span>
-                        </td>
-                        <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
-                          {(connection.status === 'active' || connection.status === 'approved' || connection.status === 'inactive') ? (
-                          <button
-                            onClick={() => handleToggle(connection.id, !connection.isActive)}
-                            style={{
-                              borderRadius: '50%',
-                              border: 'none',
-                              fontSize: '32px',
-                              cursor: 'pointer',
-                              background: 'transparent',
-                              color: connection.isActive ? '#3b82f6' : '#64748b',
+                    {connections.map((connection, idx) => {
+                      const connectionKey = connection.connectionName || connection.name || connection.conn_name || connection.ip || '';
+                      const activeCompanies = connectionCompanies[connectionKey] || [];
+                      return (
+                        <tr 
+                          key={connection.id} 
+                          style={{ 
+                            borderBottom: '1px solid #f1f5f9', 
+                            height: '60px',
+                            background: idx % 2 === 0 ? '#fff' : '#f8fafc',
+                            transition: 'all 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = '#f0f9ff';
+                            e.target.style.transform = 'translateY(-1px)';
+                            e.target.style.boxShadow = '0 4px 12px 0 rgba(59,130,246,0.10)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = idx % 2 === 0 ? '#fff' : '#f8fafc';
+                            e.target.style.transform = 'translateY(0)';
+                            e.target.style.boxShadow = 'none';
+                          }}
+                        >
+                          <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1e293b' }}>{connection.name}</td>
+                          <td style={{ padding: '10px 12px', color: '#64748b' }}>
+                            <div style={{ fontFamily: 'monospace', marginBottom: 4 }}>{connection.ip}</div>
+                            <div style={{
+                              fontSize: 12,
+                              color: '#475569',
                               display: 'flex',
                               alignItems: 'center',
-                              justifyContent: 'center',
-                                transition: 'all 0.2s ease',
-                              width: 64,
-                              height: 48
+                              gap: 6,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              width: '100%'
                             }}
-                            title={connection.isActive ? 'Deactivate' : 'Activate'}
-                              onMouseEnter={(e) => {
-                                e.target.style.transform = 'scale(1.1)';
-                                e.target.style.color = connection.isActive ? '#1e40af' : '#3b82f6';
-                              }}
-                              onMouseLeave={(e) => {
-                                e.target.style.transform = 'scale(1)';
-                                e.target.style.color = connection.isActive ? '#3b82f6' : '#64748b';
-                              }}
-                          >
-                            <span className="material-icons">
-                              {connection.isActive ? 'toggle_on' : 'toggle_off'}
-                            </span>
-                          </button>
-                          ) : (
+                              title={activeCompanies.length > 0 ? activeCompanies.map((company) => `${company.company}${company.accessType ? ` (${company.accessType})` : ''}`).join(', ') : (companiesLoading ? 'Checking companies…' : 'No active companies')}>
+                              {companiesLoading ? (
+                                <span style={{ color: '#94a3b8' }}>Checking companies…</span>
+                              ) : activeCompanies.length > 0 ? (
+                                <>
+                                  {activeCompanies.map((company, idx) => (
+                                    <React.Fragment key={company.guid}>
+                                      {idx > 0 && <span style={{ color: '#cbd5f5' }}>•</span>}
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <span className="material-icons" style={{ fontSize: 12, color: '#3b82f6' }}>apartment</span>
+                                        <span style={{ color: '#0f172a', fontWeight: 600 }}>{company.company}</span>
+                                      </span>
+                                    </React.Fragment>
+                                  ))}
+                                </>
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>No active companies</span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: '10px 12px', color: '#64748b', fontFamily: 'monospace' }}>{connection.port}</td>
+                          <td style={{ padding: '10px 12px' }}>
                             <span style={{
-                              color: '#94a3b8',
-                              fontSize: '14px',
-                              fontWeight: 500,
+                              padding: '3px 6px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              background: '#e0f2fe',
+                              color: '#0c4a6e',
+                              display: 'inline-block'
+                            }}>{connection.accessType || 'Tally'}</span>
+                          </td>
+                          <td style={{ padding: '10px 12px', width: 300 }}>
+                            <span style={{
+                              padding: '3px 6px',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              background: connection.status === 'active' ? '#dcfce7' : 
+                                        connection.status === 'pending' ? '#fef3c7' :
+                                        connection.status === 'rejected' ? '#fef2f2' : 
+                                        connection.status === 'approved' ? '#dcfce7' : '#f1f5f9',
+                              color: connection.status === 'active' ? '#166534' : 
+                                     connection.status === 'pending' ? '#92400e' :
+                                     connection.status === 'rejected' ? '#dc2626' : 
+                                     connection.status === 'approved' ? '#166534' : '#64748b',
                               display: 'inline-block',
-                              lineHeight: '48px',
-                              height: '48px'
-                            }}>
-                              {connection.status === 'pending' ? 'Pending' : 
-                               connection.status === 'rejected' ? 'Rejected' : 'Inactive'}
+                              maxWidth: '280px',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis'
+                            }} title={connection.statusMessage || connection.status}>
+                              {connection.statusMessage || connection.status}
                             </span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
+                            {(connection.status === 'active' || connection.status === 'approved' || connection.status === 'inactive') ? (
+                            <button
+                              onClick={() => handleToggle(connection.id, !connection.isActive)}
+                              style={{
+                                borderRadius: '50%',
+                                border: 'none',
+                                fontSize: '32px',
+                                cursor: 'pointer',
+                                background: 'transparent',
+                                color: connection.isActive ? '#3b82f6' : '#64748b',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                  transition: 'all 0.2s ease',
+                                width: 64,
+                                height: 48
+                              }}
+                              title={connection.isActive ? 'Deactivate' : 'Activate'}
+                                onMouseEnter={(e) => {
+                                  e.target.style.transform = 'scale(1.1)';
+                                  e.target.style.color = connection.isActive ? '#1e40af' : '#3b82f6';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.target.style.transform = 'scale(1)';
+                                  e.target.style.color = connection.isActive ? '#3b82f6' : '#64748b';
+                                }}
+                            >
+                              <span className="material-icons">
+                                {connection.isActive ? 'toggle_on' : 'toggle_off'}
+                              </span>
+                            </button>
+                            ) : (
+                              <span style={{
+                                color: '#94a3b8',
+                                fontSize: '14px',
+                                fontWeight: 500,
+                                display: 'inline-block',
+                                lineHeight: '48px',
+                                height: '48px'
+                              }}>
+                                {connection.status === 'pending' ? 'Pending' : 
+                                 connection.status === 'rejected' ? 'Rejected' : 'Inactive'}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -665,7 +746,10 @@ function TallyConfig() {
                     </tr>
                   </thead>
                   <tbody>
-                    {connections.map((connection) => (
+                    {connections.map((connection) => {
+                      const connectionKey = connection.connectionName || connection.name || connection.conn_name || connection.ip || '';
+                      const activeCompanies = connectionCompanies[connectionKey] || [];
+                      return (
                       <React.Fragment key={connection.id}>
                         <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
                           <td style={{ padding: '8px 8px', fontWeight: 500, color: '#1e293b' }}>{connection.name}</td>
@@ -696,7 +780,39 @@ function TallyConfig() {
                           </td>
                         </tr>
                         <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
-                          <td style={{ padding: '8px 8px', color: '#475569', fontFamily: 'monospace' }}>{connection.ip}</td>
+                          <td style={{ padding: '8px 8px', color: '#475569' }}>
+                            <div style={{ fontFamily: 'monospace', marginBottom: 4 }}>{connection.ip}</div>
+                            <div style={{
+                              fontSize: 11,
+                              color: '#475569',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4,
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              width: '100%'
+                            }}
+                              title={activeCompanies.length > 0 ? activeCompanies.map((company) => `${company.company}${company.accessType ? ` (${company.accessType})` : ''}`).join(', ') : (companiesLoading ? 'Checking companies…' : 'No active companies')}>
+                              {companiesLoading ? (
+                                <span style={{ color: '#94a3b8' }}>Checking companies…</span>
+                              ) : activeCompanies.length > 0 ? (
+                                <>
+                                  {activeCompanies.map((company, idx) => (
+                                    <React.Fragment key={company.guid}>
+                                      {idx > 0 && <span style={{ color: '#cbd5f5' }}>•</span>}
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                        <span className="material-icons" style={{ fontSize: 11, color: '#3b82f6' }}>apartment</span>
+                                        <span style={{ color: '#0f172a', fontWeight: 600 }}>{company.company}</span>
+                                      </span>
+                                    </React.Fragment>
+                                  ))}
+                                </>
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>No active companies</span>
+                              )}
+                            </div>
+                          </td>
                           <td style={{ padding: '8px 8px', maxWidth: window.innerWidth <= 700 ? 80 : undefined, width: window.innerWidth <= 700 ? 80 : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             <span style={{
                               padding: '4px 8px',
@@ -731,7 +847,8 @@ function TallyConfig() {
                           </td>
                         </tr>
                       </React.Fragment>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -130,11 +130,41 @@ function PlaceOrder_ECommerce() {
   // Listen for company changes from top bar
   useEffect(() => {
     const handleCompanyChange = () => {
-      // Company changed from top bar, refresh data
+      // Company changed from top bar
       setSelectedCustomer('');
       setCustomerOptions([]);
       setStockItems([]);
       setCart([]);
+      setCustomerSearchTerm('');
+
+      const newCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+      const currentCompany = companies.find(c => c.guid === newCompanyGuid);
+
+      if (currentCompany) {
+        const { tallyloc_id, company: companyVal } = currentCompany;
+
+        // Load cached customers immediately if available
+        const customerCacheKey = `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`;
+        const cachedCustomers = sessionStorage.getItem(customerCacheKey);
+        if (cachedCustomers) {
+          try {
+            setCustomerOptions(JSON.parse(cachedCustomers));
+          } catch {
+            setCustomerOptions([]);
+          }
+        }
+
+        // Load cached stock items immediately if available
+        const stockCacheKey = `stockitems_${tallyloc_id}_${companyVal}`;
+        const cachedStockItems = sessionStorage.getItem(stockCacheKey);
+        if (cachedStockItems) {
+          try {
+            setStockItems(JSON.parse(cachedStockItems));
+          } catch {
+            setStockItems([]);
+          }
+        }
+      }
     };
 
     window.addEventListener('companyChanged', handleCompanyChange);
@@ -366,14 +396,22 @@ function PlaceOrder_ECommerce() {
         });
         
         if (data && data.ledgers && Array.isArray(data.ledgers)) {
+          console.log(`Successfully fetched ${data.ledgers.length} customers`);
           setCustomerOptions(data.ledgers);
           // Don't auto-select customer if we're auto-populating from cart
           if (!isAutoPopulating) {
             if (data.ledgers.length === 1) setSelectedCustomer(data.ledgers[0].NAME);
             else setSelectedCustomer('');
           }
-          // Cache the result
-          sessionStorage.setItem(cacheKey, JSON.stringify(data.ledgers));
+          
+          // Cache the result with graceful fallback if storage is full
+          try {
+            const cacheString = JSON.stringify(data.ledgers);
+            sessionStorage.setItem(cacheKey, cacheString);
+          } catch (cacheError) {
+            console.warn('Failed to cache customers in sessionStorage:', cacheError.message);
+            // Don't fail the entire operation if caching fails
+          }
         } else if (data && data.error) {
           console.error('Customer API error:', data.error);
           setCustomerOptions([]);
@@ -385,6 +423,8 @@ function PlaceOrder_ECommerce() {
         }
       } catch (err) {
         console.error('Error fetching customers:', err);
+        const errorMessage = err.message || 'Failed to fetch customers';
+        // Error state will be handled by the component's error handling
         setCustomerOptions([]);
         setSelectedCustomer('');
       } finally {
@@ -398,7 +438,7 @@ function PlaceOrder_ECommerce() {
     };
     
     fetchCustomers();
-  }, [company, refreshCustomers]); // Removed 'companies' from dependencies
+  }, [company, refreshCustomers, companies]); // Added 'companies' back to dependencies to check cache properly
 
   // Fetch stock items when company changes
   useEffect(() => {
@@ -455,8 +495,12 @@ function PlaceOrder_ECommerce() {
           // Deobfuscate sensitive pricing data
           const decryptedItems = deobfuscateStockItems(data.stockItems);
           setStockItems(decryptedItems);
-          // Cache the deobfuscated result
-          sessionStorage.setItem(cacheKey, JSON.stringify(decryptedItems));
+          // Cache the deobfuscated result with graceful fallback
+          try {
+            sessionStorage.setItem(cacheKey, JSON.stringify(decryptedItems));
+          } catch (cacheError) {
+            console.warn('Failed to cache stock items in sessionStorage:', cacheError.message);
+          }
           console.log('Stock items fetched and deobfuscated:', decryptedItems);
         }
       } catch (err) {
@@ -472,17 +516,27 @@ function PlaceOrder_ECommerce() {
     };
     
     fetchStockItems();
-  }, [company, refreshStockItems]); // Removed 'companies' from dependencies
+  }, [company, refreshStockItems, companies]); // Added 'companies' back to dependencies to check cache properly
 
   // Customer filtering
   useEffect(() => {
-    if (!customerSearchTerm.trim()) {
-      setFilteredCustomers([]);
+    // Capture the current search term to avoid closure issues
+    const currentSearchTerm = customerSearchTerm.trim();
+    
+    // Clear results immediately if search term is empty
+    if (!currentSearchTerm) {
+      // Don't set to empty here - let the dropdown useEffect handle showing all customers
       return;
     }
     
+    // Clear previous results immediately when search term changes
+    // This ensures old results don't show when user types new search term
+    setFilteredCustomers([]);
+    
+    // Debounce search to improve performance
     const timeoutId = setTimeout(() => {
-      const searchLower = customerSearchTerm.toLowerCase();
+      // Use captured search term to ensure we're searching with the correct value
+      const searchLower = currentSearchTerm.toLowerCase();
       
       const exactMatches = [];
       const startsWithMatches = [];
@@ -1058,8 +1112,14 @@ function PlaceOrder_ECommerce() {
                     setCustomerSearchTerm(inputValue);
                     setSelectedCustomer('');
                     setShowCustomerDropdown(true);
+                    // Clear filtered results immediately when clearing search or starting new search
                     if (!inputValue.trim()) {
+                      // Always show all customers when no search term (like ecommerce)
                       setFilteredCustomers(customerOptions);
+                    } else {
+                      // Clear previous results immediately when starting new search
+                      // The debounced search will populate new results
+                      setFilteredCustomers([]);
                     }
                   }}
                   onFocus={() => {

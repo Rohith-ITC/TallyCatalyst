@@ -19,14 +19,47 @@ function PlaceOrder() {
   // Listen for company changes from top bar
   useEffect(() => {
     const handleCompanyChange = () => {
-      // Company changed from top bar, refresh data
+      // Company changed from top bar
       setSelectedCustomer('');
-      setCustomerOptions([]);
-      setStockItems([]);
       setOrderItems([]);
-      // Trigger API calls for new company
-      setRefreshCustomers(prev => prev + 1);
-      setRefreshStockItems(prev => prev + 1);
+      setCustomerSearchTerm('');
+      setItemSearchTerm('');
+
+      const newCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+      const currentCompany = companies.find(c => c.guid === newCompanyGuid);
+
+      if (currentCompany) {
+        const { tallyloc_id, company: companyVal } = currentCompany;
+
+        // Load cached customers immediately if available
+        const customerCacheKey = `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`;
+        const cachedCustomers = sessionStorage.getItem(customerCacheKey);
+        if (cachedCustomers) {
+          try {
+            setCustomerOptions(JSON.parse(cachedCustomers));
+          } catch {
+            setCustomerOptions([]);
+          }
+        } else {
+          setCustomerOptions([]);
+        }
+
+        // Load cached stock items immediately if available
+        const stockCacheKey = `stockitems_${tallyloc_id}_${companyVal}`;
+        const cachedStockItems = sessionStorage.getItem(stockCacheKey);
+        if (cachedStockItems) {
+          try {
+            setStockItems(JSON.parse(cachedStockItems));
+          } catch {
+            setStockItems([]);
+          }
+        } else {
+          setStockItems([]);
+        }
+      } else {
+        setCustomerOptions([]);
+        setStockItems([]);
+      }
     };
 
     window.addEventListener('companyChanged', handleCompanyChange);
@@ -51,13 +84,10 @@ function PlaceOrder() {
     if (cartData) {
       try {
         const data = JSON.parse(cartData);
-        console.log('Auto-populating from E-commerce cart:', data);
         
         // Set auto-population state
-        console.log('🚀 Starting auto-population process...');
         setIsAutoPopulating(true);
         autoPopulatingRef.current = true;
-        console.log('✅ Auto-population state set to true');
         
         // Store cart data for later use after customerOptions are loaded
         if (data.company) {
@@ -119,6 +149,7 @@ function PlaceOrder() {
   // Auto-population state
   const [isAutoPopulating, setIsAutoPopulating] = useState(false);
   const autoPopulatingRef = useRef(false);
+  const hasAutoPopulatedRef = useRef(false);
   
   // VoucherType state
   const [voucherTypes, setVoucherTypes] = useState([]);
@@ -310,7 +341,10 @@ function PlaceOrder() {
   // Filter items based on search term with debouncing
   useEffect(() => {
     if (!itemSearchTerm.trim()) {
-      setFilteredItems([]);
+      // Only clear if filteredItems is not already empty to prevent unnecessary re-renders
+      if (filteredItems.length > 0) {
+        setFilteredItems([]);
+      }
       return;
     }
     
@@ -365,7 +399,7 @@ function PlaceOrder() {
     }, 150); // 150ms debounce
     
     return () => clearTimeout(timeoutId);
-  }, [itemSearchTerm, stockItems, canShowItemsHasQty]);
+  }, [itemSearchTerm, stockItems.length, canShowItemsHasQty]); // Use stockItems.length instead of array reference
 
   // Handle dropdown positioning when it opens
   useEffect(() => {
@@ -380,14 +414,23 @@ function PlaceOrder() {
 
   // Filter customers based on search term with debouncing
   useEffect(() => {
-    if (!customerSearchTerm.trim()) {
-      setFilteredCustomers([]);
+    // Capture the current search term to avoid closure issues
+    const currentSearchTerm = customerSearchTerm.trim();
+    
+    // Clear results immediately if search term is empty
+    if (!currentSearchTerm) {
+      // Don't set to empty here - let the dropdown useEffect handle showing all customers
       return;
     }
     
+    // Clear previous results immediately when search term changes
+    // This ensures old results don't show when user types new search term
+    setFilteredCustomers([]);
+    
     // Debounce search to improve performance
     const timeoutId = setTimeout(() => {
-      const searchLower = customerSearchTerm.toLowerCase();
+      // Use captured search term to ensure we're searching with the correct value
+      const searchLower = currentSearchTerm.toLowerCase();
       
       // Search in both NAME and GSTNO fields
       const exactMatches = [];
@@ -433,11 +476,11 @@ function PlaceOrder() {
   
   // Show all customers when dropdown opens
   useEffect(() => {
-    if (showCustomerDropdown && !customerSearchTerm.trim()) {
+    if (showCustomerDropdown && !customerSearchTerm.trim() && customerOptions.length > 0) {
       // Always show all customers when dropdown opens (like ecommerce)
       setFilteredCustomers(customerOptions);
     }
-  }, [showCustomerDropdown, customerSearchTerm, customerOptions]);
+  }, [showCustomerDropdown, customerSearchTerm, customerOptions.length]); // Use length instead of array reference
   
   
   // Show all items when dropdown opens
@@ -536,31 +579,6 @@ function PlaceOrder() {
     return canShowGodownBrkup;
   });
 
-  // Debug: Log permission status
-  console.log('🔍 Permission Debug:', {
-    permissionModule,
-    isFromEcommerce,
-    userModules: userModules.length,
-    canEditRate,
-    canEditDiscount,
-    canShowRateAmtColumn,
-    canShowDiscColumn,
-    canSaveOptional,
-    canShowItemDesc,
-    canShowClosingStock,
-    canShowClosingStockYesNo,
-    canShowItemsHasQty,
-    selectedItem,
-    itemRate
-  });
-
-  // Debug: Check specific stock permission
-  console.log('🔍 Stock Permission Debug:', {
-    permissionModule,
-    'show_clsstck_Column': hasPermission(permissionModule, 'show_clsstck_Column', userModules),
-    userModules: userModules.filter(m => m.permission_key === 'show_ClsStck_Column'),
-    allPermissions: userModules.map(m => ({ key: m.permission_key, granted: m.granted }))
-  });
 
   // Dynamic grid template based on Rate/Amount columns, Discount column, and Stock column visibility
   const getGridTemplateColumns = () => {
@@ -667,8 +685,9 @@ function PlaceOrder() {
         return;
       }
       
-      // Get the current company object directly from filteredCompanies
-      const currentCompany = filteredCompanies.find(c => c.guid === company);
+      // Get the current company object directly from companies
+      // Use companies directly to avoid dependency issues
+      const currentCompany = companies.find(c => c.guid === company);
       if (!currentCompany) {
         setCustomerOptions([]);
         setSelectedCustomer('');
@@ -704,7 +723,6 @@ function PlaceOrder() {
       setCustomerError('');
       setCustomerOptions([]); // Clear previous data while loading
       
-      const token = sessionStorage.getItem('token');
       try {
         const data = await apiPost(`/api/tally/ledgerlist-w-addrs?ts=${Date.now()}`, { 
           tallyloc_id, 
@@ -713,24 +731,36 @@ function PlaceOrder() {
         });
         
         if (data && data.ledgers && Array.isArray(data.ledgers)) {
+          console.log(`Successfully fetched ${data.ledgers.length} customers`);
           setCustomerOptions(data.ledgers);
           if (data.ledgers.length === 1) setSelectedCustomer(data.ledgers[0].NAME);
           else setSelectedCustomer('');
           setCustomerError('');
-          // Cache the result
-          sessionStorage.setItem(cacheKey, JSON.stringify(data.ledgers));
+          
+          // Cache the result with graceful fallback if storage is full
+          try {
+            const cacheString = JSON.stringify(data.ledgers);
+            sessionStorage.setItem(cacheKey, cacheString);
+          } catch (cacheError) {
+            console.warn('Failed to cache customers in sessionStorage:', cacheError.message);
+            // Don't fail the entire operation if caching fails
+          }
         } else if (data && data.error) {
           setCustomerError(data.error);
           setCustomerOptions([]);
           setSelectedCustomer('');
         } else {
-          setCustomerError('Unknown error');
+          console.error('Unexpected API response format:', data);
+          setCustomerError('Unknown error: Invalid response format');
           setCustomerOptions([]);
           setSelectedCustomer('');
         }
       } catch (err) {
         console.error('Error fetching customers:', err);
-        setCustomerError('Failed to fetch customers');
+        const errorMessage = err.message || 'Failed to fetch customers';
+        setCustomerError(errorMessage.includes('parse') || errorMessage.includes('JSON') 
+          ? `Failed to process large response. Please contact support.` 
+          : errorMessage);
         setCustomerOptions([]);
         setSelectedCustomer('');
       } finally {
@@ -743,7 +773,7 @@ function PlaceOrder() {
     };
     
     fetchCustomers();
-   }, [company, refreshCustomers]);
+   }, [company, refreshCustomers, filteredCompanies.length]); // Use length instead of array reference to prevent infinite loops
 
   // Fetch stock items when company changes or refreshStockItems increments
   useEffect(() => {
@@ -755,8 +785,9 @@ function PlaceOrder() {
         return;
       }
       
-      // Get the current company object directly from filteredCompanies
-      const currentCompany = filteredCompanies.find(c => c.guid === company);
+      // Get the current company object directly from companies
+      // Use companies directly to avoid dependency issues
+      const currentCompany = companies.find(c => c.guid === company);
       if (!currentCompany) {
         setStockItems([]);
         setStockItemsLoading(false);
@@ -816,8 +847,12 @@ function PlaceOrder() {
           const decryptedItems = deobfuscateStockItems(data.stockItems);
           setStockItems(decryptedItems);
           setStockItemsError('');
-          // Cache the deobfuscated result
-          sessionStorage.setItem(cacheKey, JSON.stringify(decryptedItems));
+          // Cache the deobfuscated result with graceful fallback
+          try {
+            sessionStorage.setItem(cacheKey, JSON.stringify(decryptedItems));
+          } catch (cacheError) {
+            console.warn('Failed to cache stock items in sessionStorage:', cacheError.message);
+          }
           console.log('Stock items fetched and deobfuscated:', decryptedItems);
         } else if (data && data.error) {
           setStockItemsError(data.error);
@@ -840,7 +875,7 @@ function PlaceOrder() {
     };
     
     fetchStockItems();
-   }, [company, refreshStockItems]);
+   }, [company, refreshStockItems, companies.length]); // Use length instead of array reference to prevent infinite loops
 
   // Update editable fields when customer changes
   useEffect(() => {
@@ -880,14 +915,21 @@ function PlaceOrder() {
     }
   }, [selectedCustomer, customerOptions]);
   
-  // Auto-populate customer and items after customerOptions are loaded
+  // Auto-populate customer and items after customerOptions are loaded (only once)
   useEffect(() => {
-    if (customerOptions.length > 0) {
+    // Only run once when customerOptions are first loaded and we have pending data
+    if (customerOptions.length > 0 && !hasAutoPopulatedRef.current) {
       const pendingCustomer = sessionStorage.getItem('pendingCustomer');
       const pendingItems = sessionStorage.getItem('pendingItems');
       
+      // Only process if there's actually pending data
+      if (!pendingCustomer && !pendingItems) {
+        return;
+      }
+      
+      hasAutoPopulatedRef.current = true; // Mark as processed
+      
       if (pendingCustomer) {
-        console.log('Setting pending customer after customerOptions loaded:', pendingCustomer);
         setSelectedCustomer(pendingCustomer);
         setCustomerSearchTerm(pendingCustomer);
         sessionStorage.removeItem('pendingCustomer');
@@ -896,7 +938,6 @@ function PlaceOrder() {
       if (pendingItems) {
         try {
           const items = JSON.parse(pendingItems);
-          console.log('Adding pending items after customerOptions loaded:', items);
           
           items.forEach(item => {
             const cartItem = {
@@ -921,24 +962,17 @@ function PlaceOrder() {
       
       // Don't clear auto-population state automatically
       // It will be cleared when user manually interacts with company/customer fields
-      console.log('✅ Auto-population process completed - state will be cleared on manual interaction');
     }
-  }, [customerOptions]); // Run when customerOptions change
+  }, [customerOptions.length]); // Only run when customerOptions length changes, not reference
 
   // Show warning when company changes and order items exist
   useEffect(() => {
-    console.log('🔍 Company change warning effect triggered');
-    console.log('📊 isAutoPopulating:', isAutoPopulating);
-    console.log('📊 autoPopulatingRef.current:', autoPopulatingRef.current);
-    
     // Skip warning if we're auto-populating from cart
     if (isAutoPopulating || autoPopulatingRef.current) {
-      console.log('⏭️ Skipping company warning - auto-population in progress');
       return;
     }
     
     if (orderItems.length > 0) {
-      console.log('⚠️ Showing company change warning');
       setConfirmMessage('Changing company will clear all selected items and order items. Are you sure you want to continue?');
       setConfirmAction(() => {
         setOrderItems([]);
@@ -955,18 +989,12 @@ function PlaceOrder() {
 
   // Show warning when customer changes and order items exist
   useEffect(() => {
-    console.log('🔍 Customer change warning effect triggered');
-    console.log('📊 isAutoPopulating:', isAutoPopulating);
-    console.log('📊 autoPopulatingRef.current:', autoPopulatingRef.current);
-    
     // Skip warning if we're auto-populating from cart
     if (isAutoPopulating || autoPopulatingRef.current) {
-      console.log('⏭️ Skipping customer warning - auto-population in progress');
       return;
     }
     
     if (orderItems.length > 0) {
-      console.log('⚠️ Showing customer change warning');
       setConfirmMessage('Changing customer will clear all selected items and order items. Are you sure you want to continue?');
       setConfirmAction(() => {
         setOrderItems([]);
@@ -1940,10 +1968,14 @@ function PlaceOrder() {
                     setCustomerSearchTerm(inputValue);
                     setSelectedCustomer('');
                     setShowCustomerDropdown(true);
-                    // Clear filtered results when clearing search
+                    // Clear filtered results immediately when clearing search or starting new search
                     if (!inputValue.trim()) {
                       // Always show all customers when no search term (like ecommerce)
                       setFilteredCustomers(customerOptions);
+                    } else {
+                      // Clear previous results immediately when starting new search
+                      // The debounced search will populate new results
+                      setFilteredCustomers([]);
                     }
                   }}
                   onFocus={() => {
@@ -1952,10 +1984,16 @@ function PlaceOrder() {
                     // Always show all customers when focused (like ecommerce)
                     setFilteredCustomers(customerOptions);
                   }}
-                  onBlur={() => {
+                  onBlur={(e) => {
+                    console.log('👋 Customer input blur triggered');
+                    console.log('👋 Related target:', e.relatedTarget);
+                    console.log('👋 Active element:', document.activeElement);
                     setCustomerFocused(false);
                     // Delay hiding dropdown to allow click events
-                    setTimeout(() => setShowCustomerDropdown(false), 200);
+                    setTimeout(() => {
+                      console.log('👋 Blur timeout - closing dropdown');
+                      setShowCustomerDropdown(false);
+                    }, 200);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') {
@@ -2073,6 +2111,14 @@ function PlaceOrder() {
                 {showCustomerDropdown && (
                   <div 
                     className="dropdown-animation"
+                    onMouseDown={(e) => {
+                      console.log('🖱️ Dropdown container mousedown');
+                      // Don't prevent default here - let items handle it
+                    }}
+                    onClick={(e) => {
+                      console.log('🖱️ Dropdown container clicked');
+                      // Don't stop propagation - let items handle it
+                    }}
                     style={{
                       position: 'absolute',
                       top: 'calc(100% + 8px)',
@@ -2117,17 +2163,34 @@ function PlaceOrder() {
                     {filteredCustomers.map((customer, index) => (
                       <div
                         key={customer.NAME}
-                        onClick={() => {
+                        onMouseDown={(e) => {
+                          console.log('🖱️ Customer item mousedown:', customer.NAME);
+                          console.log('🖱️ Event target:', e.target);
+                          console.log('🖱️ Event currentTarget:', e.currentTarget);
+                          e.preventDefault(); // Prevent blur from firing
+                          console.log('✅ preventDefault called on mousedown');
+                        }}
+                        onClick={(e) => {
+                          console.log('🖱️ Customer item clicked:', customer.NAME);
+                          console.log('🖱️ Click event target:', e.target);
+                          console.log('🖱️ Click event currentTarget:', e.currentTarget);
+                          console.log('📊 Before selection - selectedCustomer:', selectedCustomer);
+                          console.log('📊 Before selection - showCustomerDropdown:', showCustomerDropdown);
+                          e.preventDefault();
+                          e.stopPropagation();
                           // Clear auto-population state when user manually changes customer
                           if (isAutoPopulating || autoPopulatingRef.current) {
                             console.log('🔄 User manually changed customer - clearing auto-population state');
                             setIsAutoPopulating(false);
                             autoPopulatingRef.current = false;
                           }
+                          console.log('📝 Setting selected customer to:', customer.NAME);
                           setSelectedCustomer(customer.NAME);
                           setCustomerSearchTerm('');
                           setShowCustomerDropdown(false);
                           setFilteredCustomers([]);
+                          console.log('✅ Customer selection completed:', customer.NAME);
+                          console.log('📊 After selection - state should update on next render');
                         }}
                         style={{
                           padding: '12px 16px',

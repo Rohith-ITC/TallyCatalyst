@@ -10,6 +10,25 @@ export const MODULE_SEQUENCE = [
     },
     
     {
+      key               : 'sales_dashboard',
+      id                : 'sales_dashboard',
+      label             : 'Sales Dashboard',
+      icon              : 'analytics',
+      permissions       : {
+        show_profit     : 'show_profit'/*,
+        export          : 'export_sales_dashboard'*/
+      }
+    },
+    {
+      key             : 'receivables_dashboard',
+      id              : 'receivables_dashboard',
+      label           : 'Receivables Dashboard',
+      icon            : 'account_balance',
+      //alwaysVisible   : true,
+      //skipAutoFocus   : true,
+      permissions     : {}
+    },
+    {
       key               : 'place_order',
       id                : 'order',
       label             : 'Place Order',
@@ -75,16 +94,6 @@ export const MODULE_SEQUENCE = [
       }
     },
     {
-      key               : 'sales_dashboard',
-      id                : 'sales_dashboard',
-      label             : 'Sales Dashboard',
-      icon              : 'analytics'/*,
-      permissions       : {
-        view            : 'view_sales_dashboard',
-        export          : 'export_sales_dashboard'
-      }*/
-    },
-    {
       key               : 'ledger_book',
       id                : 'ledger',
       label             : 'Ledger Book',
@@ -116,6 +125,17 @@ export const MODULE_SEQUENCE = [
         }
       ],
       permissions: {}
+    },
+    {
+      key               : 'voucher_authorization',
+      id                : 'voucher_authorization',
+      label             : 'Voucher Authorization',
+      icon              : 'approval',
+      permissions       : {
+        def_daterange         : 'def_daterange',
+        adv_vchauth           : 'adv_vchauth'
+      }
+
     }
     
   ];

@@ -1,6 +1,6 @@
 import React from 'react';
 
-const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, showBackButton }) => {
+const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, showBackButton, rowAction }) => {
   const total = data.reduce((sum, d) => sum + d.value, 0);
 
   // Generate colors if not provided
@@ -203,6 +203,65 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
           ))}
         </svg>
       </div>
+      {rowAction && (
+        <div style={{
+          marginTop: '16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px'
+        }}>
+          {boxes.map((box, index) => (
+            <div
+              key={`${box.label}-${index}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '8px 12px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ width: '12px', height: '12px', borderRadius: '2px', background: box.color }} />
+                <span style={{ fontSize: '12px', fontWeight: '500', color: '#475569' }}>{box.label}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', color: '#9ca3af' }}>{box.percentage.toFixed(1)}%</span>
+                <span style={{ fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>
+                  {valuePrefix}{box.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => rowAction.onClick?.(box)}
+                  title={rowAction.title || 'View raw data'}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    color: '#1e40af',
+                    padding: '2px',
+                    borderRadius: '50%'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#e0e7ff';
+                    e.currentTarget.style.color = '#1e3a8a';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = '#1e40af';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '16px' }}>
+                    {rowAction.icon || 'table_view'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

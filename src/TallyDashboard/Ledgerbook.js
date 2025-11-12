@@ -100,6 +100,85 @@ function Ledgerbook() {
   const [currentPage, setCurrentPage] = useState(1);
   const recordsPerPage = 10;
   const [showConfigOptions, setShowConfigOptions] = useState(false);
+  const [showVoucherDetails, setShowVoucherDetails] = useState(false);
+  const [viewingVoucher, setViewingVoucher] = useState(null);
+  const parseAmount = (amount) => {
+    if (amount === null || amount === undefined || amount === '') return 0;
+    if (typeof amount === 'number') return amount;
+    let sanitized = String(amount).trim();
+    sanitized = sanitized.replace(/₹/g, '');
+    sanitized = sanitized.replace(/,/g, '');
+    sanitized = sanitized.replace(/\(\-\)/g, '-');
+    sanitized = sanitized.replace(/^\((.*)\)$/g, '-$1');
+    const parsed = parseFloat(sanitized);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+
+  const formatCurrency = (amount) => {
+    const value = parseAmount(amount);
+    return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  const describeBalance = (balance) => {
+    if (!balance) return '-';
+    const debit = parseAmount(balance.debit);
+    const credit = parseAmount(balance.credit);
+
+    if (debit > 0 && credit <= 0) {
+      return `${formatCurrency(debit)} Dr`;
+    }
+    if (credit > 0 && debit <= 0) {
+      return `${formatCurrency(credit)} Cr`;
+    }
+    if (debit === 0 && credit === 0) {
+      return `${formatCurrency(0)}`;
+    }
+    return `${formatCurrency(debit)} Dr / ${formatCurrency(credit)} Cr`;
+  };
+
+  const normalizeToArray = (value) => {
+    if (!value) return [];
+    return Array.isArray(value) ? value : [value];
+  };
+
+  const handleVoucherRowClick = (row) => {
+    let voucherData = null;
+    let parentBillRow = null;
+
+    if (table === 'Ledger Vouchers') {
+      voucherData = row?.originalRow || row;
+    } else if (table === 'Bill wise O/s' && row?.isVoucherEntry) {
+      voucherData = row.originalVoucher || row;
+      parentBillRow = row.originalRow || row.billRowSnapshot || null;
+    } else {
+      return;
+    }
+
+    if (!voucherData) return;
+
+    const ledgerEntries = normalizeToArray(voucherData.ALLLEDGERENTRIES);
+    const inferredParticulars = voucherData.PARTICULARS || ledgerEntries[0]?.LEDGERNAME || parentBillRow?.REFNO || '';
+
+    setViewingVoucher({
+      ...voucherData,
+      ledgerName: tableData?.ledgername || '',
+      formattedDate: voucherData.DATE,
+      refNo: parentBillRow?.REFNO || row?.REFNO || '',
+      dueOn: parentBillRow?.DUEON || row?.DUEON || '',
+      overdueDays: parentBillRow?.OVERDUEDAYS ?? row?.OVERDUEDAYS,
+      openingBalances: parentBillRow ? {
+        debit: parentBillRow.DEBITOPENBAL,
+        credit: parentBillRow.CREDITOPENBAL
+      } : null,
+      pendingBalances: parentBillRow ? {
+        debit: parentBillRow.DEBITCLSBAL,
+        credit: parentBillRow.CREDITCLSBAL
+      } : null,
+      particulars: inferredParticulars
+    });
+    setShowVoucherDetails(true);
+  };
+
   
   // Configuration state variables to persist checkbox selections
   const [configOptions, setConfigOptions] = useState({
@@ -140,15 +219,22 @@ function Ledgerbook() {
 
   // Filter ledgers based on search term with debouncing
   useEffect(() => {
-    if (!ledgerSearchTerm.trim()) {
-      setFilteredLedgerOptions([]);
+    const currentSearchTerm = ledgerSearchTerm.trim();
+    
+    // Clear results immediately if search term is empty
+    if (!currentSearchTerm) {
+      // Don't set to empty here - let the dropdown useEffect handle showing all ledgers
       return;
     }
     
+    // Clear previous results immediately when search term changes
+    // This ensures old results don't show when user types new search term
+    setFilteredLedgerOptions([]);
+    
     // Debounce search to improve performance
     const timeoutId = setTimeout(() => {
-      const searchLower = ledgerSearchTerm.toLowerCase();
-      
+      // Use captured search term to ensure we're searching with the correct value
+      const searchLower = currentSearchTerm.toLowerCase();
       // Search in both NAME and GSTNO fields
       const exactMatches = [];
       const startsWithMatches = [];
@@ -274,8 +360,14 @@ function Ledgerbook() {
                 VOUCHERNUMBER: voucher.VOUCHERNUMBER,
                 DEBITAMT: voucher.DEBITAMT,
                 CREDITAMT: voucher.CREDITAMT,
+                ALLLEDGERENTRIES: voucher.ALLLEDGERENTRIES,
+                BILLALLOCATIONS: voucher.BILLALLOCATIONS,
+                INVENTORYALLOCATIONS: voucher.INVENTORYALLOCATIONS,
                 isVoucherEntry: true,
-                originalRow: row
+                originalRow: row,
+                originalVoucher: voucher,
+                parentRefNo: row.REFNO,
+                billRowSnapshot: row
               });
             });
           } else {
@@ -336,24 +428,38 @@ function Ledgerbook() {
         });
         
         if (data && data.ledgers && Array.isArray(data.ledgers)) {
+          console.log(`Successfully fetched ${data.ledgers.length} ledgers`);
           setLedgerOptions(data.ledgers);
-          sessionStorage.setItem(cacheKey, JSON.stringify(data.ledgers));
           if (data.ledgers.length === 1) setDropdown3(data.ledgers[0].NAME);
           else setDropdown3('');
           setLedgerError('');
+          
+          // Cache the result with graceful fallback if storage is full
+          try {
+            const cacheString = JSON.stringify(data.ledgers);
+            sessionStorage.setItem(cacheKey, cacheString);
+          } catch (cacheError) {
+            console.warn('Failed to cache ledgers in sessionStorage:', cacheError.message);
+            // Don't fail the entire operation if caching fails
+          }
         } else if (data && data.error) {
           setLedgerOptions([]);
           setDropdown3('');
           setLedgerError(data.error);
         } else {
+          console.error('Unexpected API response format:', data);
           setLedgerOptions([]);
           setDropdown3('');
-          setLedgerError('Unknown error');
+          setLedgerError('Unknown error: Invalid response format');
         }
       } catch (err) {
+        console.error('Error fetching ledgers:', err);
+        const errorMessage = err.message || 'Failed to fetch ledgers';
+        setLedgerError(errorMessage.includes('parse') || errorMessage.includes('JSON') 
+          ? `Failed to process large response. Please contact support.` 
+          : errorMessage);
         setLedgerOptions([]);
         setDropdown3('');
-        setLedgerError('Failed to fetch ledgers');
       } finally {
         setLedgerLoading(false);
       }
@@ -1177,10 +1283,14 @@ function Ledgerbook() {
                     setLedgerSearchTerm(inputValue);
                     setDropdown3('');
                     setShowLedgerDropdown(true);
-                    // Clear filtered results when clearing search
+                    // Clear filtered results immediately when clearing search or starting new search
                     if (!inputValue.trim()) {
                       // Always show all ledgers when no search term (like PlaceOrder)
                       setFilteredLedgerOptions(ledgerOptions);
+                    } else {
+                      // Clear previous results immediately when starting new search
+                      // The debounced search will populate new results
+                      setFilteredLedgerOptions([]);
                     }
                   }}
                   onFocus={() => {
@@ -2006,8 +2116,8 @@ function Ledgerbook() {
                                <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '15px', fontWeight: '700', color: '#1e293b', letterSpacing: '0.025em' }}>Ref No</th>
                                {configOptions.billwiseBreakup && (
                                  <>
-                                   <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '15px', fontWeight: '700', color: '#1e293b', letterSpacing: '0.025em' }}>Vch Type</th>
-                                   <th style={{ padding: '16px 20px', textAlign: 'right', fontSize: '15px', fontWeight: '700', color: '#1e293b', letterSpacing: '0.025em' }}>Amount</th>
+                                   <th style={{ padding: '16px 20px', textAlign: 'left', fontSize: '15px', fontWeight: '700', color: '#1e293b', letterSpacing: '0.025em', width: '120px', minWidth: '110px' }}>Vch Type</th>
+                                   <th style={{ padding: '16px 20px', textAlign: 'right', fontSize: '15px', fontWeight: '700', color: '#1e293b', letterSpacing: '0.025em', width: '200px', minWidth: '180px' }}>Amount</th>
                                  </>
                                )}
                                <th style={{ padding: '16px 20px', textAlign: 'right', fontSize: '15px', fontWeight: '700', color: '#1e293b', letterSpacing: '0.025em' }}>Opening Amount</th>
@@ -2019,8 +2129,16 @@ function Ledgerbook() {
                         </tr>
                       </thead>
                       <tbody>
-                        {currentRecords.map((row, index) => (
-                          <tr key={index} style={{ 
+                        {currentRecords.map((row, index) => {
+                          const baseVoucherRow = row?.originalRow || row;
+                          const isLedgerVoucherRow = table === 'Ledger Vouchers' && (baseVoucherRow?.VCHNO || baseVoucherRow?.VOUCHERNUMBER);
+                          const isBillwiseVoucherRow = table === 'Bill wise O/s' && row?.isVoucherEntry && (row.originalVoucher || row);
+                          const isVoucherRow = Boolean(isLedgerVoucherRow || isBillwiseVoucherRow);
+                          return (
+                          <tr
+                            key={index}
+                            onClick={isVoucherRow ? () => handleVoucherRowClick(row) : undefined}
+                            style={{ 
                               borderBottom: '1px solid #f1f5f9',
                               backgroundColor: (row.isLedgerEntry || row.isVoucherEntry) ? '#f8fafc' : 'transparent',
                               borderLeft: (row.isLedgerEntry || row.isVoucherEntry) ? '4px solid #3b82f6' : 'none',
@@ -2028,6 +2146,7 @@ function Ledgerbook() {
                               background: row.isMainOnAccountRow ? '#f8fafc' : (row.isLedgerEntry || row.isVoucherEntry) ? '#f8fafc' : 'transparent',
                               borderTop: row.isMainOnAccountRow ? '1px solid #e5e7eb' : 'none',
                               transition: 'background-color 0.2s ease',
+                              cursor: isVoucherRow ? 'pointer' : 'default',
                               ':hover': {
                                 backgroundColor: '#f8fafc'
                               }
@@ -2130,7 +2249,9 @@ function Ledgerbook() {
                                        fontSize: '15px', 
                                        color: row.isVoucherEntry ? '#64748b' : '#374151', 
                                        fontStyle: row.isVoucherEntry ? 'italic' : 'normal',
-                                       fontWeight: (!row.isVoucherEntry && configOptions.billwiseBreakup) ? 'bold' : 'normal'
+                                       fontWeight: (!row.isVoucherEntry && configOptions.billwiseBreakup) ? 'bold' : 'normal',
+                                       width: '120px',
+                                       minWidth: '110px'
                                      }}>
                                        {row.isVoucherEntry ? row.VOUCHERTYPE : ''}
                                      </td>
@@ -2140,7 +2261,9 @@ function Ledgerbook() {
                                        color: row.isVoucherEntry ? '#64748b' : '#374151', 
                                        textAlign: 'right', 
                                        fontStyle: row.isVoucherEntry ? 'italic' : 'normal',
-                                       fontWeight: (!row.isVoucherEntry && configOptions.billwiseBreakup) ? 'bold' : 'normal'
+                                       fontWeight: (!row.isVoucherEntry && configOptions.billwiseBreakup) ? 'bold' : 'normal',
+                                       width: '200px',
+                                       minWidth: '180px'
                                      }}>
                                        {row.isVoucherEntry ? (
                                          row.DEBITAMT > 0 ? 
@@ -2209,7 +2332,8 @@ function Ledgerbook() {
                                </>
                             )}
                           </tr>
-                        ))}
+                           );
+                        })}
                          
                          </tbody>
                          
@@ -2692,6 +2816,267 @@ function Ledgerbook() {
             </div>
           )}
         </div>
+        {showVoucherDetails && viewingVoucher && (
+    <div
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(15, 23, 42, 0.55)',
+        backdropFilter: 'blur(2px)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '32px',
+        zIndex: 10000
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          setShowVoucherDetails(false);
+          setViewingVoucher(null);
+        }
+      }}
+    >
+      <div
+        style={{
+          background: '#fff',
+          borderRadius: '18px',
+          width: '96%',
+          maxWidth: '1024px',
+          maxHeight: '90vh',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: '0 20px 50px rgba(15, 23, 42, 0.25)',
+          overflow: 'hidden',
+          border: '1px solid #e2e8f0'
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: '24px 28px',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)'
+          }}
+        >
+          <div>
+            <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1e293b' }}>
+              Voucher Details
+              {(viewingVoucher?.VCHNO || viewingVoucher?.VOUCHERNUMBER) && (
+                <span style={{ marginLeft: 12, fontSize: 14, fontWeight: 500, color: '#64748b' }}>
+                  {(viewingVoucher?.VCHNO || viewingVoucher?.VOUCHERNUMBER)} - {(viewingVoucher?.VCHTYPE || viewingVoucher?.VOUCHERTYPE || '-')}
+                </span>
+              )}
+            </h2>
+            <div style={{ marginTop: 8, fontSize: 14, color: '#64748b', fontWeight: 500 }}>
+              Ledger: {viewingVoucher?.ledgerName || dropdown3}
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setShowVoucherDetails(false);
+              setViewingVoucher(null);
+            }}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background 0.2s'
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(15, 23, 42, 0.08)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          >
+            <span className="material-icons" style={{ fontSize: 24, color: '#475569' }}>close</span>
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflow: 'auto', padding: '28px' }}>
+          {/* Voucher Summary */}
+          <div
+            style={{
+              background: '#f8fafc',
+              borderRadius: '14px',
+              border: '1px solid #e2e8f0',
+              padding: '20px 24px',
+              marginBottom: '24px'
+            }}
+          >
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Voucher Type</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>{viewingVoucher?.VOUCHERTYPE || viewingVoucher?.VCHTYPE || '-'}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Voucher No.</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>{viewingVoucher?.VCHNO || viewingVoucher?.VOUCHERNUMBER || '-'}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Date</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>{viewingVoucher?.formattedDate || '-'}</div>
+              </div>
+              {viewingVoucher?.refNo && (
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Bill Reference</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>{viewingVoucher.refNo}</div>
+                </div>
+              )}
+            </div>
+            {(viewingVoucher?.particulars || viewingVoucher?.PARTICULARS) && (
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Particulars</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#1e293b' }}>{viewingVoucher.particulars || viewingVoucher.PARTICULARS}</div>
+              </div>
+            )}
+            {(viewingVoucher?.openingBalances || viewingVoucher?.pendingBalances || viewingVoucher?.dueOn || viewingVoucher?.overdueDays !== undefined) && (
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0', display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                {viewingVoucher?.openingBalances && (
+                  <div style={{ background: '#eef2ff', color: '#3730a3', padding: '8px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600 }}>
+                    Opening: {describeBalance(viewingVoucher.openingBalances)}
+                  </div>
+                )}
+                {viewingVoucher?.pendingBalances && (
+                  <div style={{ background: '#fef3c7', color: '#b45309', padding: '8px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600 }}>
+                    Pending: {describeBalance(viewingVoucher.pendingBalances)}
+                  </div>
+                )}
+                {viewingVoucher?.dueOn && (
+                  <div style={{ background: '#dcfce7', color: '#047857', padding: '8px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600 }}>
+                    Due On: {viewingVoucher.dueOn}
+                  </div>
+                )}
+                {(viewingVoucher?.overdueDays || viewingVoucher?.overdueDays === 0) && viewingVoucher?.overdueDays !== undefined && viewingVoucher?.overdueDays !== null && (
+                  <div style={{ background: '#fee2e2', color: '#b91c1c', padding: '8px 14px', borderRadius: 999, fontSize: 13, fontWeight: 600 }}>
+                    Overdue Days: {viewingVoucher.overdueDays}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Ledger Entries */}
+          {(() => {
+            const ledgerEntries = normalizeToArray(viewingVoucher?.ALLLEDGERENTRIES);
+            if (!ledgerEntries.length) return null;
+            return (
+              <div style={{ marginBottom: 28 }}>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 18 }}>
+                  <span className="material-icons" style={{ fontSize: 20 }}>account_balance</span>
+                  Ledger Entries
+                </h3>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', padding: '14px 18px', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', fontWeight: 700, color: '#1e293b' }}>
+                    <div>Ledger Name</div>
+                    <div style={{ textAlign: 'right' }}>Debit Amount</div>
+                    <div style={{ textAlign: 'right' }}>Credit Amount</div>
+                  </div>
+                  {ledgerEntries.map((entry, idx) => {
+                    const billAllocations = normalizeToArray(entry.BILLALLOCATIONS);
+                    const inventoryAllocations = normalizeToArray(entry.INVENTORYALLOCATIONS);
+                    return (
+                      <div key={idx} style={{ borderBottom: idx === ledgerEntries.length - 1 ? 'none' : '1px solid #e2e8f0' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', padding: '16px 18px', alignItems: 'center' }}>
+                          <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b' }}>{entry.LEDGERNAME}</div>
+                          <div style={{ textAlign: 'right', fontSize: 14, color: '#1e293b', fontWeight: 600 }}>
+                            {entry.DEBITAMT && parseAmount(entry.DEBITAMT) > 0 ? formatCurrency(entry.DEBITAMT) : ''}
+                          </div>
+                          <div style={{ textAlign: 'right', fontSize: 14, color: '#1e293b', fontWeight: 600 }}>
+                            {entry.CREDITAMT && parseAmount(entry.CREDITAMT) > 0 ? formatCurrency(entry.CREDITAMT) : ''}
+                          </div>
+                        </div>
+
+                        {billAllocations.length > 0 && (
+                          <div style={{ background: '#f8fafc', padding: '12px 34px', borderTop: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8 }}>Bill Allocations</div>
+                            {billAllocations.map((bill, bIdx) => (
+                              <div key={bIdx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', padding: '6px 0', fontSize: 13, color: '#475569' }}>
+                                <div>{bill.BILLNAME || '-'}</div>
+                                <div style={{ textAlign: 'right' }}>
+                                  {bill.DEBITAMT && parseAmount(bill.DEBITAMT) > 0 ? formatCurrency(bill.DEBITAMT) : ''}
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                  {bill.CREDITAMT && parseAmount(bill.CREDITAMT) > 0 ? formatCurrency(bill.CREDITAMT) : ''}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {inventoryAllocations.length > 0 && (
+                          <div style={{ background: '#f8fafc', padding: '12px 34px', borderTop: '1px solid #e2e8f0' }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8 }}>Inventory Allocations</div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 12, padding: '6px 0', fontSize: 12, fontWeight: 600, color: '#64748b', borderBottom: '1px solid #e2e8f0', marginBottom: 8 }}>
+                              <div>Item Name</div>
+                              <div style={{ textAlign: 'right' }}>Quantity</div>
+                              <div style={{ textAlign: 'right' }}>Rate</div>
+                              <div style={{ textAlign: 'right' }}>Discount</div>
+                              <div style={{ textAlign: 'right' }}>Amount</div>
+                            </div>
+                            {inventoryAllocations.map((inv, invIndex) => (
+                              <div key={invIndex} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 12, padding: '6px 0', fontSize: 13, color: '#1e293b' }}>
+                                <div>{inv.STOCKITEMNAME}</div>
+                                <div style={{ textAlign: 'right' }}>{inv.BILLEQTY || inv.ACTUALQTY || '-'}</div>
+                                <div style={{ textAlign: 'right' }}>{inv.RATE || '-'}</div>
+                                <div style={{ textAlign: 'right' }}>{inv.DISCOUNT || '0'}</div>
+                                <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrency(inv.AMOUNT || inv.VALUE)}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Inventory Entries */}
+          {(() => {
+            const inventoryEntries = normalizeToArray(viewingVoucher?.ALLINVENTORYENTRIES);
+            if (!inventoryEntries.length) return null;
+            return (
+              <div>
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 18, fontWeight: 700, color: '#1e293b', marginBottom: 18 }}>
+                  <span className="material-icons" style={{ fontSize: 20 }}>inventory_2</span>
+                  All Inventory Entries
+                </h3>
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', padding: '14px 18px', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', fontWeight: 700, color: '#1e293b' }}>
+                    <div>Item Name</div>
+                    <div style={{ textAlign: 'right' }}>Quantity</div>
+                    <div style={{ textAlign: 'right' }}>Rate</div>
+                    <div style={{ textAlign: 'right' }}>Discount</div>
+                    <div style={{ textAlign: 'right' }}>Amount</div>
+                  </div>
+                  {inventoryEntries.map((entry, idx) => (
+                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', padding: '16px 18px', borderBottom: idx === inventoryEntries.length - 1 ? 'none' : '1px solid #e2e8f0', alignItems: 'center' }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b' }}>{entry.STOCKITEMNAME}</div>
+                      <div style={{ textAlign: 'right', fontSize: 14, color: '#1e293b' }}>{entry.BILLEQTY || entry.ACTUALQTY || '-'}</div>
+                      <div style={{ textAlign: 'right', fontSize: 14, color: '#1e293b' }}>{entry.RATE || '-'}</div>
+                      <div style={{ textAlign: 'right', fontSize: 14, color: '#1e293b' }}>{entry.DISCOUNT || '0'}</div>
+                      <div style={{ textAlign: 'right', fontSize: 14, color: '#1e293b', fontWeight: 600 }}>{formatCurrency(entry.AMOUNT || entry.VALUE)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+    </div>
+  )}
       </div>
     </div>
   );

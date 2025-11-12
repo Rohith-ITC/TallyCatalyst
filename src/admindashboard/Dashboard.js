@@ -51,6 +51,7 @@ function AdminDashboard() {
   const profileDropdownRef = useRef();
   const [sidebarTooltip, setSidebarTooltip] = useState({ show: false, text: '', top: 0 });
   const [accessControlDropdownOpen, setAccessControlDropdownOpen] = useState(false);
+  const [controlPanelOpen, setControlPanelOpen] = useState(false);
   let sidebarTooltipTimeout = null;
 
   // Access Control dropdown items
@@ -252,6 +253,13 @@ function AdminDashboard() {
     };
   }, [profileDropdownOpen]);
 
+  // Auto-open Control Panel when any of its child views are active
+  useEffect(() => {
+    if (['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) {
+      setControlPanelOpen(true);
+    }
+  }, [view]);
+
   const handleLogout = () => {
     sessionStorage.clear();
     window.location.href = process.env.REACT_APP_HOMEPAGE || '/';
@@ -370,77 +378,38 @@ function AdminDashboard() {
             <span className="material-icons" style={{ fontSize: 22 }}>home</span>
             {sidebarOpen && <span className="sidebar-link-label">Home</span>}
           </a>
-          <a
-            href="#"
-            onClick={handleTallyConfig}
-            style={{
-              color: view === 'tally-config' ? '#ff9800' : '#fff',
-              background: view === 'tally-config' ? 'rgba(255,152,0,0.08)' : 'transparent',
-              textDecoration: 'none',
-              padding: '10px 18px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              borderRadius: '8px',
-              fontWeight: view === 'tally-config' ? 700 : 500,
-              margin: '0 8px',
-              border: view === 'tally-config' ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
-              cursor: 'pointer',
-              justifyContent: sidebarOpen ? 'flex-start' : 'center',
-              position: 'relative',
-            }}
-            title="Tally Configuration"
-            onMouseEnter={e => {
-              if (!sidebarOpen) {
-                const rect = e.currentTarget.getBoundingClientRect();
-                setSidebarTooltip({ show: true, text: 'Tally Configuration', top: rect.top + window.scrollY });
-                if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
-                sidebarTooltipTimeout = setTimeout(() => {
-                  setSidebarTooltip({ show: false, text: '', top: 0 });
-                }, 1500);
-              }
-            }}
-            onMouseLeave={() => {
-              if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
-              setSidebarTooltip({ show: false, text: '', top: 0 });
-            }}
-          >
-            <span className="material-icons" style={{ fontSize: 22 }}>settings</span>
-            {sidebarOpen && <span className="sidebar-link-label">Tally Configuration</span>}
-          </a>
-          {/* Access Control Dropdown */}
+          
+          {/* Control Panel */}
           <div style={{ position: 'relative' }}>
             <a
               href="#"
               onClick={(e) => {
                 e.preventDefault();
                 if (sidebarOpen) {
-                  setAccessControlDropdownOpen(!accessControlDropdownOpen);
-                } else {
-                  navigate('/access-control');
+                  setControlPanelOpen(!controlPanelOpen);
                 }
               }}
               style={{
-                color: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '#ff9800' : '#fff',
-                background: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 'rgba(255,152,0,0.08)' : 'transparent',
+                color: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '#ff9800' : '#fff',
+                background: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 'rgba(255,152,0,0.08)' : 'transparent',
                 textDecoration: 'none',
                 padding: '10px 18px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
                 borderRadius: '8px',
-                fontWeight: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 700 : 500,
+                fontWeight: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 700 : 500,
                 margin: '0 8px',
-                border: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                border: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
                 cursor: 'pointer',
                 justifyContent: sidebarOpen ? 'flex-start' : 'center',
                 position: 'relative',
               }}
-              title="Access Control"
+              title="Control Panel"
               onMouseEnter={e => {
                 if (!sidebarOpen) {
                   const rect = e.currentTarget.getBoundingClientRect();
-                  setSidebarTooltip({ show: true, text: 'Access Control', top: rect.top + window.scrollY });
+                  setSidebarTooltip({ show: true, text: 'Control Panel', top: rect.top + window.scrollY });
                   if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
                   sidebarTooltipTimeout = setTimeout(() => {
                     setSidebarTooltip({ show: false, text: '', top: 0 });
@@ -452,13 +421,13 @@ function AdminDashboard() {
                 setSidebarTooltip({ show: false, text: '', top: 0 });
               }}
             >
-              <span className="material-icons" style={{ fontSize: 22 }}>security</span>
-              {sidebarOpen && <span className="sidebar-link-label">Access Control</span>}
-              {sidebarOpen && <span className="material-icons" style={{ fontSize: 16, marginLeft: 'auto' }}>expand_more</span>}
+              <span className="material-icons" style={{ fontSize: 22 }}>admin_panel_settings</span>
+              {sidebarOpen && <span className="sidebar-link-label">Control Panel</span>}
+              {sidebarOpen && <span className="material-icons" style={{ fontSize: 16, marginLeft: 'auto', transform: controlPanelOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>}
             </a>
             
-            {/* Dropdown Menu */}
-            {sidebarOpen && (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) && (
+            {/* Control Panel Sub-menu */}
+            {sidebarOpen && controlPanelOpen && (
               <div style={{
                 marginLeft: '16px',
                 marginTop: '8px',
@@ -467,47 +436,136 @@ function AdminDashboard() {
                 padding: '8px 0',
                 border: '1px solid rgba(255, 255, 255, 0.1)'
               }}>
-                {ACCESS_CONTROL_ITEMS.map(item => (
+                {/* Tally Connections */}
+                <a
+                  href="#"
+                  onClick={handleTallyConfig}
+                  style={{
+                    color: view === 'tally-config' ? '#ff9800' : '#fff',
+                    background: view === 'tally-config' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    textDecoration: 'none',
+                    padding: '8px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '6px',
+                    fontWeight: view === 'tally-config' ? 600 : 400,
+                    margin: '0 8px',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (view !== 'tally-config') {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (view !== 'tally-config') {
+                      e.target.style.background = 'transparent';
+                    } else {
+                      e.target.style.background = 'rgba(255, 152, 0, 0.15)';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 18 }}>settings</span>
+                  <span>Tally Connections</span>
+                </a>
+                
+                {/* Access Control */}
+                <div style={{ position: 'relative' }}>
                   <a
-                    key={item.key}
                     href="#"
                     onClick={(e) => {
                       e.preventDefault();
-                      setView(item.key);
-                      setAccessControlDropdownOpen(false);
+                      setAccessControlDropdownOpen(!accessControlDropdownOpen);
                     }}
                     style={{
-                      color: view === item.key ? '#ff9800' : '#fff',
-                      background: view === item.key ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                      color: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '#ff9800' : '#fff',
+                      background: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
                       textDecoration: 'none',
                       padding: '8px 16px',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 12,
                       borderRadius: '6px',
-                      fontWeight: view === item.key ? 600 : 400,
+                      fontWeight: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 600 : 400,
                       margin: '0 8px',
                       fontSize: '14px',
                       cursor: 'pointer',
                       transition: 'all 0.2s',
                     }}
                     onMouseEnter={(e) => {
-                      if (view !== item.key) {
+                      if (!['modules', 'roles', 'create-access', 'share-access'].includes(view)) {
                         e.target.style.background = 'rgba(255, 255, 255, 0.05)';
                       }
                     }}
                     onMouseLeave={(e) => {
-                      if (view !== item.key) {
+                      if (!['modules', 'roles', 'create-access', 'share-access'].includes(view)) {
                         e.target.style.background = 'transparent';
                       } else {
                         e.target.style.background = 'rgba(255, 152, 0, 0.15)';
                       }
                     }}
                   >
-                    <span className="material-icons" style={{ fontSize: 18 }}>{item.icon}</span>
-                    <span>{item.label}</span>
+                    <span className="material-icons" style={{ fontSize: 18 }}>security</span>
+                    <span>Access Control</span>
+                    <span className="material-icons" style={{ fontSize: 16, marginLeft: 'auto', transform: accessControlDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>
                   </a>
-                ))}
+                  
+                  {/* Access Control Sub-menu */}
+                  {accessControlDropdownOpen && (
+                    <div style={{
+                      marginLeft: '16px',
+                      marginTop: '8px',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      borderRadius: '6px',
+                      padding: '4px 0',
+                    }}>
+                      {ACCESS_CONTROL_ITEMS.map(item => (
+                        <a
+                          key={item.key}
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setView(item.key);
+                            setAccessControlDropdownOpen(false);
+                          }}
+                          style={{
+                            color: view === item.key ? '#ff9800' : '#fff',
+                            background: view === item.key ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                            textDecoration: 'none',
+                            padding: '6px 12px 6px 32px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            borderRadius: '4px',
+                            fontWeight: view === item.key ? 600 : 400,
+                            margin: '0 8px',
+                            fontSize: '13px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (view !== item.key) {
+                              e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (view !== item.key) {
+                              e.target.style.background = 'transparent';
+                            } else {
+                              e.target.style.background = 'rgba(255, 152, 0, 0.15)';
+                            }
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: 16 }}>{item.icon}</span>
+                          <span>{item.label}</span>
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

@@ -5,6 +5,19 @@ import App from './App';
 import reportWebVitals from './reportWebVitals';
 import { checkVersionUpdate } from './utils/cacheUtils';
 
+// Debug: Check sessionStorage at the VERY START (before anything runs)
+console.log('🚀🚀🚀 APP STARTING - INITIAL SESSION CHECK 🚀🚀🚀');
+console.log('🚀 sessionStorage at startup:', {
+  token: !!sessionStorage.getItem('token'),
+  email: !!sessionStorage.getItem('email'),
+  name: !!sessionStorage.getItem('name'),
+  allKeys: Object.keys(sessionStorage),
+  allValues: Object.keys(sessionStorage).reduce((acc, key) => {
+    acc[key] = sessionStorage.getItem(key)?.substring(0, 30) || null;
+    return acc;
+  }, {})
+});
+
 // Check for version updates on app start
 checkVersionUpdate();
 

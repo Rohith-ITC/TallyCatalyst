@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../config';
 import TallyLogo from '../Tally1.png';
@@ -7,6 +7,14 @@ import Ledgerbook from './Ledgerbook';
 import PlaceOrder from './PlaceOrder';
 import PlaceOrder_ECommerce from './PlaceOrder_ECommerce';
 import SalesDashboard from './salesdashboard';
+import ReceivablesDashboard from '../RecvDashboard';
+import VoucherAuthorization from '../vchauth/vchauth';
+import TallyConfig from '../admindashboard/tallyconfig';
+import AccessControl from '../access-control/AccessControl';
+import ModulesManagement from '../access-control/ModulesManagement';
+import RolesManagement from '../access-control/RolesManagement';
+import CreateAccess from '../admindashboard/CreateAccess';
+import ShareAccess from '../TallyDashboard/ShareAccess';
 import { 
   MODULE_SEQUENCE, 
   hasModuleAccess, 
@@ -17,6 +25,7 @@ import {
   shouldUseDropdownFilter,
   isAlwaysVisible
 } from '../config/SideBarConfigurations';
+import { apiGet } from '../utils/apiUtils';
 
 function TallyDashboard() {
   console.log('🎯 TallyDashboard component loading...');
@@ -58,6 +67,118 @@ function TallyDashboard() {
   // Track active sidebar item - will be set based on user permissions
   const [activeSidebar, setActiveSidebar] = useState('main');
   const [sidebarLoading, setSidebarLoading] = useState(false);
+  const [showControlPanel, setShowControlPanel] = useState(false);
+  const [controlPanelView, setControlPanelView] = useState(null); // 'tally-config', 'modules', 'roles', 'create-access', 'share-access'
+  const [controlPanelOpen, setControlPanelOpen] = useState(false);
+  const [accessControlDropdownOpen, setAccessControlDropdownOpen] = useState(false);
+  const [previousView, setPreviousView] = useState(null); // Track previous view before opening control panel
+  const desiredActiveSidebarRef = useRef(null);
+  const initialPermissionsRequestedRef = useRef(false);
+
+  const isModuleAccessibleById = useCallback((moduleId, userModules) => {
+    if (!moduleId) return false;
+    const module = MODULE_SEQUENCE.find(m => m.id === moduleId);
+    if (module) {
+      if (module.key === 'main_menu' || isAlwaysVisible(module.key)) {
+        return true;
+      }
+      if (module.hasSubModules) {
+        return hasAnySubModuleAccess(module.key, userModules);
+      }
+      return hasModuleAccess(module.key, userModules);
+    }
+
+    for (const parent of MODULE_SEQUENCE) {
+      if (!parent.hasSubModules) continue;
+      const subModule = parent.subModules?.find(sub => sub.id === moduleId);
+      if (subModule) {
+        return hasSubModuleAccess(subModule.key, userModules);
+      }
+    }
+    return false;
+  }, []);
+
+  const getFirstAccessibleModuleId = useCallback((userModules) => {
+    if (!userModules || userModules.length === 0) {
+      return 'main';
+    }
+    for (const module of MODULE_SEQUENCE) {
+      if (module.key === 'main_menu') continue;
+      if (module.hasSubModules) {
+        if (hasAnySubModuleAccess(module.key, userModules)) {
+          return module.id;
+        }
+      } else if (isAlwaysVisible(module.key) || hasModuleAccess(module.key, userModules)) {
+        return module.id;
+      }
+    }
+    return 'main';
+  }, []);
+
+  const resolveActiveSidebar = useCallback((userModules) => {
+    if (!userModules || userModules.length === 0) {
+      if (activeSidebar !== 'main') {
+        setActiveSidebar('main');
+      }
+      desiredActiveSidebarRef.current = null;
+      return;
+    }
+
+    if (activeSidebar === 'main') {
+      const firstModuleId = getFirstAccessibleModuleId(userModules);
+      if (firstModuleId && firstModuleId !== 'main') {
+        setActiveSidebar(firstModuleId);
+        desiredActiveSidebarRef.current = null;
+        return;
+      }
+    }
+ 
+    const desiredId = desiredActiveSidebarRef.current;
+    if (desiredId && isModuleAccessibleById(desiredId, userModules)) {
+      if (activeSidebar !== desiredId) {
+        setActiveSidebar(desiredId);
+      }
+      desiredActiveSidebarRef.current = null;
+      return;
+    }
+
+    if (isModuleAccessibleById(activeSidebar, userModules)) {
+      desiredActiveSidebarRef.current = null;
+      return;
+    }
+
+    const fallbackId = getFirstAccessibleModuleId(userModules) || 'main';
+    if (activeSidebar !== fallbackId) {
+      setActiveSidebar(fallbackId);
+    }
+    desiredActiveSidebarRef.current = null;
+  }, [activeSidebar, getFirstAccessibleModuleId, isModuleAccessibleById]);
+  
+  // Auto-open control panel when control panel view is set
+  useEffect(() => {
+    if (controlPanelView && !showControlPanel) {
+      setShowControlPanel(true);
+      setControlPanelOpen(true);
+      if (!previousView) {
+        setPreviousView(activeSidebar);
+      }
+    }
+  }, [controlPanelView]);
+  
+  // Auto-open Access Control dropdown when an Access Control view is active
+  useEffect(() => {
+    if (['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) {
+      setAccessControlDropdownOpen(true);
+    }
+  }, [controlPanelView]);
+  
+  // Access Control dropdown items
+  const ACCESS_CONTROL_ITEMS = [
+    { key: 'modules', label: 'Modules Management', icon: 'apps' },
+    { key: 'roles', label: 'Roles Management', icon: 'group' },
+    { key: 'create-access', label: 'User Management', icon: 'person_add' },
+    { key: 'share-access', label: 'Share Access', icon: 'share' },
+  ];
   
   // Get dropdown filter options for the current active module
   const getCurrentDropdownOptions = () => {
@@ -75,6 +196,16 @@ function TallyDashboard() {
   const [topBarCompanySearchTerm, setTopBarCompanySearchTerm] = useState('');
   const [filteredTopBarCompanies, setFilteredTopBarCompanies] = useState([]);
   const [isSelectingCompany, setIsSelectingCompany] = useState(false);
+  const [connectionsVersion, setConnectionsVersion] = useState(0);
+
+  useEffect(() => {
+    if (!selectedCompanyGuid) {
+      const storedGuid = sessionStorage.getItem('selectedCompanyGuid') || sessionStorage.getItem('guid');
+      if (storedGuid) {
+        setSelectedCompanyGuid(storedGuid);
+      }
+    }
+  }, [selectedCompanyGuid]);
   
   // Get all companies from sessionStorage
   const allConnections = useMemo(() => {
@@ -83,6 +214,23 @@ function TallyDashboard() {
     } catch (e) {
       return [];
     }
+  }, [connectionsVersion]);
+
+  const currentReceivablesCompany = useMemo(() => {
+    if (!selectedCompanyGuid) {
+      return null;
+    }
+    return allConnections.find((connection) => connection.guid === selectedCompanyGuid) || null;
+  }, [allConnections, selectedCompanyGuid]);
+
+  useEffect(() => {
+    const handleConnectionsUpdated = () => {
+      console.log('🔄 connectionsUpdated event received in TallyDashboard');
+      setConnectionsVersion((prev) => prev + 1);
+    };
+
+    window.addEventListener('connectionsUpdated', handleConnectionsUpdated);
+    return () => window.removeEventListener('connectionsUpdated', handleConnectionsUpdated);
   }, []);
 
 
@@ -170,50 +318,63 @@ function TallyDashboard() {
     if (currentCompany) {
       console.log('🔐 Company changed, fetching fresh permissions for:', currentCompany.company);
       fetchUserAccessPermissions(currentCompany);
+      initialPermissionsRequestedRef.current = true;
     }
   }, [allConnections, selectedCompanyGuid]); // Include dependencies
+
+  useEffect(() => {
+    if (initialPermissionsRequestedRef.current) {
+      return;
+    }
+    if (!selectedCompanyGuid) {
+      return;
+    }
+    const modules = getUserModules();
+    if (Array.isArray(modules) && modules.length > 0) {
+      initialPermissionsRequestedRef.current = true;
+      resolveActiveSidebar(modules);
+      return;
+    }
+
+    const connectionFromList = allConnections.find(c => c.guid === selectedCompanyGuid);
+    if (connectionFromList) {
+      initialPermissionsRequestedRef.current = true;
+      console.log('🔐 Initial permissions missing, requesting using connection list entry');
+      setSidebarLoading(true);
+      fetchUserAccessPermissions(connectionFromList);
+      return;
+    }
+
+    const storedTallyloc = sessionStorage.getItem('tallyloc_id');
+    const storedCompany = sessionStorage.getItem('company');
+    const storedGuid = sessionStorage.getItem('guid');
+    if (storedTallyloc && storedCompany && storedGuid) {
+      initialPermissionsRequestedRef.current = true;
+      console.log('🔐 Initial permissions missing, requesting using stored session values');
+      setSidebarLoading(true);
+      fetchUserAccessPermissions({
+        tallyloc_id: storedTallyloc,
+        company: storedCompany,
+        guid: storedGuid,
+        conn_name: sessionStorage.getItem('conn_name') || '',
+        shared_email: sessionStorage.getItem('shared_email') || '',
+        status: sessionStorage.getItem('status') || '',
+        access_type: sessionStorage.getItem('access_type') || ''
+      });
+    }
+  }, [selectedCompanyGuid, allConnections, resolveActiveSidebar]);
 
   // Update active sidebar when user access permissions are loaded
   useEffect(() => {
     const userModules = getUserModules();
-    if (userModules.length > 0) {
-      // Find the first available module that user has access to
-      const firstAvailableModule = MODULE_SEQUENCE.find(module => {
-        if (module.key === 'main_menu') return false; // Skip main menu
-        
-        if (module.hasSubModules) {
-          return hasAnySubModuleAccess(module.key, userModules);
-        } else {
-          return hasModuleAccess(module.key, userModules);
-        }
-      });
-      
-      if (firstAvailableModule) {
-        setActiveSidebar(firstAvailableModule.id);
-      }
-    }
-  }, [selectedCompanyGuid]); // Trigger when company changes
+    resolveActiveSidebar(userModules);
+  }, [selectedCompanyGuid, resolveActiveSidebar]);
 
   // Update active sidebar when user access permissions change (company change)
   useEffect(() => {
     const handleUserAccessUpdate = () => {
       const userModules = getUserModules();
-      if (userModules.length > 0) {
-        // Find the first available module that user has access to
-        const firstAvailableModule = MODULE_SEQUENCE.find(module => {
-          if (module.key === 'main_menu') return false; // Skip main menu
-          
-          if (module.hasSubModules) {
-            return hasAnySubModuleAccess(module.key, userModules);
-          } else {
-            return hasModuleAccess(module.key, userModules);
-          }
-        });
-        
-        if (firstAvailableModule) {
-          setActiveSidebar(firstAvailableModule.id);
-        }
-      }
+      resolveActiveSidebar(userModules);
     };
 
     // Listen for user access updates
@@ -222,7 +383,7 @@ function TallyDashboard() {
     return () => {
       window.removeEventListener('userAccessUpdated', handleUserAccessUpdate);
     };
-  }, []);
+  }, [resolveActiveSidebar]);
 
   // Listen for navigation to Place Order from E-commerce
   useEffect(() => {
@@ -267,21 +428,7 @@ function TallyDashboard() {
         
         // Update sidebar with new permissions
         const userModules = accessData.data?.modules || [];
-        if (userModules.length > 0) {
-          const firstAvailableModule = MODULE_SEQUENCE.find(module => {
-            if (module.key === 'main_menu') return false; // Skip main menu
-            
-            if (module.hasSubModules) {
-              return hasAnySubModuleAccess(module.key, userModules);
-            } else {
-              return hasModuleAccess(module.key, userModules);
-            }
-          });
-          
-          if (firstAvailableModule) {
-            setActiveSidebar(firstAvailableModule.id);
-          }
-        }
+        resolveActiveSidebar(userModules);
         
         // Clear loading state
         setSidebarLoading(false);
@@ -310,6 +457,8 @@ function TallyDashboard() {
     console.log('🏢 Company changed in top bar:', companyConnection);
     console.log('🔍 Current selectedCompanyGuid before change:', selectedCompanyGuid);
     console.log('🔍 New company guid:', companyConnection.guid);
+    const previousActiveSidebarId = activeSidebar;
+    desiredActiveSidebarRef.current = previousActiveSidebarId;
     
     // Update sessionStorage with new company data
     sessionStorage.setItem('tallyloc_id', companyConnection.tallyloc_id || '');
@@ -330,29 +479,6 @@ function TallyDashboard() {
     // Show loading state
     setSidebarLoading(true);
     
-    // Immediately update sidebar based on cached permissions or reset to main menu
-    const cachedUserModules = getUserModules();
-    if (cachedUserModules.length > 0) {
-      // Find the first available module that user has access to
-      const firstAvailableModule = MODULE_SEQUENCE.find(module => {
-        if (module.key === 'main_menu') return false; // Skip main menu
-        
-        if (module.hasSubModules) {
-          return hasAnySubModuleAccess(module.key, cachedUserModules);
-        } else {
-          return hasModuleAccess(module.key, cachedUserModules);
-        }
-      });
-      
-      if (firstAvailableModule) {
-        setActiveSidebar(firstAvailableModule.id);
-      } else {
-        setActiveSidebar('main'); // Fallback to main menu
-      }
-    } else {
-      setActiveSidebar('main'); // No cached permissions, go to main menu
-    }
-    
     // Fetch user access permissions for the new company
     console.log('🚀 About to call fetchUserAccessPermissions for company:', companyConnection.company);
     await fetchUserAccessPermissions(companyConnection);
@@ -363,7 +489,7 @@ function TallyDashboard() {
   };
 
   // Global refresh function for all pages
-  const handleGlobalRefresh = () => {
+  const handleGlobalRefresh = async () => {
     console.log('🔄 Global refresh triggered - clearing all caches...');
     console.log('🔄 Refresh button clicked!');
     
@@ -391,6 +517,40 @@ function TallyDashboard() {
       console.log(`🗑️ Cleared cache: ${key}`);
     });
     
+    // Refresh user connections so latest companies are available after cache clear
+    try {
+      console.log('🔄 Refreshing user connections...');
+      const response = await apiGet(`/api/tally/user-connections?ts=${Date.now()}`);
+      if (response) {
+        let connections = [];
+        if (Array.isArray(response)) {
+          connections = response.filter(item => item?.status === 'Connected');
+        } else if (response.createdByMe && response.sharedWithMe) {
+          const created = Array.isArray(response.createdByMe)
+            ? response.createdByMe.filter(row => row?.status === 'Connected').map(row => ({ ...row, type: 'Created By Me' }))
+            : [];
+          const shared = Array.isArray(response.sharedWithMe)
+            ? response.sharedWithMe.filter(row => row?.status === 'Connected').map(row => ({ ...row, type: 'Shared With Me' }))
+            : [];
+          connections = [...created, ...shared];
+        }
+
+        sessionStorage.setItem('allConnections', JSON.stringify(connections));
+        // Notify listeners that connection data has been refreshed
+        window.dispatchEvent(new CustomEvent('connectionsUpdated', { detail: connections }));
+        // Update local dropdown data immediately
+        if (connections.length < 100) {
+          setFilteredTopBarCompanies(connections);
+        } else {
+          setFilteredTopBarCompanies([]);
+        }
+        setConnectionsVersion((prev) => prev + 1);
+        console.log(`✅ Refreshed user connections: ${connections.length} entries`);
+      }
+    } catch (error) {
+      console.error('⚠️ Failed to refresh user connections during global refresh:', error);
+    }
+    
     // Dispatch custom event to notify all components to refresh
     console.log('🔄 Dispatching globalRefresh event...');
     window.dispatchEvent(new CustomEvent('globalRefresh'));
@@ -407,8 +567,17 @@ function TallyDashboard() {
   const renderSidebarItems = () => {
     const userModules = getUserModules();
     
+    // Debug: Log user modules to see what permissions are available
+    console.log('🔍 User modules for sidebar:', userModules);
+    console.log('🔍 Module names:', userModules.map(m => m.module_name));
+    
     return MODULE_SEQUENCE.map(module => {
-      // Always show modules marked as alwaysVisible
+      // Skip main_menu (Main Menu) - it's removed from sidebar
+      if (module.key === 'main_menu') {
+        return null;
+      }
+      
+      // Always show modules marked as alwaysVisible (except main_menu)
       if (isAlwaysVisible(module.key)) {
         return renderSidebarItem(module.key, module);
       }
@@ -438,6 +607,36 @@ function TallyDashboard() {
     }).filter(Boolean);
   };
 
+  // Handler for closing control panel
+  const handleCloseControlPanel = async () => {
+    setShowControlPanel(false);
+    setControlPanelOpen(false);
+    if (previousView) {
+      setActiveSidebar(previousView);
+    }
+    setPreviousView(null);
+    setControlPanelView(null);
+    
+    // Fetch updated modules and permissions after closing control panel
+    const tallylocId = sessionStorage.getItem('tallyloc_id');
+    const guid = sessionStorage.getItem('guid');
+    
+    if (tallylocId && guid) {
+      try {
+        console.log('🔄 Fetching updated user access after closing control panel...');
+        const companyConnection = {
+          tallyloc_id: tallylocId,
+          guid: guid,
+          company: sessionStorage.getItem('company') || ''
+        };
+        await fetchUserAccessPermissions(companyConnection);
+        console.log('✅ Updated user access permissions loaded');
+      } catch (error) {
+        console.error('❌ Error fetching updated user access:', error);
+      }
+    }
+  };
+
   // Render regular sidebar item
   const renderSidebarItem = (moduleKey, module) => {
     return (
@@ -448,6 +647,10 @@ function TallyDashboard() {
             navigate('/admin-dashboard');
           } else {
             setActiveSidebar(module.id); 
+            // Close control panel when sidebar item is clicked
+            if (showControlPanel) {
+              handleCloseControlPanel();
+            }
           }
         }}
         style={{
@@ -811,6 +1014,53 @@ function TallyDashboard() {
           </div>
         </div>
 
+        {/* Control Panel Icon */}
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!showControlPanel) {
+              // Store current view before opening control panel
+              setPreviousView(activeSidebar);
+              setShowControlPanel(true);
+              setControlPanelOpen(true);
+              setControlPanelView('tally-config'); // Default to Tally Connections
+            } else {
+              // Close control panel and return to previous view
+              handleCloseControlPanel();
+            }
+          }}
+          style={{
+            background: showControlPanel ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+            border: showControlPanel ? '2px solid rgba(255, 255, 255, 0.4)' : '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: '8px',
+            padding: '8px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'all 0.2s ease',
+            color: '#fff',
+            marginLeft: '12px',
+            marginRight: '12px',
+            zIndex: 10,
+            position: 'relative'
+          }}
+          title="Control Panel"
+          onMouseEnter={(e) => {
+            e.target.style.background = 'rgba(255, 255, 255, 0.2)';
+            e.target.style.borderColor = 'rgba(255, 255, 255, 0.4)';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.background = showControlPanel ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.1)';
+            e.target.style.borderColor = showControlPanel ? 'rgba(255, 255, 255, 0.4)' : 'rgba(255, 255, 255, 0.2)';
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: '20px', pointerEvents: 'none' }}>
+            admin_panel_settings
+          </span>
+        </button>
+
         {/* Global Refresh Icon - Separate from Company */}
         <button
           onClick={(e) => {
@@ -896,7 +1146,7 @@ function TallyDashboard() {
           <img src={TallyLogo} alt="Tally Logo" style={{ width: sidebarOpen ? 220 : 48, height: sidebarOpen ? 90 : 48, objectFit: 'contain', transition: 'width 0.3s, height 0.3s' }} />
         </div>
         {/* Sidebar items */}
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 12, fontSize: 17, marginTop: 32 }}>
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 18, fontSize: 17, marginTop: 32 }}>
           {sidebarLoading ? (
             <div style={{ 
               display: 'flex',
@@ -916,7 +1166,265 @@ function TallyDashboard() {
               Updating permissions...
             </div>
           ) : (
-            renderSidebarItems()
+            <>
+              {!showControlPanel && renderSidebarItems()}
+              
+              {/* Control Panel Section - Show when control panel is open */}
+              {showControlPanel && (
+                <div style={{ position: 'relative' }}>
+                  {/* Close Button */}
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      handleCloseControlPanel();
+                    }}
+                    style={{
+                      color: '#fff',
+                      background: 'rgba(220, 38, 38, 0.1)',
+                      textDecoration: 'none',
+                      padding: '10px 18px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      borderRadius: '8px',
+                      fontWeight: 500,
+                      margin: '0 8px 18px 8px',
+                      border: '1px solid rgba(220, 38, 38, 0.2)',
+                      cursor: 'pointer',
+                      justifyContent: sidebarOpen ? 'flex-start' : 'center',
+                      position: 'relative',
+                      transition: 'all 0.2s',
+                    }}
+                    title="Close Control Panel"
+                    onMouseEnter={e => {
+                      e.target.style.background = 'rgba(220, 38, 38, 0.2)';
+                      e.target.style.borderColor = 'rgba(220, 38, 38, 0.4)';
+                      if (!sidebarOpen) {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setSidebarTooltip({ show: true, text: 'Close Control Panel', top: rect.top + window.scrollY });
+                        if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                        sidebarTooltipTimeout = setTimeout(() => {
+                          setSidebarTooltip({ show: false, text: '', top: 0 });
+                        }, 1500);
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'rgba(220, 38, 38, 0.1)';
+                      e.target.style.borderColor = 'rgba(220, 38, 38, 0.2)';
+                      if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                      setSidebarTooltip({ show: false, text: '', top: 0 });
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: 22 }}>close</span>
+                    {sidebarOpen && <span className="sidebar-link-label">Close</span>}
+                  </a>
+                  
+                  <a
+                    href="#"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      if (sidebarOpen) {
+                        setControlPanelOpen(!controlPanelOpen);
+                      }
+                    }}
+                    style={{
+                      color: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? '#ff9800' : '#fff',
+                      background: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? 'rgba(255,152,0,0.08)' : 'transparent',
+                      textDecoration: 'none',
+                      padding: '10px 18px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      borderRadius: '8px',
+                      fontWeight: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? 700 : 500,
+                      margin: '0 8px',
+                      border: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                      cursor: 'pointer',
+                      justifyContent: sidebarOpen ? 'flex-start' : 'center',
+                      position: 'relative',
+                    }}
+                    title="Control Panel"
+                    onMouseEnter={e => {
+                      if (!sidebarOpen) {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setSidebarTooltip({ show: true, text: 'Control Panel', top: rect.top + window.scrollY });
+                        if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                        sidebarTooltipTimeout = setTimeout(() => {
+                          setSidebarTooltip({ show: false, text: '', top: 0 });
+                        }, 1500);
+                      }
+                    }}
+                    onMouseLeave={() => {
+                      if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                      setSidebarTooltip({ show: false, text: '', top: 0 });
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: 22 }}>admin_panel_settings</span>
+                    {sidebarOpen && <span className="sidebar-link-label">Control Panel</span>}
+                    {sidebarOpen && <span className="material-icons" style={{ fontSize: 16, marginLeft: 'auto', transform: controlPanelOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>}
+                  </a>
+                  
+                  {/* Control Panel Sub-menu */}
+                  {sidebarOpen && controlPanelOpen && (
+                    <div style={{
+                      marginLeft: '16px',
+                      marginTop: '8px',
+                      background: 'rgba(255, 255, 255, 0.1)',
+                      borderRadius: '8px',
+                      padding: '8px 0',
+                      border: '1px solid rgba(255, 255, 255, 0.1)'
+                    }}>
+                      {/* Tally Connections */}
+                      <a
+                        href="#"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setControlPanelView('tally-config');
+                          // Keep sidebar open - don't close it on item selection
+                          // Only close on mobile devices (width <= 900)
+                          if (window.innerWidth <= 900) {
+                            setSidebarOpen(false);
+                          }
+                        }}
+                        style={{
+                          color: controlPanelView === 'tally-config' ? '#ff9800' : '#fff',
+                          background: controlPanelView === 'tally-config' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                          textDecoration: 'none',
+                          padding: '8px 16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 12,
+                          borderRadius: '6px',
+                          fontWeight: controlPanelView === 'tally-config' ? 600 : 400,
+                          margin: '0 8px',
+                          fontSize: '14px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                        }}
+                        onMouseEnter={(e) => {
+                          if (controlPanelView !== 'tally-config') {
+                            e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (controlPanelView !== 'tally-config') {
+                            e.target.style.background = 'transparent';
+                          } else {
+                            e.target.style.background = 'rgba(255, 152, 0, 0.15)';
+                          }
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: 18 }}>settings</span>
+                        <span>Tally Connections</span>
+                      </a>
+                      
+                      {/* Access Control */}
+                      <div style={{ position: 'relative' }}>
+                        <a
+                          href="#"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            setAccessControlDropdownOpen(!accessControlDropdownOpen);
+                          }}
+                          style={{
+                            color: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? '#ff9800' : '#fff',
+                            background: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                            textDecoration: 'none',
+                            padding: '8px 16px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 12,
+                            borderRadius: '6px',
+                            fontWeight: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? 600 : 400,
+                            margin: '0 8px',
+                            fontSize: '14px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) {
+                              e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) {
+                              e.target.style.background = 'transparent';
+                            } else {
+                              e.target.style.background = 'rgba(255, 152, 0, 0.15)';
+                            }
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: 18 }}>security</span>
+                          <span>Access Control</span>
+                          <span className="material-icons" style={{ fontSize: 16, marginLeft: 'auto', transform: accessControlDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>
+                        </a>
+                        
+                        {/* Access Control Sub-menu */}
+                        {accessControlDropdownOpen && (
+                          <div style={{
+                            marginLeft: '16px',
+                            marginTop: '8px',
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            borderRadius: '6px',
+                            padding: '4px 0',
+                          }}>
+                            {ACCESS_CONTROL_ITEMS.map(item => (
+                              <a
+                                key={item.key}
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  setControlPanelView(item.key);
+                                  // Keep Access Control dropdown open when an item is selected
+                                  // Don't close it - let it stay open so user can see all options
+                                  // Only close on mobile devices (width <= 900)
+                                  if (window.innerWidth <= 900) {
+                                    setAccessControlDropdownOpen(false);
+                                    setSidebarOpen(false);
+                                  }
+                                  // On desktop, keep dropdown open
+                                }}
+                                style={{
+                                  color: controlPanelView === item.key ? '#ff9800' : '#fff',
+                                  background: controlPanelView === item.key ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                                  textDecoration: 'none',
+                                  padding: '6px 12px 6px 32px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 12,
+                                  borderRadius: '4px',
+                                  fontWeight: controlPanelView === item.key ? 600 : 400,
+                                  margin: '0 8px',
+                                  fontSize: '13px',
+                                  cursor: 'pointer',
+                                  transition: 'all 0.2s',
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (controlPanelView !== item.key) {
+                                    e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (controlPanelView !== item.key) {
+                                    e.target.style.background = 'transparent';
+                                  } else {
+                                    e.target.style.background = 'rgba(255, 152, 0, 0.15)';
+                                  }
+                                }}
+                              >
+                                <span className="material-icons" style={{ fontSize: 16 }}>{item.icon}</span>
+                                <span>{item.label}</span>
+                              </a>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </nav>
         {/* Tooltip */}
@@ -964,6 +1472,20 @@ function TallyDashboard() {
         }}
       >
         <div style={{ marginTop: 50 }}>
+          {showControlPanel ? (
+            controlPanelView === 'tally-config' ? (
+              <TallyConfig />
+            ) : controlPanelView === 'modules' ? (
+              <ModulesManagement />
+            ) : controlPanelView === 'roles' ? (
+              <RolesManagement />
+            ) : controlPanelView === 'create-access' ? (
+              <CreateAccess />
+            ) : controlPanelView === 'share-access' ? (
+              <ShareAccess />
+            ) : null
+          ) : (
+            <>
           {activeSidebar === 'ledger' && <Ledgerbook />}
           {activeSidebar === 'ledgerwise' && <Ledgerbook />}
           {activeSidebar === 'billwise' && <Ledgerbook />}
@@ -973,6 +1495,14 @@ function TallyDashboard() {
             <div style={{ margin: '-20px', padding: '0' }}>
               <SalesDashboard />
             </div>
+          )}
+          {activeSidebar === 'receivables_dashboard' && (
+            <div style={{ margin: '-20px', padding: '0' }}>
+              <ReceivablesDashboard company={currentReceivablesCompany} />
+            </div>
+          )}
+          {activeSidebar === 'voucher_authorization' && <VoucherAuthorization />}
+            </>
           )}
         </div>
       </main>

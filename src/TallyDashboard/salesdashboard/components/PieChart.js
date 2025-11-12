@@ -1,6 +1,6 @@
 import React from 'react';
 
-const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick, showBackButton }) => {
+const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick, showBackButton, rowAction }) => {
   const total = data.reduce((sum, d) => sum + d.value, 0);
 
   // Generate colors if not provided
@@ -218,6 +218,36 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
                 }}>
                   {valuePrefix}{slice.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
+                {rowAction && (
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      rowAction.onClick?.(slice);
+                    }}
+                    title={rowAction.title || 'View raw data'}
+                    style={{
+                      border: 'none',
+                      background: 'transparent',
+                      cursor: 'pointer',
+                      color: '#1e40af',
+                      padding: '2px',
+                      borderRadius: '50%'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#e0e7ff';
+                      e.currentTarget.style.color = '#1e3a8a';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = '#1e40af';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '16px' }}>
+                      {rowAction.icon || 'table_view'}
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
           ))}
