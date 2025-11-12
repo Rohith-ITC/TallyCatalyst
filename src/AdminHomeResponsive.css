@@ -18,10 +18,37 @@
   transition: all 0.3s;
   height: 100vh;
   overflow-y: auto;
+  overflow-x: hidden;
   position: sticky;
   top: 0;
   left: 0;
   z-index: 100;
+}
+
+/* Custom scrollbar for sidebar */
+.adminhome-sidebar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.adminhome-sidebar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+.adminhome-sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+
+.adminhome-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* Firefox scrollbar */
+.adminhome-sidebar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) rgba(0, 0, 0, 0.1);
 }
 .adminhome-main {
   flex: 1;

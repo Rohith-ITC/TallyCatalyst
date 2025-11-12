@@ -5,7 +5,8 @@
  */
 
 // IMPORTANT: This key must match the backend ENCRYPTION_KEY
-const OBFUSCATION_KEY = process.env.REACT_APP_ENCRYPTION_KEY || 'simple-key-123';
+// Must be set via REACT_APP_ENCRYPTION_KEY environment variable
+const OBFUSCATION_KEY = process.env.REACT_APP_ENCRYPTION_KEY || '';
 
 console.log('Deobfuscation key loaded:', OBFUSCATION_KEY);
 console.log('Environment variable REACT_APP_ENCRYPTION_KEY:', process.env.REACT_APP_ENCRYPTION_KEY);
@@ -112,13 +113,10 @@ function deobfuscateValueAlternative(obfuscatedValue) {
   }
 
   try {
-    // Try different keys
-    const alternativeKeys = [
-      'simple-key-123',
-      'TYGpnfpnVrGSBfv7yEdIzRO4ug7Q6YoT',
-      'default-key',
-      'encryption-key'
-    ];
+    // Try alternative keys from environment variable only
+    // Never hardcode encryption keys in production code
+    const alternativeKeys = process.env.REACT_APP_ENCRYPTION_KEY ? 
+      [process.env.REACT_APP_ENCRYPTION_KEY] : [];
 
     for (const key of alternativeKeys) {
       try {

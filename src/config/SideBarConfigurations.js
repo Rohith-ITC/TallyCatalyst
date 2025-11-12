@@ -136,6 +136,38 @@ export const MODULE_SEQUENCE = [
         adv_vchauth           : 'adv_vchauth'
       }
 
+    },
+    {
+      key               : 'vendor_form',
+      id                : 'vendor_form',
+      label             : 'Vendor Creation',
+      icon              : 'person_add',
+      alwaysVisible     : true,
+      permissions       : {}
+    },
+    {
+      key               : 'vendor_authorization',
+      id                : 'vendor_authorization',
+      label             : 'Vendor Authorization',
+      icon              : 'verified_user',
+      alwaysVisible     : true,
+      permissions       : {}
+    },
+    {
+      key               : 'vendor_management',
+      id                : 'vendor_management',
+      label             : 'Vendor Management',
+      icon              : 'business_center',
+      alwaysVisible     : true,
+      permissions       : {}
+    },
+    {
+      key               : 'link_account',
+      id                : 'link_account',
+      label             : 'Link Account',
+      icon              : 'link',
+      alwaysVisible     : true,
+      permissions       : {}
     }
     
   ];
