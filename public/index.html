@@ -68,10 +68,37 @@
       
       function checkVersion() {
         const storedVersion = localStorage.getItem(STORAGE_KEY);
+        
+        // Don't clear if storedVersion is a placeholder (build issue)
+        if (storedVersion && storedVersion.includes('%') && storedVersion.includes('REACT_APP_VERSION')) {
+          console.log('Placeholder version detected, setting to current version without clearing');
+          localStorage.setItem(STORAGE_KEY, APP_VERSION);
+          return;
+        }
+        
         if (storedVersion && storedVersion !== APP_VERSION) {
           console.log('New version detected, clearing cache and reloading...');
+          
+          // Only clear localStorage, NOT sessionStorage (sessionStorage should persist across refreshes)
+          // sessionStorage will naturally clear when the browser tab is closed
           localStorage.clear();
-          sessionStorage.clear();
+          
+          // Clear only cache-related sessionStorage items, preserve authentication
+          const authKeys = ['token', 'email', 'name', 'tallyloc_id', 'company', 'guid', 'status', 'access_type'];
+          const sessionKeys = Object.keys(sessionStorage);
+          
+          sessionKeys.forEach(function(key) {
+            // Only clear cache keys, preserve authentication data
+            const isAuthKey = authKeys.indexOf(key) !== -1;
+            const isCacheKey = key.indexOf('tallycatalyst_') === 0 || 
+                              key.indexOf('ledgerlist-w-addrs_') === 0 || 
+                              key.indexOf('stockitem_') === 0;
+            
+            if (!isAuthKey && isCacheKey) {
+              sessionStorage.removeItem(key);
+            }
+          });
+          
           // Clear all caches
           if ('caches' in window) {
             caches.keys().then(function(names) {
@@ -81,7 +108,7 @@
             });
           }
           window.location.reload(true);
-        } else {
+        } else if (!storedVersion) {
           localStorage.setItem(STORAGE_KEY, APP_VERSION);
         }
       }

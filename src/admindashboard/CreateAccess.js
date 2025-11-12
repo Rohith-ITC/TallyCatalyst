@@ -30,7 +30,10 @@ function CreateAccess() {
   const [ledgerSearchTerm, setLedgerSearchTerm] = useState('');
   const [stockSearchTerm, setStockSearchTerm] = useState('');
   const [stockCategorySearchTerm, setStockCategorySearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState('ledger'); // 'ledger', 'stock', or 'stockcategory'
+  const [voucherTypes, setVoucherTypes] = useState([]);
+  const [selectedVoucherTypes, setSelectedVoucherTypes] = useState([]);
+  const [voucherTypeSearchTerm, setVoucherTypeSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState('ledger'); // 'ledger', 'stock', 'stockcategory', or 'vouchertype'
   const [form, setForm] = useState({ 
     roleId: '', 
     companyGuids: [], 
@@ -224,6 +227,23 @@ function CreateAccess() {
         console.log('⚠️ No stock categories in response or invalid response structure');
       }
 
+      // Fetch voucher types
+      console.log('📡 Fetching voucher types...');
+      const voucherTypeResponse = await apiPost(`/api/tally/vchauth/vouchertype?ts=${cacheBuster}`, payload);
+      console.log('📡 Voucher types response:', voucherTypeResponse);
+      
+      let voucherTypesData = [];
+      if (voucherTypeResponse && voucherTypeResponse.voucherTypes) {
+        voucherTypesData = voucherTypeResponse.voucherTypes.map(voucherType => ({
+          id: voucherType.MASTERID,
+          name: voucherType.NAME,
+          description: `Voucher Type - ${voucherType.NAME}`
+        }));
+        console.log('✅ Processed voucher types:', voucherTypesData);
+      } else {
+        console.log('⚠️ No voucher types in response or invalid response structure');
+      }
+
       // If no data received, add some mock data for testing
       if (ledgerGroupsData.length === 0) {
         console.log('🧪 Using mock ledger groups for testing');
@@ -251,19 +271,31 @@ function CreateAccess() {
         ];
       }
 
+      if (voucherTypesData.length === 0) {
+        console.log('🧪 Using mock voucher types for testing');
+        voucherTypesData = [
+          { id: '1', name: 'Sales', description: 'Voucher Type - Sales' },
+          { id: '2', name: 'Purchase', description: 'Voucher Type - Purchase' },
+          { id: '3', name: 'Payment', description: 'Voucher Type - Payment' }
+        ];
+      }
+
       setLedgerGroups(ledgerGroupsData);
       setStockGroups(stockGroupsData);
       setStockCategories(stockCategoriesData);
+      setVoucherTypes(voucherTypesData);
       
       console.log('🎯 Final state - Ledger groups:', ledgerGroupsData.length);
       console.log('🎯 Final state - Stock groups:', stockGroupsData.length);
       console.log('🎯 Final state - Stock categories:', stockCategoriesData.length);
+      console.log('🎯 Final state - Voucher types:', voucherTypesData.length);
 
     } catch (error) {
       console.error('❌ Error fetching groups:', error);
       setLedgerGroups([]);
       setStockGroups([]);
       setStockCategories([]);
+      setVoucherTypes([]);
     } finally {
       setGroupsLoading(false);
     }
@@ -292,25 +324,30 @@ function CreateAccess() {
         const selectedLedgerGroupIds = (data.data.groups.ledger_groups || []).map(group => group.masterid);
         const selectedStockGroupIds = (data.data.groups.stock_groups || []).map(group => group.masterid);
         const selectedStockCategoryIds = (data.data.groups.stock_categories || []).map(category => category.masterid);
+        const selectedVoucherTypeIds = (data.data.groups.voucher_types || []).map(voucherType => voucherType.masterid);
         
         console.log('📥 Setting selected ledger groups:', selectedLedgerGroupIds);
         console.log('📥 Setting selected stock groups:', selectedStockGroupIds);
         console.log('📥 Setting selected stock categories:', selectedStockCategoryIds);
+        console.log('📥 Setting selected voucher types:', selectedVoucherTypeIds);
         
         setSelectedLedgerGroups(selectedLedgerGroupIds);
         setSelectedStockGroups(selectedStockGroupIds);
         setSelectedStockCategories(selectedStockCategoryIds);
+        setSelectedVoucherTypes(selectedVoucherTypeIds);
       } else {
         console.log('📥 No existing groups found or invalid response');
         setSelectedLedgerGroups([]);
         setSelectedStockGroups([]);
         setSelectedStockCategories([]);
+        setSelectedVoucherTypes([]);
       }
     } catch (error) {
       console.error('❌ Error fetching user company groups:', error);
       setSelectedLedgerGroups([]);
       setSelectedStockGroups([]);
       setSelectedStockCategories([]);
+      setSelectedVoucherTypes([]);
     }
   };
 
@@ -357,6 +394,15 @@ function CreateAccess() {
         };
       });
 
+      // Build voucher types array with name and masterid
+      const voucherTypesPayload = selectedVoucherTypes.map(voucherTypeId => {
+        const voucherType = voucherTypes.find(v => v.id === voucherTypeId);
+        return {
+          name: voucherType ? voucherType.name : '',
+          masterid: voucherTypeId
+        };
+      });
+
       // Try different possible user ID fields
       const userId = editingUser.id || editingUser.user_id || editingUser.email || editingUser.userId;
       
@@ -367,7 +413,8 @@ function CreateAccess() {
         guid: selectedCompanyForGroups.guid,
         ledger_groups: ledgerGroupsPayload,
         stock_groups: stockGroupsPayload,
-        stock_categories: stockCategoriesPayload
+        stock_categories: stockCategoriesPayload,
+        voucher_types: voucherTypesPayload
       };
 
       console.log('💾 Saving group assignments...');
@@ -421,12 +468,15 @@ function CreateAccess() {
     setLedgerGroups([]);
     setStockGroups([]);
     setStockCategories([]);
+    setVoucherTypes([]);
     setSelectedLedgerGroups([]);
     setSelectedStockGroups([]);
     setSelectedStockCategories([]);
+    setSelectedVoucherTypes([]);
     setLedgerSearchTerm('');
     setStockSearchTerm('');
     setStockCategorySearchTerm('');
+    setVoucherTypeSearchTerm('');
     setActiveTab('ledger');
   };
 
@@ -444,6 +494,11 @@ function CreateAccess() {
   const filteredStockCategories = stockCategories.filter(category =>
     category.name.toLowerCase().includes(stockCategorySearchTerm.toLowerCase()) ||
     (category.description && category.description.toLowerCase().includes(stockCategorySearchTerm.toLowerCase()))
+  );
+
+  const filteredVoucherTypes = voucherTypes.filter(voucherType =>
+    voucherType.name.toLowerCase().includes(voucherTypeSearchTerm.toLowerCase()) ||
+    (voucherType.description && voucherType.description.toLowerCase().includes(voucherTypeSearchTerm.toLowerCase()))
   );
 
   useEffect(() => {
@@ -1926,8 +1981,8 @@ function CreateAccess() {
             borderRadius: 16,
             boxShadow: '0 20px 40px 0 rgba(0, 0, 0, 0.15)',
             width: '100%',
-            maxWidth: '600px',
-            maxHeight: '90vh',
+            maxWidth: '750px',
+            height: '600px',
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column'
@@ -1950,6 +2005,17 @@ function CreateAccess() {
                 <p style={{ margin: '4px 0 0 32px', fontSize: 14, color: '#64748b' }}>
                   {selectedCompanyForGroups.name} • {editingUser?.name || editingUser?.email}
                 </p>
+                <div style={{ margin: '8px 0 0 32px', fontSize: 13, color: '#0369a1', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="material-icons" style={{ fontSize: 16, color: '#0369a1' }}>
+                    info
+                  </span>
+                  <span>
+                    {activeTab === 'ledger' && 'Selected Groups of Ledgers will list at the time of Transactions and Reports'}
+                    {activeTab === 'stock' && 'Selected Group of Stockitems will list in the Transcations'}
+                    {activeTab === 'stockcategory' && 'Selected Category of Stockitems will list in the Transcations'}
+                    {activeTab === 'vouchertype' && 'This Configurations is used for Voucher Authorization - Default No TDL'}
+                  </span>
+                </div>
               </div>
               <button
                 onClick={closeGroupModal}
@@ -1971,7 +2037,8 @@ function CreateAccess() {
               padding: '24px', 
               overflowY: 'auto', 
               flex: 1,
-              minHeight: 0
+              minHeight: 0,
+              maxHeight: 'calc(600px - 140px)'
             }}>
               {groupsLoading ? (
                 <div style={{ textAlign: 'center', padding: '40px', color: '#64748b' }}>
@@ -2031,7 +2098,7 @@ function CreateAccess() {
                         account_balance
                       </span>
                       <span style={{ whiteSpace: 'nowrap' }}>
-                        Ledger ({filteredLedgerGroups.length}{ledgerGroups.length !== filteredLedgerGroups.length ? `/${ledgerGroups.length}` : ''})
+                        Ledger Group ({filteredLedgerGroups.length}{ledgerGroups.length !== filteredLedgerGroups.length ? `/${ledgerGroups.length}` : ''})
                       </span>
                     </button>
                     <button
@@ -2071,7 +2138,7 @@ function CreateAccess() {
                         inventory_2
                       </span>
                       <span style={{ whiteSpace: 'nowrap' }}>
-                        Stock ({filteredStockGroups.length}{stockGroups.length !== filteredStockGroups.length ? `/${stockGroups.length}` : ''})
+                        Stock Group ({filteredStockGroups.length}{stockGroups.length !== filteredStockGroups.length ? `/${stockGroups.length}` : ''})
                       </span>
                     </button>
                     <button
@@ -2089,7 +2156,7 @@ function CreateAccess() {
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: 6,
-                        borderRadius: '0 8px 0 0',
+                        borderRadius: '0 0 0 0',
                         borderBottom: activeTab === 'stockcategory' ? '2px solid #F27020' : '2px solid transparent',
                         transition: 'all 0.2s ease',
                         boxShadow: activeTab === 'stockcategory' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
@@ -2112,6 +2179,46 @@ function CreateAccess() {
                       </span>
                       <span style={{ whiteSpace: 'nowrap' }}>
                         Categories ({filteredStockCategories.length}{stockCategories.length !== filteredStockCategories.length ? `/${stockCategories.length}` : ''})
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab('vouchertype')}
+                      style={{
+                        flex: 1,
+                        padding: '12px 16px',
+                        border: 'none',
+                        background: activeTab === 'vouchertype' ? '#fff' : 'transparent',
+                        color: activeTab === 'vouchertype' ? '#1e40af' : '#64748b',
+                        fontWeight: activeTab === 'vouchertype' ? 600 : 500,
+                        fontSize: 14,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        borderRadius: '0 8px 0 0',
+                        borderBottom: activeTab === 'vouchertype' ? '2px solid #F27020' : '2px solid transparent',
+                        transition: 'all 0.2s ease',
+                        boxShadow: activeTab === 'vouchertype' ? '0 2px 4px rgba(0,0,0,0.1)' : 'none'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (activeTab !== 'vouchertype') {
+                          e.target.style.background = '#f1f5f9';
+                          e.target.style.color = '#374151';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (activeTab !== 'vouchertype') {
+                          e.target.style.background = 'transparent';
+                          e.target.style.color = '#64748b';
+                        }
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: 18 }}>
+                        receipt
+                      </span>
+                      <span style={{ whiteSpace: 'nowrap' }}>
+                        VoucherType ({filteredVoucherTypes.length}{voucherTypes.length !== filteredVoucherTypes.length ? `/${voucherTypes.length}` : ''})
                       </span>
                     </button>
                   </div>
@@ -2177,7 +2284,7 @@ function CreateAccess() {
                         <div style={{
                           border: '1px solid #e2e8f0',
                           borderRadius: 8,
-                          maxHeight: '400px',
+                          maxHeight: '320px',
                           overflowY: 'auto',
                           background: '#fff'
                         }}>
@@ -2341,7 +2448,7 @@ function CreateAccess() {
                         <div style={{
                           border: '1px solid #e2e8f0',
                           borderRadius: 8,
-                          maxHeight: '400px',
+                          maxHeight: '320px',
                           overflowY: 'auto',
                           background: '#fff'
                         }}>
@@ -2505,7 +2612,7 @@ function CreateAccess() {
                         <div style={{
                           border: '1px solid #e2e8f0',
                           borderRadius: 8,
-                          maxHeight: '400px',
+                          maxHeight: '320px',
                           overflowY: 'auto',
                           background: '#fff'
                         }}>
@@ -2605,6 +2712,170 @@ function CreateAccess() {
                           }}>
                             <span className="material-icons" style={{ fontSize: 18 }}>check_circle</span>
                             {selectedStockCategories.length} stock categor{selectedStockCategories.length !== 1 ? 'ies' : 'y'} selected
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Voucher Types Tab Content */}
+                    {activeTab === 'vouchertype' && (
+                      <div>
+                        {/* Search Input for Voucher Types */}
+                        <div style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: 12, 
+                          marginBottom: 16,
+                          padding: '12px 16px',
+                          background: '#f8fafc',
+                          borderRadius: 8,
+                          border: '1px solid #e2e8f0'
+                        }}>
+                          <span className="material-icons" style={{ color: '#64748b', fontSize: 20 }}>search</span>
+                          <input
+                            type="text"
+                            value={voucherTypeSearchTerm}
+                            onChange={(e) => setVoucherTypeSearchTerm(e.target.value)}
+                            placeholder="Search voucher types..."
+                            style={{
+                              flex: 1,
+                              padding: '8px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: 6,
+                              fontSize: 14,
+                              outline: 'none',
+                              background: '#fff',
+                              transition: 'border-color 0.2s'
+                            }}
+                            onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
+                            onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+                          />
+                          {voucherTypeSearchTerm && (
+                            <button
+                              onClick={() => setVoucherTypeSearchTerm('')}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                color: '#64748b',
+                                cursor: 'pointer',
+                                padding: '6px',
+                                borderRadius: '4px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                transition: 'background-color 0.2s'
+                              }}
+                              onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
+                              onMouseLeave={(e) => e.target.style.background = 'transparent'}
+                              title="Clear search"
+                            >
+                              <span className="material-icons" style={{ fontSize: 16 }}>clear</span>
+                            </button>
+                          )}
+                        </div>
+                        
+                        <div style={{
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 8,
+                          maxHeight: '320px',
+                          overflowY: 'auto',
+                          background: '#fff'
+                        }}>
+                          {filteredVoucherTypes.length === 0 ? (
+                            <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
+                              <span className="material-icons" style={{ fontSize: 48, color: '#cbd5e1', marginBottom: 12, display: 'block' }}>
+                                receipt
+                              </span>
+                              <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 4 }}>
+                                {voucherTypeSearchTerm ? `No voucher types found matching "${voucherTypeSearchTerm}"` : 'No voucher types found'}
+                              </div>
+                              <div style={{ fontSize: 14, color: '#94a3b8' }}>
+                                {voucherTypeSearchTerm ? 'Try adjusting your search term' : 'No voucher types are available for this company'}
+                              </div>
+                            </div>
+                          ) : (
+                            filteredVoucherTypes.map((voucherType) => (
+                              <label
+                                key={voucherType.id}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  padding: '16px 20px',
+                                  cursor: 'pointer',
+                                  borderBottom: '1px solid #f1f5f9',
+                                  transition: 'background-color 0.2s',
+                                  background: selectedVoucherTypes.includes(voucherType.id) ? '#f0f9ff' : 'transparent'
+                                }}
+                                onMouseEnter={(e) => {
+                                  if (!selectedVoucherTypes.includes(voucherType.id)) {
+                                    e.target.style.background = '#f8fafc';
+                                  }
+                                }}
+                                onMouseLeave={(e) => {
+                                  if (!selectedVoucherTypes.includes(voucherType.id)) {
+                                    e.target.style.background = 'transparent';
+                                  }
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={selectedVoucherTypes.includes(voucherType.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedVoucherTypes(prev => [...prev, voucherType.id]);
+                                    } else {
+                                      setSelectedVoucherTypes(prev => prev.filter(id => id !== voucherType.id));
+                                    }
+                                  }}
+                                  style={{ 
+                                    marginRight: 16, 
+                                    cursor: 'pointer',
+                                    transform: 'scale(1.2)',
+                                    accentColor: '#F27020'
+                                  }}
+                                />
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ 
+                                    fontWeight: 600, 
+                                    color: selectedVoucherTypes.includes(voucherType.id) ? '#1e40af' : '#374151', 
+                                    fontSize: 15,
+                                    marginBottom: 4
+                                  }}>
+                                    {voucherType.name}
+                                  </div>
+                                  {voucherType.description && (
+                                    <div style={{ 
+                                      fontSize: 13, 
+                                      color: '#64748b',
+                                      fontStyle: 'italic'
+                                    }}>
+                                      {voucherType.description}
+                                    </div>
+                                  )}
+                                </div>
+                                {selectedVoucherTypes.includes(voucherType.id) && (
+                                  <span className="material-icons" style={{ 
+                                    fontSize: 20, 
+                                    color: '#F27020' 
+                                  }}>
+                                    check_circle
+                                  </span>
+                                )}
+                              </label>
+                            ))
+                          )}
+                        </div>
+                        {selectedVoucherTypes.length > 0 && (
+                          <div style={{ 
+                            fontSize: 14, 
+                            color: '#F27020', 
+                            marginTop: 12,
+                            fontWeight: 500,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8
+                          }}>
+                            <span className="material-icons" style={{ fontSize: 18 }}>check_circle</span>
+                            {selectedVoucherTypes.length} voucher type{selectedVoucherTypes.length !== 1 ? 's' : ''} selected
                           </div>
                         )}
                       </div>

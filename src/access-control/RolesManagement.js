@@ -616,9 +616,11 @@ function RolesManagement() {
                   onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
                 >
                   <option value="">Select option</option>
-                  {/* TODO: Add options from API when available */}
-                  <option value="option1">Option 1</option>
-                  <option value="option2">Option 2</option>
+                  {permission.permission_options && permission.permission_options.map((option, index) => (
+                    <option key={index} value={option}>
+                      {option}
+                    </option>
+                  ))}
                 </select>
               </div>
             )}

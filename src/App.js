@@ -23,34 +23,31 @@ function ProtectedRoute({ children }) {
   const email = sessionStorage.getItem('email');
   const name = sessionStorage.getItem('name');
 
-  console.log('🔐 ProtectedRoute check for /tally-dashboard:', {
+  // Debug: Detect page refresh
+  const isRefresh = performance.navigation?.type === 1 || 
+                   performance.getEntriesByType('navigation')[0]?.type === 'reload';
+
+  console.log('🔐 ProtectedRoute check:', {
+    isRefresh,
     token: !!token,
     email: !!email,
     name: !!name,
     tokenLength: token ? token.length : 0,
-    emailValue: email,
-    nameValue: name,
-    currentPath: window.location.pathname,
-    allSessionKeys: Object.keys(sessionStorage)
-  });
-
-  // Log all sessionStorage contents
-  console.log('🔐 Full sessionStorage contents:', {
-    token: token ? `${token.substring(0, 20)}...` : null,
-    email,
-    name,
-    tallyloc_id: sessionStorage.getItem('tallyloc_id'),
-    company: sessionStorage.getItem('company'),
-    guid: sessionStorage.getItem('guid')
+    path: window.location.pathname,
+    sessionKeys: Object.keys(sessionStorage),
+    sessionSize: Object.keys(sessionStorage).length
   });
 
   if (!token || !email) {
-    console.log('❌ ProtectedRoute: Authentication failed, redirecting to login');
-    console.log('❌ Missing:', { token: !token, email: !email });
+    console.error('❌ ProtectedRoute: Auth failed - redirecting to login', {
+      missingToken: !token,
+      missingEmail: !email,
+      isRefresh
+    });
     return <Navigate to="/" replace />;
   }
 
-  console.log('✅ ProtectedRoute: Authentication passed, rendering component');
+  console.log('✅ ProtectedRoute: Auth passed');
   return children;
 }
 

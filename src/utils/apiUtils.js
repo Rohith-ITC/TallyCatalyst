@@ -4,20 +4,42 @@ import { addCacheBuster } from './cacheUtils';
 
 // Global logout function
 const handleLogout = () => {
-  console.log('🚨 LOGOUT TRIGGERED! Stack trace:');
+  console.error('🚨🚨🚨 LOGOUT TRIGGERED 🚨🚨🚨');
+  console.error('🚨 Stack trace:');
   console.trace();
-  console.log('🚨 Current sessionStorage before clearing:', {
+  
+  const sessionBefore = {
     token: !!sessionStorage.getItem('token'),
     email: sessionStorage.getItem('email'),
-    company: sessionStorage.getItem('company')
-  });
+    company: sessionStorage.getItem('company'),
+    allKeys: Object.keys(sessionStorage)
+  };
+  
+  console.error('🚨 SessionStorage BEFORE clear:', sessionBefore);
+  console.error('🚨 Redirecting to:', process.env.REACT_APP_HOMEPAGE || '/');
+  
   sessionStorage.clear();
+  
+  console.error('🚨 SessionStorage CLEARED');
+  console.error('🚨 SessionStorage AFTER clear:', {
+    allKeys: Object.keys(sessionStorage),
+    size: Object.keys(sessionStorage).length
+  });
+  
   window.location.href = process.env.REACT_APP_HOMEPAGE || '/';
 };
 
 // Enhanced fetch wrapper with token expiration handling
 export const apiFetch = async (endpoint, options = {}) => {
   const token = sessionStorage.getItem('token');
+  
+  // Debug: Log API call
+  console.log('🌐 API Call:', {
+    endpoint,
+    method: options.method || 'GET',
+    hasToken: !!token,
+    timestamp: new Date().toISOString()
+  });
   
   // Add authorization header if token exists
   const headers = {
@@ -37,14 +59,48 @@ export const apiFetch = async (endpoint, options = {}) => {
 
     // Check for authentication errors
     if (response.status === 401 || response.status === 403) {
-      console.log('Token expired or invalid. Logging out...');
-      handleLogout();
-      return null;
+      // Debug: Check if token exists before logging out
+      const currentToken = sessionStorage.getItem('token');
+      const currentEmail = sessionStorage.getItem('email');
+      
+      console.error('🔴 API Auth Error:', {
+        endpoint,
+        status: response.status,
+        hasToken: !!currentToken,
+        hasEmail: !!currentEmail,
+        sessionKeys: Object.keys(sessionStorage),
+        timestamp: new Date().toISOString()
+      });
+      
+      // Only logout if no token exists OR if this is an auth endpoint
+      const isAuthEndpoint = endpoint.includes('/login') || endpoint.includes('/signup') || 
+                           endpoint.includes('/auth') || endpoint.includes('/verify-token');
+      
+      if (!currentToken || !currentEmail) {
+        console.error('🔴 Logout reason: No token/email in sessionStorage');
+        handleLogout();
+        return null;
+      }
+      
+      if (isAuthEndpoint) {
+        console.error('🔴 Logout reason: Auth endpoint failed');
+        handleLogout();
+        return null;
+      }
+      
+      // For data APIs, throw error instead of logging out (allows refresh to work)
+      console.warn('⚠️ API 401/403 but token exists - throwing error (no logout)');
+      throw new Error(`API authentication error: ${response.status} ${response.statusText}`);
     }
 
+    console.log('✅ API Success:', { endpoint, status: response.status });
     return response;
   } catch (error) {
-    console.error('API request failed:', error);
+    console.error('❌ API Error:', {
+      endpoint,
+      error: error.message,
+      hasAuthError: error.message?.includes('authentication')
+    });
     throw error;
   }
 };
@@ -65,7 +121,34 @@ export const apiPost = async (endpoint, data) => {
     body: JSON.stringify(data),
   });
   if (!response) return null;
-  return response.json();
+  
+  // Handle large JSON responses with better error handling
+  try {
+    const text = await response.text();
+    
+    // Check if response is ok after reading text (since we need to read it only once)
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status} ${response.statusText}. ${text.substring(0, 500)}`);
+    }
+    
+    if (!text) {
+      throw new Error('Empty response from server');
+    }
+    
+    try {
+      return JSON.parse(text);
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      console.error('Response text length:', text.length);
+      console.error('Response preview (first 500 chars):', text.substring(0, 500));
+      throw new Error(`Failed to parse JSON response: ${parseError.message}`);
+    }
+  } catch (error) {
+    if (error.message.includes('parse') || error.message.includes('JSON')) {
+      throw error;
+    }
+    throw new Error(`Failed to read response: ${error.message}`);
+  }
 };
 
 // PUT request helper

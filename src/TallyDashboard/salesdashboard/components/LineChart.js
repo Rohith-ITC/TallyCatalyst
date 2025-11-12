@@ -1,9 +1,29 @@
 import React from 'react';
 
-const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick, showBackButton }) => {
-  const maxValue = Math.max(...data.map(d => d.value));
-  const minValue = Math.min(...data.map(d => d.value));
-  const range = maxValue - minValue;
+const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick, showBackButton, rowAction }) => {
+  // Handle empty or invalid data
+  if (!data || data.length === 0) {
+    return (
+      <div style={{
+        background: 'white',
+        borderRadius: '12px',
+        padding: '20px',
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+        textAlign: 'center',
+        color: '#64748b'
+      }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+          {title}
+        </h3>
+        <p style={{ margin: 0 }}>No data available</p>
+      </div>
+    );
+  }
+
+  const maxValue = Math.max(...data.map(d => d.value || 0));
+  const minValue = Math.min(...data.map(d => d.value || 0));
+  const range = maxValue - minValue || 1; // Avoid division by zero
 
   const width = 600;
   const height = 300;
@@ -12,14 +32,20 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
   const chartHeight = height - padding * 2;
 
   const points = data.map((item, index) => {
-    const x = padding + (index / (data.length - 1)) * chartWidth;
-    const y = padding + chartHeight - ((item.value - minValue) / range) * chartHeight;
+    // Handle single data point or empty data
+    const divisor = Math.max(data.length - 1, 1);
+    const x = padding + (index / divisor) * chartWidth;
+    const y = padding + chartHeight - ((item.value || 0) - minValue) / range * chartHeight;
     return { ...item, x, y };
   });
 
-  const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+  const pathD = points.length > 0 
+    ? points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+    : '';
 
-  const areaPathD = `${pathD} L ${points[points.length - 1].x} ${height - padding} L ${padding} ${height - padding} Z`;
+  const areaPathD = points.length > 0
+    ? `${pathD} L ${points[points.length - 1].x} ${height - padding} L ${padding} ${height - padding} Z`
+    : '';
 
   return (
     <div style={{
@@ -171,6 +197,63 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
           </defs>
         </svg>
       </div>
+      {rowAction && (
+        <div style={{
+          marginTop: '16px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px'
+        }}>
+          {points.map((point, index) => (
+            <div
+              key={`${point.label}-${index}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '8px 12px'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: '500', color: '#475569' }}>{point.label}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span style={{ fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>
+                  {valuePrefix}{(point.value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => rowAction.onClick?.(point)}
+                  title={rowAction.title || 'View raw data'}
+                  style={{
+                    border: 'none',
+                    background: 'transparent',
+                    cursor: 'pointer',
+                    color: '#1e40af',
+                    padding: '2px',
+                    borderRadius: '50%'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#e0e7ff';
+                    e.currentTarget.style.color = '#1e3a8a';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = '#1e40af';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '16px' }}>
+                    {rowAction.icon || 'table_view'}
+                  </span>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };
