@@ -1,9 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { getApiUrl } from '../config';
 import { apiGet, apiPost, apiPut } from '../utils/apiUtils';
-// TEST DATA: Uncomment the line below to use test data instead of API
-import { testCustomers, testRoutes, testRouteAssignments } from '../utils/testRouteData';
-// import { initializeTestData } from '../utils/testRouteData';
 
 function CreateAccess() {
   const [connections, setConnections] = useState([]);
@@ -66,11 +62,14 @@ function CreateAccess() {
   const [routeDescription, setRouteDescription] = useState('');
   const [pincodeInput, setPincodeInput] = useState('');
   const [selectedPincode, setSelectedPincode] = useState('');
+  const [customerSearchInput, setCustomerSearchInput] = useState('');
+  const [filterMode, setFilterMode] = useState('keyword'); // 'pincode' or 'keyword'
   const [selectedCustomers, setSelectedCustomers] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [customersLoading, setCustomersLoading] = useState(false);
   const [customerCoordinates, setCustomerCoordinates] = useState({});
   const [isSavingRoute, setIsSavingRoute] = useState(false);
+  const [selectedCompanies, setSelectedCompanies] = useState([]);
   
   // Edit Route Modal State
   const [showEditRouteModal, setShowEditRouteModal] = useState(false);
@@ -79,9 +78,12 @@ function CreateAccess() {
   const [editRouteDescription, setEditRouteDescription] = useState('');
   const [editPincodeInput, setEditPincodeInput] = useState('');
   const [editSelectedPincode, setEditSelectedPincode] = useState('');
+  const [editCustomerSearchInput, setEditCustomerSearchInput] = useState('');
+  const [editFilterMode, setEditFilterMode] = useState('keyword'); // 'pincode' or 'keyword'
   const [editSelectedCustomers, setEditSelectedCustomers] = useState([]);
   const [editCustomerCoordinates, setEditCustomerCoordinates] = useState({});
   const [isUpdatingRoute, setIsUpdatingRoute] = useState(false);
+  const [editSelectedCompanies, setEditSelectedCompanies] = useState([]);
 
   // Edit Customer Coordinates Modal State
   const [showEditCustomerModal, setShowEditCustomerModal] = useState(false);
@@ -106,13 +108,11 @@ function CreateAccess() {
 
   // Fetch available connections (API call for fresh data - always overwrites cache)
   const fetchConnections = async () => {
-    console.log('fetchConnections called - making API call to overwrite cache');
     setLoading(true);
     setTableError('');
     try {
       // Always make API call to get fresh data and overwrite cache
       const cacheBuster = Date.now();
-      console.log('Making API call with cache buster:', cacheBuster);
       const data = await apiGet(`/api/tally/user-connections?ts=${cacheBuster}`);
       
       if (data && data.success) {
@@ -120,25 +120,16 @@ function CreateAccess() {
         const shared = Array.isArray(data.sharedWithMe) ? data.sharedWithMe : [];
         const allApiConnections = [...created, ...shared];
         
-        console.log('API Response - All connections:', allApiConnections);
-        console.log('API Response - Created by me:', created);
-        console.log('API Response - Shared with me:', shared);
-        
         // Filter for companies with Full Access (same as Share Access)
         const filteredConnections = allApiConnections.filter(conn => 
           conn.status === 'Connected' && conn.access_type === 'Full Access'
         );
         
-        console.log('Filtered connections:', filteredConnections);
-        console.log('Filtered count:', filteredConnections.length);
-        
         // Always update connections state with fresh data
         setConnections(filteredConnections);
-        console.log('Connections state updated with:', filteredConnections.length, 'companies');
         
         // Always overwrite session storage with fresh API data
         sessionStorage.setItem('allConnections', JSON.stringify(allApiConnections));
-        console.log('Session storage overwritten with fresh data');
         
         // Dispatch custom event to notify other components
         window.dispatchEvent(new CustomEvent('connectionsUpdated'));
@@ -162,7 +153,6 @@ function CreateAccess() {
       
       if (data && data.users) {
         setInternalUsers(data.users);
-        console.log('Internal users fetched:', data.users);
       }
     } catch (err) {
       console.error('Error fetching internal users:', err);
@@ -179,7 +169,6 @@ function CreateAccess() {
       
       if (data && data.roles) {
         setRoles(data.roles);
-        console.log('Roles fetched:', data.roles);
       }
     } catch (err) {
       console.error('Error fetching roles:', err);
@@ -925,20 +914,124 @@ function CreateAccess() {
 
   // Geocoding function - using OpenStreetMap Nominatim API (free, no key required)
   const geocodeAddress = async (address) => {
+    if (!address || !address.trim()) {
+      console.error('Geocoding: Empty address provided');
+      return null;
+    }
+
     try {
-      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`, {
+      // Clean and format the address
+      const cleanAddress = address.trim();
+      console.log('Geocoding address:', cleanAddress);
+
+      // Try multiple geocoding strategies
+      const strategies = [
+        // Strategy 1: Full address
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanAddress)}&limit=1&addressdetails=1`,
+        // Strategy 2: Address with city/state (if full address fails)
+        cleanAddress.includes(',') ? `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanAddress.split(',').slice(-2).join(',').trim())}&limit=1&addressdetails=1` : null,
+        // Strategy 3: Just the city/area name
+        cleanAddress.includes(',') ? `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cleanAddress.split(',').pop().trim())}&limit=1&addressdetails=1` : null
+      ].filter(Boolean);
+
+      for (const url of strategies) {
+        try {
+          console.log('Trying geocoding URL:', url);
+          
+          // Create abort controller for timeout
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+          // Try direct fetch first, then CORS proxy if needed
+          let response;
+          try {
+            response = await fetch(url, {
+              method: 'GET',
         headers: {
-          'User-Agent': 'TallyCatalyst/1.0'
-        }
-      });
-      const data = await response.json();
-      if (data && data.length > 0) {
+                'User-Agent': 'TallyCatalyst/1.0 (Contact: support@tallycatalyst.com)',
+                'Accept': 'application/json',
+                'Accept-Language': 'en-US,en;q=0.9'
+              },
+              signal: controller.signal,
+              mode: 'cors'
+            });
+          } catch (corsError) {
+            // If CORS fails, try using a CORS proxy
+            console.warn('Direct fetch failed, trying CORS proxy:', corsError);
+            const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+            const proxyResponse = await fetch(proxyUrl, {
+              signal: controller.signal,
+              mode: 'cors'
+            });
+            
+            if (proxyResponse.ok) {
+              const proxyData = await proxyResponse.json();
+              // Parse the JSON content from the proxy response
+              const parsedData = JSON.parse(proxyData.contents);
+              // Create a mock response object
+              response = {
+                ok: true,
+                json: async () => parsedData
+              };
+            } else {
+              throw corsError; // Re-throw if proxy also fails
+            }
+          }
+
+          clearTimeout(timeoutId);
+
+          // Handle response (either direct or from proxy)
+          let data;
+          if (response.json && typeof response.json === 'function') {
+            // Normal response
+            if (!response.ok) {
+              console.warn('Geocoding response not OK:', response.status, response.statusText);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              continue;
+            }
+            data = await response.json();
+          } else {
+            // Proxy response (already parsed)
+            data = response;
+          }
+          
+          console.log('Geocoding response:', data);
+
+          if (data && Array.isArray(data) && data.length > 0) {
+            const result = data[0];
+            const lat = parseFloat(result.lat);
+            const lng = parseFloat(result.lon);
+
+            if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+              console.log('Geocoding success:', { lat, lng, displayName: result.display_name });
         return {
-          latitude: parseFloat(data[0].lat),
-          longitude: parseFloat(data[0].lon),
-          displayName: data[0].display_name
-        };
+                latitude: lat,
+                longitude: lng,
+                displayName: result.display_name || cleanAddress
+              };
+            } else {
+              console.warn('Invalid coordinates returned:', { lat, lng });
+            }
+          } else {
+            console.warn('No results found for address:', cleanAddress);
+          }
+
+          // Wait before next strategy (rate limit: 1 request per second)
+          if (strategies.indexOf(url) < strategies.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        } catch (fetchError) {
+          console.error('Geocoding fetch error:', fetchError);
+          // If it's a network/CORS error, try next strategy
+          if (fetchError.name === 'TypeError' || fetchError.name === 'AbortError') {
+            continue;
+          }
+          // For other errors, wait and continue
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
+
+      console.error('All geocoding strategies failed for address:', cleanAddress);
       return null;
     } catch (error) {
       console.error('Geocoding error:', error);
@@ -950,62 +1043,150 @@ function CreateAccess() {
   const loadCustomers = async () => {
     setCustomersLoading(true);
     try {
-      // TEST DATA: Using test data from testRouteData.js
-      // To switch back to API: Comment out the testCustomers import above and uncomment the API code below
-      if (testCustomers && testCustomers.length > 0) {
-        // Use test data
-        setCustomers(testCustomers);
-        // Also store in localStorage for consistency
-        localStorage.setItem('route_customers', JSON.stringify(testCustomers));
+      // API CODE: Using real API endpoint /api/tally/ledgerlist-w-addrs
+      // Clear old cache to force fresh fetch with company names
+      // (Remove this line after first successful load if you want to keep caching)
+      const cacheVersion = localStorage.getItem('route_customers_version');
+      const currentVersion = '2.0'; // Increment when cache structure changes
+      
+      // Try to get from localStorage first (cache) - but only if version matches
+      if (cacheVersion === currentVersion) {
+        const storedCustomers = localStorage.getItem('route_customers');
+        if (storedCustomers) {
+          try {
+            const parsed = JSON.parse(storedCustomers);
+            // Verify that cached data has companyName field
+            const hasCompanyNames = parsed.length > 0 && parsed[0].companyName;
+            if (hasCompanyNames) {
+              setCustomers(parsed);
         setCustomersLoading(false);
+              console.log('✅ Customers loaded from cache:', parsed.length);
         return;
+            } else {
+              console.log('⚠️ Cached data missing companyName, fetching fresh data');
+              localStorage.removeItem('route_customers');
+            }
+          } catch (e) {
+            console.warn('Failed to parse cached customers:', e);
+          }
+        }
+      } else {
+        // Clear old cache if version doesn't match
+        console.log('⚠️ Cache version mismatch, clearing old cache');
+        localStorage.removeItem('route_customers');
       }
 
-      // API CODE: Uncomment below and comment out testCustomers import to use API
-      // Try to get from localStorage first (SQLite simulation)
-      // const storedCustomers = localStorage.getItem('route_customers');
-      // if (storedCustomers) {
-      //   const parsed = JSON.parse(storedCustomers);
-      //   setCustomers(parsed);
-      //   setCustomersLoading(false);
-      //   return;
-      // }
-
-      // // If no localStorage, try to fetch from API using ledgerlist endpoint
-      // // Get first available company
-      // if (connections.length > 0) {
-      //   const company = connections[0];
-      //   const payload = {
-      //     tallyloc_id: company.tallyloc_id,
-      //     company: company.company || company.companyName,
-      //     guid: company.guid
-      //   };
-      //   
-      //   const data = await apiPost(`/api/tally/ledgerlist-w-addrs?ts=${Date.now()}`, payload);
-      //   
-      //   if (data && data.ledgers && Array.isArray(data.ledgers)) {
-      //     const customersData = data.ledgers.map(ledger => ({
-      //       customer_id: ledger.MASTERID || ledger.NAME,
-      //       name: ledger.NAME,
-      //       pincode: ledger.PINCODE || '',
-      //       address: ledger.ADDRESS || '',
-      //       latitude: ledger.latitude || null,
-      //       longitude: ledger.longitude || null
-      //     }));
-      //     
-      //     // Store in localStorage (SQLite simulation)
-      //     localStorage.setItem('route_customers', JSON.stringify(customersData));
-      //     setCustomers(customersData);
-      //   }
-      // }
+      // If no localStorage cache, fetch from API using ledgerlist endpoint
+      // Fetch from ALL available companies
+      if (connections.length > 0) {
+        const allCustomersData = [];
+        
+        // Fetch customers from all companies in parallel
+        const fetchPromises = connections.map(async (company) => {
+          // Extract company name - check multiple possible property names
+          const companyName = company.company || company.companyName || company.name || 'Unknown Company';
+          const payload = {
+            tallyloc_id: company.tallyloc_id,
+            company: companyName,
+            guid: company.guid
+          };
+          
+          try {
+            console.log('📡 Fetching customers from API for company:', companyName, 'Full company object:', company);
+            const data = await apiPost(`/api/tally/ledgerlist-w-addrs?ts=${Date.now()}`, payload);
+            
+            if (data && data.ledgers && Array.isArray(data.ledgers)) {
+              return data.ledgers.map(ledger => ({
+                customer_id: ledger.MASTERID || ledger.NAME,
+                name: ledger.NAME,
+                pincode: ledger.PINCODE || '',
+                address: ledger.ADDRESS || '',
+                companyName: companyName, // Use the extracted company name
+                latitude: ledger.latitude || null,
+                longitude: ledger.longitude || null
+              }));
+            }
+            return [];
+          } catch (error) {
+            console.error(`Error fetching customers for company ${companyName}:`, error);
+            return [];
+          }
+        });
+        
+        // Wait for all API calls to complete
+        const results = await Promise.all(fetchPromises);
+        
+        // Flatten all results into a single array
+        results.forEach(companyCustomers => {
+          allCustomersData.push(...companyCustomers);
+        });
+        
+        // Store in localStorage (cache) with version
+        try {
+          localStorage.setItem('route_customers', JSON.stringify(allCustomersData));
+          localStorage.setItem('route_customers_version', '2.0');
+          console.log('✅ Cached customers with company names');
+        } catch (cacheError) {
+          console.warn('Failed to cache customers:', cacheError.message);
+        }
+        
+        setCustomers(allCustomersData);
+        console.log(`✅ Customers loaded from API (${connections.length} companies):`, allCustomersData.length);
+        // Log sample to verify company names are present
+        if (allCustomersData.length > 0) {
+          console.log('📋 Sample customer:', allCustomersData[0]);
+        }
+      } else {
+        console.warn('⚠️ No connections available to fetch customers');
+        setCustomers([]);
+      }
     } catch (error) {
       console.error('Error loading customers:', error);
+      setCustomers([]);
     } finally {
       setCustomersLoading(false);
     }
   };
 
-  // Get unique pincodes from customers
+  // Get unique company names from customers
+  const uniqueCompanies = useMemo(() => {
+    const companies = new Set();
+    customers.forEach(customer => {
+      if (customer.companyName && customer.companyName.trim() !== '') {
+        companies.add(customer.companyName.trim());
+      }
+    });
+    return Array.from(companies).sort();
+  }, [customers]);
+
+  // Initialize selectedCompanies when uniqueCompanies changes (default: all selected)
+  useEffect(() => {
+    if (uniqueCompanies.length > 0) {
+      setSelectedCompanies(prev => {
+        // If no previous selection, select all
+        if (prev.length === 0) {
+          return [...uniqueCompanies];
+        }
+        // Add any new companies that appeared, remove companies that no longer exist
+        const validCompanies = prev.filter(c => uniqueCompanies.includes(c));
+        const newCompanies = uniqueCompanies.filter(c => !prev.includes(c));
+        return [...validCompanies, ...newCompanies];
+      });
+    } else {
+      // If no companies available, clear selection
+      setSelectedCompanies([]);
+    }
+  }, [uniqueCompanies]);
+
+  // Initialize editSelectedCompanies when Edit Route modal opens (default: all selected)
+  useEffect(() => {
+    if (showEditRouteModal && uniqueCompanies.length > 0) {
+      // When Edit Route modal opens, select all available companies by default
+      setEditSelectedCompanies([...uniqueCompanies]);
+    }
+  }, [showEditRouteModal, uniqueCompanies]);
+
+  // Get unique pincodes from customers (all companies)
   const uniquePincodes = useMemo(() => {
     const pincodes = new Set();
     customers.forEach(customer => {
@@ -1016,23 +1197,47 @@ function CreateAccess() {
     return Array.from(pincodes).sort();
   }, [customers]);
 
-  // Filter pincodes based on input
+  // Get unique pincodes from selected companies only (for Create Route modal)
+  const uniquePincodesForSelectedCompanies = useMemo(() => {
+    const pincodes = new Set();
+    customers
+      .filter(customer => {
+        const customerCompany = customer.companyName || 'Unknown Company';
+        return selectedCompanies.includes(customerCompany);
+      })
+      .forEach(customer => {
+        if (customer.pincode && customer.pincode.trim() !== '') {
+          pincodes.add(customer.pincode.trim());
+        }
+      });
+    return Array.from(pincodes).sort();
+  }, [customers, selectedCompanies]);
+
+  // Filter pincodes based on input and selected companies
   const filteredPincodes = useMemo(() => {
     if (!pincodeInput.trim()) {
       return [];
     }
     const input = pincodeInput.trim().toLowerCase();
-    return uniquePincodes.filter(pincode => 
+    return uniquePincodesForSelectedCompanies.filter(pincode => 
       pincode.toLowerCase().includes(input)
     ).slice(0, 10);
-  }, [pincodeInput, uniquePincodes]);
+  }, [pincodeInput, uniquePincodesForSelectedCompanies]);
 
-  // Filter customers by selected pincode (for display only - selections persist across pincodes)
+  // Filter customers by pincode or keyword search, and by selected companies
   const filteredCustomersForRoute = useMemo(() => {
+    // First filter by selected companies
+    const companyFilteredCustomers = customers.filter(customer => {
+      const customerCompany = customer.companyName || 'Unknown Company';
+      return selectedCompanies.includes(customerCompany);
+    });
+
+    // Pincode mode
+    if (filterMode === 'pincode') {
     if (!selectedPincode) {
       return [];
     }
-    return customers
+    return companyFilteredCustomers
       .filter(customer => customer.pincode && customer.pincode.trim() === selectedPincode)
       .map(customer => {
         const customerId = customer.customer_id;
@@ -1045,29 +1250,99 @@ function CreateAccess() {
           name: customer.name,
           pincode: customer.pincode || '',
           address: customer.address || '',
+            companyName: customer.companyName || 'Unknown Company',
           latitude: coords.latitude,
           longitude: coords.longitude,
         };
       });
-  }, [customers, selectedPincode, customerCoordinates]);
+    }
+    
+    // Keyword search mode
+    if (filterMode === 'keyword') {
+      if (!customerSearchInput.trim()) {
+        return [];
+      }
+      
+      const searchTerm = customerSearchInput.trim().toLowerCase();
+      
+      return companyFilteredCustomers
+        .filter(customer => {
+          // Search across multiple fields
+          const searchableFields = [
+            customer.name || '',
+            customer.pincode || '',
+            customer.address || '',
+            customer.companyName || '',
+            customer.customer_id || '',
+          ];
+          
+          // Check if search term matches any field
+          return searchableFields.some(field => 
+            field.toLowerCase().includes(searchTerm)
+          );
+        })
+        .map(customer => {
+          const customerId = customer.customer_id;
+          const coords = customerCoordinates[customerId] || { 
+            latitude: customer.latitude || null, 
+            longitude: customer.longitude || null 
+          };
+          return {
+            id: customerId,
+            name: customer.name,
+            pincode: customer.pincode || '',
+            address: customer.address || '',
+            companyName: customer.companyName || 'Unknown Company',
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          };
+        });
+    }
+    
+    return [];
+  }, [customers, selectedPincode, customerSearchInput, filterMode, customerCoordinates, selectedCompanies]);
 
-  // Edit Route: Filtered pincodes
+  // Get unique pincodes from selected companies only (for Edit Route modal)
+  const editUniquePincodesForSelectedCompanies = useMemo(() => {
+    const pincodes = new Set();
+    customers
+      .filter(customer => {
+        const customerCompany = customer.companyName || 'Unknown Company';
+        return editSelectedCompanies.includes(customerCompany);
+      })
+      .forEach(customer => {
+        if (customer.pincode && customer.pincode.trim() !== '') {
+          pincodes.add(customer.pincode.trim());
+        }
+      });
+    return Array.from(pincodes).sort();
+  }, [customers, editSelectedCompanies]);
+
+  // Edit Route: Filtered pincodes based on input and selected companies
   const editFilteredPincodes = useMemo(() => {
     if (!editPincodeInput.trim()) {
       return [];
     }
     const input = editPincodeInput.trim().toLowerCase();
-    return uniquePincodes.filter(pincode => 
+    return editUniquePincodesForSelectedCompanies.filter(pincode => 
       pincode.toLowerCase().includes(input)
     ).slice(0, 10);
-  }, [editPincodeInput, uniquePincodes]);
+  }, [editPincodeInput, editUniquePincodesForSelectedCompanies]);
 
-  // Edit Route: Filter customers by selected pincode
+  // Edit Route: Filter customers by pincode or keyword search, and by selected companies
   const editFilteredCustomersForRoute = useMemo(() => {
+    // First filter by selected companies
+    const companyFilteredCustomers = customers.filter(customer => {
+      const customerCompany = customer.companyName || 'Unknown Company';
+      return editSelectedCompanies.includes(customerCompany);
+    });
+
+    // Pincode mode
+    if (editFilterMode === 'pincode') {
     if (!editSelectedPincode) {
       return [];
     }
-    return customers
+    return companyFilteredCustomers
       .filter(customer => customer.pincode && customer.pincode.trim() === editSelectedPincode)
       .map(customer => {
         const customerId = customer.customer_id;
@@ -1080,78 +1355,68 @@ function CreateAccess() {
           name: customer.name,
           pincode: customer.pincode || '',
           address: customer.address || '',
+            companyName: customer.companyName || 'Unknown Company',
           latitude: coords.latitude,
           longitude: coords.longitude,
         };
       });
-  }, [customers, editSelectedPincode, editCustomerCoordinates]);
+    }
+    
+    // Keyword search mode
+    if (editFilterMode === 'keyword') {
+      if (!editCustomerSearchInput.trim()) {
+        return [];
+      }
+      
+      const searchTerm = editCustomerSearchInput.trim().toLowerCase();
+      
+      return companyFilteredCustomers
+        .filter(customer => {
+          // Search across multiple fields
+          const searchableFields = [
+            customer.name || '',
+            customer.pincode || '',
+            customer.address || '',
+            customer.companyName || '',
+            customer.customer_id || '',
+          ];
+          
+          // Check if search term matches any field
+          return searchableFields.some(field => 
+            field.toLowerCase().includes(searchTerm)
+          );
+        })
+        .map(customer => {
+          const customerId = customer.customer_id;
+          const coords = editCustomerCoordinates[customerId] || { 
+            latitude: customer.latitude || null, 
+            longitude: customer.longitude || null 
+          };
+          return {
+            id: customerId,
+            name: customer.name,
+            pincode: customer.pincode || '',
+            address: customer.address || '',
+            companyName: customer.companyName || 'Unknown Company',
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          };
+        });
+    }
+    
+    return [];
+  }, [customers, editSelectedPincode, editCustomerSearchInput, editFilterMode, editCustomerCoordinates, editSelectedCompanies]);
 
   // Fetch routes from API or localStorage
   const fetchRoutes = async () => {
     setRoutesLoading(true);
     try {
-      // TEST DATA: Using test data from testRouteData.js
-      // To switch back to API: Comment out the testRoutes/testRouteAssignments import above and uncomment the API code below
-      if (testRoutes && testRoutes.length > 0) {
-        // Use test data
-        const routesWithAssignments = testRoutes.map(route => {
-          const assignment = testRouteAssignments?.find(a => a.route_id === route.id);
-          return {
-            ...route,
-            assignedTo: assignment?.user_id || null,
-            customerCount: route.customer_ids?.length || route.customerCount || 0
-          };
-        });
-        
-        setRoutes(routesWithAssignments);
-        // Also store in localStorage for consistency
-        localStorage.setItem('routes', JSON.stringify(testRoutes));
-        localStorage.setItem('route_assignments', JSON.stringify(testRouteAssignments || []));
-        console.log('✅ Routes loaded from test data:', routesWithAssignments.length);
-        setRoutesLoading(false);
-        return;
-      }
-
-      // API CODE: Uncomment below and comment out testRoutes/testRouteAssignments import to use API
-      // Try API first
-      // let routesFromAPI = null;
-      // try {
-      //   const [routesData, assignmentsData] = await Promise.all([
-      //     apiGet('/api/routes'),
-      //     apiGet('/api/routes/assignments')
-      //   ]);
-      //   
-      //   // Check if API returned valid data
-      //   if (routesData && routesData.routes && Array.isArray(routesData.routes) && routesData.routes.length > 0) {
-      //     // Merge assignments with routes
-      //     const routesWithAssignments = routesData.routes.map(route => {
-      //       const assignment = assignmentsData?.assignments?.find(a => a.route_id === route.id);
-      //       return {
-      //         ...route,
-      //         assignedTo: assignment?.user_id || null,
-      //         customerCount: route.customer_ids?.length || route.customerCount || 0
-      //       };
-      //     });
-      //     console.log('✅ Routes loaded from API:', routesWithAssignments.length);
-      //     routesFromAPI = routesWithAssignments;
-      //   } else {
-      //     console.log('⚠️ API returned invalid/empty data, falling back to localStorage');
-      //   }
-      // } catch (apiError) {
-      //   console.log('⚠️ API not available, using localStorage:', apiError);
-      // }
-      
-      // API CODE: Fallback to localStorage if API is not available
-      // If API didn't return valid data, use localStorage
-      // if (!routesFromAPI) {
-        // Fallback to localStorage (SQLite simulation)
+      // API CODE: Using real API or localStorage
+      // Fallback to localStorage (SQLite simulation)
         const storedRoutes = JSON.parse(localStorage.getItem('routes') || '[]');
         const storedAssignments = JSON.parse(localStorage.getItem('route_assignments') || '[]');
         
         if (storedRoutes.length > 0) {
-          console.log('📦 Loading routes from localStorage:', storedRoutes.length, 'routes found');
-          console.log('📦 Route assignments:', storedAssignments.length, 'assignments found');
-          
           // Merge assignments with routes
           const routesWithAssignments = storedRoutes.map(route => {
             const assignment = storedAssignments.find(a => a.route_id === route.id);
@@ -1162,22 +1427,10 @@ function CreateAccess() {
             };
           });
           
-          console.log('✅ Routes loaded and merged:', routesWithAssignments.length);
           setRoutes(routesWithAssignments);
         } else {
-          console.log('⚠️ No routes found in localStorage');
           setRoutes([]);
         }
-      // }
-      
-      // Update state with routes (from API or localStorage) - API CODE
-      // if (routesFromAPI) {
-      //   setRoutes(routesFromAPI);
-      //   console.log('✅ Routes state updated with', routesFromAPI.length, 'routes');
-      // } else {
-      //   console.log('⚠️ No routes found in API or localStorage');
-      //   setRoutes([]);
-      // }
     } catch (error) {
       console.error('Error fetching routes:', error);
       setRoutes([]);
@@ -1268,6 +1521,8 @@ function CreateAccess() {
       setRouteDescription('');
       setSelectedPincode('');
       setPincodeInput('');
+      setCustomerSearchInput('');
+      setFilterMode('keyword');
       setSelectedCustomers([]);
       setShowCreateRouteModal(false);
       
@@ -1454,17 +1709,21 @@ function CreateAccess() {
 
     setIsGeocoding(true);
     try {
+      console.log('Fetching coordinates for address:', editingCustomer.address);
       const result = await geocodeAddress(editingCustomer.address);
+      
       if (result) {
         setEditLatitude(result.latitude.toString());
         setEditLongitude(result.longitude.toString());
-        alert(`Coordinates fetched: ${result.displayName}`);
+        console.log('Coordinates successfully fetched:', result);
+        alert(`Coordinates fetched successfully!\nLocation: ${result.displayName}\nLat: ${result.latitude.toFixed(6)}, Lng: ${result.longitude.toFixed(6)}`);
       } else {
-        alert('Could not find coordinates for this address. Please try entering manually.');
+        console.error('Geocoding returned null for address:', editingCustomer.address);
+        alert('Could not find coordinates for this address. The address might be too specific or incomplete. Please try:\n\n1. Using "Select on Map" to pick the location manually\n2. Entering coordinates manually\n3. Checking if the address format is correct');
       }
     } catch (error) {
-      console.error('Geocoding error:', error);
-      alert('Failed to fetch coordinates. Please try again or enter manually.');
+      console.error('Geocoding error in handleFetchFromAddress:', error);
+      alert(`Failed to fetch coordinates: ${error.message || 'Unknown error'}\n\nPlease try:\n1. Using "Select on Map" to pick the location\n2. Entering coordinates manually`);
     } finally {
       setIsGeocoding(false);
     }
@@ -1538,6 +1797,8 @@ function CreateAccess() {
     setEditSelectedCustomers(route.customer_ids || []);
     setEditPincodeInput('');
     setEditSelectedPincode('');
+    setEditCustomerSearchInput('');
+    setEditFilterMode('keyword');
     
     // Load customer coordinates if available
     if (route.customer_coordinates && Array.isArray(route.customer_coordinates)) {
@@ -1635,6 +1896,8 @@ function CreateAccess() {
       setEditRouteDescription('');
       setEditSelectedPincode('');
       setEditPincodeInput('');
+      setEditCustomerSearchInput('');
+      setEditFilterMode('keyword');
       setEditSelectedCustomers([]);
       setEditCustomerCoordinates({});
       setEditingRoute(null);
@@ -1906,7 +2169,7 @@ function CreateAccess() {
             borderRadius: 14,
             border: 'none',
             background: userManagementTab === 'routes' 
-              ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)' 
+              ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' 
               : 'transparent',
             color: userManagementTab === 'routes' ? '#fff' : '#64748b',
             fontSize: 15,
@@ -1917,7 +2180,7 @@ function CreateAccess() {
             justifyContent: 'center',
             gap: 10,
             transition: 'all 0.3s ease',
-            boxShadow: userManagementTab === 'routes' ? '0 4px 12px rgba(16, 185, 129, 0.3)' : 'none'
+            boxShadow: userManagementTab === 'routes' ? '0 4px 12px rgba(59, 130, 246, 0.3)' : 'none'
           }}
           onMouseEnter={(e) => {
             if (userManagementTab !== 'routes') {
@@ -3237,17 +3500,17 @@ function CreateAccess() {
               width: 48,
               height: 48,
               borderRadius: 12,
-              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 4px 15px rgba(16, 185, 129, 0.3)'
+              boxShadow: '0 4px 15px rgba(59, 130, 246, 0.3)'
             }}>
               <span className="material-icons" style={{ fontSize: 28, color: '#fff' }}>route</span>
             </div>
             <div>
               <h3 style={{ color: '#1e293b', fontWeight: 800, margin: 0, fontSize: 24, letterSpacing: '-0.5px' }}>
-                Routes <span style={{ color: '#10b981', fontWeight: 600 }}>({routes.filter(route => 
+                Routes <span style={{ color: '#3b82f6', fontWeight: 600 }}>({routes.filter(route => 
                   routeSearchTerm === '' || 
                   route.name?.toLowerCase().includes(routeSearchTerm.toLowerCase()) ||
                   route.assignedTo?.toLowerCase().includes(routeSearchTerm.toLowerCase())
@@ -3271,15 +3534,15 @@ function CreateAccess() {
               transition: 'all 0.3s ease'
             }}
             onFocus={(e) => {
-              e.currentTarget.style.borderColor = '#10b981';
-              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(16, 185, 129, 0.1)';
+              e.currentTarget.style.borderColor = '#3b82f6';
+              e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
             }}
             onBlur={(e) => {
               e.currentTarget.style.borderColor = '#e5e7eb';
               e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)';
             }}
             >
-              <span className="material-icons" style={{ color: '#10b981', fontSize: 22 }}>search</span>
+              <span className="material-icons" style={{ color: '#3b82f6', fontSize: 22 }}>search</span>
               <input
                 type="text"
                 value={routeSearchTerm}
@@ -3301,7 +3564,7 @@ function CreateAccess() {
             <button
               style={{
                 padding: '12px 24px',
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: 12,
@@ -3312,26 +3575,30 @@ function CreateAccess() {
                 alignItems: 'center',
                 gap: 8,
                 transition: 'all 0.3s ease',
-                boxShadow: '0 4px 15px rgba(16, 185, 129, 0.3)'
+                boxShadow: '0 4px 15px rgba(59, 130, 246, 0.3)'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+                e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
                 e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 6px 20px rgba(16, 185, 129, 0.4)';
+                e.currentTarget.style.boxShadow = '0 6px 20px rgba(59, 130, 246, 0.4)';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                e.currentTarget.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(16, 185, 129, 0.3)';
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(59, 130, 246, 0.3)';
               }}
               onClick={() => {
                 setRouteName('');
                 setRouteDescription('');
                 setPincodeInput('');
                 setSelectedPincode('');
+                setCustomerSearchInput('');
+                setFilterMode('keyword');
                 setSelectedCustomers([]);
                 setCustomerCoordinates({});
                 loadCustomers();
+                // Reset company selection to all companies (will be set by useEffect when uniqueCompanies is available)
+                setSelectedCompanies([]);
                 setShowCreateRouteModal(true);
               }}
             >
@@ -3399,7 +3666,7 @@ function CreateAccess() {
           }}>
             <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 14 }}>
               <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
-                <tr style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)' }}>
+                <tr style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' }}>
                   <th style={{ 
                     padding: '16px 20px', 
                     textAlign: 'left', 
@@ -3471,9 +3738,9 @@ function CreateAccess() {
                       transition: 'all 0.2s ease'
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)';
+                      e.currentTarget.style.background = 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)';
                       e.currentTarget.style.transform = 'scale(1.01)';
-                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.1)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.1)';
                     }}
                     onMouseLeave={(e) => {
                       e.currentTarget.style.background = index % 2 === 0 ? '#ffffff' : '#f8fafc';
@@ -3541,7 +3808,7 @@ function CreateAccess() {
                         }}>
                           <span style={{
                             padding: '6px 12px',
-                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                             color: '#ffffff',
                             borderRadius: 8,
                             fontSize: 12,
@@ -3550,7 +3817,7 @@ function CreateAccess() {
                             display: 'inline-flex',
                             alignItems: 'center',
                             gap: 4,
-                            boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)'
+                            boxShadow: '0 2px 8px rgba(59, 130, 246, 0.25)'
                           }}>
                             <span className="material-icons" style={{ fontSize: 16 }}>people</span>
                             {route.customerCount || route.customer_names?.length || 0} total
@@ -5034,69 +5301,349 @@ function CreateAccess() {
       {showCreateRouteModal && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-          padding: 20
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          padding: 20, animation: 'fadeIn 0.2s ease-in'
         }}>
           <div style={{
-            width: '100%', maxWidth: 800, maxHeight: '90vh', background: '#fff', borderRadius: 16,
-            boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden', display: 'flex', flexDirection: 'column'
+            width: '100%', maxWidth: 900, maxHeight: '90vh', background: '#fff', borderRadius: 20,
+            boxShadow: '0 25px 60px rgba(0,0,0,0.25)', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+            animation: 'slideUp 0.3s ease-out'
           }}>
-            <div style={{ padding: 20, borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className="material-icons" style={{ color: '#3b82f6', fontSize: 24 }}>route</span>
-                <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 20 }}>Create Route</div>
+            <div style={{ 
+              padding: '24px 28px', 
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 12,
+                  background: 'rgba(255,255,255,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backdropFilter: 'blur(10px)'
+                }}>
+                  <span className="material-icons" style={{ color: '#fff', fontSize: 28 }}>route</span>
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, color: '#fff', fontSize: 22, marginBottom: 2 }}>Create Route</div>
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>Add a new route with customers</div>
+                </div>
               </div>
-              <button onClick={() => setShowCreateRouteModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 24, color: '#64748b' }}>
+              <button 
+                onClick={() => setShowCreateRouteModal(false)} 
+                style={{ 
+                  border: 'none', 
+                  background: 'rgba(255,255,255,0.2)', 
+                  cursor: 'pointer', 
+                  fontSize: 24, 
+                  color: '#fff',
+                  width: 36,
+                  height: 36,
+                  borderRadius: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(255,255,255,0.3)';
+                  e.target.style.transform = 'rotate(90deg)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(255,255,255,0.2)';
+                  e.target.style.transform = 'rotate(0deg)';
+                }}
+              >
                 ×
               </button>
             </div>
             
-            <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
+            <div style={{ padding: 28, overflowY: 'auto', flex: 1, background: '#f8fafc' }}>
               {/* Route Name */}
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ fontWeight: 600, color: '#374151', marginBottom: 8, display: 'block', fontSize: 14 }}>Route Name *</label>
-                <input 
-                  type="text"
-                  value={routeName} 
-                  onChange={(e) => setRouteName(e.target.value)} 
-                  placeholder="Enter route name"
-                  style={{ 
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '2px solid #e5e7eb', 
-                    width: '100%', 
-                    fontSize: 15, 
-                    background: '#fff',
-                    boxSizing: 'border-box'
-                  }} 
-                />
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ 
+                  fontWeight: 600, 
+                  color: '#1e293b', 
+                  marginBottom: 10, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 15 
+                }}>
+                  <span className="material-icons" style={{ fontSize: 18, color: '#3b82f6' }}>label</span>
+                  Route Name <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type="text"
+                    value={routeName} 
+                    onChange={(e) => setRouteName(e.target.value)} 
+                    placeholder="Enter route name"
+                    style={{ 
+                      padding: '14px 16px 14px 48px', 
+                      borderRadius: 12, 
+                      border: '2px solid #e2e8f0', 
+                      width: '100%', 
+                      fontSize: 15, 
+                      background: '#fff',
+                      boxSizing: 'border-box',
+                      transition: 'all 0.2s',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#e2e8f0';
+                      e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+                    }}
+                  />
+                  <span className="material-icons" style={{ 
+                    position: 'absolute', 
+                    left: 16, 
+                    top: '50%', 
+                    transform: 'translateY(-50%)',
+                    fontSize: 20,
+                    color: '#94a3b8'
+                  }}>route</span>
+                </div>
               </div>
 
               {/* Description */}
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ fontWeight: 600, color: '#374151', marginBottom: 8, display: 'block', fontSize: 14 }}>Description (Optional)</label>
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ 
+                  fontWeight: 600, 
+                  color: '#1e293b', 
+                  marginBottom: 10, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 15 
+                }}>
+                  <span className="material-icons" style={{ fontSize: 18, color: '#3b82f6' }}>description</span>
+                  Description <span style={{ color: '#64748b', fontSize: 13, fontWeight: 400 }}>(Optional)</span>
+                </label>
                 <textarea 
                   value={routeDescription} 
                   onChange={(e) => setRouteDescription(e.target.value)} 
                   placeholder="Enter route description"
                   rows={3}
                   style={{ 
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '2px solid #e5e7eb', 
+                    padding: '14px 16px', 
+                    borderRadius: 12, 
+                    border: '2px solid #e2e8f0', 
                     width: '100%', 
                     fontSize: 15, 
                     background: '#fff',
                     resize: 'vertical',
                     fontFamily: 'inherit',
-                    boxSizing: 'border-box'
-                  }} 
+                    boxSizing: 'border-box',
+                    transition: 'all 0.2s',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#e2e8f0';
+                    e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+                  }}
                 />
               </div>
 
-              {/* Pincode Filter */}
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ fontWeight: 600, color: '#374151', marginBottom: 8, display: 'block', fontSize: 14 }}>Filter by Pincode *</label>
+              {/* Company Filter Buttons */}
+              {uniqueCompanies.length > 0 && (
+                <div style={{ 
+                  marginBottom: 24,
+                  padding: 20,
+                  background: '#fff',
+                  borderRadius: 16,
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+                }}>
+                  <label style={{ 
+                    fontWeight: 600, 
+                    color: '#1e293b', 
+                    marginBottom: 12, 
+                    display: 'flex', 
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 15 
+                  }}>
+                    <span className="material-icons" style={{ fontSize: 18, color: '#3b82f6' }}>business</span>
+                    Filter by Company
+                    <span style={{ 
+                      marginLeft: 'auto',
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: '#64748b',
+                      background: '#f1f5f9',
+                      padding: '4px 10px',
+                      borderRadius: 12
+                    }}>
+                      {selectedCompanies.length} of {uniqueCompanies.length} selected
+                    </span>
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                    {uniqueCompanies.map(company => {
+                      const isSelected = selectedCompanies.includes(company);
+                      return (
+                        <button
+                          key={company}
+                          onClick={() => {
+                            if (isSelected) {
+                              setSelectedCompanies(prev => prev.filter(c => c !== company));
+                            } else {
+                              setSelectedCompanies(prev => [...prev, company]);
+                            }
+                          }}
+                          style={{
+                            padding: '10px 18px',
+                            borderRadius: 10,
+                            border: `2px solid ${isSelected ? '#3b82f6' : '#e2e8f0'}`,
+                            background: isSelected 
+                              ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' 
+                              : '#fff',
+                            color: isSelected ? '#fff' : '#475569',
+                            fontSize: 14,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            boxShadow: isSelected 
+                              ? '0 4px 12px rgba(59, 130, 246, 0.3)' 
+                              : '0 1px 3px rgba(0,0,0,0.05)',
+                            transform: isSelected ? 'translateY(-1px)' : 'translateY(0)'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) {
+                              e.target.style.borderColor = '#3b82f6';
+                              e.target.style.background = '#eff6ff';
+                              e.target.style.transform = 'translateY(-1px)';
+                              e.target.style.boxShadow = '0 4px 8px rgba(0,0,0,0.1)';
+                            } else {
+                              e.target.style.transform = 'translateY(-2px)';
+                              e.target.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) {
+                              e.target.style.borderColor = '#e2e8f0';
+                              e.target.style.background = '#fff';
+                              e.target.style.transform = 'translateY(0)';
+                              e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+                            } else {
+                              e.target.style.transform = 'translateY(-1px)';
+                              e.target.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
+                            }
+                          }}
+                        >
+                          {isSelected && (
+                            <span className="material-icons" style={{ fontSize: 18 }}>check_circle</span>
+                          )}
+                          {!isSelected && (
+                            <span className="material-icons" style={{ fontSize: 18, color: '#cbd5e1' }}>radio_button_unchecked</span>
+                          )}
+                          {company}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Customer Filter with Toggle */}
+              <div style={{ 
+                marginBottom: 24,
+                padding: 20,
+                background: '#fff',
+                borderRadius: 16,
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <label style={{ 
+                    fontWeight: 600, 
+                    color: '#1e293b', 
+                    fontSize: 15,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                  }}>
+                    <span className="material-icons" style={{ fontSize: 18, color: '#3b82f6' }}>
+                      {filterMode === 'keyword' ? 'search' : 'location_on'}
+                    </span>
+                    {filterMode === 'keyword' ? 'Filter by Keyword' : 'Filter by Pincode'} 
+                    <span style={{ color: '#ef4444' }}>*</span>
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#f1f5f9', padding: '4px', borderRadius: 10 }}>
+                    <span style={{ fontSize: 12, color: filterMode === 'keyword' ? '#3b82f6' : '#64748b', fontWeight: filterMode === 'keyword' ? 600 : 400, padding: '4px 8px' }}>Keyword</span>
+                    <label style={{
+                      position: 'relative',
+                      display: 'inline-block',
+                      width: 48,
+                      height: 26
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={filterMode === 'pincode'}
+                        onChange={(e) => {
+                          const newMode = e.target.checked ? 'pincode' : 'keyword';
+                          setFilterMode(newMode);
+                          // Clear inputs when switching modes
+                          if (newMode === 'pincode') {
+                            setCustomerSearchInput('');
+                          } else {
+                            setPincodeInput('');
+                            setSelectedPincode('');
+                          }
+                        }}
+                        style={{ display: 'none' }}
+                      />
+                      <span style={{
+                        position: 'absolute',
+                        cursor: 'pointer',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: filterMode === 'pincode' ? '#3b82f6' : '#cbd5e1',
+                        borderRadius: 26,
+                        transition: 'all 0.3s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '2px',
+                        boxShadow: filterMode === 'pincode' ? '0 2px 8px rgba(59, 130, 246, 0.3)' : 'none'
+                      }}>
+                        <span style={{
+                          content: '""',
+                          position: 'absolute',
+                          height: 22,
+                          width: 22,
+                          left: filterMode === 'pincode' ? '22px' : '2px',
+                          bottom: '2px',
+                          backgroundColor: '#fff',
+                          borderRadius: '50%',
+                          transition: 'all 0.3s',
+                          boxShadow: '0 2px 6px rgba(0,0,0,0.15)'
+                        }} />
+                      </span>
+                    </label>
+                    <span style={{ fontSize: 12, color: filterMode === 'pincode' ? '#3b82f6' : '#64748b', fontWeight: filterMode === 'pincode' ? 600 : 400, padding: '4px 8px' }}>Pincode</span>
+                  </div>
+                </div>
+                
+                {filterMode === 'pincode' ? (
                 <div style={{ position: 'relative' }}>
                   <input 
                     type="text"
@@ -5109,15 +5656,33 @@ function CreateAccess() {
                     }} 
                     placeholder="Type pincode to search..."
                     style={{ 
-                      padding: '12px 16px', 
-                      borderRadius: 8, 
-                      border: '2px solid #e5e7eb', 
+                      padding: '14px 16px 14px 48px', 
+                      borderRadius: 12, 
+                      border: '2px solid #e2e8f0', 
                       width: '100%', 
                       fontSize: 15, 
                       background: '#fff',
-                      boxSizing: 'border-box'
-                    }} 
+                      boxSizing: 'border-box',
+                      transition: 'all 0.2s',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#e2e8f0';
+                      e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+                    }}
                   />
+                  <span className="material-icons" style={{ 
+                    position: 'absolute', 
+                    left: 16, 
+                    top: '50%', 
+                    transform: 'translateY(-50%)',
+                    fontSize: 20,
+                    color: '#94a3b8'
+                  }}>location_on</span>
                   {filteredPincodes.length > 0 && (
                     <div style={{
                       position: 'absolute',
@@ -5125,13 +5690,13 @@ function CreateAccess() {
                       left: 0,
                       right: 0,
                       background: '#fff',
-                      border: '1px solid #e5e7eb',
-                      borderRadius: 8,
-                      marginTop: 4,
-                      maxHeight: 200,
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 12,
+                      marginTop: 8,
+                      maxHeight: 240,
                       overflowY: 'auto',
                       zIndex: 1000,
-                      boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.12)'
                     }}>
                       {filteredPincodes.map(pincode => (
                         <div
@@ -5139,51 +5704,156 @@ function CreateAccess() {
                           onClick={() => {
                             setPincodeInput(pincode);
                             setSelectedPincode(pincode);
-                            // Don't clear selected customers - allow multi-pincode selection
                           }}
                           style={{
-                            padding: '12px 16px',
+                            padding: '14px 16px',
                             cursor: 'pointer',
-                            borderBottom: '1px solid #f1f5f9'
+                            borderBottom: '1px solid #f1f5f9',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8
                           }}
-                          onMouseEnter={(e) => e.target.style.background = '#f8fafc'}
-                          onMouseLeave={(e) => e.target.style.background = '#fff'}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = '#f0f9ff';
+                            e.target.style.paddingLeft = '20px';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = '#fff';
+                            e.target.style.paddingLeft = '16px';
+                          }}
                         >
-                          {pincode}
+                          <span className="material-icons" style={{ fontSize: 18, color: '#3b82f6' }}>location_on</span>
+                          <span style={{ fontWeight: 500 }}>{pincode}</span>
                         </div>
                       ))}
                     </div>
                   )}
-                </div>
                 {selectedPincode && (
                   <div style={{ 
                     display: 'flex', 
                     justifyContent: 'space-between', 
                     alignItems: 'center',
-                    marginTop: 8,
-                    padding: '8px 12px',
-                    background: '#f0f9ff',
-                    borderRadius: 6
+                    marginTop: 12,
+                    padding: '12px 16px',
+                    background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                    borderRadius: 10,
+                    border: '1px solid #bfdbfe'
                   }}>
-                    <span style={{ fontSize: 14, color: '#0369a1', fontWeight: 600 }}>Selected: {selectedPincode}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className="material-icons" style={{ fontSize: 18, color: '#3b82f6' }}>check_circle</span>
+                      <span style={{ fontSize: 14, color: '#1e40af', fontWeight: 600 }}>Selected: {selectedPincode}</span>
+                    </div>
                     <button
                       onClick={() => {
                         setPincodeInput('');
                         setSelectedPincode('');
-                        // Don't clear selected customers when clearing pincode - only clear pincode filter
                       }}
                       style={{
-                        background: 'none',
+                        background: 'rgba(59, 130, 246, 0.1)',
                         border: 'none',
-                        color: '#0369a1',
+                        color: '#3b82f6',
                         cursor: 'pointer',
-                        fontSize: 14,
+                        fontSize: 12,
                         fontWeight: 600,
-                        textDecoration: 'underline'
+                        padding: '6px 12px',
+                        borderRadius: 6,
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = 'rgba(59, 130, 246, 0.2)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'rgba(59, 130, 246, 0.1)';
                       }}
                     >
                       Clear
                     </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <div style={{ position: 'relative' }}>
+                      <input 
+                        type="text"
+                        value={customerSearchInput} 
+                        onChange={(e) => {
+                          setCustomerSearchInput(e.target.value);
+                        }} 
+                        placeholder="Search by name, pincode, address, company, or any keyword..."
+                        style={{ 
+                          padding: '14px 16px 14px 48px', 
+                          borderRadius: 12, 
+                          border: '2px solid #e2e8f0', 
+                          width: '100%', 
+                          fontSize: 15, 
+                          background: '#fff',
+                          boxSizing: 'border-box',
+                          transition: 'all 0.2s',
+                          boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                        }}
+                        onFocus={(e) => {
+                          e.target.style.borderColor = '#3b82f6';
+                          e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                        }}
+                        onBlur={(e) => {
+                          e.target.style.borderColor = '#e2e8f0';
+                          e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+                        }}
+                      />
+                      <span className="material-icons" style={{ 
+                        position: 'absolute', 
+                        left: 16, 
+                        top: '50%', 
+                        transform: 'translateY(-50%)',
+                        fontSize: 20,
+                        color: '#94a3b8'
+                      }}>search</span>
+                    </div>
+                    {customerSearchInput.trim() && (
+                      <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        marginTop: 12,
+                        padding: '12px 16px',
+                        background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                        borderRadius: 10,
+                        border: '1px solid #bfdbfe'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span className="material-icons" style={{ fontSize: 18, color: '#3b82f6' }}>info</span>
+                          <span style={{ fontSize: 14, color: '#1e40af', fontWeight: 600 }}>
+                            {filteredCustomersForRoute.length} customer(s) found
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setCustomerSearchInput('');
+                          }}
+                          style={{
+                            background: 'rgba(59, 130, 246, 0.1)',
+                            border: 'none',
+                            color: '#3b82f6',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            fontWeight: 600,
+                            padding: '6px 12px',
+                            borderRadius: 6,
+                            transition: 'all 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = 'rgba(59, 130, 246, 0.2)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = 'rgba(59, 130, 246, 0.1)';
+                          }}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -5256,11 +5926,14 @@ function CreateAccess() {
               )}
 
               {/* Customer Selection */}
-              {selectedPincode && (
+              {((filterMode === 'pincode' && selectedPincode) || (filterMode === 'keyword' && customerSearchInput.trim())) && (
                 <div style={{ marginBottom: 20 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <label style={{ fontWeight: 600, color: '#374151', fontSize: 14 }}>
-                      Customers in Pincode {selectedPincode} ({filteredCustomersForRoute.filter(c => selectedCustomers.includes(c.id)).length} selected from this pincode)
+                      {filterMode === 'pincode' 
+                        ? `Customers in Pincode ${selectedPincode} (${filteredCustomersForRoute.filter(c => selectedCustomers.includes(c.id)).length} selected)`
+                        : `Search Results (${filteredCustomersForRoute.filter(c => selectedCustomers.includes(c.id)).length} selected)`
+                      }
                     </label>
                   </div>
 
@@ -5271,7 +5944,12 @@ function CreateAccess() {
                     </div>
                   ) : filteredCustomersForRoute.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: 40, color: '#64748b', background: '#f8fafc', borderRadius: 8 }}>
-                      <div style={{ fontSize: 14 }}>No customers found for pincode {selectedPincode}</div>
+                      <div style={{ fontSize: 14 }}>
+                        {filterMode === 'pincode' 
+                          ? `No customers found for pincode ${selectedPincode}`
+                          : `No customers found matching "${customerSearchInput}"`
+                        }
+                      </div>
                     </div>
                   ) : (
                     <div style={{ 
@@ -5319,6 +5997,10 @@ function CreateAccess() {
                                 <div style={{ fontWeight: 600, color: isSelected ? '#1e40af' : '#1e293b', marginBottom: 4 }}>
                                   {customer.name}
                                 </div>
+                                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+                                  <span className="material-icons" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>business</span>
+                                  {customer.companyName}
+                                </div>
                                 {customer.address && (
                                   <div style={{ fontSize: 13, color: '#64748b', marginBottom: 4 }}>
                                     {customer.address}
@@ -5361,17 +6043,38 @@ function CreateAccess() {
               )}
             </div>
 
-            <div style={{ padding: 16, borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <div style={{ 
+              padding: '20px 28px', 
+              borderTop: '1px solid #e2e8f0', 
+              background: '#fff',
+              display: 'flex', 
+              justifyContent: 'flex-end', 
+              gap: 12,
+              boxShadow: '0 -4px 12px rgba(0,0,0,0.04)'
+            }}>
               <button 
                 onClick={() => setShowCreateRouteModal(false)} 
                 style={{ 
-                  padding: '10px 20px', 
-                  background: '#e5e7eb', 
+                  padding: '12px 24px', 
+                  background: '#f1f5f9', 
                   border: 'none', 
-                  borderRadius: 8, 
+                  borderRadius: 12, 
                   fontWeight: 600, 
                   cursor: 'pointer',
-                  color: '#374151'
+                  color: '#475569',
+                  fontSize: 15,
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#e2e8f0';
+                  e.target.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#f1f5f9';
+                  e.target.style.transform = 'translateY(0)';
                 }}
               >
                 Cancel
@@ -5380,20 +6083,40 @@ function CreateAccess() {
                 onClick={handleCreateRoute} 
                 disabled={isSavingRoute || !routeName.trim() || selectedCustomers.length === 0}
                 style={{ 
-                  padding: '10px 20px', 
-                  background: isSavingRoute || !routeName.trim() || selectedCustomers.length === 0 ? '#9ca3af' : '#16a34a', 
+                  padding: '12px 28px', 
+                  background: isSavingRoute || !routeName.trim() || selectedCustomers.length === 0 
+                    ? '#cbd5e1' 
+                    : 'linear-gradient(135deg, #16a34a 0%, #15803d 100%)', 
                   color: '#fff', 
                   border: 'none', 
-                  borderRadius: 8, 
+                  borderRadius: 12, 
                   fontWeight: 700, 
                   cursor: isSavingRoute || !routeName.trim() || selectedCustomers.length === 0 ? 'not-allowed' : 'pointer',
                   opacity: isSavingRoute ? 0.8 : 1,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 8
+                  gap: 8,
+                  fontSize: 15,
+                  boxShadow: isSavingRoute || !routeName.trim() || selectedCustomers.length === 0
+                    ? 'none'
+                    : '0 4px 12px rgba(22, 163, 74, 0.3)',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSavingRoute && routeName.trim() && selectedCustomers.length > 0) {
+                    e.target.style.transform = 'translateY(-2px)';
+                    e.target.style.boxShadow = '0 6px 16px rgba(22, 163, 74, 0.4)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSavingRoute && routeName.trim() && selectedCustomers.length > 0) {
+                    e.target.style.transform = 'translateY(0)';
+                    e.target.style.boxShadow = '0 4px 12px rgba(22, 163, 74, 0.3)';
+                  }
                 }}
               >
-                {isSavingRoute && <span className="material-icons" style={{ fontSize: 16, animation: 'spin 1s linear infinite' }}>sync</span>}
+                {isSavingRoute && <span className="material-icons" style={{ fontSize: 18, animation: 'spin 1s linear infinite' }}>sync</span>}
+                {!isSavingRoute && <span className="material-icons" style={{ fontSize: 18 }}>add_circle</span>}
                 {isSavingRoute ? 'Creating...' : 'Create Route'}
               </button>
             </div>
@@ -5405,17 +6128,39 @@ function CreateAccess() {
       {showEditRouteModal && editingRoute && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-          padding: 20
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          padding: 20, animation: 'fadeIn 0.2s ease-in'
         }}>
           <div style={{
-            width: '100%', maxWidth: 800, maxHeight: '90vh', background: '#fff', borderRadius: 16,
-            boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden', display: 'flex', flexDirection: 'column'
+            width: '100%', maxWidth: 900, maxHeight: '90vh', background: '#fff', borderRadius: 20,
+            boxShadow: '0 25px 60px rgba(0,0,0,0.25)', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+            animation: 'slideUp 0.3s ease-out'
           }}>
-            <div style={{ padding: 20, borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className="material-icons" style={{ color: '#3b82f6', fontSize: 24 }}>edit</span>
-                <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 20 }}>Edit Route</div>
+            <div style={{ 
+              padding: '24px 28px', 
+              background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              boxShadow: '0 4px 12px rgba(139, 92, 246, 0.3)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 12,
+                  background: 'rgba(255,255,255,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backdropFilter: 'blur(10px)'
+                }}>
+                  <span className="material-icons" style={{ color: '#fff', fontSize: 28 }}>edit</span>
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, color: '#fff', fontSize: 22, marginBottom: 2 }}>Edit Route</div>
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>Update route details and customers</div>
+                </div>
               </div>
               <button onClick={() => {
                 setShowEditRouteModal(false);
@@ -5424,59 +6169,251 @@ function CreateAccess() {
                 setEditRouteDescription('');
                 setEditSelectedPincode('');
                 setEditPincodeInput('');
+                setEditCustomerSearchInput('');
+                setEditFilterMode('keyword');
                 setEditSelectedCustomers([]);
                 setEditCustomerCoordinates({});
-              }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 24, color: '#64748b' }}>
+                setEditSelectedCompanies([]);
+              }} style={{ 
+                border: 'none', 
+                background: 'rgba(255,255,255,0.2)', 
+                cursor: 'pointer', 
+                fontSize: 24, 
+                color: '#fff',
+                width: 36,
+                height: 36,
+                borderRadius: 8,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = 'rgba(255,255,255,0.3)';
+                e.target.style.transform = 'rotate(90deg)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'rgba(255,255,255,0.2)';
+                e.target.style.transform = 'rotate(0deg)';
+              }}
+              >
                 ×
               </button>
             </div>
             
-            <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
+            <div style={{ padding: 28, overflowY: 'auto', flex: 1, background: '#f8fafc' }}>
               {/* Route Name */}
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ fontWeight: 600, color: '#374151', marginBottom: 8, display: 'block', fontSize: 14 }}>Route Name *</label>
-                <input 
-                  type="text"
-                  value={editRouteName} 
-                  onChange={(e) => setEditRouteName(e.target.value)} 
-                  placeholder="Enter route name"
-                  style={{ 
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '2px solid #e5e7eb', 
-                    width: '100%', 
-                    fontSize: 15, 
-                    background: '#fff',
-                    boxSizing: 'border-box'
-                  }} 
-                />
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ 
+                  fontWeight: 600, 
+                  color: '#1e293b', 
+                  marginBottom: 10, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 15 
+                }}>
+                  <span className="material-icons" style={{ fontSize: 18, color: '#8b5cf6' }}>label</span>
+                  Route Name <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type="text"
+                    value={editRouteName} 
+                    onChange={(e) => setEditRouteName(e.target.value)} 
+                    placeholder="Enter route name"
+                    style={{ 
+                      padding: '14px 16px 14px 48px', 
+                      borderRadius: 12, 
+                      border: '2px solid #e2e8f0', 
+                      width: '100%', 
+                      fontSize: 15, 
+                      background: '#fff',
+                      boxSizing: 'border-box',
+                      transition: 'all 0.2s',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#8b5cf6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(139, 92, 246, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#e2e8f0';
+                      e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+                    }}
+                  />
+                  <span className="material-icons" style={{ 
+                    position: 'absolute', 
+                    left: 16, 
+                    top: '50%', 
+                    transform: 'translateY(-50%)',
+                    fontSize: 20,
+                    color: '#94a3b8'
+                  }}>route</span>
+                </div>
               </div>
 
               {/* Description */}
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ fontWeight: 600, color: '#374151', marginBottom: 8, display: 'block', fontSize: 14 }}>Description (Optional)</label>
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ 
+                  fontWeight: 600, 
+                  color: '#1e293b', 
+                  marginBottom: 10, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 15 
+                }}>
+                  <span className="material-icons" style={{ fontSize: 18, color: '#8b5cf6' }}>description</span>
+                  Description <span style={{ color: '#64748b', fontSize: 13, fontWeight: 400 }}>(Optional)</span>
+                </label>
                 <textarea 
                   value={editRouteDescription} 
                   onChange={(e) => setEditRouteDescription(e.target.value)} 
                   placeholder="Enter route description"
                   rows={3}
                   style={{ 
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '2px solid #e5e7eb', 
+                    padding: '14px 16px', 
+                    borderRadius: 12, 
+                    border: '2px solid #e2e8f0', 
                     width: '100%', 
                     fontSize: 15, 
                     background: '#fff',
                     resize: 'vertical',
                     fontFamily: 'inherit',
-                    boxSizing: 'border-box'
-                  }} 
+                    boxSizing: 'border-box',
+                    transition: 'all 0.2s',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#8b5cf6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(139, 92, 246, 0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#e2e8f0';
+                    e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+                  }}
                 />
               </div>
 
+              {/* Company Filter Buttons */}
+              {uniqueCompanies.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontWeight: 600, color: '#374151', marginBottom: 8, display: 'block', fontSize: 14 }}>
+                    Filter by Company
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {uniqueCompanies.map(company => {
+                      const isSelected = editSelectedCompanies.includes(company);
+                      return (
+                        <button
+                          key={company}
+                          onClick={() => {
+                            if (isSelected) {
+                              setEditSelectedCompanies(prev => prev.filter(c => c !== company));
+                            } else {
+                              setEditSelectedCompanies(prev => [...prev, company]);
+                            }
+                          }}
+                          style={{
+                            padding: '8px 16px',
+                            borderRadius: 6,
+                            border: `2px solid ${isSelected ? '#3b82f6' : '#e5e7eb'}`,
+                            background: isSelected ? '#3b82f6' : '#fff',
+                            color: isSelected ? '#fff' : '#374151',
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6
+                          }}
+                          onMouseEnter={(e) => {
+                            if (!isSelected) {
+                              e.target.style.borderColor = '#3b82f6';
+                              e.target.style.background = '#eff6ff';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isSelected) {
+                              e.target.style.borderColor = '#e5e7eb';
+                              e.target.style.background = '#fff';
+                            }
+                          }}
+                        >
+                          {isSelected && <span style={{ fontSize: 14 }}>✓</span>}
+                          {company}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Pincode Filter */}
               <div style={{ marginBottom: 20 }}>
-                <label style={{ fontWeight: 600, color: '#374151', marginBottom: 8, display: 'block', fontSize: 14 }}>Filter by Pincode</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <label style={{ fontWeight: 600, color: '#374151', fontSize: 14 }}>
+                    {editFilterMode === 'keyword' ? 'Filter by Keyword' : 'Filter by Pincode'}
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: editFilterMode === 'keyword' ? '#3b82f6' : '#64748b', fontWeight: editFilterMode === 'keyword' ? 600 : 400, padding: '4px 8px' }}>Keyword</span>
+                    <label style={{
+                      position: 'relative',
+                      display: 'inline-block',
+                      width: 44,
+                      height: 24
+                    }}>
+                      <input
+                        type="checkbox"
+                        checked={editFilterMode === 'pincode'}
+                        onChange={(e) => {
+                          const newMode = e.target.checked ? 'pincode' : 'keyword';
+                          setEditFilterMode(newMode);
+                          // Clear inputs when switching modes
+                          if (newMode === 'pincode') {
+                            setEditCustomerSearchInput('');
+                          } else {
+                            setEditPincodeInput('');
+                            setEditSelectedPincode('');
+                          }
+                        }}
+                        style={{ display: 'none' }}
+                      />
+                      <span style={{
+                        position: 'absolute',
+                        cursor: 'pointer',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: editFilterMode === 'pincode' ? '#3b82f6' : '#cbd5e1',
+                        borderRadius: 24,
+                        transition: 'background-color 0.3s',
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '2px'
+                      }}>
+                        <span style={{
+                          content: '""',
+                          position: 'absolute',
+                          height: 20,
+                          width: 20,
+                          left: editFilterMode === 'pincode' ? '22px' : '2px',
+                          bottom: '2px',
+                          backgroundColor: '#fff',
+                          borderRadius: '50%',
+                          transition: 'left 0.3s',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                        }} />
+                      </span>
+                    </label>
+                    <span style={{ fontSize: 12, color: editFilterMode === 'pincode' ? '#3b82f6' : '#64748b', fontWeight: editFilterMode === 'pincode' ? 600 : 400, padding: '4px 8px' }}>Pincode</span>
+                  </div>
+                </div>
+                
+                {editFilterMode === 'pincode' ? (
                 <div style={{ position: 'relative' }}>
                   <input 
                     type="text"
@@ -5533,7 +6470,6 @@ function CreateAccess() {
                       ))}
                     </div>
                   )}
-                </div>
                 {editSelectedPincode && (
                   <div style={{ 
                     display: 'flex', 
@@ -5562,6 +6498,59 @@ function CreateAccess() {
                     >
                       Clear
                     </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div>
+                    <input 
+                      type="text"
+                      value={editCustomerSearchInput} 
+                      onChange={(e) => {
+                        setEditCustomerSearchInput(e.target.value);
+                      }} 
+                      placeholder="Search by name, pincode, address, company, or any keyword..."
+                      style={{ 
+                        padding: '12px 16px', 
+                        borderRadius: 8, 
+                        border: '2px solid #e5e7eb', 
+                        width: '100%', 
+                        fontSize: 15, 
+                        background: '#fff',
+                        boxSizing: 'border-box'
+                      }} 
+                    />
+                    {editCustomerSearchInput.trim() && (
+                      <div style={{ 
+                        display: 'flex', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        marginTop: 8,
+                        padding: '8px 12px',
+                        background: '#f0f9ff',
+                        borderRadius: 6
+                      }}>
+                        <span style={{ fontSize: 14, color: '#0369a1', fontWeight: 600 }}>
+                          {editFilteredCustomersForRoute.length} customer(s) found
+                        </span>
+                        <button
+                          onClick={() => {
+                            setEditCustomerSearchInput('');
+                          }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#0369a1',
+                            cursor: 'pointer',
+                            fontSize: 14,
+                            fontWeight: 600,
+                            textDecoration: 'underline'
+                          }}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -5634,11 +6623,14 @@ function CreateAccess() {
               )}
 
               {/* Customer Selection */}
-              {editSelectedPincode && (
+              {((editFilterMode === 'pincode' && editSelectedPincode) || (editFilterMode === 'keyword' && editCustomerSearchInput.trim())) && (
                 <div style={{ marginBottom: 20 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <label style={{ fontWeight: 600, color: '#374151', fontSize: 14 }}>
-                      Customers in Pincode {editSelectedPincode} ({editFilteredCustomersForRoute.filter(c => editSelectedCustomers.includes(c.id)).length} selected from this pincode)
+                      {editFilterMode === 'pincode' 
+                        ? `Customers in Pincode ${editSelectedPincode} (${editFilteredCustomersForRoute.filter(c => editSelectedCustomers.includes(c.id)).length} selected)`
+                        : `Search Results (${editFilteredCustomersForRoute.filter(c => editSelectedCustomers.includes(c.id)).length} selected)`
+                      }
                     </label>
                   </div>
 
@@ -5649,7 +6641,12 @@ function CreateAccess() {
                     </div>
                   ) : editFilteredCustomersForRoute.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: 40, color: '#64748b', background: '#f8fafc', borderRadius: 8 }}>
-                      <div style={{ fontSize: 14 }}>No customers found for pincode {editSelectedPincode}</div>
+                      <div style={{ fontSize: 14 }}>
+                        {editFilterMode === 'pincode' 
+                          ? `No customers found for pincode ${editSelectedPincode}`
+                          : `No customers found matching "${editCustomerSearchInput}"`
+                        }
+                      </div>
                     </div>
                   ) : (
                     <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
@@ -5702,6 +6699,10 @@ function CreateAccess() {
                                 <div style={{ fontWeight: 600, color: isSelected ? '#1e40af' : '#1e293b', marginBottom: 4 }}>
                                   {customer.name}
                                 </div>
+                                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>
+                                  <span className="material-icons" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>business</span>
+                                  {customer.companyName}
+                                </div>
                                 {customer.address && (
                                   <div style={{ fontSize: 13, color: '#64748b', marginBottom: 4 }}>
                                     {customer.address}
@@ -5747,7 +6748,15 @@ function CreateAccess() {
               )}
             </div>
 
-            <div style={{ padding: 20, borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+            <div style={{ 
+              padding: '20px 28px', 
+              borderTop: '1px solid #e2e8f0', 
+              background: '#fff',
+              display: 'flex', 
+              justifyContent: 'flex-end', 
+              gap: 12,
+              boxShadow: '0 -4px 12px rgba(0,0,0,0.04)'
+            }}>
               <button 
                 onClick={() => {
                   setShowEditRouteModal(false);
@@ -5760,13 +6769,26 @@ function CreateAccess() {
                   setEditCustomerCoordinates({});
                 }}
                 style={{ 
-                  padding: '10px 20px', 
-                  background: '#f3f4f6', 
-                  color: '#374151', 
+                  padding: '12px 24px', 
+                  background: '#f1f5f9', 
+                  color: '#475569', 
                   border: 'none', 
-                  borderRadius: 8, 
-                  fontWeight: 700, 
-                  cursor: 'pointer'
+                  borderRadius: 12, 
+                  fontWeight: 600, 
+                  cursor: 'pointer',
+                  fontSize: 15,
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#e2e8f0';
+                  e.target.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#f1f5f9';
+                  e.target.style.transform = 'translateY(0)';
                 }}
               >
                 Cancel
@@ -5775,20 +6797,40 @@ function CreateAccess() {
                 onClick={handleUpdateRoute} 
                 disabled={isUpdatingRoute || !editRouteName.trim() || editSelectedCustomers.length === 0}
                 style={{ 
-                  padding: '10px 20px', 
-                  background: isUpdatingRoute || !editRouteName.trim() || editSelectedCustomers.length === 0 ? '#9ca3af' : '#3b82f6', 
+                  padding: '12px 28px', 
+                  background: isUpdatingRoute || !editRouteName.trim() || editSelectedCustomers.length === 0 
+                    ? '#cbd5e1' 
+                    : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)', 
                   color: '#fff', 
                   border: 'none', 
-                  borderRadius: 8, 
+                  borderRadius: 12, 
                   fontWeight: 700, 
                   cursor: isUpdatingRoute || !editRouteName.trim() || editSelectedCustomers.length === 0 ? 'not-allowed' : 'pointer',
                   opacity: isUpdatingRoute ? 0.8 : 1,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 8
+                  gap: 8,
+                  fontSize: 15,
+                  boxShadow: isUpdatingRoute || !editRouteName.trim() || editSelectedCustomers.length === 0
+                    ? 'none'
+                    : '0 4px 12px rgba(139, 92, 246, 0.3)',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (!isUpdatingRoute && editRouteName.trim() && editSelectedCustomers.length > 0) {
+                    e.target.style.transform = 'translateY(-2px)';
+                    e.target.style.boxShadow = '0 6px 16px rgba(139, 92, 246, 0.4)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isUpdatingRoute && editRouteName.trim() && editSelectedCustomers.length > 0) {
+                    e.target.style.transform = 'translateY(0)';
+                    e.target.style.boxShadow = '0 4px 12px rgba(139, 92, 246, 0.3)';
+                  }
                 }}
               >
-                {isUpdatingRoute && <span className="material-icons" style={{ fontSize: 16, animation: 'spin 1s linear infinite' }}>sync</span>}
+                {isUpdatingRoute && <span className="material-icons" style={{ fontSize: 18, animation: 'spin 1s linear infinite' }}>sync</span>}
+                {!isUpdatingRoute && <span className="material-icons" style={{ fontSize: 18 }}>save</span>}
                 {isUpdatingRoute ? 'Updating...' : 'Update Route'}
               </button>
             </div>
@@ -5960,76 +7002,217 @@ function CreateAccess() {
       {showAssignRouteModal && assigningUser && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1002,
-          padding: 20
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1002,
+          padding: 20, animation: 'fadeIn 0.2s ease-in'
         }}>
           <div style={{
-            width: '100%', maxWidth: 600, maxHeight: '90vh', background: '#fff', borderRadius: 16,
-            boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden', display: 'flex', flexDirection: 'column'
+            width: '100%', maxWidth: 650, maxHeight: '90vh', background: '#fff', borderRadius: 20,
+            boxShadow: '0 25px 60px rgba(0,0,0,0.25)', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+            animation: 'slideUp 0.3s ease-out'
           }}>
-            <div style={{ padding: 20, borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className="material-icons" style={{ color: '#10b981', fontSize: 24 }}>assignment</span>
-                <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 20 }}>Assign Route</div>
+            <div style={{ 
+              padding: '24px 28px', 
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 12,
+                  background: 'rgba(255,255,255,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backdropFilter: 'blur(10px)'
+                }}>
+                  <span className="material-icons" style={{ color: '#fff', fontSize: 28 }}>assignment</span>
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, color: '#fff', fontSize: 22, marginBottom: 2 }}>Assign Route</div>
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>Assign a route to {assigningUser.name}</div>
+                </div>
               </div>
-              <button onClick={() => setShowAssignRouteModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 24, color: '#64748b' }}>
+              <button 
+                onClick={() => setShowAssignRouteModal(false)} 
+                style={{ 
+                  border: 'none', 
+                  background: 'rgba(255,255,255,0.2)', 
+                  cursor: 'pointer', 
+                  fontSize: 24, 
+                  color: '#fff',
+                  width: 36,
+                  height: 36,
+                  borderRadius: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(255,255,255,0.3)';
+                  e.target.style.transform = 'rotate(90deg)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(255,255,255,0.2)';
+                  e.target.style.transform = 'rotate(0deg)';
+                }}
+              >
                 ×
               </button>
             </div>
             
-            <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
-              <div style={{ marginBottom: 16, padding: 12, background: '#f0f9ff', borderRadius: 8 }}>
-                <div style={{ fontSize: 14, color: '#0369a1', fontWeight: 600 }}>User: {assigningUser.name}</div>
-                <div style={{ fontSize: 13, color: '#64748b' }}>{assigningUser.email}</div>
+            <div style={{ padding: 28, overflowY: 'auto', flex: 1, background: '#f8fafc' }}>
+              <div style={{ 
+                marginBottom: 24, 
+                padding: 20, 
+                background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                borderRadius: 16,
+                border: '1px solid #bfdbfe',
+                boxShadow: '0 2px 8px rgba(59, 130, 246, 0.1)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: 20, color: '#fff' }}>person</span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 16, color: '#1e40af', fontWeight: 700 }}>{assigningUser.name}</div>
+                    <div style={{ fontSize: 13, color: '#64748b', fontWeight: 500 }}>{assigningUser.email}</div>
+                  </div>
+                </div>
               </div>
 
               {/* Route Selection */}
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ fontWeight: 600, color: '#374151', marginBottom: 8, display: 'block', fontSize: 14 }}>Select Route *</label>
-                <select
-                  value={selectedRouteForAssign?.id || ''}
-                  onChange={(e) => {
-                    const route = routes.find(r => r.id === e.target.value);
-                    setSelectedRouteForAssign(route || null);
-                  }}
-                  style={{
-                    padding: '12px 16px',
-                    borderRadius: 8,
-                    border: '2px solid #e5e7eb',
-                    width: '100%',
-                    fontSize: 15,
-                    background: '#fff',
-                    cursor: 'pointer',
-                    boxSizing: 'border-box'
-                  }}
-                >
-                  <option value="">Select a route</option>
-                  {routes.map(route => (
-                    <option key={route.id} value={route.id}>
-                      {route.name} ({route.customerCount || 0} customers)
-                    </option>
-                  ))}
-                </select>
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ 
+                  fontWeight: 600, 
+                  color: '#1e293b', 
+                  marginBottom: 10, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 15 
+                }}>
+                  <span className="material-icons" style={{ fontSize: 18, color: '#3b82f6' }}>route</span>
+                  Select Route <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <select
+                    value={selectedRouteForAssign?.id || ''}
+                    onChange={(e) => {
+                      const route = routes.find(r => r.id === e.target.value);
+                      setSelectedRouteForAssign(route || null);
+                    }}
+                    style={{
+                      padding: '14px 16px 14px 48px',
+                      borderRadius: 12,
+                      border: '2px solid #e2e8f0',
+                      width: '100%',
+                      fontSize: 15,
+                      background: '#fff',
+                      cursor: 'pointer',
+                      boxSizing: 'border-box',
+                      transition: 'all 0.2s',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+                      appearance: 'none'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#e2e8f0';
+                      e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+                    }}
+                  >
+                    <option value="">Select a route</option>
+                    {routes.map(route => (
+                      <option key={route.id} value={route.id}>
+                        {route.name} ({route.customerCount || 0} customers)
+                      </option>
+                    ))}
+                  </select>
+                  <span className="material-icons" style={{ 
+                    position: 'absolute', 
+                    left: 16, 
+                    top: '50%', 
+                    transform: 'translateY(-50%)',
+                    fontSize: 20,
+                    color: '#94a3b8',
+                    pointerEvents: 'none'
+                  }}>route</span>
+                  <span className="material-icons" style={{ 
+                    position: 'absolute', 
+                    right: 16, 
+                    top: '50%', 
+                    transform: 'translateY(-50%)',
+                    fontSize: 20,
+                    color: '#94a3b8',
+                    pointerEvents: 'none'
+                  }}>arrow_drop_down</span>
+                </div>
               </div>
 
               {/* Salesperson Email */}
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ fontWeight: 600, color: '#374151', marginBottom: 8, display: 'block', fontSize: 14 }}>Salesperson Email *</label>
-                <input 
-                  type="email"
-                  value={salespersonEmail} 
-                  onChange={(e) => setSalespersonEmail(e.target.value)} 
-                  placeholder="Enter salesperson email"
-                  style={{ 
-                    padding: '12px 16px', 
-                    borderRadius: 8, 
-                    border: '2px solid #e5e7eb', 
-                    width: '100%', 
-                    fontSize: 15, 
-                    background: '#fff',
-                    boxSizing: 'border-box'
-                  }} 
-                />
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ 
+                  fontWeight: 600, 
+                  color: '#1e293b', 
+                  marginBottom: 10, 
+                  display: 'flex', 
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 15 
+                }}>
+                  <span className="material-icons" style={{ fontSize: 18, color: '#3b82f6' }}>email</span>
+                  Salesperson Email <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type="email"
+                    value={salespersonEmail} 
+                    onChange={(e) => setSalespersonEmail(e.target.value)} 
+                    placeholder="Enter salesperson email"
+                    style={{ 
+                      padding: '14px 16px 14px 48px', 
+                      borderRadius: 12, 
+                      border: '2px solid #e2e8f0', 
+                      width: '100%', 
+                      fontSize: 15, 
+                      background: '#fff',
+                      boxSizing: 'border-box',
+                      transition: 'all 0.2s',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#3b82f6';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = '#e2e8f0';
+                      e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
+                    }}
+                  />
+                  <span className="material-icons" style={{ 
+                    position: 'absolute', 
+                    left: 16, 
+                    top: '50%', 
+                    transform: 'translateY(-50%)',
+                    fontSize: 20,
+                    color: '#94a3b8'
+                  }}>email</span>
+                </div>
               </div>
 
               {/* Days of Week */}
@@ -6136,17 +7319,38 @@ function CreateAccess() {
               </div>
             </div>
 
-            <div style={{ padding: 16, borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <div style={{ 
+              padding: '20px 28px', 
+              borderTop: '1px solid #e2e8f0', 
+              background: '#fff',
+              display: 'flex', 
+              justifyContent: 'flex-end', 
+              gap: 12,
+              boxShadow: '0 -4px 12px rgba(0,0,0,0.04)'
+            }}>
               <button 
                 onClick={() => setShowAssignRouteModal(false)} 
                 style={{ 
-                  padding: '10px 20px', 
-                  background: '#e5e7eb', 
+                  padding: '12px 24px', 
+                  background: '#f1f5f9', 
                   border: 'none', 
-                  borderRadius: 8, 
+                  borderRadius: 12, 
                   fontWeight: 600, 
                   cursor: 'pointer',
-                  color: '#374151'
+                  color: '#475569',
+                  fontSize: 15,
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#e2e8f0';
+                  e.target.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#f1f5f9';
+                  e.target.style.transform = 'translateY(0)';
                 }}
               >
                 Cancel
@@ -6155,21 +7359,41 @@ function CreateAccess() {
                 onClick={handleSaveAssignment} 
                 disabled={isSavingAssignment || !selectedRouteForAssign || !salespersonEmail.trim()}
                 style={{ 
-                  padding: '10px 20px', 
-                  background: isSavingAssignment || !selectedRouteForAssign || !salespersonEmail.trim() ? '#9ca3af' : '#16a34a', 
+                  padding: '12px 28px', 
+                  background: isSavingAssignment || !selectedRouteForAssign || !salespersonEmail.trim() 
+                    ? '#cbd5e1' 
+                    : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', 
                   color: '#fff', 
                   border: 'none', 
-                  borderRadius: 8, 
+                  borderRadius: 12, 
                   fontWeight: 700, 
                   cursor: isSavingAssignment || !selectedRouteForAssign || !salespersonEmail.trim() ? 'not-allowed' : 'pointer',
                   opacity: isSavingAssignment ? 0.8 : 1,
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 8
+                  gap: 8,
+                  fontSize: 15,
+                  boxShadow: isSavingAssignment || !selectedRouteForAssign || !salespersonEmail.trim()
+                    ? 'none'
+                    : '0 4px 12px rgba(59, 130, 246, 0.3)',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSavingAssignment && selectedRouteForAssign && salespersonEmail.trim()) {
+                    e.target.style.transform = 'translateY(-2px)';
+                    e.target.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSavingAssignment && selectedRouteForAssign && salespersonEmail.trim()) {
+                    e.target.style.transform = 'translateY(0)';
+                    e.target.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
+                  }
                 }}
               >
-                {isSavingAssignment && <span className="material-icons" style={{ fontSize: 16, animation: 'spin 1s linear infinite' }}>sync</span>}
-                {isSavingAssignment ? 'Assigning...' : 'Assign'}
+                {isSavingAssignment && <span className="material-icons" style={{ fontSize: 18, animation: 'spin 1s linear infinite' }}>sync</span>}
+                {!isSavingAssignment && <span className="material-icons" style={{ fontSize: 18 }}>assignment</span>}
+                {isSavingAssignment ? 'Assigning...' : 'Assign Route'}
               </button>
             </div>
           </div>
@@ -6180,31 +7404,99 @@ function CreateAccess() {
       {showRouteActionsModal && routeActionsUser && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1002,
-          padding: 20
+          background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1002,
+          padding: 20, animation: 'fadeIn 0.2s ease-in'
         }}>
           <div style={{
-            width: '100%', maxWidth: 600, maxHeight: '90vh', background: '#fff', borderRadius: 16,
-            boxShadow: '0 20px 50px rgba(0,0,0,0.3)', overflow: 'hidden', display: 'flex', flexDirection: 'column'
+            width: '100%', maxWidth: 650, maxHeight: '90vh', background: '#fff', borderRadius: 20,
+            boxShadow: '0 25px 60px rgba(0,0,0,0.25)', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+            animation: 'slideUp 0.3s ease-out'
           }}>
-            <div style={{ padding: 20, borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span className="material-icons" style={{ color: '#3b82f6', fontSize: 24 }}>settings</span>
-                <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 20 }}>Route Actions</div>
+            <div style={{ 
+              padding: '24px 28px', 
+              background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              boxShadow: '0 4px 12px rgba(99, 102, 241, 0.3)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 12,
+                  background: 'rgba(255,255,255,0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backdropFilter: 'blur(10px)'
+                }}>
+                  <span className="material-icons" style={{ color: '#fff', fontSize: 28 }}>settings</span>
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, color: '#fff', fontSize: 22, marginBottom: 2 }}>Route Actions</div>
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>Manage routes for {routeActionsUser.name}</div>
+                </div>
               </div>
-              <button onClick={() => setShowRouteActionsModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 24, color: '#64748b' }}>
+              <button 
+                onClick={() => setShowRouteActionsModal(false)} 
+                style={{ 
+                  border: 'none', 
+                  background: 'rgba(255,255,255,0.2)', 
+                  cursor: 'pointer', 
+                  fontSize: 24, 
+                  color: '#fff',
+                  width: 36,
+                  height: 36,
+                  borderRadius: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(255,255,255,0.3)';
+                  e.target.style.transform = 'rotate(90deg)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(255,255,255,0.2)';
+                  e.target.style.transform = 'rotate(0deg)';
+                }}
+              >
                 ×
               </button>
             </div>
             
-            <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
-              <div style={{ marginBottom: 16, padding: 12, background: '#f0f9ff', borderRadius: 8 }}>
-                <div style={{ fontSize: 14, color: '#0369a1', fontWeight: 600 }}>User: {routeActionsUser.name}</div>
-                <div style={{ fontSize: 13, color: '#64748b' }}>{routeActionsUser.email}</div>
+            <div style={{ padding: 28, overflowY: 'auto', flex: 1, background: '#f8fafc' }}>
+              <div style={{ 
+                marginBottom: 24, 
+                padding: 20, 
+                background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
+                borderRadius: 16,
+                border: '1px solid #bfdbfe',
+                boxShadow: '0 2px 8px rgba(59, 130, 246, 0.1)'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                  <div style={{
+                    width: 40,
+                    height: 40,
+                    borderRadius: 10,
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: 20, color: '#fff' }}>person</span>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 16, color: '#1e40af', fontWeight: 700 }}>{routeActionsUser.name}</div>
+                    <div style={{ fontSize: 13, color: '#64748b', fontWeight: 500 }}>{routeActionsUser.email}</div>
+                  </div>
+                </div>
               </div>
 
               {/* Assign Route Button */}
-              <div style={{ marginBottom: 12 }}>
+              <div style={{ marginBottom: 16 }}>
                 <button
                   onClick={() => {
                     setShowRouteActionsModal(false);
@@ -6212,62 +7504,82 @@ function CreateAccess() {
                   }}
                   style={{
                     width: '100%',
-                    padding: '12px 20px',
-                    background: '#10b981',
+                    padding: '16px 24px',
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                     color: '#fff',
                     border: 'none',
-                    borderRadius: 8,
+                    borderRadius: 12,
                     fontSize: 15,
-                    fontWeight: 600,
+                    fontWeight: 700,
                     cursor: 'pointer',
-                    transition: 'background-color 0.15s ease',
+                    transition: 'all 0.2s',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 8,
-                    boxSizing: 'border-box'
+                    gap: 10,
+                    boxSizing: 'border-box',
+                    boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#059669';
+                    e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
+                    e.target.style.transform = 'translateY(-2px)';
+                    e.target.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#10b981';
+                    e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                    e.target.style.transform = 'translateY(0)';
+                    e.target.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: 20 }}>assignment</span>
+                  <span className="material-icons" style={{ fontSize: 22 }}>assignment</span>
                   Assign Route
                 </button>
               </div>
 
               {/* View Assigned Routes Button */}
-              <div style={{ marginBottom: 20 }}>
+              <div style={{ marginBottom: 24 }}>
                 <button
                   onClick={() => setShowAssignedRoutes(!showAssignedRoutes)}
                   style={{
                     width: '100%',
-                    padding: '12px 20px',
-                    background: '#3b82f6',
+                    padding: '16px 24px',
+                    background: showAssignedRoutes 
+                      ? 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)'
+                      : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
                     color: '#fff',
                     border: 'none',
-                    borderRadius: 8,
+                    borderRadius: 12,
                     fontSize: 15,
-                    fontWeight: 600,
+                    fontWeight: 700,
                     cursor: 'pointer',
-                    transition: 'background-color 0.15s ease',
+                    transition: 'all 0.2s',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 8,
-                    boxSizing: 'border-box'
+                    gap: 10,
+                    boxSizing: 'border-box',
+                    boxShadow: showAssignedRoutes 
+                      ? '0 4px 12px rgba(99, 102, 241, 0.3)'
+                      : '0 4px 12px rgba(139, 92, 246, 0.3)'
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#2563eb';
+                    if (showAssignedRoutes) {
+                      e.target.style.background = 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)';
+                    } else {
+                      e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
+                    }
+                    e.target.style.transform = 'translateY(-2px)';
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#3b82f6';
+                    if (showAssignedRoutes) {
+                      e.target.style.background = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
+                    } else {
+                      e.target.style.background = 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)';
+                    }
+                    e.target.style.transform = 'translateY(0)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: 20 }}>visibility</span>
+                  <span className="material-icons" style={{ fontSize: 22 }}>{showAssignedRoutes ? 'visibility_off' : 'visibility'}</span>
                   {showAssignedRoutes ? 'Hide Assigned Routes' : 'View Assigned Routes'}
                 </button>
               </div>
@@ -6400,17 +7712,38 @@ function CreateAccess() {
               )}
             </div>
 
-            <div style={{ padding: 16, borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+            <div style={{ 
+              padding: '20px 28px', 
+              borderTop: '1px solid #e2e8f0', 
+              background: '#fff',
+              display: 'flex', 
+              justifyContent: 'flex-end', 
+              gap: 12,
+              boxShadow: '0 -4px 12px rgba(0,0,0,0.04)'
+            }}>
               <button 
                 onClick={() => setShowRouteActionsModal(false)} 
                 style={{ 
-                  padding: '10px 20px', 
-                  background: '#e5e7eb', 
+                  padding: '12px 24px', 
+                  background: '#f1f5f9', 
                   border: 'none', 
-                  borderRadius: 8, 
+                  borderRadius: 12, 
                   fontWeight: 600, 
                   cursor: 'pointer',
-                  color: '#374151'
+                  color: '#475569',
+                  fontSize: 15,
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#e2e8f0';
+                  e.target.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#f1f5f9';
+                  e.target.style.transform = 'translateY(0)';
                 }}
               >
                 Close
