@@ -524,9 +524,9 @@ const VendorForm = ({
     name: { isChecking: false, isDuplicate: false, message: '' }
   });
 
-  // Trigger duplicate checks when form is pre-filled (skip in approval mode)
+  // Trigger duplicate checks when form is pre-filled (skip in approval mode and edit mode)
   useEffect(() => {
-    if (isApprovalMode) {
+    if (isApprovalMode || isEditing) {
       return;
     }
     
@@ -539,7 +539,7 @@ const VendorForm = ({
     if (formData.name && formData.name.trim().length >= 3) {
       checkDuplicate('name', formData.name);
     }
-  }, [formData.gstinno, formData.panno, formData.name, isApprovalMode]);
+  }, [formData.gstinno, formData.panno, formData.name, isApprovalMode, isEditing]);
   
   // Tab state
   const [activeTab, setActiveTab] = useState('basic');
@@ -966,8 +966,8 @@ const VendorForm = ({
       setSuccessMessage(null);
     }
 
-    // Check for duplicates for specific fields (skip in approval mode)
-    if (!isApprovalMode) {
+    // Check for duplicates for specific fields (skip in approval mode and edit mode)
+    if (!isApprovalMode && !isEditing) {
       if (field === 'gstinno' && value && value.length >= 15) {
         debouncedCheckDuplicate('gstinno', value);
       } else if (field === 'panno' && value && value.length >= 10) {
@@ -1020,8 +1020,8 @@ const VendorForm = ({
       }
     }
 
-    // Check for duplicates (skip in approval mode)
-    if (!isApprovalMode) {
+    // Check for duplicates (skip in approval mode and edit mode)
+    if (!isApprovalMode && !isEditing) {
       if (duplicateCheck.name.isDuplicate) {
         newErrors.name = duplicateCheck.name.message || 'Vendor name already exists';
       }
@@ -1176,8 +1176,8 @@ const VendorForm = ({
         }
 
 
-      // Check if ledger already exists before creating (skip in approval mode)
-      if (!isApprovalMode) {
+      // Check if ledger already exists before creating (skip in approval mode and edit mode)
+      if (!isApprovalMode && !isEditing) {
         try {
           const duplicateCheckResponse = await fetch(getApiUrl('/api/tally/ledger-check'), {
             method: 'POST',
@@ -1289,6 +1289,26 @@ const VendorForm = ({
         // In approval mode, call the approve callback
         console.log('VendorForm: Approving vendor');
         await onApprove?.(formData);
+      } else if (isEditing) {
+        // Vendor editing/updating
+        console.log('VendorForm: Updating vendor');
+        const result = await createVendor(formData); // ledger-create handles updates if vendor exists
+        
+        // Save vendor name before resetting form
+        const updatedVendorName = formData.name;
+        
+        // Reset form (but keep success message for now)
+        resetForm(true);
+        
+        // Show success message with vendor details
+        console.log('VendorForm: Vendor update successful');
+        setSuccessMessage(`Vendor updated successfully\n\nVendor: ${updatedVendorName}`);
+        
+        // Trigger global refresh to update vendor lists
+        window.dispatchEvent(new CustomEvent('globalRefresh'));
+        
+        // Call success callback
+        onSuccess?.();
       } else {
         // Normal vendor creation
         console.log('VendorForm: Creating new vendor');
@@ -1311,7 +1331,7 @@ const VendorForm = ({
         onSuccess?.();
       }
     } catch (error) {
-      console.error(isApprovalMode ? 'Vendor approval failed:' : 'Vendor creation failed:', error);
+      console.error(isApprovalMode ? 'Vendor approval failed:' : (isEditing ? 'Vendor update failed:' : 'Vendor creation failed:'), error);
       // Error is already handled in the createVendor function
     }
   };
