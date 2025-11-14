@@ -53,8 +53,10 @@ function AdminDashboard() {
   const [googleConfigStatus, setGoogleConfigStatus] = useState(null);
   const [googleAccessToken, setGoogleAccessToken] = useState(localStorage.getItem('google_access_token') || null);
   const [sidebarTooltip, setSidebarTooltip] = useState({ show: false, text: '', top: 0 });
-  const [accessControlDropdownOpen, setAccessControlDropdownOpen] = useState(false);
-  const [controlPanelOpen, setControlPanelOpen] = useState(false);
+  const [controlPanelDropdownOpen, setControlPanelDropdownOpen] = useState(false);
+  const [controlPanelDropdownPosition, setControlPanelDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const controlPanelButtonRef = useRef(null);
+  const controlPanelDropdownRef = useRef(null);
   let sidebarTooltipTimeout = null;
 
   // Access Control dropdown items
@@ -245,8 +247,11 @@ function AdminDashboard() {
       if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
         setProfileDropdownOpen(false);
       }
+      if (controlPanelDropdownRef.current && !controlPanelDropdownRef.current.contains(event.target)) {
+        setControlPanelDropdownOpen(false);
+      }
     }
-    if (profileDropdownOpen) {
+    if (profileDropdownOpen || controlPanelDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     } else {
       document.removeEventListener('mousedown', handleClickOutside);
@@ -254,12 +259,45 @@ function AdminDashboard() {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [profileDropdownOpen]);
+  }, [profileDropdownOpen, controlPanelDropdownOpen]);
 
-  // Auto-open Control Panel when any of its child views are active
+  // Update control panel dropdown position when it opens
+  useEffect(() => {
+    const updateControlPanelDropdownPosition = () => {
+      if (controlPanelDropdownOpen && controlPanelButtonRef.current) {
+        const rect = controlPanelButtonRef.current.getBoundingClientRect();
+        setControlPanelDropdownPosition({
+          top: rect.top,
+          left: rect.left + rect.width,
+          width: rect.width
+        });
+      }
+    };
+    
+    if (controlPanelDropdownOpen) {
+      updateControlPanelDropdownPosition();
+      const handleResize = () => updateControlPanelDropdownPosition();
+      const handleScroll = () => updateControlPanelDropdownPosition();
+      window.addEventListener('resize', handleResize);
+      window.addEventListener('scroll', handleScroll, true);
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('scroll', handleScroll, true);
+      };
+    }
+  }, [controlPanelDropdownOpen]);
+
+  // Close control panel dropdown when sidebar closes
+  useEffect(() => {
+    if (!sidebarOpen) {
+      setControlPanelDropdownOpen(false);
+    }
+  }, [sidebarOpen]);
+
+  // Auto-open Control Panel dropdown when any of its child views are active
   useEffect(() => {
     if (['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) {
-      setControlPanelOpen(true);
+      setControlPanelDropdownOpen(true);
     }
   }, [view]);
 
@@ -748,33 +786,35 @@ function AdminDashboard() {
           </a>
           
           {/* Control Panel */}
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative' }} ref={controlPanelDropdownRef}>
             <a
+              ref={controlPanelButtonRef}
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                if (sidebarOpen) {
-                  setControlPanelOpen(!controlPanelOpen);
-                }
+                setControlPanelDropdownOpen(!controlPanelDropdownOpen);
               }}
               style={{
-                color: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '#ff9800' : '#fff',
-                background: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 'rgba(255,152,0,0.08)' : 'transparent',
+                color: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '#ff9800' : '#fff',
+                background: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 'rgba(255,152,0,0.08)' : 'transparent',
                 textDecoration: 'none',
                 padding: '10px 18px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
                 borderRadius: '8px',
-                fontWeight: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 700 : 500,
+                fontWeight: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 700 : 500,
                 margin: '0 8px',
-                border: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                border: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
                 cursor: 'pointer',
                 justifyContent: sidebarOpen ? 'flex-start' : 'center',
                 position: 'relative',
               }}
               title="Control Panel"
               onMouseEnter={e => {
+                if (sidebarOpen) {
+                  setControlPanelDropdownOpen(true);
+                }
                 if (!sidebarOpen) {
                   const rect = e.currentTarget.getBoundingClientRect();
                   setSidebarTooltip({ show: true, text: 'Control Panel', top: rect.top + window.scrollY });
@@ -790,150 +830,132 @@ function AdminDashboard() {
               }}
             >
               <span className="material-icons" style={{ fontSize: 22 }}>admin_panel_settings</span>
-              {sidebarOpen && <span className="sidebar-link-label">Control Panel</span>}
-              {sidebarOpen && <span className="material-icons" style={{ fontSize: 16, marginLeft: 'auto', transform: controlPanelOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>}
+              {sidebarOpen && (
+                <>
+                  <span className="sidebar-link-label">Control Panel</span>
+                  <span className="material-icons" style={{ 
+                    fontSize: 18, 
+                    marginLeft: 'auto',
+                    color: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
+                    transition: 'transform 0.2s',
+                    transform: controlPanelDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  }}>arrow_drop_down</span>
+                </>
+              )}
             </a>
             
-            {/* Control Panel Sub-menu */}
-            {sidebarOpen && controlPanelOpen && (
+            {/* Right-side dropdown menu */}
+            {sidebarOpen && controlPanelDropdownOpen && (
               <div style={{
-                marginLeft: '16px',
-                marginTop: '8px',
-                background: 'rgba(255, 255, 255, 0.1)',
-                borderRadius: '8px',
+                position: 'fixed',
+                top: `${controlPanelDropdownPosition.top}px`,
+                left: `${controlPanelDropdownPosition.left + 8}px`,
+                backgroundColor: '#1e3a8a',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '12px',
                 padding: '8px 0',
-                border: '1px solid rgba(255, 255, 255, 0.1)'
-              }}>
+                minWidth: '220px',
+                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
+                zIndex: 10000,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+              }}
+              onMouseEnter={() => {
+                setControlPanelDropdownOpen(true);
+                if (controlPanelButtonRef.current) {
+                  const rect = controlPanelButtonRef.current.getBoundingClientRect();
+                  setControlPanelDropdownPosition({
+                    top: rect.top,
+                    left: rect.left + rect.width,
+                    width: rect.width
+                  });
+                }
+              }}
+              onMouseLeave={() => setControlPanelDropdownOpen(false)}
+              >
                 {/* Tally Connections */}
-                <a
-                  href="#"
-                  onClick={handleTallyConfig}
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleTallyConfig();
+                    setControlPanelDropdownOpen(false);
+                  }}
                   style={{
                     color: view === 'tally-config' ? '#ff9800' : '#fff',
                     background: view === 'tally-config' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
-                    textDecoration: 'none',
-                    padding: '8px 16px',
+                    padding: '12px 18px',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 12,
-                    borderRadius: '6px',
-                    fontWeight: view === 'tally-config' ? 600 : 400,
+                    borderRadius: '8px',
+                    fontWeight: view === 'tally-config' ? 700 : 500,
                     margin: '0 8px',
-                    fontSize: '14px',
+                    border: 'none',
                     cursor: 'pointer',
-                    transition: 'all 0.2s',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
                   }}
-                  onMouseEnter={(e) => {
+                  onMouseEnter={e => {
                     if (view !== 'tally-config') {
-                      e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                     }
                   }}
-                  onMouseLeave={(e) => {
+                  onMouseLeave={e => {
                     if (view !== 'tally-config') {
-                      e.target.style.background = 'transparent';
-                    } else {
-                      e.target.style.background = 'rgba(255, 152, 0, 0.15)';
+                      e.currentTarget.style.background = 'transparent';
                     }
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: 18 }}>settings</span>
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>settings</span>
                   <span>Tally Connections</span>
-                </a>
+                </button>
                 
-                {/* Access Control */}
-                <div style={{ position: 'relative' }}>
-                  <a
-                    href="#"
+                {/* Access Control Items */}
+                {ACCESS_CONTROL_ITEMS.map(item => (
+                  <button
+                    key={item.key}
                     onClick={(e) => {
                       e.preventDefault();
-                      setAccessControlDropdownOpen(!accessControlDropdownOpen);
+                      e.stopPropagation();
+                      setView(item.key);
+                      setControlPanelDropdownOpen(false);
                     }}
                     style={{
-                      color: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '#ff9800' : '#fff',
-                      background: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
-                      textDecoration: 'none',
-                      padding: '8px 16px',
+                      color: view === item.key ? '#ff9800' : '#fff',
+                      background: view === item.key ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                      padding: '12px 18px',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 12,
-                      borderRadius: '6px',
-                      fontWeight: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 600 : 400,
+                      borderRadius: '8px',
+                      fontWeight: view === item.key ? 700 : 500,
                       margin: '0 8px',
-                      fontSize: '14px',
+                      border: 'none',
                       cursor: 'pointer',
-                      transition: 'all 0.2s',
+                      justifyContent: 'flex-start',
+                      fontSize: '14px',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      textAlign: 'left',
                     }}
-                    onMouseEnter={(e) => {
-                      if (!['modules', 'roles', 'create-access', 'share-access'].includes(view)) {
-                        e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                    onMouseEnter={e => {
+                      if (view !== item.key) {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                       }
                     }}
-                    onMouseLeave={(e) => {
-                      if (!['modules', 'roles', 'create-access', 'share-access'].includes(view)) {
-                        e.target.style.background = 'transparent';
-                      } else {
-                        e.target.style.background = 'rgba(255, 152, 0, 0.15)';
+                    onMouseLeave={e => {
+                      if (view !== item.key) {
+                        e.currentTarget.style.background = 'transparent';
                       }
                     }}
                   >
-                    <span className="material-icons" style={{ fontSize: 18 }}>security</span>
-                    <span>Access Control</span>
-                    <span className="material-icons" style={{ fontSize: 16, marginLeft: 'auto', transform: accessControlDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>
-                  </a>
-                  
-                  {/* Access Control Sub-menu */}
-                  {accessControlDropdownOpen && (
-                    <div style={{
-                      marginLeft: '16px',
-                      marginTop: '8px',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      borderRadius: '6px',
-                      padding: '4px 0',
-                    }}>
-                      {ACCESS_CONTROL_ITEMS.map(item => (
-                        <a
-                          key={item.key}
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setView(item.key);
-                            setAccessControlDropdownOpen(false);
-                          }}
-                          style={{
-                            color: view === item.key ? '#ff9800' : '#fff',
-                            background: view === item.key ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
-                            textDecoration: 'none',
-                            padding: '6px 12px 6px 32px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            borderRadius: '4px',
-                            fontWeight: view === item.key ? 600 : 400,
-                            margin: '0 8px',
-                            fontSize: '13px',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                          }}
-                          onMouseEnter={(e) => {
-                            if (view !== item.key) {
-                              e.target.style.background = 'rgba(255, 255, 255, 0.05)';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (view !== item.key) {
-                              e.target.style.background = 'transparent';
-                            } else {
-                              e.target.style.background = 'rgba(255, 152, 0, 0.15)';
-                            }
-                          }}
-                        >
-                          <span className="material-icons" style={{ fontSize: 16 }}>{item.icon}</span>
-                          <span>{item.label}</span>
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                    <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
               </div>
             )}
           </div>

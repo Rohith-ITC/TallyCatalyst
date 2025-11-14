@@ -17,7 +17,7 @@ import CreateAccess from '../admindashboard/CreateAccess';
 import ShareAccess from '../TallyDashboard/ShareAccess';
 import VendorForm from './VendorForm';
 import VendorAuthorization from './VendorAuthorization';
-import VendorManagement from './VendorManagement';
+import VendorList from './VendorList';
 import LinkAccount from './LinkAccount';
 import { 
   MODULE_SEQUENCE, 
@@ -27,7 +27,8 @@ import {
   getUserModules,
   getDropdownFilterOptions,
   shouldUseDropdownFilter,
-  isAlwaysVisible
+  isAlwaysVisible,
+  shouldUseRightSideDropdown
 } from '../config/SideBarConfigurations';
 import { apiGet } from '../utils/apiUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
@@ -89,6 +90,10 @@ function TallyDashboard() {
   const [controlPanelView, setControlPanelView] = useState(null); // 'tally-config', 'modules', 'roles', 'create-access', 'share-access'
   const [controlPanelOpen, setControlPanelOpen] = useState(false);
   const [accessControlDropdownOpen, setAccessControlDropdownOpen] = useState(false);
+  const [vendorManagementDropdownOpen, setVendorManagementDropdownOpen] = useState(false);
+  const vendorManagementDropdownRef = useRef(null);
+  const [vendorDropdownPosition, setVendorDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const vendorButtonRef = useRef(null);
   const [previousView, setPreviousView] = useState(null); // Track previous view before opening control panel
   const desiredActiveSidebarRef = useRef(null);
   const initialPermissionsRequestedRef = useRef(false);
@@ -110,6 +115,11 @@ function TallyDashboard() {
       if (!parent.hasSubModules) continue;
       const subModule = parent.subModules?.find(sub => sub.id === moduleId);
       if (subModule) {
+        // If parent is alwaysVisible, allow access to all submodules
+        if (isAlwaysVisible(parent.key)) {
+          return true;
+        }
+        // Otherwise check submodule access
         return hasSubModuleAccess(subModule.key, userModules);
       }
     }
@@ -261,13 +271,28 @@ function TallyDashboard() {
     return () => window.removeEventListener('resize', handleResize);
   }, [sidebarOpen]);
 
+  // Close vendor management dropdown when sidebar closes
+  useEffect(() => {
+    if (!sidebarOpen) {
+      setVendorManagementDropdownOpen(false);
+    }
+  }, [sidebarOpen]);
+
+  // Debug: Log activeSidebar changes
+  useEffect(() => {
+    console.log('📌 activeSidebar changed to:', activeSidebar);
+  }, [activeSidebar]);
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
         setProfileDropdownOpen(false);
       }
+      if (vendorManagementDropdownRef.current && !vendorManagementDropdownRef.current.contains(event.target)) {
+        setVendorManagementDropdownOpen(false);
+      }
     }
-    if (profileDropdownOpen) {
+    if (profileDropdownOpen || vendorManagementDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     } else {
       document.removeEventListener('mousedown', handleClickOutside);
@@ -275,7 +300,7 @@ function TallyDashboard() {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [profileDropdownOpen]);
+  }, [profileDropdownOpen, vendorManagementDropdownOpen]);
 
   // Filter companies based on search term for top bar
   useEffect(() => {
@@ -604,14 +629,17 @@ function TallyDashboard() {
         });
       }
       
-      // Always show modules marked as alwaysVisible (except main_menu)
-      if (isAlwaysVisible(module.key)) {
-        console.log('✅ Rendering always visible module:', module.key, module.label);
-        return renderSidebarItem(module.key, module);
-      }
-      
-      // For modules with sub-modules (like Ledger Book)
+      // For modules with sub-modules (like Ledger Book or Vendor Management)
       if (module.hasSubModules) {
+        // Check if this module should use right-side dropdown (Vendor Management)
+        if (shouldUseRightSideDropdown(module.key)) {
+          // For vendor management, always show if alwaysVisible or has access
+          if (isAlwaysVisible(module.key) || hasAnySubModuleAccess(module.key, userModules)) {
+            console.log('✅ Rendering vendor management with dropdown:', module.key);
+            return renderVendorManagementWithDropdown(module, userModules);
+          }
+          return null;
+        }
         const hasAccess = hasAnySubModuleAccess(module.key, userModules);
         if (hasAccess) {
           // Check if this module should use dropdown filter instead of sub-menu
@@ -623,6 +651,12 @@ function TallyDashboard() {
         }
         // If no sub-modules have access, don't show the main module
         return null;
+      }
+      
+      // Always show modules marked as alwaysVisible (except main_menu and modules with submodules)
+      if (isAlwaysVisible(module.key)) {
+        console.log('✅ Rendering always visible module:', module.key, module.label);
+        return renderSidebarItem(module.key, module);
       }
       
       // For regular modules (Place Order, E-Commerce)
@@ -774,6 +808,257 @@ function TallyDashboard() {
           }} />
         )}
       </button>
+    );
+  };
+
+  // Update vendor dropdown position when it opens
+  useEffect(() => {
+    const updateVendorDropdownPosition = () => {
+      if (vendorManagementDropdownOpen && vendorButtonRef.current) {
+        const rect = vendorButtonRef.current.getBoundingClientRect();
+        setVendorDropdownPosition({
+          top: rect.top,
+          left: rect.left + rect.width,
+          width: rect.width
+        });
+      }
+    };
+    
+    if (vendorManagementDropdownOpen) {
+      updateVendorDropdownPosition();
+      const handleResize = () => updateVendorDropdownPosition();
+      const handleScroll = () => updateVendorDropdownPosition();
+      window.addEventListener('resize', handleResize);
+      window.addEventListener('scroll', handleScroll, true);
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('scroll', handleScroll, true);
+      };
+    }
+  }, [vendorManagementDropdownOpen]);
+
+  // Render vendor management with right-side dropdown
+  const renderVendorManagementWithDropdown = (module, userModules) => {
+    // If parent module is alwaysVisible, show all submodules; otherwise filter by access
+    const accessibleSubModules = isAlwaysVisible(module.key) 
+      ? module.subModules 
+      : module.subModules.filter(subModule => 
+          isAlwaysVisible(subModule.key) || hasSubModuleAccess(subModule.key, userModules)
+        );
+    const isParentActive = activeSidebar === module.id || accessibleSubModules.some(sub => sub.id === activeSidebar);
+    
+    const updateButtonPosition = () => {
+      if (vendorButtonRef.current) {
+        const rect = vendorButtonRef.current.getBoundingClientRect();
+        setVendorDropdownPosition({
+          top: rect.top,
+          left: rect.left + rect.width,
+          width: rect.width
+        });
+      }
+    };
+    
+    return (
+      <div key={module.key} style={{ marginBottom: 4, position: 'relative' }} ref={vendorManagementDropdownRef}>
+        <button
+          ref={vendorButtonRef}
+          onClick={() => { 
+            setVendorManagementDropdownOpen(!vendorManagementDropdownOpen);
+            if (!vendorManagementDropdownOpen) {
+              setTimeout(updateButtonPosition, 0);
+            }
+          }}
+          style={{
+            color: isParentActive ? '#ff9800' : '#fff',
+            background: isParentActive 
+              ? 'rgba(255, 152, 0, 0.08)' 
+              : 'transparent',
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 14,
+            borderRadius: '12px',
+            fontWeight: isParentActive ? 700 : 500,
+            margin: '0',
+            border: isParentActive 
+              ? '1px solid rgba(255, 255, 255, 0.2)' 
+              : '1px solid transparent',
+            cursor: 'pointer',
+            justifyContent: sidebarOpen ? 'flex-start' : 'center',
+            position: 'relative',
+            width: '100%',
+            textAlign: 'left',
+            fontSize: '14px',
+            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+            flexWrap: 'nowrap',
+            boxShadow: isParentActive 
+              ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)' 
+              : 'none',
+          }}
+          title={module.label}
+          onMouseEnter={e => {
+            if (sidebarOpen) {
+              setVendorManagementDropdownOpen(true);
+            }
+            if (!isParentActive) {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+              e.currentTarget.style.color = '#fff';
+              e.currentTarget.style.transform = 'translateX(4px)';
+            }
+            if (!sidebarOpen) {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setSidebarTooltip({ show: true, text: module.label, top: rect.top + window.scrollY });
+              if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+              sidebarTooltipTimeout = setTimeout(() => {
+                setSidebarTooltip({ show: false, text: '', top: 0 });
+              }, 1500);
+            }
+          }}
+          onMouseLeave={e => {
+            if (!isParentActive) {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.85)';
+              e.currentTarget.style.transform = 'translateX(0)';
+            }
+            if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+            setSidebarTooltip({ show: false, text: '', top: 0 });
+          }}
+        >
+          <span 
+            className="material-icons" 
+            style={{ 
+              fontSize: 22, 
+              color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
+              transition: 'color 0.2s',
+              flexShrink: 0,
+              marginTop: '2px',
+            }}
+          >
+            {module.icon}
+          </span>
+          {sidebarOpen && (
+            <>
+              <span 
+                className="sidebar-link-label" 
+                style={{
+                  fontSize: '14px',
+                  letterSpacing: '0.3px',
+                  whiteSpace: 'normal',
+                  wordWrap: 'break-word',
+                  lineHeight: '1.4',
+                  flex: 1,
+                }}
+              >
+                {module.label}
+              </span>
+              <span 
+                className="material-icons" 
+                style={{ 
+                  fontSize: 18, 
+                  color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
+                  transition: 'transform 0.2s',
+                  transform: vendorManagementDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  flexShrink: 0,
+                }}
+              >
+                arrow_drop_down
+              </span>
+            </>
+          )}
+        </button>
+        
+        {/* Right-side dropdown menu */}
+        {sidebarOpen && vendorManagementDropdownOpen && accessibleSubModules.length > 0 && (
+          <div style={{
+            position: 'fixed',
+            top: `${vendorDropdownPosition.top}px`,
+            left: `${vendorDropdownPosition.left + 8}px`,
+            backgroundColor: '#1e3a8a',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            borderRadius: '12px',
+            padding: '8px 0',
+            minWidth: '220px',
+            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
+            zIndex: 10000,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+          }}
+          onMouseEnter={() => {
+            setVendorManagementDropdownOpen(true);
+            if (vendorButtonRef.current) {
+              const rect = vendorButtonRef.current.getBoundingClientRect();
+              setVendorDropdownPosition({
+                top: rect.top,
+                left: rect.left + rect.width,
+                width: rect.width
+              });
+            }
+          }}
+          onMouseLeave={() => setVendorManagementDropdownOpen(false)}
+          >
+            {accessibleSubModules.map(subModule => {
+              const isSubActive = activeSidebar === subModule.id;
+              return (
+                <button
+                  key={subModule.key}
+                  onClick={(e) => { 
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🖱️ Vendor dropdown item clicked:', subModule.key, subModule.id);
+                    setActiveSidebar(subModule.id);
+                    setVendorManagementDropdownOpen(false);
+                    if (showControlPanel) {
+                      handleCloseControlPanel();
+                    }
+                  }}
+                  style={{
+                    color: isSubActive ? '#ff9800' : '#fff',
+                    background: isSubActive 
+                      ? 'rgba(255, 152, 0, 0.15)' 
+                      : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: isSubActive ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isSubActive) {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (!isSubActive) {
+                      e.currentTarget.style.background = 'transparent';
+                    }
+                  }}
+                >
+                  <span 
+                    className="material-icons" 
+                    style={{ 
+                      fontSize: 20, 
+                      color: isSubActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {subModule.icon}
+                  </span>
+                  <span>{subModule.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -2402,7 +2687,7 @@ function TallyDashboard() {
           {activeSidebar === 'voucher_authorization' && <VoucherAuthorization />}
           {activeSidebar === 'vendor_form' && <VendorForm key="vendor-form" />}
           {activeSidebar === 'vendor_authorization' && <VendorAuthorization />}
-          {activeSidebar === 'vendor_management' && <VendorManagement />}
+          {activeSidebar === 'vendor_list' && <VendorList />}
           {activeSidebar === 'link_account' && <LinkAccount />}
             </>
           )}

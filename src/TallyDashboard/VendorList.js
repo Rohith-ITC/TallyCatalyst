@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getApiUrl } from '../config';
+import { getApiUrl, API_CONFIG } from '../config';
 import { apiPost } from '../utils/apiUtils';
 import VendorForm from './VendorForm';
 
@@ -9,6 +9,8 @@ const VendorManagement = () => {
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [selectedVendor, setSelectedVendor] = useState(null);
+  const [showVendorForm, setShowVendorForm] = useState(false);
 
   // Check if a vendor name already exists in the ledger
   const checkVendorName = async (vendorName, sessionData) => {
@@ -136,44 +138,191 @@ const VendorManagement = () => {
     const { tallyloc_id, company, guid } = currentCompany;
     const cacheKey = `ledgerlist-w-addrs_${tallyloc_id}_${company}`;
 
-    // Check cache first
-    const cached = sessionStorage.getItem(cacheKey);
-    if (cached) {
-      try {
-        const ledgers = JSON.parse(cached);
-        setVendors(ledgers);
-        setError(null);
-        setLoading(false);
-        return;
-      } catch (e) {
-        console.error('Error parsing cached data:', e);
-      }
-    }
-
     // Set loading state and fetch data
     setLoading(true);
     setError(null);
     setVendors([]); // Clear previous data while loading
 
     try {
+      const token = sessionStorage.getItem('token');
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      // Fetch regular vendors from ledgerlist-w-addrs
       const data = await apiPost(`/api/tally/ledgerlist-w-addrs?ts=${Date.now()}`, {
         tallyloc_id,
         company,
         guid
       });
 
+      let regularVendors = [];
       if (data && data.ledgers && Array.isArray(data.ledgers)) {
-        setVendors(data.ledgers);
-        setError(null);
-        // Cache the result
-        sessionStorage.setItem(cacheKey, JSON.stringify(data.ledgers));
+        regularVendors = data.ledgers.map(vendor => ({
+          ...vendor,
+          status: vendor.status || 'approved' // Default to approved for existing vendors
+        }));
       } else if (data && data.error) {
-        setError(data.error);
-        setVendors([]);
-      } else {
-        setError('Unknown error');
-        setVendors([]);
+        console.warn('Error fetching regular vendors:', data.error);
       }
+
+      // Fetch vendors from ledger-list endpoint (same as VendorAuthorization)
+      // Get session data directly from sessionStorage for localStorage matching (same as VendorAuthorization)
+      const sessionTallylocId = sessionStorage.getItem('tallyloc_id');
+      const sessionCompanyName = sessionStorage.getItem('company');
+      const sessionGuid = sessionStorage.getItem('guid');
+      
+      let ledgerListVendors = [];
+      try {
+        // Use ledger-list endpoint to get vendor list (same as VendorAuthorization)
+        const ledgerListResponse = await fetch(getApiUrl(API_CONFIG.ENDPOINTS.TALLY_LEDGER_LIST), {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            tallyloc_id: parseInt(tallyloc_id),
+            company: company,
+            guid: guid
+          })
+        });
+
+        if (ledgerListResponse.ok) {
+          const ledgerListResult = await ledgerListResponse.json();
+          console.log('📊 Ledger-list vendors fetched successfully:', ledgerListResult);
+          
+          // Transform API response to vendor format (same as VendorAuthorization)
+          // Get ALL vendors, not just pending ones
+          if (ledgerListResult.data && Array.isArray(ledgerListResult.data)) {
+            ledgerListVendors = ledgerListResult.data;
+          } else if (ledgerListResult.ledgers && Array.isArray(ledgerListResult.ledgers)) {
+            ledgerListVendors = ledgerListResult.ledgers;
+          } else if (Array.isArray(ledgerListResult)) {
+            ledgerListVendors = ledgerListResult;
+          } else if (ledgerListResult.ledgerData && Array.isArray(ledgerListResult.ledgerData)) {
+            ledgerListVendors = ledgerListResult.ledgerData;
+          }
+
+          console.log('📊 Total vendors from ledger-list:', ledgerListVendors.length);
+        } else {
+          const errorData = await ledgerListResponse.json().catch(() => ({}));
+          console.warn('Failed to fetch from ledger-list:', ledgerListResponse.status, errorData);
+        }
+      } catch (ledgerListErr) {
+        console.warn('Error fetching from ledger-list:', ledgerListErr);
+        // Don't fail the entire fetch if this fails
+      }
+
+      // Load vendor submissions from localStorage (same as VendorAuthorization)
+      // Use sessionStorage values for matching (same as VendorAuthorization)
+      if (sessionTallylocId && sessionGuid) {
+        try {
+          const submissions = localStorage.getItem('vendor_submissions');
+          if (submissions) {
+            const submissionList = JSON.parse(submissions);
+            console.log('📝 Vendor submissions from localStorage:', submissionList);
+            
+            // Add submissions that match current session (same logic as VendorAuthorization)
+            submissionList.forEach(submission => {
+              // Use strict equality matching with sessionStorage values (same as VendorAuthorization)
+              if (submission.tallyloc_id === sessionTallylocId && 
+                  submission.guid === sessionGuid &&
+                  submission.status === 'pending') {
+                console.log('📝 Adding submission vendor:', submission.name || submission.company);
+                // Add to ledgerListVendors so it gets included in the merge
+                ledgerListVendors.push({
+                  ...submission,
+                  name: submission.name || submission.company,
+                  NAME: submission.name || submission.company || '',
+                  EMAIL: submission.email || submission.emailid || '',
+                  PANNO: submission.panNumber || submission.panno || submission.pan_no || '',
+                  GSTNO: submission.gstNumber || submission.gstno || submission.gstin_no || submission.gstinNo || '',
+                  ADDRESS: submission.address || submission.address1 || submission.address_1 || '',
+                  status: 'pending',
+                  isSubmission: true // Flag to identify localStorage submissions
+                });
+              }
+            });
+          }
+        } catch (err) {
+          console.error('Error loading vendor submissions from localStorage:', err);
+        }
+      }
+
+      // Transform ledger-list vendors to match vendor format (same as VendorAuthorization)
+      // Include ALL vendors from ledger-list, not just pending ones
+      const transformedLedgerListVendors = ledgerListVendors.map(vendor => {
+        // Get status from vendor data (same as VendorAuthorization)
+        const vendorStatus = vendor.status || vendor.STATUS || vendor.authorizationStatus || 'pending';
+        
+        return {
+          ...vendor,
+          NAME: vendor.name || vendor.NAME || vendor.company || vendor.ledger_name || '',
+          EMAIL: vendor.email || vendor.EMAIL || vendor.emailid || vendor.email_id || '',
+          PANNO: vendor.panno || vendor.PANNO || vendor.panNumber || vendor.pan_no || '',
+          GSTNO: vendor.gstno || vendor.GSTNO || vendor.gstNumber || vendor.gstin_no || vendor.gstinNo || '',
+          ADDRESS: vendor.address || vendor.ADDRESS || vendor.address1 || vendor.address_1 || '',
+          status: vendorStatus.toLowerCase() === 'pending' ? 'pending' : 
+                 vendorStatus.toLowerCase() === 'approved' ? 'approved' : 
+                 vendorStatus.toLowerCase() === 'rejected' ? 'rejected' : 'pending'
+        };
+      });
+
+      console.log('📊 Transformed ledger-list vendors:', transformedLedgerListVendors.length);
+      const pendingCount = transformedLedgerListVendors.filter(v => v.status === 'pending').length;
+      console.log('📋 Pending vendors from ledger-list:', pendingCount);
+
+      // Merge vendors: combine regular vendors with ledger-list vendors
+      // Use a Map to avoid duplicates based on vendor name
+      const vendorMap = new Map();
+      
+      // Add regular vendors first
+      regularVendors.forEach(vendor => {
+        const key = (vendor.NAME || '').toLowerCase().trim();
+        if (key) {
+          vendorMap.set(key, vendor);
+        }
+      });
+      
+      // Add/update with ledger-list vendors (ledger-list status takes precedence for duplicates)
+      transformedLedgerListVendors.forEach(vendor => {
+        const key = (vendor.NAME || '').toLowerCase().trim();
+        if (key) {
+          // If vendor already exists, update it with ledger-list data (which has correct status)
+          if (vendorMap.has(key)) {
+            vendorMap.set(key, { ...vendorMap.get(key), ...vendor });
+          } else {
+            vendorMap.set(key, vendor);
+          }
+        }
+      });
+
+      // Convert map back to array and sort alphabetically by name
+      const allVendors = Array.from(vendorMap.values()).sort((a, b) => {
+        const nameA = (a.NAME || '').toLowerCase().trim();
+        const nameB = (b.NAME || '').toLowerCase().trim();
+        return nameA.localeCompare(nameB);
+      });
+
+      // Debug: Log vendor statuses
+      const statusCounts = allVendors.reduce((acc, vendor) => {
+        const status = vendor.status || 'no-status';
+        acc[status] = (acc[status] || 0) + 1;
+        return acc;
+      }, {});
+      console.log('📊 Vendor status breakdown:', statusCounts);
+      console.log('📊 Total vendors:', allVendors.length);
+      console.log('📊 Pending vendors in list:', allVendors.filter(v => (v.status || '').toLowerCase() === 'pending').length);
+
+      setVendors(allVendors);
+      setError(null);
+      
+      // Cache the result (excluding pending vendors as they may change)
+      const cacheableVendors = regularVendors;
+      sessionStorage.setItem(cacheKey, JSON.stringify(cacheableVendors));
+      
+      console.log(`✅ Loaded ${allVendors.length} vendors (${regularVendors.length} regular, ${transformedLedgerListVendors.length} from ledger-list, ${pendingCount} pending)`);
     } catch (err) {
       console.error('Error fetching vendors:', err);
       setError('Failed to fetch vendors');
@@ -456,13 +605,17 @@ const VendorManagement = () => {
                          vendor.PANNO?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          vendor.GSTNO?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    // Note: The ledgerlist-w-addrs API doesn't have status field
-    // For now, show all vendors regardless of filterStatus
-    // If you need status filtering, you'll need to add it to the API response
+    // Get vendor status (case-insensitive comparison)
+    const vendorStatus = (vendor.status || '').toLowerCase();
     const matchesStatus = filterStatus === 'all' || 
-                         (filterStatus === 'active' && vendor.status === 'approved') ||
-                         (filterStatus === 'pending' && vendor.status === 'pending') ||
-                         (filterStatus === 'rejected' && vendor.status === 'rejected');
+                         (filterStatus === 'active' && (vendorStatus === 'approved' || vendorStatus === '')) ||
+                         (filterStatus === 'pending' && vendorStatus === 'pending') ||
+                         (filterStatus === 'rejected' && vendorStatus === 'rejected');
+    
+    // Debug logging for pending filter
+    if (filterStatus === 'pending') {
+      console.log('🔍 Filtering vendor:', vendor.NAME, 'Status:', vendor.status, 'Matches:', matchesStatus);
+    }
     
     return matchesSearch && (filterStatus === 'all' || matchesStatus);
   });
@@ -488,7 +641,7 @@ const VendorManagement = () => {
             margin: '0',
             fontFamily: 'system-ui, -apple-system, sans-serif'
           }}>
-            Vendor Management
+            Vendor List
           </h2>
           <p style={{ 
             fontSize: '14px', 
@@ -923,7 +1076,11 @@ const VendorManagement = () => {
           borderRadius: '8px',
           overflow: 'hidden'
         }}>
-          {filteredVendors.map((vendor, index) => (
+          {filteredVendors.map((vendor, index) => {
+            const isEven = index % 2 === 0;
+            const baseBackgroundColor = isEven ? '#ffffff' : '#f9fafb';
+            
+            return (
             <div
               key={vendor.NAME || index}
               style={{
@@ -932,10 +1089,39 @@ const VendorManagement = () => {
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                transition: 'background-color 0.2s'
+                transition: 'background-color 0.2s',
+                backgroundColor: baseBackgroundColor,
+                cursor: 'pointer'
               }}
-              onMouseEnter={(e) => e.target.style.backgroundColor = '#f9fafb'}
-              onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+              onClick={() => {
+                // Transform vendor data to VendorForm format
+                // Map all possible field variations
+                const formData = {
+                  name: vendor.NAME || vendor.name || '',
+                  emailid: vendor.EMAIL || vendor.email || vendor.emailid || '',
+                  panno: vendor.PANNO || vendor.panno || vendor.panNumber || vendor.pan_no || '',
+                  gstinno: vendor.GSTNO || vendor.gstno || vendor.gstNumber || vendor.gstin_no || vendor.gstinNo || '',
+                  address1: (vendor.ADDRESS || vendor.address || vendor.address1 || '').replace(/\|/g, '\n'), // Convert pipe to line breaks
+                  contactperson: vendor.contactPerson || vendor.CONTACTPERSON || vendor.contact_person || '',
+                  phoneno: vendor.phone || vendor.PHONE || vendor.phoneNo || vendor.phone_no || '',
+                  mobileno: vendor.mobile || vendor.MOBILE || vendor.mobileNo || vendor.mobile_no || '',
+                  accountno: vendor.accountNumber || vendor.ACCOUNTNO || vendor.accountNo || vendor.account_no || vendor.bankDetails?.accountNumber || '',
+                  ifsccode: vendor.ifscCode || vendor.IFSCCODE || vendor.ifsc_code || vendor.bankDetails?.ifscCode || '',
+                  bankname: vendor.bankName || vendor.BANKNAME || vendor.bank_name || vendor.bankDetails?.bankName || '',
+                  country: vendor.country || vendor.COUNTRY || vendor.countryName || 'India',
+                  state: vendor.state || vendor.STATE || vendor.stateName || '',
+                  pincode: vendor.pincode || vendor.PINCODE || vendor.pin_code || '',
+                  tax_type: (vendor.GSTNO || vendor.gstno || vendor.gstNumber) ? 'GST' : ((vendor.PANNO || vendor.panno || vendor.panNumber) ? 'PAN' : ''),
+                  gsttype: vendor.gstType || vendor.GSTTYPE || vendor.gst_type || '',
+                  panDocumentLink: vendor.panDocumentLink || vendor.pan_document_link || '',
+                  gstDocumentLink: vendor.gstDocumentLink || vendor.gst_document_link || ''
+                };
+                console.log('📝 Opening vendor form for:', vendor.NAME, 'Form data:', formData);
+                setSelectedVendor({ ...vendor, formData });
+                setShowVendorForm(true);
+              }}
+              onMouseEnter={(e) => e.target.style.backgroundColor = '#f3f4f6'}
+              onMouseLeave={(e) => e.target.style.backgroundColor = baseBackgroundColor}
             >
               <div style={{ flex: '1' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
@@ -1002,11 +1188,40 @@ const VendorManagement = () => {
               </div>
               
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
   );
+
+  // Handle form success
+  const handleFormSuccess = () => {
+    setShowVendorForm(false);
+    setSelectedVendor(null);
+    // Refresh vendor list
+    fetchVendors();
+    // Trigger global refresh
+    window.dispatchEvent(new CustomEvent('globalRefresh'));
+  };
+
+  // Handle form cancel
+  const handleFormCancel = () => {
+    setShowVendorForm(false);
+    setSelectedVendor(null);
+  };
+
+  // If showing vendor form, render it instead of the list
+  if (showVendorForm && selectedVendor) {
+    return (
+      <VendorForm
+        initialData={selectedVendor.formData}
+        isEditing={true}
+        onSuccess={handleFormSuccess}
+        onCancel={handleFormCancel}
+      />
+    );
+  }
 
   return (
     <div style={{

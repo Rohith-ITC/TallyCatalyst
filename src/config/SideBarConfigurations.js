@@ -138,28 +138,37 @@ export const MODULE_SEQUENCE = [
 
     },
     {
-      key               : 'vendor_form',
-      id                : 'vendor_form',
-      label             : 'Vendor Creation',
-      icon              : 'person_add',
-      alwaysVisible     : true,
-      permissions       : {}
-    },
-    {
-      key               : 'vendor_authorization',
-      id                : 'vendor_authorization',
-      label             : 'Vendor Authorization',
-      icon              : 'verified_user',
-      alwaysVisible     : true,
-      permissions       : {}
-    },
-    {
       key               : 'vendor_management',
       id                : 'vendor_management',
       label             : 'Vendor Management',
       icon              : 'business_center',
+      hasSubModules     : true,
+      useRightSideDropdown : true,
       alwaysVisible     : true,
-      permissions       : {}
+      subModules: [
+        {
+          key           : 'vendor_form',
+          id            : 'vendor_form',
+          label         : 'Vendor Creation',
+          icon          : 'person_add',
+          permissions   : {}
+        },
+        {
+          key           : 'vendor_authorization',
+          id            : 'vendor_authorization',
+          label         : 'Vendor Authorization',
+          icon          : 'verified_user',
+          permissions   : {}
+        },
+        {
+          key           : 'vendor_list',
+          id            : 'vendor_list',
+          label         : 'Vendor List',
+          icon          : 'list',
+          permissions   : {}
+        }
+      ],
+      permissions: {}
     },
     {
       key               : 'link_account',
@@ -253,4 +262,10 @@ export const shouldUseDropdownFilter = (moduleKey) => {
 export const isAlwaysVisible = (moduleKey) => {
   const module = MODULE_SEQUENCE.find(m => m.key === moduleKey);
   return module?.alwaysVisible === true;
+};
+
+// Check if a module should use right-side dropdown
+export const shouldUseRightSideDropdown = (moduleKey) => {
+  const module = MODULE_SEQUENCE.find(m => m.key === moduleKey);
+  return module?.useRightSideDropdown === true;
 };
