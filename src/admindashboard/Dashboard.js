@@ -351,7 +351,7 @@ function AdminDashboard() {
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text',
-          }}>TallyCatalyst</span>
+          }}>DataLynk</span>
         </div>
         <div ref={profileDropdownRef} style={{ display: 'flex', alignItems: 'center', gap: 16, marginLeft: 'auto', position: 'relative' }}>
           <div 
