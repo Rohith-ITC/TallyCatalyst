@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#000000" />
     <meta
       name="description"
-      content="TallyCatalyst"
+      content="DataLynk"
     />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
@@ -54,7 +54,7 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <meta http-equiv="Expires" content="0" />
     
-    <title>TallyCatalyst</title>
+    <title>DataLynk</title>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
@@ -64,7 +64,7 @@
     <script>
       // Force reload if version changes
       const APP_VERSION = '%REACT_APP_VERSION%';
-      const STORAGE_KEY = 'tallycatalyst_version';
+      const STORAGE_KEY = 'datalynk_version';
       
       function checkVersion() {
         const storedVersion = localStorage.getItem(STORAGE_KEY);
@@ -90,7 +90,7 @@
           sessionKeys.forEach(function(key) {
             // Only clear cache keys, preserve authentication data
             const isAuthKey = authKeys.indexOf(key) !== -1;
-            const isCacheKey = key.indexOf('tallycatalyst_') === 0 || 
+            const isCacheKey = key.indexOf('datalynk_') === 0 || 
                               key.indexOf('ledgerlist-w-addrs_') === 0 || 
                               key.indexOf('stockitem_') === 0;
             

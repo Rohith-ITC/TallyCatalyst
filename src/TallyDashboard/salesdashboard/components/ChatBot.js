@@ -1833,7 +1833,7 @@ const ChatBot = ({ salesData, metrics }) => {
     return `I'm not sure I understood that. I can help you analyze:\n\n• **Customer Analysis:** "Vijay Steel Tube Co. sales", "top 5 customers"\n• **Product Analysis:** "K2 product sales", "top 10 products"\n• **Period Analysis:** "April sales", "2024 sales", "april vs may"\n• **Comparison Analysis:** "april vs may top customer sales"\n• **Transaction Analysis:** "top 5 sales transactions"\n• **Overall Metrics:** "total revenue", "how many orders"\n• **Month-wise Breakdown:** "month wise sales for customer name"\n\n**Examples of complex queries I can handle:**\n• "april vs may top customer sales"\n• "month wise sales for Vijay Steel Tube Co."\n• "top 10 sales transactions"\n• "april 2024 sales breakdown"\n\nType "help" for more options!`;
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!inputValue.trim()) return;
 
     // Add user message
@@ -1849,26 +1849,406 @@ const ChatBot = ({ salesData, metrics }) => {
     // Show typing indicator
     setIsTyping(true);
 
-    // Simulate thinking time and generate response
-    setTimeout(() => {
-      // Try universal query engine first (more intelligent)
-      let response;
-      try {
-        response = universalQueryEngine(currentQuery, salesData);
-      } catch (error) {
-        // Fallback to original analyzer if universal engine fails
-        response = analyzeQuery(currentQuery);
+    try {
+      // Prepare data to send to LLM
+      const payload = {
+        query: currentQuery,
+        salesData: salesData,
+        metrics: metrics,
+        conversationContext: conversationContext,
+        messages: messages.map(msg => ({
+          role: msg.type === 'user' ? 'user' : 'assistant',
+          content: msg.text
+        }))
+      };
+
+      console.log('🤖 Sending request to LLM at http://127.0.0.1:11434/api/chat');
+      console.log('📊 Data being sent:', {
+        query: currentQuery,
+        salesDataLength: salesData?.length || 0,
+        metrics: metrics,
+        conversationContext: conversationContext
+      });
+
+      // Build system prompt with data - include full salesData as requested
+      let salesDataStr = 'No data available';
+      if (salesData && salesData.length > 0) {
+        // Include full salesData as JSON string
+        try {
+          salesDataStr = JSON.stringify(salesData);
+          console.log(`📊 Sales data size: ${salesDataStr.length} characters (${salesData.length} records)`);
+        } catch (e) {
+          console.error('Error stringifying salesData:', e);
+          salesDataStr = `${salesData.length} records available`;
+        }
       }
+
+      // Detect currency from the actual data values and structure
+      // Check if data contains currency indicators or analyze amount patterns
+      let detectedCurrency = null;
+      let currencyName = null;
+      let currencySymbol = null;
+      
+      if (salesData && salesData.length > 0) {
+        // Sample some data to analyze
+        const sampleSize = Math.min(10, salesData.length);
+        const sampleData = salesData.slice(0, sampleSize);
+        
+        // Check for explicit currency indicators in data (if any field contains currency info)
+        const dataStr = JSON.stringify(sampleData).toLowerCase();
+        
+        // Look for currency indicators in the data
+        if (dataStr.includes('rupee') || dataStr.includes('inr') || dataStr.includes('₹')) {
+          detectedCurrency = '₹';
+          currencyName = 'Indian Rupees';
+          currencySymbol = '₹';
+        } else if (dataStr.includes('dollar') || dataStr.includes('usd') || dataStr.includes('$')) {
+          detectedCurrency = '$';
+          currencyName = 'US Dollars';
+          currencySymbol = '$';
+        } else {
+          // Analyze amount patterns - typical rupee amounts vs dollar amounts
+          // Indian rupee amounts often have different scales and patterns
+          const avgAmount = sampleData.reduce((sum, s) => sum + (s.amount || 0), 0) / sampleData.length;
+          const maxAmount = Math.max(...sampleData.map(s => s.amount || 0));
+          
+          // If amounts are very large (typical of Indian numbering), likely rupees
+          // If amounts are in typical dollar ranges, likely dollars
+          // Default to rupees if uncertain (since Tally is primarily Indian software)
+          if (maxAmount > 1000000 || avgAmount > 100000) {
+            // Very large numbers suggest Indian numbering system (lakhs/crores)
+            detectedCurrency = '₹';
+            currencyName = 'Indian Rupees';
+            currencySymbol = '₹';
+          } else {
+            // Default to rupees for Tally data, but let LLM verify from actual data
+            detectedCurrency = '₹';
+            currencyName = 'Indian Rupees';
+            currencySymbol = '₹';
+          }
+        }
+        
+        console.log(`💰 Detected currency from data: ${currencySymbol} (${currencyName})`);
+        console.log(`📊 Sample analysis - Avg amount: ${sampleData.reduce((sum, s) => sum + (s.amount || 0), 0) / sampleData.length}, Max: ${Math.max(...sampleData.map(s => s.amount || 0))}`);
+      } else {
+        // Default fallback
+        detectedCurrency = '₹';
+        currencyName = 'Indian Rupees';
+        currencySymbol = '₹';
+      }
+
+      const systemPrompt = `You are a helpful AI assistant analyzing sales data. You have access to complete sales data, metrics, and conversation context.
+
+⚠️ CRITICAL CURRENCY REQUIREMENT:
+YOU MUST ANALYZE THE ACTUAL DATA BELOW TO DETERMINE THE CORRECT CURRENCY.
+
+CURRENCY DETECTION INSTRUCTIONS:
+1. Look at the "amount" and "profit" values in the sales data
+2. Check if the data contains any currency indicators (₹, $, rupee, dollar, INR, USD, etc.)
+3. Analyze the scale and pattern of amounts:
+   - If amounts are in typical Indian rupee ranges (e.g., 8200, 31697, 100000+) and follow Indian numbering patterns, use ₹ (Indian Rupees)
+   - If amounts are in typical US dollar ranges (e.g., 82.00, 316.97, 1000+) and follow US numbering patterns, use $ (US Dollars)
+   - If you see currency symbols or text in the data itself, use that currency
+4. The currency in your output MUST MATCH the currency in the data - if data shows rupees, output rupees; if data shows dollars, output dollars
+
+CURRENCY TO USE: Based on the data analysis above, use the currency that matches the data:
+- If data is in rupees: Use ₹ (Indian Rupees) for ALL monetary values
+- If data is in dollars: Use $ (US Dollars) for ALL monetary values
+- DO NOT mix currencies - use the SAME currency as in the data
+- ALL amounts must be prefixed with the correct currency symbol
+- When mentioning currency in text, use the correct currency name
+
+📊 DATA FIELD EXPLANATIONS:
+- "amount": The sales/revenue amount for each transaction (use this as the primary value)
+- "profit": The profit amount for each transaction (if you mention profit, clearly label it as "profit")
+- "quantity": The number of units sold
+- When showing values, be clear: "Amount: [CURRENCY]X, Profit: [CURRENCY]Y" NOT "[CURRENCY]X ([CURRENCY]Y)"
+- NEVER use confusing formats like "[CURRENCY]2000 ([CURRENCY]31697)" - instead say "Amount: [CURRENCY]2,000, Profit: [CURRENCY]31,697" or just show the amount if profit isn't relevant
+
+FORMATTING RULES:
+- Indian Rupees (₹): Use Indian numbering (₹1,00,000 for one lakh, ₹10,00,000 for ten lakhs)
+- US Dollars ($): Use US numbering ($1,000,000 for one million)
+- Always format numbers with appropriate commas based on currency
+- When showing multiple values, use clear labels: "Revenue: [CURRENCY]X, Profit: [CURRENCY]Y"
+
+COMPLETE SALES DATA (${salesData?.length || 0} records):
+${salesDataStr}
+
+METRICS:
+${JSON.stringify(metrics, null, 2)}
+
+CONVERSATION CONTEXT:
+${JSON.stringify(conversationContext, null, 2)}
+
+Analyze the user's query and provide helpful insights based on the complete data provided above. 
+
+IMPORTANT:
+1. FIRST, analyze the data to determine what currency is being used (look at amount values, any currency indicators, etc.)
+2. THEN, use that SAME currency in your response - if data is in rupees, use ₹; if data is in dollars, use $
+3. Be clear and explicit when showing amounts - use labels like "Amount:", "Revenue:", "Profit:"
+4. Never use confusing formats like "[CURRENCY]X ([CURRENCY]Y)" without clear labels
+5. The currency in your output MUST match the currency in the data exactly`;
+
+      // Build conversation history
+      const conversationHistory = payload.messages.slice(-10); // Last 10 messages for context
+      
+      // Send to LLM at 127.0.0.1:11434
+      const llmUrl = 'http://127.0.0.1:11434/api/chat';
+      
+      // Try to detect available model, fallback to common models
+      const modelsToTry = ['llama2', 'llama3', 'mistral', 'phi', 'gemma'];
+      let requestBody = {
+        model: modelsToTry[0], // Start with first model
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt
+          },
+          ...conversationHistory,
+          {
+            role: 'user',
+            content: currentQuery
+          }
+        ],
+        stream: false
+      };
+
+      console.log('📤 Request body:', JSON.stringify(requestBody, null, 2));
+
+      const response = await fetch(llmUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      console.log('📥 Response status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ LLM API error response:', errorText);
+        
+        // If model not found, try to list available models
+        if (response.status === 404 || errorText.includes('model') || errorText.includes('not found')) {
+          console.log('🔍 Attempting to list available models...');
+          try {
+            const modelsResponse = await fetch('http://127.0.0.1:11434/api/tags');
+            if (modelsResponse.ok) {
+              const modelsData = await modelsResponse.json();
+              console.log('📋 Available models:', modelsData);
+              if (modelsData.models && modelsData.models.length > 0) {
+                const firstModel = modelsData.models[0].name;
+                console.log(`🔄 Retrying with model: ${firstModel}`);
+                // Retry with first available model
+                requestBody.model = firstModel;
+                const retryResponse = await fetch(llmUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(requestBody)
+                });
+                if (retryResponse.ok) {
+                  const retryData = await retryResponse.json();
+                  // Process retry response (will be handled below)
+                  const data = retryData;
+                  let responseText = '';
+                  
+                  if (data.message && data.message.content) {
+                    responseText = data.message.content;
+                  } else if (data.response) {
+                    responseText = data.response;
+                  } else if (typeof data === 'string') {
+                    responseText = data;
+                  } else {
+                    throw new Error('Unexpected LLM response format');
+                  }
+
+                  // Correct currency only if there's a clear mismatch in retry response
+                  const hasRupeeSymbolRetry = responseText.includes('₹');
+                  const hasDollarSymbolRetry = responseText.includes('$');
+                  
+                  if (detectedCurrency === '₹' && hasDollarSymbolRetry && !hasRupeeSymbolRetry) {
+                    console.log('⚠️ Currency correction in retry: Data is in ₹ but LLM used only $. Correcting...');
+                    responseText = responseText.replace(/\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g, '₹$1');
+                    responseText = responseText.replace(/\$(\d+)/g, '₹$1');
+                    responseText = responseText.replace(/\$\s*(\d)/g, '₹$1');
+                    responseText = responseText.replace(/(\d+)\s*dollars?/gi, '$1 rupees');
+                    responseText = responseText.replace(/dollars?\s*(\d+)/gi, 'rupees $1');
+                  } else if (detectedCurrency === '$' && hasRupeeSymbolRetry && !hasDollarSymbolRetry) {
+                    console.log('⚠️ Currency correction in retry: Data is in $ but LLM used only ₹. Correcting...');
+                    responseText = responseText.replace(/₹(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g, '$$1');
+                    responseText = responseText.replace(/₹(\d+)/g, '$$1');
+                    responseText = responseText.replace(/₹\s*(\d)/g, '$$1');
+                    responseText = responseText.replace(/(\d+)\s*rupees?/gi, '$1 dollars');
+                    responseText = responseText.replace(/rupees?\s*(\d+)/gi, 'dollars $1');
+                  }
+
+                  // Clean up confusing currency formats in retry response
+                  const currencyRegexRetry = detectedCurrency === '₹' ? '₹' : '\\$';
+                  
+                  // Handle formats with commas
+                  responseText = responseText.replace(new RegExp(`${currencyRegexRetry}(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{2})?)\\s*\\(${currencyRegexRetry}(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{2})?)\\)`, 'g'), (match, p1, p2) => {
+                    const num1 = parseFloat(p1.replace(/,/g, ''));
+                    const num2 = parseFloat(p2.replace(/,/g, ''));
+                    if (num2 > num1 * 1.5) {
+                      return `${detectedCurrency}${p1} (Profit: ${detectedCurrency}${p2})`;
+                    } else {
+                      return `${detectedCurrency}${p1}`;
+                    }
+                  });
+                  
+                  // Handle cases without commas
+                  responseText = responseText.replace(new RegExp(`${currencyRegexRetry}(\\d+)\\s*\\(${currencyRegexRetry}(\\d+)\\)`, 'g'), (match, p1, p2) => {
+                    const num1 = parseFloat(p1);
+                    const num2 = parseFloat(p2);
+                    const formatted1 = detectedCurrency === '₹' 
+                      ? parseInt(p1).toLocaleString('en-IN') 
+                      : parseInt(p1).toLocaleString('en-US');
+                    const formatted2 = detectedCurrency === '₹' 
+                      ? parseInt(p2).toLocaleString('en-IN') 
+                      : parseInt(p2).toLocaleString('en-US');
+                    if (num2 > num1 * 1.5) {
+                      return `${detectedCurrency}${formatted1} (Profit: ${detectedCurrency}${formatted2})`;
+                    } else {
+                      return `${detectedCurrency}${formatted1}`;
+                    }
+                  });
+
+                  const botMessage = {
+                    type: 'bot',
+                    text: responseText,
+                    timestamp: new Date()
+                  };
+                  setMessages(prev => [...prev, botMessage]);
+                  setIsTyping(false);
+                  
+                  // Update conversation context
+                  const lowerQuery = currentQuery.toLowerCase();
+                  if (lowerQuery.includes('sales') && !lowerQuery.includes('customer') && !lowerQuery.includes('product') && !lowerQuery.includes('item')) {
+                    setConversationContext(prev => ({
+                      ...prev,
+                      lastTopic: 'sales',
+                      lastDataType: 'transaction'
+                    }));
+                  } else if (lowerQuery.includes('customer')) {
+                    setConversationContext(prev => ({
+                      ...prev,
+                      lastTopic: 'customer',
+                      lastDataType: 'customer'
+                    }));
+                  } else if (lowerQuery.includes('product') || lowerQuery.includes('item')) {
+                    setConversationContext(prev => ({
+                      ...prev,
+                      lastTopic: 'product',
+                      lastDataType: 'product'
+                    }));
+                  }
+                  return; // Exit early on successful retry
+                }
+              }
+            }
+          } catch (modelError) {
+            console.error('Error fetching available models:', modelError);
+          }
+        }
+        
+        throw new Error(`LLM API error: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('✅ LLM response data:', data);
+      
+      let responseText = '';
+      
+      // Handle different Ollama response formats
+      if (data.message && data.message.content) {
+        responseText = data.message.content;
+      } else if (data.response) {
+        responseText = data.response;
+      } else if (typeof data === 'string') {
+        responseText = data;
+      } else {
+        console.warn('⚠️ Unexpected LLM response format:', data);
+        throw new Error('Unexpected LLM response format');
+      }
+
+      console.log('💬 LLM response text:', responseText);
+
+      // Correct currency only if LLM uses wrong currency compared to detected currency from data
+      // This is a safety net - the LLM should already be using the correct currency from data analysis
+      const hasRupeeSymbol = responseText.includes('₹');
+      const hasDollarSymbol = responseText.includes('$');
+      
+      // Only correct if there's a clear mismatch
+      // If detected currency is ₹ but response only has $ (and no ₹), correct it
+      // If detected currency is $ but response only has ₹ (and no $), correct it
+      if (detectedCurrency === '₹' && hasDollarSymbol && !hasRupeeSymbol) {
+        console.log('⚠️ Currency correction: Data is in ₹ but LLM used only $. Correcting...');
+        responseText = responseText.replace(/\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g, '₹$1');
+        responseText = responseText.replace(/\$(\d+)/g, '₹$1');
+        responseText = responseText.replace(/\$\s*(\d)/g, '₹$1');
+        responseText = responseText.replace(/(\d+)\s*dollars?/gi, '$1 rupees');
+        responseText = responseText.replace(/dollars?\s*(\d+)/gi, 'rupees $1');
+      } else if (detectedCurrency === '$' && hasRupeeSymbol && !hasDollarSymbol) {
+        console.log('⚠️ Currency correction: Data is in $ but LLM used only ₹. Correcting...');
+        responseText = responseText.replace(/₹(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g, '$$1');
+        responseText = responseText.replace(/₹(\d+)/g, '$$1');
+        responseText = responseText.replace(/₹\s*(\d)/g, '$$1');
+        responseText = responseText.replace(/(\d+)\s*rupees?/gi, '$1 dollars');
+        responseText = responseText.replace(/rupees?\s*(\d+)/gi, 'dollars $1');
+      } else {
+        // LLM is using the correct currency or mixed (which might be intentional)
+        console.log(`✅ Currency check: LLM response uses ${hasRupeeSymbol ? '₹' : ''}${hasDollarSymbol ? '$' : ''} (detected: ${detectedCurrency})`);
+      }
+
+      // Clean up confusing currency formats like "₹2000 (₹31697)" or "$2000 ($31697)"
+      // Replace patterns like "currencyX (currencyY)" with clearer formats
+      const currencyRegex = detectedCurrency === '₹' ? '₹' : '\\$';
+      const currencyNameForLabel = detectedCurrency === '₹' ? 'rupees' : 'dollars';
+      
+      // Handle formats with commas
+      responseText = responseText.replace(new RegExp(`${currencyRegex}(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{2})?)\\s*\\(${currencyRegex}(\\d{1,3}(?:,\\d{3})*(?:\\.\\d{2})?)\\)`, 'g'), (match, p1, p2) => {
+        const num1 = parseFloat(p1.replace(/,/g, ''));
+        const num2 = parseFloat(p2.replace(/,/g, ''));
+        if (num2 > num1 * 1.5) {
+          // Likely showing amount and profit - make it clearer
+          return `${detectedCurrency}${p1} (Profit: ${detectedCurrency}${p2})`;
+        } else {
+          // Unclear what the second number is - just show the first
+          return `${detectedCurrency}${p1}`;
+        }
+      });
+      
+      // Also handle cases without commas
+      responseText = responseText.replace(new RegExp(`${currencyRegex}(\\d+)\\s*\\(${currencyRegex}(\\d+)\\)`, 'g'), (match, p1, p2) => {
+        const num1 = parseFloat(p1);
+        const num2 = parseFloat(p2);
+        const formatted1 = detectedCurrency === '₹' 
+          ? parseInt(p1).toLocaleString('en-IN') 
+          : parseInt(p1).toLocaleString('en-US');
+        const formatted2 = detectedCurrency === '₹' 
+          ? parseInt(p2).toLocaleString('en-IN') 
+          : parseInt(p2).toLocaleString('en-US');
+        if (num2 > num1 * 1.5) {
+          return `${detectedCurrency}${formatted1} (Profit: ${detectedCurrency}${formatted2})`;
+        } else {
+          return `${detectedCurrency}${formatted1}`;
+        }
+      });
+
+      console.log('💬 Final response text:', responseText);
+
       const botMessage = {
         type: 'bot',
-        text: response,
+        text: responseText,
         timestamp: new Date()
       };
       setMessages(prev => [...prev, botMessage]);
-      setIsTyping(false);
       
       // Update conversation context based on the query
-      const lowerQuery = inputValue.toLowerCase();
+      const lowerQuery = currentQuery.toLowerCase();
       if (lowerQuery.includes('sales') && !lowerQuery.includes('customer') && !lowerQuery.includes('product') && !lowerQuery.includes('item')) {
         setConversationContext(prev => ({
           ...prev,
@@ -1888,7 +2268,40 @@ const ChatBot = ({ salesData, metrics }) => {
           lastDataType: 'product'
         }));
       }
-    }, 500);
+    } catch (error) {
+      console.error('❌ Error calling LLM:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+      
+      // Show error to user
+      const errorMessage = {
+        type: 'bot',
+        text: `⚠️ LLM Error: ${error.message}\n\nFalling back to local processing...`,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      
+      // Fallback to local processing if LLM fails
+      let response;
+      try {
+        response = universalQueryEngine(currentQuery, salesData);
+      } catch (fallbackError) {
+        console.error('❌ Fallback error:', fallbackError);
+        response = analyzeQuery(currentQuery);
+      }
+      
+      const botMessage = {
+        type: 'bot',
+        text: response,
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, botMessage]);
+    } finally {
+      setIsTyping(false);
+    }
   };
 
   const handleKeyPress = (e) => {

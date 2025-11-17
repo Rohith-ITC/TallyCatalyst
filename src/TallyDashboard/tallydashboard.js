@@ -1311,7 +1311,7 @@ function TallyDashboard() {
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text',
             whiteSpace: 'nowrap',
-          }}>TallyCatalyst</span>
+          }}>DataLynk</span>
         </div>
         
         {/* Company Selection Dropdown */}

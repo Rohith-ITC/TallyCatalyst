@@ -51,7 +51,7 @@ export const API_CONFIG = {
 
 // App Configuration
 export const APP_CONFIG = {
-  APP_NAME: 'TallyCatalyst',
+  APP_NAME: 'DataLynk',
   COMPANY_NAME: 'IT Catalyst Software India Pvt Ltd'
 };
 
