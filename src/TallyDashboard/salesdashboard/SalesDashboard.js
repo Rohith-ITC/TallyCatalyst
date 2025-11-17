@@ -6,6 +6,19 @@ import TreeMap from './components/TreeMap';
 import LineChart from './components/LineChart';
 import ChatBot from './components/ChatBot';
 import { getUserModules, hasPermission } from '../../config/SideBarConfigurations';
+import {
+  ResponsiveContainer,
+  Treemap,
+  Tooltip as RechartsTooltip,
+} from 'recharts';
+import BillDrilldownModal from '../../RecvDashboard/components/BillDrilldownModal';
+import VoucherDetailsModal from '../../RecvDashboard/components/VoucherDetailsModal';
+import {
+  escapeForXML,
+  cleanAndEscapeForXML,
+  parseXMLResponse,
+} from '../../RecvDashboard/utils/helpers';
+import { getApiUrl } from '../../config';
 
 const SalesDashboard = () => {
   const RAW_DATA_PAGE_SIZE = 20;
@@ -47,9 +60,11 @@ const SalesDashboard = () => {
   const [selectedItem, setSelectedItem] = useState(() => initialCachedState?.filters?.item ?? 'all');
   const [selectedStockGroup, setSelectedStockGroup] = useState(() => initialCachedState?.filters?.stockGroup ?? 'all');
   const [selectedRegion, setSelectedRegion] = useState(() => initialCachedState?.filters?.region ?? 'all');
+  const [selectedCountry, setSelectedCountry] = useState(() => initialCachedState?.filters?.country ?? 'all');
   const [selectedPeriod, setSelectedPeriod] = useState(() => initialCachedState?.filters?.period ?? null); // Format: "YYYY-MM"
   const [categoryChartType, setCategoryChartType] = useState('bar');
   const [regionChartType, setRegionChartType] = useState('bar');
+  const [countryChartType, setCountryChartType] = useState('bar');
   const [periodChartType, setPeriodChartType] = useState('bar');
   const [topCustomersChartType, setTopCustomersChartType] = useState('bar');
   const [topItemsByRevenueChartType, setTopItemsByRevenueChartType] = useState('bar');
@@ -58,6 +73,10 @@ const SalesDashboard = () => {
   const [topProfitableItemsChartType, setTopProfitableItemsChartType] = useState('bar');
   const [topLossItemsChartType, setTopLossItemsChartType] = useState('bar');
   const [monthWiseProfitChartType, setMonthWiseProfitChartType] = useState('line');
+  const [selectedSalesperson, setSelectedSalesperson] = useState(null);
+  const [enabledSalespersons, setEnabledSalespersons] = useState(new Set());
+  const [showSalespersonConfig, setShowSalespersonConfig] = useState(false);
+  const salespersonsInitializedRef = useRef(false);
   const requestTimestampRef = useRef(Date.now());
 
   // Cache for API responses
@@ -67,6 +86,43 @@ const SalesDashboard = () => {
   const [rawDataModal, setRawDataModal] = useState({ open: false, title: '', rows: [], columns: [] });
   const [rawDataSearch, setRawDataSearch] = useState('');
   const [rawDataPage, setRawDataPage] = useState(1);
+  
+  // Bill drilldown modal state
+  const [showDrilldown, setShowDrilldown] = useState(false);
+  const [drilldownData, setDrilldownData] = useState(null);
+  const [drilldownLoading, setDrilldownLoading] = useState(false);
+  const [drilldownError, setDrilldownError] = useState(null);
+  const [selectedBill, setSelectedBill] = useState(null);
+  const abortControllerRef = useRef(null);
+  
+  // Voucher details modal state
+  const [showVoucherDetails, setShowVoucherDetails] = useState(false);
+  const [voucherDetailsData, setVoucherDetailsData] = useState(null);
+  const [voucherDetailsLoading, setVoucherDetailsLoading] = useState(false);
+  const [voucherDetailsError, setVoucherDetailsError] = useState(null);
+
+  // Helper function to get auth token
+  const getAuthToken = () => {
+    const token = sessionStorage.getItem('token');
+    if (!token) {
+      throw new Error('No authentication token found');
+    }
+    return token;
+  };
+
+  // Helper function to get Tally data URL
+  const getTallyDataUrl = () => {
+    return `${getApiUrl('/api/tally/tallydata')}?ts=${Date.now()}`;
+  };
+
+  // Helper function to parse XML
+  const parseXml = (xmlText) => {
+    try {
+      return parseXMLResponse(xmlText);
+    } catch (err) {
+      throw new Error(`Failed to parse XML response: ${err.message}`);
+    }
+  };
 
   const computeShowProfitPermission = useCallback(() => {
     try {
@@ -167,8 +223,9 @@ const SalesDashboard = () => {
     setSelectedItem(filters.item ?? 'all');
     setSelectedStockGroup(filters.stockGroup ?? 'all');
     setSelectedRegion(filters.region ?? 'all');
+    setSelectedCountry(filters.country ?? 'all');
     setSelectedPeriod(filters.period ?? null);
-  }, [setFromDate, setToDate, setDateRange, setSales, setSelectedCustomer, setSelectedItem, setSelectedStockGroup, setSelectedRegion, setSelectedPeriod]);
+  }, [setFromDate, setToDate, setDateRange, setSales, setSelectedCustomer, setSelectedItem, setSelectedStockGroup, setSelectedRegion, setSelectedCountry, setSelectedPeriod]);
 
   const persistDashboardCache = (companyInfo, payload) => {
     const cacheKey = getDashboardCacheKey(companyInfo);
@@ -224,6 +281,7 @@ const SalesDashboard = () => {
       setSelectedItem('all');
       setSelectedStockGroup('all');
       setSelectedRegion('all');
+      setSelectedCountry('all');
       setSelectedPeriod(null);
       if (options.triggerFetch) {
         setShouldAutoLoad(true);
@@ -370,12 +428,13 @@ const SalesDashboard = () => {
       const itemMatch = selectedItem === 'all' || sale.item === selectedItem;
       const stockGroupMatch = selectedStockGroup === 'all' || sale.category === selectedStockGroup;
       const regionMatch = selectedRegion === 'all' || sale.region === selectedRegion;
+      const countryMatch = selectedCountry === 'all' || sale.country === selectedCountry;
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const periodMatch = !selectedPeriod || salePeriod === selectedPeriod;
       
-      return dateMatch && customerMatch && itemMatch && stockGroupMatch && regionMatch && periodMatch;
+      return dateMatch && customerMatch && itemMatch && stockGroupMatch && regionMatch && countryMatch && periodMatch;
     });
     
     console.log('✅ Filtered sales result:', {
@@ -385,7 +444,7 @@ const SalesDashboard = () => {
     });
     
     return filtered;
-  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedRegion, selectedPeriod]);
+  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedRegion, selectedCountry, selectedPeriod]);
 
   // Filter sales data specifically for Total Orders (with issales filter)
   const filteredSalesForOrders = useMemo(() => {
@@ -405,6 +464,7 @@ const SalesDashboard = () => {
       const itemMatch = selectedItem === 'all' || sale.item === selectedItem;
       const stockGroupMatch = selectedStockGroup === 'all' || sale.category === selectedStockGroup;
       const regionMatch = selectedRegion === 'all' || sale.region === selectedRegion;
+      const countryMatch = selectedCountry === 'all' || sale.country === selectedCountry;
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -415,7 +475,7 @@ const SalesDashboard = () => {
         console.log('❌ Filtered out for orders - not a sale:', { issales: sale.issales, sale });
       }
       
-      return dateMatch && customerMatch && itemMatch && stockGroupMatch && regionMatch && periodMatch && isSalesMatch;
+      return dateMatch && customerMatch && itemMatch && stockGroupMatch && regionMatch && countryMatch && periodMatch && isSalesMatch;
     });
     
     console.log('✅ Filtered sales for orders result:', {
@@ -425,8 +485,12 @@ const SalesDashboard = () => {
     });
     
     return filtered;
-  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedRegion, selectedPeriod]);
+  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedRegion, selectedCountry, selectedPeriod]);
 
+  // NOTE: This is the ONLY API call made for sales data
+  // It fetches ALL data including country, region, customer, items, etc. in ONE call
+  // After this call, all chart data and raw data is derived from the 'sales' state
+  // NO additional API calls are made for country data or any other drilldowns
   const loadSales = async (startDate, endDate, { invalidateCache = false } = {}) => {
     if (!startDate || !endDate) {
       setError('Please select both start and end dates');
@@ -477,9 +541,144 @@ const SalesDashboard = () => {
         }
       });
       
+      // Debug: Log first voucher to see available fields
+      if (allVouchers.length > 0) {
+        const sampleVoucher = allVouchers[0];
+        console.log('🔍 Sample voucher structure (all keys):', Object.keys(sampleVoucher));
+        console.log('🔍 Sample voucher (full object):', sampleVoucher);
+        
+        // Log all fields that might contain country
+        console.log('🔍 Checking country-related fields:');
+        Object.keys(sampleVoucher).forEach(key => {
+          const lowerKey = key.toLowerCase();
+          if (lowerKey.includes('country') || lowerKey.includes('nation') || lowerKey.includes('residence')) {
+            console.log(`  - ${key}:`, sampleVoucher[key]);
+          }
+        });
+        
+        // Also check state field to see the pattern
+        console.log('🔍 State field (for comparison):', sampleVoucher.state, sampleVoucher.STATE, sampleVoucher.statename, sampleVoucher.State);
+        
+        // Check for nested country fields
+        if (sampleVoucher.address) {
+          console.log('🔍 Address object:', sampleVoucher.address);
+          if (typeof sampleVoucher.address === 'object') {
+            Object.keys(sampleVoucher.address).forEach(key => {
+              const lowerKey = key.toLowerCase();
+              if (lowerKey.includes('country')) {
+                console.log(`  - address.${key}:`, sampleVoucher.address[key]);
+              }
+            });
+          }
+        }
+        if (sampleVoucher.customer) {
+          console.log('🔍 Customer object:', sampleVoucher.customer);
+          if (typeof sampleVoucher.customer === 'object') {
+            Object.keys(sampleVoucher.customer).forEach(key => {
+              const lowerKey = key.toLowerCase();
+              if (lowerKey.includes('country')) {
+                console.log(`  - customer.${key}:`, sampleVoucher.customer[key]);
+              }
+            });
+          }
+        }
+        
+        // Log a few sample vouchers to see if country varies
+        console.log('🔍 Checking first 5 vouchers for country patterns:');
+        allVouchers.slice(0, 5).forEach((v, idx) => {
+          const countryFields = Object.keys(v).filter(k => k.toLowerCase().includes('country'));
+          if (countryFields.length > 0) {
+            console.log(`  Voucher ${idx + 1}:`, countryFields.map(f => `${f}=${v[f]}`).join(', '));
+          }
+        });
+      }
+      
+      // Helper function to extract country from voucher with comprehensive field checking
+      const extractCountry = (voucher) => {
+        // First, check predefined common field names
+        const predefinedFields = [
+          voucher.country,
+          voucher.COUNTRY,
+          voucher.countryname,
+          voucher.Country,
+          voucher.COUNTRYOFRESIDENCE,
+          voucher.CP_Country,
+          voucher.cp_country,
+          voucher.country_name,
+          voucher.CountryName,
+          // Check nested in address
+          voucher.address?.country,
+          voucher.address?.COUNTRY,
+          voucher.address?.countryname,
+          // Check nested in customer
+          voucher.customer?.country,
+          voucher.customer?.COUNTRY,
+          voucher.customer?.countryname,
+        ];
+        
+        // Find first non-empty, non-undefined, non-null value from predefined fields
+        for (const field of predefinedFields) {
+          if (field && String(field).trim() !== '' && String(field).trim().toLowerCase() !== 'unknown') {
+            return String(field).trim();
+          }
+        }
+        
+        // If not found in predefined fields, dynamically search ALL fields in the voucher
+        // This catches any field name that contains "country" (case-insensitive)
+        for (const key in voucher) {
+          if (voucher.hasOwnProperty(key)) {
+            const lowerKey = key.toLowerCase();
+            // Check if key contains "country" or "nation" or "residence"
+            if ((lowerKey.includes('country') || lowerKey.includes('nation') || lowerKey.includes('residence')) 
+                && !lowerKey.includes('unknown')) {
+              const value = voucher[key];
+              if (value && String(value).trim() !== '' && String(value).trim().toLowerCase() !== 'unknown') {
+                console.log(`✅ Found country in field: ${key} = ${value}`);
+                return String(value).trim();
+              }
+            }
+          }
+        }
+        
+        // Also check nested objects dynamically
+        if (voucher.address && typeof voucher.address === 'object') {
+          for (const key in voucher.address) {
+            if (voucher.address.hasOwnProperty(key)) {
+              const lowerKey = key.toLowerCase();
+              if (lowerKey.includes('country') || lowerKey.includes('nation') || lowerKey.includes('residence')) {
+                const value = voucher.address[key];
+                if (value && String(value).trim() !== '' && String(value).trim().toLowerCase() !== 'unknown') {
+                  console.log(`✅ Found country in address.${key} = ${value}`);
+                  return String(value).trim();
+                }
+              }
+            }
+          }
+        }
+        
+        if (voucher.customer && typeof voucher.customer === 'object') {
+          for (const key in voucher.customer) {
+            if (voucher.customer.hasOwnProperty(key)) {
+              const lowerKey = key.toLowerCase();
+              if (lowerKey.includes('country') || lowerKey.includes('nation') || lowerKey.includes('residence')) {
+                const value = voucher.customer[key];
+                if (value && String(value).trim() !== '' && String(value).trim().toLowerCase() !== 'unknown') {
+                  console.log(`✅ Found country in customer.${key} = ${value}`);
+                  return String(value).trim();
+                }
+              }
+            }
+          }
+        }
+        
+        return 'Unknown';
+      };
+      
       const transformedSales = allVouchers.map(voucher => ({
         category: voucher.sgrpofgrp || voucher.sgroup || 'Other',
         region: voucher.state || 'Unknown',
+        country: extractCountry(voucher),
+        salesperson: voucher.salesperson || voucher.SalesPerson || voucher.salespersonname || voucher.SalesPersonName || 'Unassigned',
         amount: parseFloat(voucher.amount) || 0,
         quantity: parseInt(voucher.billedqty) || 0,
         customer: voucher.customer || 'Unknown',
@@ -489,13 +688,30 @@ const SalesDashboard = () => {
         vchno: voucher.vchno,
         masterid: voucher.masterid,
         issales: voucher.issales,
-        profit: parseFloat(voucher.profit) || 0
+        profit: parseFloat(voucher.profit) || 0,
+        // Store tax information if available in original voucher
+        cgst: parseFloat(voucher.cgst || voucher.CGST || 0),
+        sgst: parseFloat(voucher.sgst || voucher.SGST || 0),
+        roundoff: parseFloat(voucher.roundoff || voucher.ROUNDOFF || voucher.round_off || 0)
       }));
+
+      // Debug: Log country extraction statistics
+      const countryStats = transformedSales.reduce((acc, sale) => {
+        const country = sale.country || 'Unknown';
+        acc[country] = (acc[country] || 0) + 1;
+        return acc;
+      }, {});
+      console.log('🌍 Country extraction statistics:', countryStats);
+      console.log('🌍 Total vouchers:', transformedSales.length);
+      console.log('🌍 Unique countries found:', Object.keys(countryStats).length);
+      console.log('🌍 Countries:', Object.keys(countryStats).sort());
 
       setSales(transformedSales);
       setDateRange({ start: startDate, end: endDate });
       setFromDate(startDate);
       setToDate(endDate);
+      // Reset salespersons initialization when new data is loaded
+      salespersonsInitializedRef.current = false;
 
       persistDashboardCache(companyInfo, {
         fromDate: startDate,
@@ -506,6 +722,7 @@ const SalesDashboard = () => {
           item: selectedItem,
           stockGroup: selectedStockGroup,
           region: selectedRegion,
+          country: selectedCountry,
           period: selectedPeriod
         },
         timestamp: Date.now()
@@ -639,6 +856,117 @@ const SalesDashboard = () => {
       }))
       .sort((a, b) => b.value - a.value);
   }, [filteredSales]);
+
+  // Country chart data - uses existing sales data, NO API calls
+  // Country data is extracted from the initial loadSales() response
+  const countryChartData = useMemo(() => {
+    const countryData = filteredSales.reduce((acc, sale) => {
+      const country = sale.country || 'Unknown';
+      // Ensure country is a valid string
+      const countryKey = String(country).trim() || 'Unknown';
+      acc[countryKey] = (acc[countryKey] || 0) + sale.amount;
+      return acc;
+    }, {});
+
+    // Extended color palette for countries
+    const countryColors = [
+      '#3b82f6', // Blue
+      '#10b981', // Green
+      '#f59e0b', // Amber
+      '#ef4444', // Red
+      '#8b5cf6', // Violet
+      '#ec4899', // Pink
+      '#06b6d4', // Cyan
+      '#84cc16', // Lime
+      '#f97316', // Orange
+      '#6366f1', // Indigo
+    ];
+
+    return Object.entries(countryData)
+      .map(([label, value], index) => ({
+        label: label || 'Unknown',
+        value,
+        color: countryColors[index % countryColors.length],
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [filteredSales]);
+
+  // Salesperson totals data
+  const salespersonTotals = useMemo(() => {
+    if (!filteredSales || filteredSales.length === 0) {
+      return [];
+    }
+
+    let filteredBySalesperson = filteredSales;
+
+    // Filter by enabled salespersons
+    // If size === 0 and initialization hasn't happened yet, show all (for initial load)
+    // If size === 0 after initialization, none are selected (show nothing)
+    // If size > 0, only show selected salespersons
+    if (enabledSalespersons.size > 0) {
+      filteredBySalesperson = filteredSales.filter((sale) => {
+        const salespersonName = sale.salesperson || 'Unassigned';
+        return enabledSalespersons.has(salespersonName);
+      });
+    } else if (enabledSalespersons.size === 0 && salespersonsInitializedRef.current) {
+      // None selected after initialization - show nothing
+      filteredBySalesperson = [];
+    }
+    // If size === 0 and not initialized yet, show all (filteredBySalesperson = filteredSales)
+
+    const salespersonMap = new Map();
+    filteredBySalesperson.forEach((sale) => {
+      const salespersonName = sale.salesperson || 'Unassigned';
+      const amount = sale.amount || 0;
+
+      if (!salespersonMap.has(salespersonName)) {
+        salespersonMap.set(salespersonName, { name: salespersonName, value: 0, billCount: 0 });
+      }
+
+      const entry = salespersonMap.get(salespersonName);
+      entry.value += amount;
+      entry.billCount += 1;
+    });
+
+    const result = Array.from(salespersonMap.values()).sort((a, b) => b.value - a.value);
+    
+    // Debug logging
+    console.log('🔍 Salesperson Totals Debug:', {
+      filteredSalesCount: filteredSales.length,
+      filteredBySalespersonCount: filteredBySalesperson.length,
+      enabledSalespersonsSize: enabledSalespersons.size,
+      initialized: salespersonsInitializedRef.current,
+      resultCount: result.length,
+      sampleResult: result[0],
+      allSalespersons: Array.from(new Set(filteredSales.map(s => s.salesperson || 'Unassigned')))
+    });
+
+    return result;
+  }, [filteredSales, enabledSalespersons, sales.length]);
+
+  // Initialize enabledSalespersons with all salespersons when sales are first loaded
+  useEffect(() => {
+    if (sales.length > 0 && !salespersonsInitializedRef.current) {
+      const uniqueSalespersons = new Set();
+      sales.forEach((sale) => {
+        const salespersonName = sale.salesperson || 'Unassigned';
+        uniqueSalespersons.add(salespersonName);
+      });
+      console.log('🔍 Initializing salespersons:', {
+        uniqueSalespersons: Array.from(uniqueSalespersons),
+        totalSales: sales.length,
+        sampleSale: sales[0]
+      });
+      if (uniqueSalespersons.size > 0) {
+        setEnabledSalespersons(uniqueSalespersons);
+        salespersonsInitializedRef.current = true;
+      } else {
+        // Even if all are 'Unassigned', we should still enable it
+        setEnabledSalespersons(new Set(['Unassigned']));
+        salespersonsInitializedRef.current = true;
+      }
+    }
+  }, [sales]);
 
   // Top customers data
   const topCustomersData = useMemo(() => {
@@ -977,6 +1305,7 @@ const SalesDashboard = () => {
     selectedItem !== 'all' ||
     selectedStockGroup !== 'all' ||
     selectedRegion !== 'all' ||
+    selectedCountry !== 'all' ||
     selectedPeriod !== null;
 
   const clearAllFilters = () => {
@@ -987,12 +1316,68 @@ const SalesDashboard = () => {
     setSelectedItem('all');
     setSelectedStockGroup('all');
     setSelectedRegion('all');
+    setSelectedCountry('all');
     setSelectedPeriod(null);
     
     // Note: Cache and date range are preserved to avoid unnecessary API calls
   };
 
   const formatCurrency = (value) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Helper function for compact currency formatting (for salesperson chart)
+  const formatCompactCurrency = (value) => {
+    if (!value || value === 0) return '₹0.00';
+    const absValue = Math.abs(value);
+    let formatted = '';
+    let unit = '';
+    if (absValue >= 10000000) {
+      formatted = '₹' + (absValue / 10000000).toFixed(2);
+      unit = ' Crore';
+    } else if (absValue >= 100000) {
+      formatted = '₹' + (absValue / 100000).toFixed(2);
+      unit = ' L';
+    } else if (absValue >= 1000) {
+      formatted = '₹' + (absValue / 1000).toFixed(2);
+      unit = ' K';
+    } else {
+      formatted = '₹' + absValue.toFixed(2);
+    }
+    return formatted + unit;
+  };
+
+  // Color palette for salesperson treemap
+  const salespersonColorPalette = [
+    '#3182ce', '#e53e3e', '#38a169', '#d69e2e', '#805ad5',
+    '#dd6b20', '#319795', '#c53030', '#2c5282', '#276749',
+    '#744210', '#553c9a', '#7c2d12', '#234e52', '#742a2a',
+    '#1a365d', '#22543d', '#78350f', '#5b21b6', '#702459',
+    '#97266d', '#702459', '#553c9a', '#4c1d95', '#3c366b',
+    '#2d3748', '#1a202c', '#2c5282', '#2c7a7b', '#2f855a',
+    '#38a169', '#48bb78', '#68d391', '#9ae6b4', '#c6f6d5',
+    '#f6e05e', '#fbd38d', '#fc8181', '#f687b3', '#b794f4',
+    '#9f7aea', '#7c3aed', '#6b46c1', '#553c9a', '#4c1d95',
+    '#44337a', '#322659', '#2d1b69', '#1a202c', '#1e3a8a',
+    '#1e40af', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd',
+  ];
+
+  // Get all unique salespersons from sales data
+  const allSalespersons = useMemo(() => {
+    if (!sales || sales.length === 0) return [];
+    const uniqueSalespersons = new Set();
+    sales.forEach((sale) => {
+      const salespersonName = sale.salesperson || 'Unassigned';
+      uniqueSalespersons.add(salespersonName);
+    });
+    return Array.from(uniqueSalespersons).sort();
+  }, [sales]);
+
+  // Determine if a salesperson is currently enabled/included
+  const isSalespersonEnabled = (salespersonName) => {
+    if (enabledSalespersons.size === 0) {
+      return false; // None selected (all excluded)
+    }
+    return enabledSalespersons.has(salespersonName);
+  };
 
   const formatElapsedTime = (seconds) => {
     if (seconds < 60) {
@@ -1024,7 +1409,9 @@ const SalesDashboard = () => {
     { key: 'customer', label: 'Customer' },
     { key: 'item', label: 'Item' },
     { key: 'category', label: 'Category' },
-    { key: 'region', label: 'Region' },
+    { key: 'region', label: 'State' },
+    { key: 'country', label: 'Country' },
+    { key: 'salesperson', label: 'Salesperson' },
     { key: 'quantity', label: 'Quantity', format: 'number' },
     { key: 'amount', label: 'Amount (₹)', format: 'currency' },
   ]), []);
@@ -1037,13 +1424,28 @@ const SalesDashboard = () => {
       item: sale.item || '-',
       category: sale.category || '-',
       region: sale.region || '-',
+      country: sale.country || 'Unknown',
+      salesperson: sale.salesperson || 'Unassigned',
       quantity: Number.isFinite(sale.quantity) ? sale.quantity : parseFloat(sale.quantity) || 0,
       amount: sale.amount || 0,
+      masterid: sale.masterid, // Include masterid for direct voucher details access
+      masterId: sale.masterid, // Also include as masterId for compatibility
     }))
   ), []);
 
+  // NOTE: This function ONLY filters existing sales data - NO API calls are made
+  // All data is already available from the initial loadSales() call
   const openTransactionRawData = useCallback((title, predicate) => {
-    const rows = buildTransactionRows(filteredSales.filter(predicate));
+    // Filter the already-loaded sales data - no API call needed
+    const filtered = filteredSales.filter(predicate);
+    console.log('🔍 openTransactionRawData (using existing data, no API call):', {
+      title,
+      totalFilteredSales: filteredSales.length,
+      filteredCount: filtered.length,
+      sampleSale: filteredSales[0],
+      sampleFiltered: filtered[0]
+    });
+    const rows = buildTransactionRows(filtered);
     setRawDataModal({
       open: true,
       title,
@@ -1054,6 +1456,461 @@ const SalesDashboard = () => {
     setRawDataSearch('');
     setRawDataPage(1);
   }, [buildTransactionRows, filteredSales, transactionColumns]);
+
+  // NOTE: fetchBillDrilldown is no longer needed - we use existing sales data
+  // Keeping for backward compatibility but it's not used anymore
+  const fetchBillDrilldown_DEPRECATED = useCallback(async (ledgerName, billName, salesperson) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    setShowDrilldown(true);
+    setDrilldownLoading(true);
+    setDrilldownError(null);
+    setSelectedBill({ ledgerName, billName, salesperson });
+
+    try {
+      const companyInfo = getCompanyInfo();
+      if (!companyInfo || !companyInfo.company || !companyInfo.tallyloc_id || !companyInfo.guid) {
+        throw new Error('Company information is missing. Please select a company first.');
+      }
+      
+      const companyName = cleanAndEscapeForXML(companyInfo.company);
+      const escapedLedgerName = escapeForXML(ledgerName);
+      const escapedBillName = escapeForXML(billName);
+      
+      console.log('🔍 Fetching bill drilldown:', {
+        ledgerName,
+        billName,
+        salesperson,
+        companyName,
+        tallyloc_id: companyInfo.tallyloc_id,
+        guid: companyInfo.guid
+      });
+
+      let booksFromDate = '1-Apr-00';
+      const dateMatch = companyInfo.company.match(/from\s+(\d{1,2}-[A-Za-z]{3}-\d{2,4})/i);
+      if (dateMatch && dateMatch[1]) {
+        booksFromDate = dateMatch[1];
+      }
+
+      const drilldownXML = `<ENVELOPE>
+	<HEADER>
+		<VERSION>1</VERSION>
+		<TALLYREQUEST>Export</TALLYREQUEST>
+		<TYPE>Data</TYPE>
+		<ID>ODBC Report</ID>
+	</HEADER>
+	<BODY>
+		<DESC>		
+			<STATICVARIABLES>
+				<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
+			</STATICVARIABLES>	
+            <TDL>
+            <TDLMESSAGE>
+            <COLLECTION NAME="TC Ledger Receivables" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
+                <TYPE>Bills</TYPE>
+                <CHILDOF>&quot;${escapedLedgerName}&quot;</CHILDOF>
+                <NATIVEMETHOD>Name</NATIVEMETHOD>
+                <FILTERS>TCBillNameFilt</FILTERS>
+            </COLLECTION>
+            <COLLECTION NAME="TCLR LedEntries" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
+                <COLLECTIONS>TCLR LedEntriesOB, TCLR LedEntriesVch</COLLECTIONS>
+            </COLLECTION>
+            <COLLECTION NAME="TCLR LedEntriesOB" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
+                <TYPE>Bills</TYPE>
+                <CHILDOF>&quot;${escapedLedgerName}&quot;</CHILDOF>
+                <NATIVEMETHOD>Parent, BillDate, Name</NATIVEMETHOD>
+                <FILTERS>TCOBLines, TCBillNameFilt</FILTERS>
+                <METHOD>VoucherTypeName : &quot;Opening Balance&quot;</METHOD>
+                <METHOD>LedBillAmount  : $ClosingBalance</METHOD>
+                <METHOD>Date   : $BillDate</METHOD>
+                <METHOD>Object  : &quot;Ledger&quot;</METHOD>
+                <METHOD>MasterID  : $MasterID:Ledger:$Parent</METHOD>
+            </COLLECTION>
+            <COLLECTION NAME="TCLR LedEntriesVch" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
+                <SOURCECOLLECTION>TC Ledger Receivables</SOURCECOLLECTION>
+                <WALK>LedgerEntries</WALK>
+                <NATIVEMETHOD>MasterID, Date, VoucherTypeName, Narration</NATIVEMETHOD>
+                <METHOD>Name : $$Owner:$Name</METHOD>
+                <METHOD>Parent : $$Owner:$Parent</METHOD>
+                <METHOD>Object : &quot;Voucher&quot;</METHOD>
+                <METHOD>LedBillAmount : $$GetVchBillAmt:($$Owner:$Name):($$Owner:$Parent):No</METHOD>
+            </COLLECTION>
+            <SYSTEM TYPE="Formulae" NAME="TCBillsOfGroupName" ISMODIFY="No" ISFIXED="No" ISINTERNAL="No">$$IsLedOfGrp:$Parent:##GroupName   </SYSTEM>
+            <SYSTEM TYPE="Formulae" NAME="TCBillNameFilt" ISMODIFY="No" ISFIXED="No" ISINTERNAL="No">$Name=&quot;${escapedBillName}&quot;   </SYSTEM>
+            <SYSTEM TYPE="Formulae" NAME="TCOBLines" ISMODIFY="No" ISFIXED="No" ISINTERNAL="No">$BillDate &lt; $$Date:&quot;${booksFromDate}&quot;   
+            </SYSTEM>
+            </TDLMESSAGE>
+            </TDL>
+			<SQLREQUEST TYPE="Prepare" METHOD="SQLPrepare">
+				select 
+                    $MASTERID as MasterID,
+                    $Name as BillName,
+                    $$String:$Date:UniversalDate as Date,
+                    $VoucherTypeName as VchType,
+                    $Narration as Narration,
+                    $LedBillAmount as Amount,
+                    $ClosingBalance:Ledger:$Parent as 'Customer Balance'
+				from TCLRLedEntries
+			</SQLREQUEST>
+		</DESC>
+	</BODY>
+</ENVELOPE>`;
+
+      const token = getAuthToken();
+      const apiUrl = getTallyDataUrl();
+      console.log('🔍 API URL:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/xml',
+          'x-tallyloc-id': companyInfo.tallyloc_id.toString(),
+          'x-company': companyName,
+          'x-guid': companyInfo.guid,
+        },
+        body: drilldownXML,
+        signal: abortController.signal,
+      });
+
+      console.log('🔍 Response status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('🔍 API Error:', errorText);
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+      }
+
+      const xmlText = await response.text();
+      console.log('🔍 XML Response length:', xmlText.length);
+      const parsed = parseXml(xmlText);
+      console.log('🔍 Parsed data:', parsed);
+      setDrilldownData(parsed);
+    } catch (err) {
+      console.error('🔍 fetchBillDrilldown error:', err);
+      if (err.name !== 'AbortError') {
+        const errorMessage = err.message || 'Failed to fetch bill details. Please check your connection and try again.';
+        setDrilldownError(errorMessage);
+      }
+    } finally {
+      setDrilldownLoading(false);
+      abortControllerRef.current = null;
+    }
+  }, []);
+
+  // NOTE: fetchVoucherDetails is no longer needed - we use existing sales data
+  // Keeping for backward compatibility but it's not used anymore
+  const fetchVoucherDetails_DEPRECATED = useCallback(async (masterId) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    setShowVoucherDetails(true);
+    setVoucherDetailsLoading(true);
+    setVoucherDetailsError(null);
+
+    try {
+      const companyInfo = getCompanyInfo();
+      if (!companyInfo || !companyInfo.company || !companyInfo.tallyloc_id || !companyInfo.guid) {
+        throw new Error('Company information is missing. Please select a company first.');
+      }
+      
+      const companyName = cleanAndEscapeForXML(companyInfo.company);
+      const escapedMasterId = escapeForXML(masterId.toString());
+      
+      console.log('🔍 Fetching voucher details:', {
+        masterId,
+        companyName,
+        tallyloc_id: companyInfo.tallyloc_id,
+        guid: companyInfo.guid
+      });
+
+      const voucherXML = `<ENVELOPE>
+	<HEADER>
+		<VERSION>1</VERSION>
+		<TALLYREQUEST>Export</TALLYREQUEST>
+		<TYPE>Data</TYPE>
+		<ID>CP_Vouchers</ID>
+	</HEADER>
+	<BODY>
+		<DESC>
+			<STATICVARIABLES>
+				<EXPORTFLAG>YES</EXPORTFLAG>
+				<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+				<SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
+			</STATICVARIABLES>
+			<TDL>
+				<TDLMESSAGE>
+					<REPORT NAME="CP_Vouchers">
+						<FORMS>CP_Vouchers</FORMS>
+						<KEEPXMLCASE>Yes</KEEPXMLCASE>
+						<OBJECTS>VOUCHER : $$Sprintf:@@VchMasterId:${escapedMasterId}</OBJECTS>
+					</REPORT>
+					<FORM NAME="CP_Vouchers">
+						<TOPPARTS>CP_Vouchers</TOPPARTS>
+					</FORM>
+					<PART NAME="CP_Vouchers">
+						<TOPLINES>CP_Vouchers</TOPLINES>
+						<SCROLLED>Vertical</SCROLLED>
+					</PART>
+					<LINE NAME="CP_Vouchers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
+						<XMLTAG>"VOUCHERS"</XMLTAG>
+						<LEFTFIELDS>CP_Temp1, CP_Temp2, CP_Temp3, CP_Temp4, CP_Temp5, CP_Temp6</LEFTFIELDS>
+						<LOCAL>Field : CP_Temp1 : Set as :$MASTERID</LOCAL>
+						<LOCAL>Field : CP_Temp2 : Set as :$DATE</LOCAL>
+						<LOCAL>Field : CP_Temp3 : Set as :$VOUCHERTYPENAME</LOCAL>
+						<LOCAL>Field : CP_Temp4 : Set as :$VOUCHERNUMBER</LOCAL>
+						<LOCAL>Field : CP_Temp5 : Set as : $$IfDr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
+						<LOCAL>Field : CP_Temp6 : Set as : $$IfCr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
+						<LOCAL>Field : CP_Temp1  : XMLTag : "MASTERID"</LOCAL>
+						<LOCAL>Field : CP_Temp2  : XMLTag : "DATE"</LOCAL>
+						<LOCAL>Field : CP_Temp3  : XMLTag : "VOUCHERTYPE"</LOCAL>
+						<LOCAL>Field : CP_Temp4  : XMLTag : "VOUCHERNUMBER"</LOCAL>
+						<LOCAL>Field : CP_Temp5  : XMLTag : "DEBITAMT"</LOCAL>
+						<LOCAL>Field : CP_Temp6  : XMLTag : "CREDITAMT"</LOCAL>
+						<Explode>CP_Ledgers : Yes</Explode>
+					</LINE>
+					<PART NAME="CP_Ledgers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
+						<TOPLINES>CP_LedgerLine</TOPLINES>
+						<SCROLLED>Vertical</SCROLLED>
+					</PART>
+					<LINE NAME="CP_LedgerLine" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
+						<XMLTAG>"LEDGERS"</XMLTAG>
+						<LEFTFIELDS>CP_LedgerTemp1, CP_LedgerTemp2, CP_LedgerTemp3</LEFTFIELDS>
+						<LOCAL>Field : CP_LedgerTemp1 : Set as :$NAME</LOCAL>
+						<LOCAL>Field : CP_LedgerTemp2 : Set as :$LEDGERAMOUNT</LOCAL>
+						<LOCAL>Field : CP_LedgerTemp3 : Set as :$MASTERID</LOCAL>
+						<LOCAL>Field : CP_LedgerTemp1 : XMLTag : "NAME"</LOCAL>
+						<LOCAL>Field : CP_LedgerTemp2 : XMLTag : "AMOUNT"</LOCAL>
+						<LOCAL>Field : CP_LedgerTemp3 : XMLTag : "MASTERID"</LOCAL>
+					</LINE>
+				</TDLMESSAGE>
+			</TDL>
+		</DESC>
+	</BODY>
+</ENVELOPE>`;
+
+      const token = getAuthToken();
+      const apiUrl = getTallyDataUrl();
+      console.log('🔍 Voucher API URL:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/xml',
+          'x-tallyloc-id': companyInfo.tallyloc_id.toString(),
+          'x-company': companyName,
+          'x-guid': companyInfo.guid,
+        },
+        body: voucherXML,
+        signal: abortController.signal,
+      });
+
+      console.log('🔍 Voucher Response status:', response.status, response.statusText);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('🔍 Voucher API Error:', errorText);
+        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+      }
+
+      const xmlText = await response.text();
+      console.log('🔍 Voucher XML Response length:', xmlText.length);
+      const xmlDoc = new DOMParser().parseFromString(xmlText, 'text/xml');
+      const parserError = xmlDoc.getElementsByTagName('parsererror')[0];
+      if (parserError) {
+        console.error('🔍 XML Parse Error:', parserError.textContent);
+        throw new Error('Failed to parse XML response: ' + parserError.textContent);
+      }
+
+      const vouchers = xmlDoc.getElementsByTagName('VOUCHERS');
+      if (!vouchers || vouchers.length === 0) {
+        throw new Error('No voucher data found');
+      }
+
+      const groupSiblings = (vouchers) => {
+        const result = [];
+        for (let i = 0; i < vouchers.length; i++) {
+          const voucher = vouchers[i];
+          const masterId = voucher.getElementsByTagName('MASTERID')[0]?.textContent || '';
+          const date = voucher.getElementsByTagName('DATE')[0]?.textContent || '';
+          const voucherType = voucher.getElementsByTagName('VOUCHERTYPE')[0]?.textContent || '';
+          const voucherNumber = voucher.getElementsByTagName('VOUCHERNUMBER')[0]?.textContent || '';
+          const debitAmt = voucher.getElementsByTagName('DEBITAMT')[0]?.textContent || '';
+          const creditAmt = voucher.getElementsByTagName('CREDITAMT')[0]?.textContent || '';
+
+          const ledgers = [];
+          const ledgerElements = voucher.getElementsByTagName('LEDGERS');
+          for (let j = 0; j < ledgerElements.length; j++) {
+            const ledger = ledgerElements[j];
+            const name = ledger.getElementsByTagName('NAME')[0]?.textContent || '';
+            const amount = ledger.getElementsByTagName('AMOUNT')[0]?.textContent || '';
+            const ledgerMasterId = ledger.getElementsByTagName('MASTERID')[0]?.textContent || '';
+            ledgers.push({ NAME: name, AMOUNT: amount, MASTERID: ledgerMasterId });
+          }
+
+          result.push({
+            MASTERID: masterId,
+            DATE: date,
+            VOUCHERTYPE: voucherType,
+            VOUCHERNUMBER: voucherNumber,
+            DEBITAMT: debitAmt,
+            CREDITAMT: creditAmt,
+            LEDGERS: ledgers,
+          });
+        }
+        return result;
+      };
+
+      const voucherObj = groupSiblings(vouchers);
+      console.log('🔍 Voucher details parsed:', voucherObj);
+      setVoucherDetailsData({ VOUCHERS: voucherObj });
+    } catch (err) {
+      console.error('🔍 fetchVoucherDetails error:', err);
+      if (err.name !== 'AbortError') {
+        const errorMessage = err.message || 'Failed to fetch voucher details. Please check your connection and try again.';
+        setVoucherDetailsError(errorMessage);
+      }
+    } finally {
+      setVoucherDetailsLoading(false);
+      abortControllerRef.current = null;
+    }
+  }, []);
+
+  // Handle voucher row click - use existing sales data
+  const handleVoucherRowClick = useCallback((masterId) => {
+    if (!masterId) return;
+
+    // Find the voucher in existing sales data by masterid
+    const voucher = sales.find(s => s.masterid === masterId || String(s.masterid) === String(masterId));
+    
+    if (voucher) {
+      // Find all items in this voucher (same masterid and vchno)
+      const voucherItems = sales.filter(s => 
+        (s.masterid === voucher.masterid || String(s.masterid) === String(voucher.masterid)) &&
+        s.vchno === voucher.vchno
+      );
+
+      // Calculate total amount
+      const totalAmount = voucherItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+      
+      // Aggregate tax values from all items in the voucher
+      const totalCGST = voucherItems.reduce((sum, item) => sum + (item.cgst || item.CGST || 0), 0);
+      const totalSGST = voucherItems.reduce((sum, item) => sum + (item.sgst || item.SGST || 0), 0);
+      const totalRoundOff = voucherItems.reduce((sum, item) => sum + (item.roundoff || item.ROUNDOFF || item.round_off || 0), 0);
+      
+      // If tax values are not available, calculate them
+      // Assuming 18% GST (9% CGST + 9% SGST) on taxable amount if not provided
+      const hasTaxData = totalCGST > 0 || totalSGST > 0;
+      let cgstValue = totalCGST;
+      let sgstValue = totalSGST;
+      
+      if (!hasTaxData && totalAmount > 0) {
+        // Calculate CGST and SGST as 9% each of taxable amount (assuming 18% GST)
+        const taxableAmount = totalAmount / 1.18; // Remove GST to get taxable amount
+        cgstValue = taxableAmount * 0.09;
+        sgstValue = taxableAmount * 0.09;
+      }
+      
+      const roundOffValue = totalRoundOff;
+
+      // Transform to match VoucherDetailsModal format from Receivables Dashboard
+      const voucherData = {
+        VOUCHERS: {
+          MASTERID: voucher.masterid,
+          DATE: voucher.cp_date || voucher.date || '',
+          VOUCHERTYPE: voucher.issales ? 'Sales' : 'Other',
+          VOUCHERNUMBER: voucher.vchno || '',
+          VCHNO: voucher.vchno || '',
+          VCHTYPE: voucher.issales ? 'Sales' : 'Other',
+          DEBITAMT: voucher.issales ? totalAmount : 0,
+          CREDITAMT: voucher.issales ? 0 : totalAmount,
+          // Format ledger entries to match expected structure
+          ALLLEDGERENTRIES: [
+            // Customer ledger entry (debit for sales) with bill allocation
+            {
+              LEDGERNAME: voucher.customer || 'Unknown',
+              DEBITAMT: voucher.issales ? totalAmount : 0,
+              CREDITAMT: 0,
+              BILLALLOCATIONS: voucher.issales ? [{
+                BILLNAME: voucher.vchno || '',
+                DEBITAMT: totalAmount,
+                CREDITAMT: 0
+              }] : [],
+              INVENTORYALLOCATIONS: []
+            },
+            // Sales ledger entry (credit for sales) with inventory allocations
+            ...(voucher.issales ? [{
+              LEDGERNAME: 'Sales',
+              DEBITAMT: 0,
+              CREDITAMT: totalAmount,
+              BILLALLOCATIONS: [],
+              INVENTORYALLOCATIONS: voucherItems.map(item => ({
+                STOCKITEMNAME: item.item || 'Unknown',
+                BILLEQTY: item.quantity || 0,
+                ACTUALQTY: item.quantity || 0,
+                RATE: item.quantity > 0 ? ((item.amount / item.quantity).toFixed(2)) : '0.00',
+                DISCOUNT: '0',
+                AMOUNT: item.amount || 0,
+                VALUE: item.amount || 0
+              })),
+              // Add CGST, SGST, and ROUND OFF to the Sales ledger entry
+              CGST: cgstValue,
+              SGST: sgstValue,
+              ROUNDOFF: roundOffValue
+            }] : [])
+          ]
+        }
+      };
+
+      setVoucherDetailsData(voucherData);
+      setShowVoucherDetails(true);
+      setVoucherDetailsLoading(false);
+      setVoucherDetailsError(null);
+    } else {
+      setVoucherDetailsError('Voucher not found in current data.');
+      setShowVoucherDetails(true);
+      setVoucherDetailsLoading(false);
+    }
+  }, [sales]);
+
+  // Handle bill row click from raw data - go directly to voucher details modal
+  const handleBillRowClick = useCallback((row) => {
+    // Get masterid from the row to open voucher details directly
+    const masterId = row.masterid || row.masterId;
+    
+    if (masterId) {
+      // Directly open voucher details modal
+      handleVoucherRowClick(masterId);
+    } else {
+      // Fallback: try to find by customer and voucher number
+      const customer = row.customer || '';
+      const voucherNo = row.voucherNo || '';
+      
+      if (customer && voucherNo) {
+        // Find the first transaction matching customer and voucher number
+        const transaction = sales.find(sale => 
+          sale.customer === customer && sale.vchno === voucherNo
+        );
+        
+        if (transaction && transaction.masterid) {
+          handleVoucherRowClick(transaction.masterid);
+        } else {
+          setVoucherDetailsError('Voucher not found in current data.');
+          setShowVoucherDetails(true);
+          setVoucherDetailsLoading(false);
+        }
+      }
+    }
+  }, [sales, handleVoucherRowClick]);
 
   // Helper function to create SVG charts
   const createBarChart = (data, title, width = 600, height = 300) => {
@@ -1193,7 +2050,8 @@ const SalesDashboard = () => {
             ${selectedCustomer !== 'all' ? `<span class="filter-item">Customer: ${selectedCustomer}</span>` : ''}
             ${selectedItem !== 'all' ? `<span class="filter-item">Item: ${selectedItem}</span>` : ''}
             ${selectedStockGroup !== 'all' ? `<span class="filter-item">Stock Group: ${selectedStockGroup}</span>` : ''}
-            ${selectedRegion !== 'all' ? `<span class="filter-item">Region: ${selectedRegion}</span>` : ''}
+            ${selectedRegion !== 'all' ? `<span class="filter-item">State: ${selectedRegion}</span>` : ''}
+            ${selectedCountry !== 'all' ? `<span class="filter-item">Country: ${selectedCountry}</span>` : ''}
             ${selectedPeriod ? `<span class="filter-item">Period: ${formatPeriodLabel(selectedPeriod)}</span>` : ''}
           </div>
           ` : ''}
@@ -1214,12 +2072,27 @@ const SalesDashboard = () => {
           </div>
           
           <div class="chart-section">
-            <div class="chart-title">Sales by Region</div>
+            <div class="chart-title">Sales by State</div>
             <div class="chart-container">
-              ${createPieChart(regionChartData, 'Sales by Region')}
+              ${createPieChart(regionChartData, 'Sales by State')}
             </div>
             <div class="chart-data">
               ${regionChartData.slice(0, 10).map(item => `
+                <div class="chart-row">
+                  <span>${item.label}</span>
+                  <span>${formatCurrency(item.value)}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          
+          <div class="chart-section">
+            <div class="chart-title">Sales by Country</div>
+            <div class="chart-container">
+              ${createPieChart(countryChartData, 'Sales by Country')}
+            </div>
+            <div class="chart-data">
+              ${countryChartData.slice(0, 10).map(item => `
                 <div class="chart-row">
                   <span>${item.label}</span>
                   <span>${formatCurrency(item.value)}</span>
@@ -1313,9 +2186,13 @@ const SalesDashboard = () => {
           ['Stock Group', 'Revenue'],
           ...categoryChartData.map(item => [item.label, item.value])
         ],
-        'Regions': [
-          ['Region', 'Revenue'],
+        'States': [
+          ['State', 'Revenue'],
           ...regionChartData.map(item => [item.label, item.value])
+        ],
+        'Countries': [
+          ['Country', 'Revenue'],
+          ...countryChartData.map(item => [item.label, item.value])
         ],
         'Top Customers': [
           ['Customer', 'Revenue'],
@@ -1432,7 +2309,8 @@ const SalesDashboard = () => {
             ${selectedCustomer !== 'all' ? `<span class="filter-item">Customer: ${selectedCustomer}</span>` : ''}
             ${selectedItem !== 'all' ? `<span class="filter-item">Item: ${selectedItem}</span>` : ''}
             ${selectedStockGroup !== 'all' ? `<span class="filter-item">Stock Group: ${selectedStockGroup}</span>` : ''}
-            ${selectedRegion !== 'all' ? `<span class="filter-item">Region: ${selectedRegion}</span>` : ''}
+            ${selectedRegion !== 'all' ? `<span class="filter-item">State: ${selectedRegion}</span>` : ''}
+            ${selectedCountry !== 'all' ? `<span class="filter-item">Country: ${selectedCountry}</span>` : ''}
             ${selectedPeriod ? `<span class="filter-item">Period: ${formatPeriodLabel(selectedPeriod)}</span>` : ''}
           </div>
           ` : ''}
@@ -1453,12 +2331,27 @@ const SalesDashboard = () => {
           </div>
           
           <div class="chart-section">
-            <div class="chart-title">Sales by Region</div>
+            <div class="chart-title">Sales by State</div>
             <div class="chart-container">
-              ${createPieChart(regionChartData, 'Sales by Region')}
+              ${createPieChart(regionChartData, 'Sales by State')}
             </div>
             <div class="chart-data">
               ${regionChartData.slice(0, 10).map(item => `
+                <div class="chart-row">
+                  <span>${item.label}</span>
+                  <span>${formatCurrency(item.value)}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+          
+          <div class="chart-section">
+            <div class="chart-title">Sales by Country</div>
+            <div class="chart-container">
+              ${createPieChart(countryChartData, 'Sales by Country')}
+            </div>
+            <div class="chart-data">
+              ${countryChartData.slice(0, 10).map(item => `
                 <div class="chart-row">
                   <span>${item.label}</span>
                   <span>${formatCurrency(item.value)}</span>
@@ -1565,6 +2458,8 @@ const SalesDashboard = () => {
     event.currentTarget.style.color = '#1e40af';
   };
 
+  // NOTE: This function ONLY uses existing sales data - NO API calls are made
+  // All chart data and raw data comes from the initial loadSales() call
   const openRawData = useCallback((type, extra) => {
     let config = null;
 
@@ -1597,9 +2492,9 @@ const SalesDashboard = () => {
         return;
       case 'region':
         config = {
-          title: 'Sales by Region',
+          title: 'Sales by State',
           columns: [
-            { key: 'region', label: 'Region' },
+            { key: 'region', label: 'State' },
             { key: 'revenue', label: 'Revenue (₹)', format: 'currency' },
           ],
           rows: regionChartData.map((item) => ({
@@ -1615,6 +2510,35 @@ const SalesDashboard = () => {
                 `Raw Data - ${row.region}`,
                 (sale) => sale.region === row.regionKey
               ),
+          },
+        };
+        break;
+      case 'country':
+        config = {
+          title: 'Sales by Country',
+          columns: [
+            { key: 'country', label: 'Country' },
+            { key: 'revenue', label: 'Revenue (₹)', format: 'currency' },
+          ],
+          rows: countryChartData.map((item) => ({
+            country: item.label,
+            revenue: item.value,
+            countryKey: item.label,
+          })),
+          rowAction: {
+            icon: 'table_view',
+            title: 'View raw data',
+            onClick: (row) => {
+              const countryToMatch = String(row.countryKey || 'Unknown').trim();
+              console.log('🔍 Filtering by country:', countryToMatch);
+              openTransactionRawData(
+                `Raw Data - ${row.country}`,
+                (sale) => {
+                  const saleCountry = String(sale.country || 'Unknown').trim();
+                  return saleCountry === countryToMatch;
+                }
+              );
+            },
           },
         };
         break;
@@ -1835,6 +2759,7 @@ const SalesDashboard = () => {
   }, [
     categoryChartData,
     regionChartData,
+    countryChartData,
     periodChartData,
     topCustomersData,
     topItemsByRevenueData,
@@ -1947,6 +2872,65 @@ const SalesDashboard = () => {
   const rawDataStart = totalRawRows === 0 ? 0 : (rawDataPage - 1) * RAW_DATA_PAGE_SIZE + 1;
   const rawDataEnd = totalRawRows === 0 ? 0 : Math.min(rawDataPage * RAW_DATA_PAGE_SIZE, totalRawRows);
 
+  // Custom Treemap Cell component for Salesperson Chart (matching Receivables Dashboard)
+  const CustomTreemapCell = ({
+    depth,
+    x,
+    y,
+    width,
+    height,
+    name,
+    fill,
+    value,
+    selectedSalesperson,
+  }) => {
+    if (depth === 0) return null;
+
+    const isSelected = !selectedSalesperson || selectedSalesperson === name;
+    const textColor = isSelected ? '#0f172a' : '#475569';
+
+    return (
+      <g>
+        <rect
+          x={x}
+          y={y}
+          width={width}
+          height={height}
+          style={{
+            fill,
+            stroke: '#ffffff',
+            strokeWidth: 2,
+            opacity: isSelected ? 0.95 : 0.7,
+            transition: 'opacity 0.2s',
+          }}
+        />
+        {width > 70 && height > 46 && (
+          <>
+            <text
+              x={x + 10}
+              y={y + 24}
+              fill={textColor}
+              fontSize={14}
+              fontWeight={600}
+              style={{ pointerEvents: 'none' }}
+            >
+              {name}
+            </text>
+            <text
+              x={x + 10}
+              y={y + 44}
+              fill={textColor}
+              fontSize={12}
+              style={{ pointerEvents: 'none' }}
+            >
+              {formatCompactCurrency(value)}
+            </text>
+          </>
+        )}
+      </g>
+    );
+  };
+
   return (
     <>
       <style>
@@ -1986,13 +2970,19 @@ const SalesDashboard = () => {
          }}
        >
         {/* Header */}
+        <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
+        <div style={{
+            padding: '16px 24px 12px 24px',
+          borderBottom: '1px solid #f3f4f6',
+          position: 'relative'
+          }}>
+            {/* Top Row: Title, Badge, Date Range, and Export Buttons */}
         <div style={{
           display: 'flex',
           alignItems: 'center', 
-          justifyContent: 'space-between',
-          padding: '20px 24px',
-          borderBottom: '1px solid #f3f4f6',
-          position: 'relative'
+          gap: '16px',
+          marginBottom: '12px',
+          flexWrap: 'wrap'
         }}>
           <div style={{
             display: 'flex',
@@ -2029,39 +3019,36 @@ const SalesDashboard = () => {
               }}>
                 Comprehensive sales insights and performance metrics
               </p>
-            </div>
-          </div>
+              {/* Records Available Badge */}
           <div style={{
+                display: 'inline-flex',
             background: '#f0f9ff',
             color: '#0369a1',
             padding: '6px 12px',
             borderRadius: '20px',
             fontSize: '12px',
             fontWeight: '600',
-            display: 'flex',
             alignItems: 'center',
             gap: '6px',
-            border: '1px solid #bae6fd'
+                border: '1px solid #bae6fd',
+                marginTop: '8px'
           }}>
             <span className="material-icons" style={{ fontSize: '16px' }}>bar_chart</span>
             {filteredSales.length} records available
+              </div>
           </div>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} style={{ padding: '24px', width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
-          {/* Single Line: Start Date, End Date, Submit Button */}
+          {/* Date Range and Submit */}
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: '250px 250px 160px',
-            gap: '20px',
+            display: 'flex',
             alignItems: 'end',
-            minHeight: '60px',
-            position: 'relative',
-            marginBottom: '20px'
+            gap: '12px',
+            flex: '1 1 auto',
+            justifyContent: 'center'
           }}>
             {/* Start Date */}
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative', flex: '0 0 180px' }}>
               <div style={{
                 position: 'relative',
                 background: 'white',
@@ -2076,7 +3063,7 @@ const SalesDashboard = () => {
                   onChange={(e) => setFromDate(e.target.value)}
                   style={{
                     width: '100%',
-                    padding: '12px 16px',
+                    padding: '10px 14px',
                     border: 'none',
                     outline: 'none',
                     background: 'transparent',
@@ -2087,13 +3074,13 @@ const SalesDashboard = () => {
                 />
                 <label style={{
                   position: 'absolute',
-                  top: '-8px',
+                  top: '-6px',
                   left: '12px',
                   background: 'white',
-                  fontSize: '12px',
+                  fontSize: '11px',
                   fontWeight: '600',
                   color: '#64748b',
-                  padding: '0 6px',
+                  padding: '0 4px',
                   transition: 'all 0.2s ease',
                   pointerEvents: 'none',
                   zIndex: 1
@@ -2104,7 +3091,7 @@ const SalesDashboard = () => {
             </div>
 
             {/* End Date */}
-            <div style={{ position: 'relative' }}>
+            <div style={{ position: 'relative', flex: '0 0 180px' }}>
               <div style={{
                 position: 'relative',
                 background: 'white',
@@ -2119,7 +3106,7 @@ const SalesDashboard = () => {
                   onChange={(e) => setToDate(e.target.value)}
                   style={{
                     width: '100%',
-                    padding: '12px 16px',
+                    padding: '10px 14px',
                     border: 'none',
                     outline: 'none',
                     background: 'transparent',
@@ -2130,13 +3117,13 @@ const SalesDashboard = () => {
                 />
                 <label style={{
                   position: 'absolute',
-                  top: '-8px',
+                  top: '-6px',
                   left: '12px',
                   background: 'white',
-                  fontSize: '12px',
+                  fontSize: '11px',
                   fontWeight: '600',
                   color: '#64748b',
-                  padding: '0 6px',
+                  padding: '0 4px',
                   transition: 'all 0.2s ease',
                   pointerEvents: 'none',
                   zIndex: 1
@@ -2146,14 +3133,7 @@ const SalesDashboard = () => {
               </div>
             </div>
 
-
-
             {/* Submit Button */}
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'flex-start'
-            }}>
               <button
                 type="submit"
                 disabled={loading}
@@ -2161,7 +3141,7 @@ const SalesDashboard = () => {
                   background: loading ? '#94a3b8' : 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
                   border: 'none',
                   borderRadius: '10px',
-                  padding: '12px 20px',
+                padding: '10px 18px',
                   cursor: loading ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -2173,7 +3153,8 @@ const SalesDashboard = () => {
                   boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)',
                   minWidth: '120px',
                   justifyContent: 'center',
-                  opacity: loading ? 0.7 : 1
+                opacity: loading ? 0.7 : 1,
+                height: '42px'
                 }}
                 onMouseEnter={(e) => {
                   if (!loading) {
@@ -2193,6 +3174,91 @@ const SalesDashboard = () => {
                 )}
                 {loading ? 'Loading...' : 'Submit'}
               </button>
+          </div>
+
+          {/* Export Buttons */}
+          <div style={{
+            display: 'flex', 
+            gap: '8px', 
+            alignItems: 'center',
+            marginLeft: 'auto'
+          }}>
+            <button
+              type="button"
+              title="Export to PDF"
+              onClick={exportToPDF}
+              style={{
+                background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: '#fff',
+                fontSize: '13px',
+                fontWeight: '600',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 2px 4px rgba(220, 38, 38, 0.2)'
+              }}
+              onMouseEnter={(e) => e.target.style.background = 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)'}
+              onMouseLeave={(e) => e.target.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)'}
+            >
+              <span className="material-icons" style={{ fontSize: '16px' }}>picture_as_pdf</span>
+              PDF
+            </button>
+            <button
+              type="button"
+              title="Export to Excel"
+              onClick={exportToExcel}
+              style={{
+                background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: '#fff',
+                fontSize: '13px',
+                fontWeight: '600',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 2px 4px rgba(5, 150, 105, 0.2)'
+              }}
+              onMouseEnter={(e) => e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)'}
+              onMouseLeave={(e) => e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)'}
+            >
+              <span className="material-icons" style={{ fontSize: '16px' }}>table_chart</span>
+              Excel
+            </button>
+            <button
+              type="button"
+              title="Print Report"
+              onClick={printDashboard}
+              style={{
+                background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 14px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: '#fff',
+                fontSize: '13px',
+                fontWeight: '600',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 2px 4px rgba(30, 64, 175, 0.2)'
+              }}
+              onMouseEnter={(e) => e.target.style.background = 'linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%)'}
+              onMouseLeave={(e) => e.target.style.background = 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)'}
+            >
+              <span className="material-icons" style={{ fontSize: '16px' }}>print</span>
+              Print
+            </button>
+          </div>
           </div>
         </div>
 
@@ -2431,7 +3497,7 @@ const SalesDashboard = () => {
                   gap: '6px'
                 }}>
                   <span className="material-icons" style={{ fontSize: '14px' }}>place</span>
-                  Region: {selectedRegion}
+                  State: {selectedRegion}
                   <button
                     onClick={() => setSelectedRegion('all')}
                     style={{
@@ -2453,6 +3519,48 @@ const SalesDashboard = () => {
                     onMouseLeave={(e) => {
                       e.target.style.background = 'none';
                       e.target.style.color = '#3730a3';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '14px' }}>close</span>
+                  </button>
+                </div>
+              )}
+
+              {selectedCountry !== 'all' && (
+                <div style={{
+                  background: '#fef3c7',
+                  border: '1px solid #fcd34d',
+                  borderRadius: '16px',
+                  padding: '4px 8px 4px 12px',
+                  fontSize: '12px',
+                  color: '#92400e',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px' }}>public</span>
+                  Country: {selectedCountry}
+                  <button
+                    onClick={() => setSelectedCountry('all')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#92400e',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#fcd34d';
+                      e.target.style.color = '#92400e';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'none';
+                      e.target.style.color = '#92400e';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: '14px' }}>close</span>
@@ -2541,103 +3649,19 @@ const SalesDashboard = () => {
           )}
         </form>
 
-        {/* Export Buttons */}
-        <div style={{ 
-          background: '#f8fafc', 
-          padding: '16px 24px',
-          borderBottom: '1px solid #e2e8f0'
-        }}>
-          <div style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                title="Export to PDF"
-                onClick={exportToPDF}
-                style={{
-                  background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '10px 16px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  color: '#fff',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 2px 4px rgba(220, 38, 38, 0.2)'
-                }}
-                onMouseEnter={(e) => e.target.style.background = 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)'}
-                onMouseLeave={(e) => e.target.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)'}
-              >
-                <span className="material-icons" style={{ fontSize: '16px' }}>picture_as_pdf</span>
-                PDF
-              </button>
-              <button
-                title="Export to Excel"
-                onClick={exportToExcel}
-                style={{
-                  background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '10px 16px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  color: '#fff',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 2px 4px rgba(5, 150, 105, 0.2)'
-                }}
-                onMouseEnter={(e) => e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)'}
-                onMouseLeave={(e) => e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)'}
-              >
-                <span className="material-icons" style={{ fontSize: '16px' }}>table_chart</span>
-                Excel
-              </button>
-              <button
-                title="Print Report"
-                onClick={printDashboard}
-                style={{
-                  background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '10px 16px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  color: '#fff',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 2px 4px rgba(30, 64, 175, 0.2)'
-                }}
-                onMouseEnter={(e) => e.target.style.background = 'linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%)'}
-                onMouseLeave={(e) => e.target.style.background = 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)'}
-              >
-                <span className="material-icons" style={{ fontSize: '16px' }}>print</span>
-                Print
-              </button>
-            </div>
-          </div>
-        </div>
-
         {/* Dashboard Content */}
-        <div style={{ padding: '24px' }}>
+        <div style={{ padding: '16px 24px 24px 24px' }}>
           {/* KPI Cards */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: '20px',
-            marginBottom: '24px'
+            gap: '16px',
+            marginBottom: '20px'
           }}>
             <div style={{
               background: 'white',
               borderRadius: '12px',
-              padding: '20px',
+              padding: '12px 16px',
               border: '1px solid #e2e8f0',
               boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
               display: 'flex',
@@ -2645,30 +3669,31 @@ const SalesDashboard = () => {
               justifyContent: 'space-between'
             }}>
               <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 4px 0', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <p style={{ margin: '0 0 2px 0', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
                   Total Revenue
                 </p>
-                <p style={{ margin: '0', fontSize: '24px', fontWeight: '700', color: '#1e293b' }}>
+                <p style={{ margin: '0', fontSize: '22px', fontWeight: '700', color: '#1e293b', lineHeight: '1.2' }}>
                   ₹{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
               </div>
               <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '12px',
+                width: '40px',
+                height: '40px',
+                borderRadius: '10px',
                 background: '#dbeafe',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                flexShrink: 0
               }}>
-                <span className="material-icons" style={{ fontSize: '24px', color: '#3b82f6' }}>attach_money</span>
+                <span className="material-icons" style={{ fontSize: '20px', color: '#3b82f6' }}>attach_money</span>
               </div>
             </div>
 
             <div style={{
               background: 'white',
               borderRadius: '12px',
-              padding: '20px',
+              padding: '12px 16px',
               border: '1px solid #e2e8f0',
               boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
               display: 'flex',
@@ -2676,30 +3701,31 @@ const SalesDashboard = () => {
               justifyContent: 'space-between'
             }}>
               <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 4px 0', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <p style={{ margin: '0 0 2px 0', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
                   Total Orders
                 </p>
-                <p style={{ margin: '0', fontSize: '24px', fontWeight: '700', color: '#1e293b' }}>
+                <p style={{ margin: '0', fontSize: '22px', fontWeight: '700', color: '#1e293b', lineHeight: '1.2' }}>
                   {totalOrders}
                 </p>
               </div>
               <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '12px',
+                width: '40px',
+                height: '40px',
+                borderRadius: '10px',
                 background: '#dcfce7',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                flexShrink: 0
               }}>
-                <span className="material-icons" style={{ fontSize: '24px', color: '#16a34a' }}>shopping_cart</span>
+                <span className="material-icons" style={{ fontSize: '20px', color: '#16a34a' }}>shopping_cart</span>
               </div>
             </div>
 
             <div style={{
               background: 'white',
               borderRadius: '12px',
-              padding: '20px',
+              padding: '12px 16px',
               border: '1px solid #e2e8f0',
               boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
               display: 'flex',
@@ -2707,30 +3733,31 @@ const SalesDashboard = () => {
               justifyContent: 'space-between'
             }}>
               <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 4px 0', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <p style={{ margin: '0 0 2px 0', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
                   Unique Customers
                 </p>
-                <p style={{ margin: '0', fontSize: '24px', fontWeight: '700', color: '#1e293b' }}>
+                <p style={{ margin: '0', fontSize: '22px', fontWeight: '700', color: '#1e293b', lineHeight: '1.2' }}>
                   {uniqueCustomers}
                 </p>
               </div>
               <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '12px',
+                width: '40px',
+                height: '40px',
+                borderRadius: '10px',
                 background: '#e9d5ff',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                flexShrink: 0
               }}>
-                <span className="material-icons" style={{ fontSize: '24px', color: '#9333ea' }}>people</span>
+                <span className="material-icons" style={{ fontSize: '20px', color: '#9333ea' }}>people</span>
               </div>
             </div>
 
             <div style={{
               background: 'white',
               borderRadius: '12px',
-              padding: '20px',
+              padding: '12px 16px',
               border: '1px solid #e2e8f0',
               boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
               display: 'flex',
@@ -2738,23 +3765,24 @@ const SalesDashboard = () => {
               justifyContent: 'space-between'
             }}>
               <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 4px 0', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <p style={{ margin: '0 0 2px 0', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
                   Avg Order Value
                 </p>
-                <p style={{ margin: '0', fontSize: '24px', fontWeight: '700', color: '#1e293b' }}>
+                <p style={{ margin: '0', fontSize: '22px', fontWeight: '700', color: '#1e293b', lineHeight: '1.2' }}>
                   ₹{avgOrderValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
               </div>
               <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '12px',
+                width: '40px',
+                height: '40px',
+                borderRadius: '10px',
                 background: '#dcfce7',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                flexShrink: 0
               }}>
-                <span className="material-icons" style={{ fontSize: '24px', color: '#16a34a' }}>trending_up</span>
+                <span className="material-icons" style={{ fontSize: '20px', color: '#16a34a' }}>trending_up</span>
               </div>
               </div>
             </div>
@@ -2762,14 +3790,14 @@ const SalesDashboard = () => {
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: '20px',
-            marginBottom: '32px'
+            gap: '16px',
+            marginBottom: '24px'
           }}>
             {canShowProfit && (
               <div style={{
                 background: 'white',
                 borderRadius: '12px',
-                padding: '20px',
+                padding: '12px 16px',
                 border: '1px solid #e2e8f0',
                 boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
                 display: 'flex',
@@ -2777,23 +3805,24 @@ const SalesDashboard = () => {
                 justifyContent: 'space-between'
               }}>
                 <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 4px 0', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <p style={{ margin: '0 0 2px 0', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
                     Total Profit
                   </p>
-                  <p style={{ margin: '0', fontSize: '24px', fontWeight: '700', color: totalProfit >= 0 ? '#16a34a' : '#dc2626' }}>
+                  <p style={{ margin: '0', fontSize: '22px', fontWeight: '700', color: totalProfit >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2' }}>
                     ₹{totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '12px',
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
                   background: totalProfit >= 0 ? '#dcfce7' : '#fee2e2',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  justifyContent: 'center',
+                  flexShrink: 0
                 }}>
-                  <span className="material-icons" style={{ fontSize: '24px', color: totalProfit >= 0 ? '#16a34a' : '#dc2626' }}>
+                  <span className="material-icons" style={{ fontSize: '20px', color: totalProfit >= 0 ? '#16a34a' : '#dc2626' }}>
                     {totalProfit >= 0 ? 'trending_up' : 'trending_down'}
                   </span>
                 </div>
@@ -2804,7 +3833,7 @@ const SalesDashboard = () => {
               <div style={{
                 background: 'white',
                 borderRadius: '12px',
-                padding: '20px',
+                padding: '12px 16px',
                 border: '1px solid #e2e8f0',
                 boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
                 display: 'flex',
@@ -2812,23 +3841,24 @@ const SalesDashboard = () => {
                 justifyContent: 'space-between'
               }}>
                 <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 4px 0', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <p style={{ margin: '0 0 2px 0', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
                     Profit Margin
                   </p>
-                  <p style={{ margin: '0', fontSize: '24px', fontWeight: '700', color: profitMargin >= 0 ? '#16a34a' : '#dc2626' }}>
+                  <p style={{ margin: '0', fontSize: '22px', fontWeight: '700', color: profitMargin >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2' }}>
                     {profitMargin >= 0 ? '+' : ''}{profitMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                   </p>
                 </div>
                 <div style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '12px',
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
                   background: profitMargin >= 0 ? '#dcfce7' : '#fee2e2',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  justifyContent: 'center',
+                  flexShrink: 0
                 }}>
-                  <span className="material-icons" style={{ fontSize: '24px', color: profitMargin >= 0 ? '#16a34a' : '#dc2626' }}>
+                  <span className="material-icons" style={{ fontSize: '20px', color: profitMargin >= 0 ? '#16a34a' : '#dc2626' }}>
                     {profitMargin >= 0 ? 'percent' : 'remove'}
                   </span>
                 </div>
@@ -2839,7 +3869,7 @@ const SalesDashboard = () => {
               <div style={{
                 background: 'white',
                 borderRadius: '12px',
-                padding: '20px',
+                padding: '12px 16px',
                 border: '1px solid #e2e8f0',
                 boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
                 display: 'flex',
@@ -2847,23 +3877,24 @@ const SalesDashboard = () => {
                 justifyContent: 'space-between'
               }}>
                 <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 4px 0', fontSize: '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <p style={{ margin: '0 0 2px 0', fontSize: '11px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
                     Avg Profit per Order
                   </p>
-                  <p style={{ margin: '0', fontSize: '24px', fontWeight: '700', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626' }}>
+                  <p style={{ margin: '0', fontSize: '22px', fontWeight: '700', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2' }}>
                     ₹{avgProfitPerOrder.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '12px',
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
                   background: avgProfitPerOrder >= 0 ? '#dcfce7' : '#fee2e2',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  justifyContent: 'center',
+                  flexShrink: 0
                 }}>
-                  <span className="material-icons" style={{ fontSize: '24px', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626' }}>
+                  <span className="material-icons" style={{ fontSize: '20px', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626' }}>
                     account_balance_wallet
                   </span>
                 </div>
@@ -2872,6 +3903,7 @@ const SalesDashboard = () => {
           </div>
 
           {/* Charts Section */}
+          {/* Row 1: Sales by Stock Group and Salesperson Totals */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
@@ -2883,21 +3915,16 @@ const SalesDashboard = () => {
               display: 'flex',
               flexDirection: 'column',
               height: '500px', // Fixed height for consistency
-              overflowY: 'auto',
-              overflowX: 'hidden'
+              overflow: 'hidden'
             }}>
+              {categoryChartType === 'bar' && (
+                <BarChart
+                  data={categoryChartData}
+                  customHeader={
               <div style={{
-                background: 'white',
-                borderRadius: '12px',
-                padding: '16px',
-                border: '1px solid #e2e8f0',
-                marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'sticky',
-                top: 0,
-                zIndex: 1
+                      justifyContent: 'space-between'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
@@ -2932,10 +3959,7 @@ const SalesDashboard = () => {
                   <option value="line">Line</option>
                 </select>
               </div>
-                {categoryChartType === 'bar' && (
-                <BarChart
-                  data={categoryChartData}
-                  title="Sales by Stock Group"
+                  }
                   onBarClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
                   onBackClick={() => setSelectedStockGroup('all')}
                   showBackButton={selectedStockGroup !== 'all'}
@@ -2949,7 +3973,46 @@ const SalesDashboard = () => {
                 {categoryChartType === 'pie' && (
                   <PieChart
                     data={categoryChartData}
-                    title="Sales by Stock Group"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('stockGroup')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by Stock Group
+                        </h3>
+                      </div>
+                      <select
+                        value={categoryChartType}
+                        onChange={(e) => setCategoryChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                     onSliceClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
                     onBackClick={() => setSelectedStockGroup('all')}
                     showBackButton={selectedStockGroup !== 'all'}
@@ -2963,7 +4026,46 @@ const SalesDashboard = () => {
                 {categoryChartType === 'treemap' && (
                   <TreeMap
                     data={categoryChartData}
-                    title="Sales by Stock Group"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('stockGroup')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by Stock Group
+                        </h3>
+                      </div>
+                      <select
+                        value={categoryChartType}
+                        onChange={(e) => setCategoryChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                     onBoxClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
                     onBackClick={() => setSelectedStockGroup('all')}
                     showBackButton={selectedStockGroup !== 'all'}
@@ -2977,7 +4079,46 @@ const SalesDashboard = () => {
                 {categoryChartType === 'line' && (
                   <LineChart
                     data={categoryChartData}
-                    title="Sales by Stock Group"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('stockGroup')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by Stock Group
+                        </h3>
+                      </div>
+                      <select
+                        value={categoryChartType}
+                        onChange={(e) => setCategoryChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                     onPointClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
                     onBackClick={() => setSelectedStockGroup('all')}
                     showBackButton={selectedStockGroup !== 'all'}
@@ -2990,26 +4131,293 @@ const SalesDashboard = () => {
                 )}
             </div>
 
+            {/* Salesperson Totals */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              height: '500px',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                background: 'white',
+                borderRadius: '12px',
+                padding: '12px 16px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden'
+              }}>
+                {/* Header */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '12px',
+                  paddingBottom: '12px',
+                  borderBottom: '1px solid #e2e8f0'
+                }}>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                    Salesperson Totals
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowSalespersonConfig(!showSalespersonConfig)}
+                    style={{
+                      padding: '6px 12px',
+                      background: showSalespersonConfig ? '#2c5aa0' : '#3182ce',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      transition: 'background-color 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#2c5aa0';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = showSalespersonConfig ? '#2c5aa0' : '#3182ce';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '16px' }}>settings</span>
+                    {showSalespersonConfig ? 'Hide Config' : 'Configure Salespersons'}
+                  </button>
+                </div>
+
+                {/* Config Panel */}
+                {showSalespersonConfig && (
+                  <div style={{
+                    background: '#f8fafc',
+                    borderRadius: '8px',
+                    padding: '12px',
+                    marginBottom: '12px',
+                    border: '1px solid #e2e8f0',
+                    maxHeight: '200px',
+                    overflowY: 'auto'
+                  }}>
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: '8px',
+                      paddingBottom: '8px',
+                      borderBottom: '1px solid #e2e8f0'
+                    }}>
+                      <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1a202c' }}>
+                        Select Salespersons to Include
+                      </h4>
+                    </div>
+                    <div style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px',
+                      marginBottom: '8px'
+                    }}>
+                      {/* Master checkbox */}
+                      <label style={{
+                        fontWeight: '600',
+                        padding: '6px 0',
+                        borderBottom: '1px solid #e5e7eb',
+                        marginBottom: '6px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        cursor: 'pointer'
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={enabledSalespersons.size === allSalespersons.length && enabledSalespersons.size > 0}
+                          onChange={() => {
+                            if (enabledSalespersons.size === allSalespersons.length) {
+                              setEnabledSalespersons(new Set());
+                            } else {
+                              setEnabledSalespersons(new Set(allSalespersons));
+                            }
+                          }}
+                          style={{
+                            marginRight: '8px',
+                            cursor: 'pointer',
+                            width: '16px',
+                            height: '16px',
+                            accentColor: '#3182ce'
+                          }}
+                        />
+                        <span style={{ fontWeight: '600', fontSize: '12px' }}>
+                          {enabledSalespersons.size === allSalespersons.length && enabledSalespersons.size > 0
+                            ? 'All Selected'
+                            : enabledSalespersons.size > 0
+                            ? 'Some Selected'
+                            : 'None Selected'}
+                        </span>
+                      </label>
+                      {allSalespersons.map((salesperson) => {
+                        const isEnabled = isSalespersonEnabled(salesperson);
+                        return (
+                          <label
+                            key={salesperson}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '4px',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              transition: 'background-color 0.2s',
+                              fontSize: '12px'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#f7fafc';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = 'transparent';
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isEnabled}
+                              onChange={() => {
+                                const newEnabled = new Set(enabledSalespersons);
+                                if (newEnabled.has(salesperson)) {
+                                  newEnabled.delete(salesperson);
+                                } else {
+                                  newEnabled.add(salesperson);
+                                }
+                                setEnabledSalespersons(newEnabled);
+                              }}
+                              style={{
+                                cursor: 'pointer',
+                                width: '16px',
+                                height: '16px',
+                                accentColor: '#3182ce'
+                              }}
+                            />
+                            <span style={{ color: '#2d3748', userSelect: 'none' }}>{salesperson}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <div style={{
+                      paddingTop: '8px',
+                      borderTop: '1px solid #e2e8f0',
+                      fontSize: '11px',
+                      color: '#718096',
+                      fontStyle: 'italic'
+                    }}>
+                      {allSalespersons.length === 0
+                        ? 'No salespersons found'
+                        : enabledSalespersons.size === 0
+                        ? `0 of ${allSalespersons.length} salespersons selected (none included)`
+                        : `${enabledSalespersons.size} of ${allSalespersons.length} salespersons selected`}
+                    </div>
+                  </div>
+                )}
+
+                {/* Salesperson Chart */}
+                <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+                  {salespersonTotals.length === 0 ? (
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: '100%',
+                      color: '#64748b',
+                      fontSize: '14px'
+                    }}>
+                      {sales.length === 0
+                        ? 'No sales data available'
+                        : enabledSalespersons.size === 0
+                        ? 'No salespersons selected'
+                        : 'No data for selected salespersons'}
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <Treemap
+                        data={salespersonTotals.map((item, index) => {
+                          const name = item.name || 'Unknown';
+                          const isDimmed = !!selectedSalesperson && selectedSalesperson !== name;
+                          return {
+                            name,
+                            value: item.value || 0,
+                            billCount: item.billCount || 0,
+                            fill: isDimmed
+                              ? 'rgba(148, 163, 184, 0.45)'
+                              : salespersonColorPalette[index % salespersonColorPalette.length],
+                          };
+                        })}
+                        dataKey="value"
+                        stroke="#ffffff"
+                        animationDuration={400}
+                        isAnimationActive
+                        content={
+                          <CustomTreemapCell selectedSalesperson={selectedSalesperson} />
+                        }
+                        onClick={(node) => {
+                          const name = node?.name;
+                          if (!name) return;
+                          const nextSelection = selectedSalesperson === name ? null : name;
+                          setSelectedSalesperson(nextSelection);
+                        }}
+                      >
+                        <RechartsTooltip
+                          content={({ payload }) => {
+                            if (!payload || payload.length === 0) {
+                              return null;
+                            }
+                            const node = payload[0].payload || {};
+                            return (
+                              <div style={{
+                                background: 'rgba(17, 24, 39, 0.92)',
+                                padding: '8px 12px',
+                                color: '#f8fafc',
+                                borderRadius: '8px',
+                                fontSize: '12px'
+                              }}>
+                                <div style={{ fontWeight: '600', marginBottom: '4px' }}>{node.name}</div>
+                                <div style={{ marginBottom: '2px' }}>
+                                  Total Sales: {formatCompactCurrency(node.value)}
+                                </div>
+                                <div>
+                                  Orders Count: {node.billCount || 0}
+                                </div>
+                              </div>
+                            );
+                          }}
+                        />
+                      </Treemap>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2: Sales by State and Sales by Country */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '24px',
+            marginBottom: '24px'
+          }}>
             {/* Region Chart */}
             <div style={{
               display: 'flex',
               flexDirection: 'column',
               height: '500px', // Fixed height for consistency
-              overflowY: 'auto',
-              overflowX: 'hidden'
+              overflow: 'hidden'
             }}>
+              {regionChartType === 'bar' && (
+                <BarChart
+                  data={regionChartData}
+                  customHeader={
               <div style={{
-                background: 'white',
-                borderRadius: '12px',
-                padding: '16px',
-                border: '1px solid #e2e8f0',
-                marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'sticky',
-                top: 0,
-                zIndex: 1
+                      justifyContent: 'space-between'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
@@ -3023,7 +4431,7 @@ const SalesDashboard = () => {
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                    Sales by Region
+                    Sales by State
                 </h3>
                 </div>
                 <select
@@ -3044,10 +4452,7 @@ const SalesDashboard = () => {
                   <option value="line">Line</option>
                 </select>
               </div>
-              {regionChartType === 'bar' && (
-                <BarChart
-                  data={regionChartData}
-                  title="Sales by Region"
+                  }
                   onBarClick={(region) => setSelectedRegion(region)}
                   onBackClick={() => setSelectedRegion('all')}
                   showBackButton={selectedRegion !== 'all'}
@@ -3065,7 +4470,46 @@ const SalesDashboard = () => {
               {regionChartType === 'pie' && (
                 <PieChart
                   data={regionChartData}
-                  title="Sales by Region"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('region')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by State
+                        </h3>
+                      </div>
+                      <select
+                        value={regionChartType}
+                        onChange={(e) => setRegionChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onSliceClick={(region) => setSelectedRegion(region)}
                   onBackClick={() => setSelectedRegion('all')}
                   showBackButton={selectedRegion !== 'all'}
@@ -3083,7 +4527,46 @@ const SalesDashboard = () => {
               {regionChartType === 'treemap' && (
                 <TreeMap
                   data={regionChartData}
-                  title="Sales by Region"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('region')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by State
+                        </h3>
+                      </div>
+                      <select
+                        value={regionChartType}
+                        onChange={(e) => setRegionChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onBoxClick={(region) => setSelectedRegion(region)}
                   onBackClick={() => setSelectedRegion('all')}
                   showBackButton={selectedRegion !== 'all'}
@@ -3101,7 +4584,46 @@ const SalesDashboard = () => {
               {regionChartType === 'line' && (
                 <LineChart
                   data={regionChartData}
-                  title="Sales by Region"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('region')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by State
+                        </h3>
+                      </div>
+                      <select
+                        value={regionChartType}
+                        onChange={(e) => setRegionChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onPointClick={(region) => setSelectedRegion(region)}
                   onBackClick={() => setSelectedRegion('all')}
                   showBackButton={selectedRegion !== 'all'}
@@ -3117,9 +4639,262 @@ const SalesDashboard = () => {
                 />
               )}
             </div>
+
+            {/* Country Chart */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              height: '500px', // Fixed height for consistency
+              overflow: 'hidden'
+            }}>
+              {countryChartType === 'bar' && (
+                <BarChart
+                  data={countryChartData}
+                  customHeader={
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                      justifyContent: 'space-between'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => openRawData('country')}
+                    style={rawDataIconButtonStyle}
+                    onMouseEnter={handleRawDataButtonMouseEnter}
+                    onMouseLeave={handleRawDataButtonMouseLeave}
+                    title="View raw data"
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                  </button>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                    Sales by Country
+                </h3>
+                </div>
+                <select
+                  value={countryChartType}
+                  onChange={(e) => setCountryChartType(e.target.value)}
+                  style={{
+                    padding: '6px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    background: 'white',
+                    color: '#374151'
+                  }}
+                >
+                  <option value="bar">Bar</option>
+                  <option value="pie">Pie</option>
+                  <option value="treemap">Tree Map</option>
+                  <option value="line">Line</option>
+                </select>
+              </div>
+                  }
+                  onBarClick={(country) => setSelectedCountry(country)}
+                  onBackClick={() => setSelectedCountry('all')}
+                  showBackButton={selectedCountry !== 'all'}
+                  rowAction={{
+                    icon: 'table_view',
+                    title: 'View raw data',
+                    onClick: (item) =>
+                      openTransactionRawData(
+                        `Raw Data - ${item.label}`,
+                        (sale) => {
+                          const saleCountry = String(sale.country || 'Unknown').trim();
+                          const itemCountry = String(item.label || 'Unknown').trim();
+                          return saleCountry === itemCountry;
+                        }
+                      ),
+                  }}
+                />
+              )}
+              {countryChartType === 'pie' && (
+                <PieChart
+                  data={countryChartData}
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('country')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by Country
+                        </h3>
+                      </div>
+                      <select
+                        value={countryChartType}
+                        onChange={(e) => setCountryChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
+                  onSliceClick={(country) => setSelectedCountry(country)}
+                  onBackClick={() => setSelectedCountry('all')}
+                  showBackButton={selectedCountry !== 'all'}
+                  rowAction={{
+                    icon: 'table_view',
+                    title: 'View raw data',
+                    onClick: (item) =>
+                      openTransactionRawData(
+                        `Raw Data - ${item.label}`,
+                        (sale) => {
+                          const saleCountry = String(sale.country || 'Unknown').trim();
+                          const itemCountry = String(item.label || 'Unknown').trim();
+                          return saleCountry === itemCountry;
+                        }
+                      ),
+                  }}
+                />
+              )}
+              {countryChartType === 'treemap' && (
+                <TreeMap
+                  data={countryChartData}
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('country')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by Country
+                        </h3>
+                      </div>
+                      <select
+                        value={countryChartType}
+                        onChange={(e) => setCountryChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
+                  onBoxClick={(country) => setSelectedCountry(country)}
+                  onBackClick={() => setSelectedCountry('all')}
+                  showBackButton={selectedCountry !== 'all'}
+                  rowAction={{
+                    icon: 'table_view',
+                    title: 'View raw data',
+                    onClick: (item) =>
+                      openTransactionRawData(
+                        `Raw Data - ${item.label}`,
+                        (sale) => {
+                          const saleCountry = String(sale.country || 'Unknown').trim();
+                          const itemCountry = String(item.label || 'Unknown').trim();
+                          return saleCountry === itemCountry;
+                        }
+                      ),
+                  }}
+                />
+              )}
+              {countryChartType === 'line' && (
+                <LineChart
+                  data={countryChartData}
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('country')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by Country
+                        </h3>
+                      </div>
+                      <select
+                        value={countryChartType}
+                        onChange={(e) => setCountryChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
+                  onPointClick={(country) => setSelectedCountry(country)}
+                  onBackClick={() => setSelectedCountry('all')}
+                  showBackButton={selectedCountry !== 'all'}
+                  rowAction={{
+                    icon: 'table_view',
+                    title: 'View raw data',
+                    onClick: (item) =>
+                      openTransactionRawData(
+                        `Raw Data - ${item.label}`,
+                        (sale) => {
+                          const saleCountry = String(sale.country || 'Unknown').trim();
+                          const itemCountry = String(item.label || 'Unknown').trim();
+                          return saleCountry === itemCountry;
+                        }
+                      ),
+                  }}
+                />
+              )}
+            </div>
           </div>
 
-          {/* Period Chart and Top Customers */}
+          {/* Row 3: Period Chart and Top Customers */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
@@ -3131,21 +4906,16 @@ const SalesDashboard = () => {
               display: 'flex',
               flexDirection: 'column',
               height: '500px', // Fixed height for consistency
-              overflowY: 'auto',
-              overflowX: 'hidden'
+              overflow: 'hidden'
             }}>
+              {periodChartType === 'bar' && (
+                <BarChart
+                  data={periodChartData}
+                  customHeader={
               <div style={{
-                background: 'white',
-                borderRadius: '12px',
-                padding: '16px',
-                border: '1px solid #e2e8f0',
-                marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'sticky',
-                top: 0,
-                zIndex: 1
+                      justifyContent: 'space-between'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
@@ -3180,12 +4950,8 @@ const SalesDashboard = () => {
                   <option value="line">Line</option>
                 </select>
               </div>
-              {periodChartType === 'bar' && (
-                <BarChart
-                  data={periodChartData}
-                  title="Sales by Period (Month)"
+                  }
                    onBarClick={(periodLabel) => {
-                     // Find the original label from the clicked period
                      const clickedPeriod = periodChartData.find(p => p.label === periodLabel);
                      if (clickedPeriod) {
                        setSelectedPeriod(clickedPeriod.originalLabel);
@@ -3214,7 +4980,46 @@ const SalesDashboard = () => {
               {periodChartType === 'pie' && (
                 <PieChart
                   data={periodChartData}
-                  title="Sales by Period (Month)"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('period')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Period Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={periodChartType}
+                        onChange={(e) => setPeriodChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                    onSliceClick={(periodLabel) => {
                      const clickedPeriod = periodChartData.find(p => p.label === periodLabel);
                      if (clickedPeriod) {
@@ -3244,7 +5049,46 @@ const SalesDashboard = () => {
               {periodChartType === 'treemap' && (
                 <TreeMap
                   data={periodChartData}
-                  title="Sales by Period (Month)"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('period')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Period Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={periodChartType}
+                        onChange={(e) => setPeriodChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                    onBoxClick={(periodLabel) => {
                      const clickedPeriod = periodChartData.find(p => p.label === periodLabel);
                      if (clickedPeriod) {
@@ -3274,7 +5118,46 @@ const SalesDashboard = () => {
               {periodChartType === 'line' && (
                 <LineChart
                   data={periodChartData}
-                  title="Sales by Period (Month)"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('period')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Period Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={periodChartType}
+                        onChange={(e) => setPeriodChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                    onPointClick={(periodLabel) => {
                      const clickedPeriod = periodChartData.find(p => p.label === periodLabel);
                      if (clickedPeriod) {
@@ -3308,21 +5191,16 @@ const SalesDashboard = () => {
               display: 'flex',
               flexDirection: 'column',
               height: '500px', // Fixed height for consistency
-              overflowY: 'auto',
-              overflowX: 'hidden'
+              overflow: 'hidden'
             }}>
+              {topCustomersChartType === 'bar' && (
+                <BarChart
+                  data={topCustomersData}
+                  customHeader={
               <div style={{
-                background: 'white',
-                borderRadius: '12px',
-                padding: '16px',
-                border: '1px solid #e2e8f0',
-                marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'sticky',
-                top: 0,
-                zIndex: 1
+                      justifyContent: 'space-between'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
@@ -3357,10 +5235,7 @@ const SalesDashboard = () => {
                   <option value="line">Line</option>
                 </select>
               </div>
-              {topCustomersChartType === 'bar' && (
-                <BarChart
-                  data={topCustomersData}
-                  title="Top 10 Customers by Revenue"
+                  }
                   onBarClick={(customer) => setSelectedCustomer(customer)}
                   onBackClick={() => setSelectedCustomer('all')}
                   showBackButton={selectedCustomer !== 'all'}
@@ -3378,7 +5253,46 @@ const SalesDashboard = () => {
               {topCustomersChartType === 'pie' && (
                 <PieChart
                   data={topCustomersData}
-                  title="Top 10 Customers by Revenue"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topCustomers')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top Customers Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={topCustomersChartType}
+                        onChange={(e) => setTopCustomersChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onSliceClick={(customer) => setSelectedCustomer(customer)}
                   onBackClick={() => setSelectedCustomer('all')}
                   showBackButton={selectedCustomer !== 'all'}
@@ -3396,7 +5310,46 @@ const SalesDashboard = () => {
               {topCustomersChartType === 'treemap' && (
                 <TreeMap
                   data={topCustomersData}
-                  title="Top 10 Customers by Revenue"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topCustomers')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top Customers Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={topCustomersChartType}
+                        onChange={(e) => setTopCustomersChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onBoxClick={(customer) => setSelectedCustomer(customer)}
                   onBackClick={() => setSelectedCustomer('all')}
                   showBackButton={selectedCustomer !== 'all'}
@@ -3414,7 +5367,46 @@ const SalesDashboard = () => {
               {topCustomersChartType === 'line' && (
                 <LineChart
                   data={topCustomersData}
-                  title="Top 10 Customers by Revenue"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topCustomers')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top Customers Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={topCustomersChartType}
+                        onChange={(e) => setTopCustomersChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onPointClick={(customer) => setSelectedCustomer(customer)}
                   onBackClick={() => setSelectedCustomer('all')}
                   showBackButton={selectedCustomer !== 'all'}
@@ -3432,7 +5424,7 @@ const SalesDashboard = () => {
             </div>
           </div>
 
-          {/* Bottom Charts */}
+          {/* Row 4: Top Items by Revenue and Top Items by Quantity */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
@@ -3443,21 +5435,16 @@ const SalesDashboard = () => {
               display: 'flex',
               flexDirection: 'column',
               height: '500px', // Fixed height for consistency
-              overflowY: 'auto',
-              overflowX: 'hidden'
+              overflow: 'hidden'
             }}>
+              {topItemsByRevenueChartType === 'bar' && (
+                <BarChart
+                  data={topItemsByRevenueData}
+                  customHeader={
               <div style={{
-                background: 'white',
-                borderRadius: '12px',
-                padding: '16px',
-                border: '1px solid #e2e8f0',
-                marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'sticky',
-                top: 0,
-                zIndex: 1
+                      justifyContent: 'space-between'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
@@ -3492,10 +5479,7 @@ const SalesDashboard = () => {
                   <option value="line">Line</option>
                 </select>
               </div>
-              {topItemsByRevenueChartType === 'bar' && (
-                <BarChart
-                  data={topItemsByRevenueData}
-                  title="Top 10 Items by Revenue"
+                  }
                   onBarClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
@@ -3513,7 +5497,46 @@ const SalesDashboard = () => {
               {topItemsByRevenueChartType === 'pie' && (
                 <PieChart
                   data={topItemsByRevenueData}
-                  title="Top 10 Items by Revenue"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topItemsRevenue')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top Items by Revenue Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={topItemsByRevenueChartType}
+                        onChange={(e) => setTopItemsByRevenueChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onSliceClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
@@ -3531,7 +5554,46 @@ const SalesDashboard = () => {
               {topItemsByRevenueChartType === 'treemap' && (
                 <TreeMap
                   data={topItemsByRevenueData}
-                  title="Top 10 Items by Revenue"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topItemsRevenue')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top Items by Revenue Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={topItemsByRevenueChartType}
+                        onChange={(e) => setTopItemsByRevenueChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onBoxClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
@@ -3549,7 +5611,46 @@ const SalesDashboard = () => {
               {topItemsByRevenueChartType === 'line' && (
                 <LineChart
                   data={topItemsByRevenueData}
-                  title="Top 10 Items by Revenue"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topItemsRevenue')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top Items by Revenue Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={topItemsByRevenueChartType}
+                        onChange={(e) => setTopItemsByRevenueChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onPointClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
@@ -3569,21 +5670,16 @@ const SalesDashboard = () => {
               display: 'flex',
               flexDirection: 'column',
               height: '500px', // Fixed height for consistency
-              overflowY: 'auto',
-              overflowX: 'hidden'
+              overflow: 'hidden'
             }}>
+              {topItemsByQuantityChartType === 'bar' && (
+                <BarChart
+                  data={topItemsByQuantityData}
+                  customHeader={
               <div style={{
-                background: 'white',
-                borderRadius: '12px',
-                padding: '16px',
-                border: '1px solid #e2e8f0',
-                marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'sticky',
-                top: 0,
-                zIndex: 1
+                      justifyContent: 'space-between'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
@@ -3618,10 +5714,7 @@ const SalesDashboard = () => {
                   <option value="line">Line</option>
                 </select>
               </div>
-              {topItemsByQuantityChartType === 'bar' && (
-                <BarChart
-                  data={topItemsByQuantityData}
-                  title="Top 10 Items by Quantity Sold"
+                  }
                   valuePrefix=""
                   onBarClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
@@ -3640,7 +5733,46 @@ const SalesDashboard = () => {
               {topItemsByQuantityChartType === 'pie' && (
                 <PieChart
                   data={topItemsByQuantityData}
-                  title="Top 10 Items by Quantity Sold"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topItemsQuantity')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top Items by Quantity Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={topItemsByQuantityChartType}
+                        onChange={(e) => setTopItemsByQuantityChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   valuePrefix=""
                   onSliceClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
@@ -3659,7 +5791,46 @@ const SalesDashboard = () => {
               {topItemsByQuantityChartType === 'treemap' && (
                 <TreeMap
                   data={topItemsByQuantityData}
-                  title="Top 10 Items by Quantity Sold"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topItemsQuantity')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top Items by Quantity Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={topItemsByQuantityChartType}
+                        onChange={(e) => setTopItemsByQuantityChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   valuePrefix=""
                   onBoxClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
@@ -3678,7 +5849,46 @@ const SalesDashboard = () => {
               {topItemsByQuantityChartType === 'line' && (
                 <LineChart
                   data={topItemsByQuantityData}
-                  title="Top 10 Items by Quantity Sold"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topItemsQuantity')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top Items by Quantity Chart
+                        </h3>
+                      </div>
+                      <select
+                        value={topItemsByQuantityChartType}
+                        onChange={(e) => setTopItemsByQuantityChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   valuePrefix=""
                   onPointClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
@@ -3697,7 +5907,7 @@ const SalesDashboard = () => {
             </div>
           </div>
 
-          {/* Profit Analysis Charts Section */}
+          {/* Row 5: Revenue vs Profit (Monthly) and Month-wise Profit */}
           {canShowProfit && (
             <div style={{
               display: 'grid',
@@ -3710,21 +5920,22 @@ const SalesDashboard = () => {
                 display: 'flex',
                 flexDirection: 'column',
                 height: '500px',
-                overflowY: 'auto',
-                overflowX: 'hidden'
+                overflow: 'hidden'
               }}>
+                {revenueVsProfitChartType === 'line' && (
                 <div style={{
                   background: 'white',
                   borderRadius: '12px',
-                  padding: '16px',
+                    padding: '12px 16px',
                   border: '1px solid #e2e8f0',
-                  marginBottom: '12px',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    flex: 1
+                  }}>
+                    <div style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  position: 'sticky',
-                  top: 0,
-                  zIndex: 1
+                      marginBottom: '12px'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <button
@@ -3757,15 +5968,6 @@ const SalesDashboard = () => {
                     <option value="bar">Bar</option>
                   </select>
         </div>
-                {revenueVsProfitChartType === 'line' && (
-                  <div style={{
-                    background: 'white',
-                    borderRadius: '12px',
-                    padding: '20px',
-                    border: '1px solid #e2e8f0',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                    flex: 1
-                  }}>
                     <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px' }}>
                       {/* Grid lines */}
                       {[0, 1, 2, 3, 4].map((i) => {
@@ -3864,7 +6066,7 @@ const SalesDashboard = () => {
                       })()}
                       
                       {/* Legend */}
-                      <g transform="translate(450, 20)">
+                      <g transform="translate(20, 20)">
                         <line x1="0" y1="0" x2="20" y2="0" stroke="#3b82f6" strokeWidth="2" />
                         <text x="25" y="4" style={{ fontSize: '12px', fill: '#1e293b' }}>Revenue</text>
                         <line x1="0" y1="15" x2="20" y2="15" stroke={profitMargin >= 0 ? '#10b981' : '#ef4444'} strokeWidth="2" strokeDasharray="5,5" />
@@ -3877,11 +6079,48 @@ const SalesDashboard = () => {
                   <div style={{
                     background: 'white',
                     borderRadius: '12px',
-                    padding: '20px',
+                    padding: '12px 16px',
                     border: '1px solid #e2e8f0',
                     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
                     flex: 1
                   }}>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '12px'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('revenueVsProfit')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Revenue vs Profit (Monthly)
+                        </h3>
+                      </div>
+                      <select
+                        value={revenueVsProfitChartType}
+                        onChange={(e) => setRevenueVsProfitChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="line">Line</option>
+                        <option value="bar">Bar</option>
+                      </select>
+                    </div>
                     <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px' }}>
                       {revenueVsProfitChartData.map((item, index) => {
                         const maxRevenue = Math.max(...revenueVsProfitChartData.map(d => d.revenue));
@@ -3946,7 +6185,7 @@ const SalesDashboard = () => {
                       })}
                       
                       {/* Legend */}
-                      <g transform="translate(450, 20)">
+                      <g transform="translate(20, 20)">
                         <rect x="0" y="0" width="15" height="10" fill="#3b82f6" />
                         <text x="20" y="9" style={{ fontSize: '12px', fill: '#1e293b' }}>Revenue</text>
                         <rect x="0" y="15" width="15" height="10" fill="#10b981" />
@@ -4000,21 +6239,16 @@ const SalesDashboard = () => {
                 display: 'flex',
                 flexDirection: 'column',
                 height: '500px',
-                overflowY: 'auto',
-                overflowX: 'hidden'
+                overflow: 'hidden'
               }}>
+                {monthWiseProfitChartType === 'bar' && (
+                   <BarChart
+                     data={monthWiseProfitChartData}
+                     customHeader={
                 <div style={{
-                  background: 'white',
-                  borderRadius: '12px',
-                  padding: '16px',
-                  border: '1px solid #e2e8f0',
-                  marginBottom: '12px',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'space-between',
-                  position: 'sticky',
-                  top: 0,
-                  zIndex: 1
+                         justifyContent: 'space-between'
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <button
@@ -4049,10 +6283,7 @@ const SalesDashboard = () => {
                     <option value="line">Line</option>
                   </select>
                 </div>
-                {monthWiseProfitChartType === 'bar' && (
-                   <BarChart
-                     data={monthWiseProfitChartData}
-                     title="Month-wise Profit"
+                     }
                      onBarClick={(periodLabel) => {
                        const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
                        if (clickedPeriod) {
@@ -4082,7 +6313,46 @@ const SalesDashboard = () => {
                  {monthWiseProfitChartType === 'pie' && (
                    <PieChart
                      data={monthWiseProfitChartData}
-                     title="Month-wise Profit"
+                     customHeader={
+                       <div style={{
+                         display: 'flex',
+                         alignItems: 'center',
+                         justifyContent: 'space-between'
+                       }}>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                           <button
+                             type="button"
+                             onClick={() => openRawData('monthProfit')}
+                             style={rawDataIconButtonStyle}
+                             onMouseEnter={handleRawDataButtonMouseEnter}
+                             onMouseLeave={handleRawDataButtonMouseLeave}
+                             title="View raw data"
+                           >
+                             <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                           </button>
+                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                             Month-wise Profit
+                           </h3>
+                         </div>
+                         <select
+                           value={monthWiseProfitChartType}
+                           onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
+                           style={{
+                             padding: '6px 12px',
+                             border: '1px solid #d1d5db',
+                             borderRadius: '6px',
+                             fontSize: '12px',
+                             background: 'white',
+                             color: '#374151'
+                           }}
+                         >
+                           <option value="bar">Bar</option>
+                           <option value="pie">Pie</option>
+                           <option value="treemap">Tree Map</option>
+                           <option value="line">Line</option>
+                         </select>
+                       </div>
+                     }
                      onSliceClick={(periodLabel) => {
                        const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
                        if (clickedPeriod) {
@@ -4112,7 +6382,46 @@ const SalesDashboard = () => {
                  {monthWiseProfitChartType === 'treemap' && (
                    <TreeMap
                      data={monthWiseProfitChartData}
-                     title="Month-wise Profit"
+                     customHeader={
+                       <div style={{
+                         display: 'flex',
+                         alignItems: 'center',
+                         justifyContent: 'space-between'
+                       }}>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                           <button
+                             type="button"
+                             onClick={() => openRawData('monthProfit')}
+                             style={rawDataIconButtonStyle}
+                             onMouseEnter={handleRawDataButtonMouseEnter}
+                             onMouseLeave={handleRawDataButtonMouseLeave}
+                             title="View raw data"
+                           >
+                             <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                           </button>
+                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                             Month-wise Profit
+                           </h3>
+                         </div>
+                         <select
+                           value={monthWiseProfitChartType}
+                           onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
+                           style={{
+                             padding: '6px 12px',
+                             border: '1px solid #d1d5db',
+                             borderRadius: '6px',
+                             fontSize: '12px',
+                             background: 'white',
+                             color: '#374151'
+                           }}
+                         >
+                           <option value="bar">Bar</option>
+                           <option value="pie">Pie</option>
+                           <option value="treemap">Tree Map</option>
+                           <option value="line">Line</option>
+                         </select>
+                       </div>
+                     }
                      onBoxClick={(periodLabel) => {
                        const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
                        if (clickedPeriod) {
@@ -4142,7 +6451,46 @@ const SalesDashboard = () => {
                  {monthWiseProfitChartType === 'line' && (
                    <LineChart
                      data={monthWiseProfitChartData}
-                     title="Month-wise Profit"
+                     customHeader={
+                       <div style={{
+                         display: 'flex',
+                         alignItems: 'center',
+                         justifyContent: 'space-between'
+                       }}>
+                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                           <button
+                             type="button"
+                             onClick={() => openRawData('monthProfit')}
+                             style={rawDataIconButtonStyle}
+                             onMouseEnter={handleRawDataButtonMouseEnter}
+                             onMouseLeave={handleRawDataButtonMouseLeave}
+                             title="View raw data"
+                           >
+                             <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                           </button>
+                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                             Month-wise Profit
+                           </h3>
+                         </div>
+                         <select
+                           value={monthWiseProfitChartType}
+                           onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
+                           style={{
+                             padding: '6px 12px',
+                             border: '1px solid #d1d5db',
+                             borderRadius: '6px',
+                             fontSize: '12px',
+                             background: 'white',
+                             color: '#374151'
+                           }}
+                         >
+                           <option value="bar">Bar</option>
+                           <option value="pie">Pie</option>
+                           <option value="treemap">Tree Map</option>
+                           <option value="line">Line</option>
+                         </select>
+                       </div>
+                     }
                      onPointClick={(periodLabel) => {
                        const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
                        if (clickedPeriod) {
@@ -4173,7 +6521,7 @@ const SalesDashboard = () => {
             </div>
           )}
 
-          {/* Top 10 Profitable Items and Top 10 Loss Items */}
+          {/* Row 6: Top 10 Profitable Items and Top 10 Loss Items */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
@@ -4185,21 +6533,16 @@ const SalesDashboard = () => {
               display: 'flex',
               flexDirection: 'column',
               height: '500px',
-              overflowY: 'auto',
-              overflowX: 'hidden'
+              overflow: 'hidden'
             }}>
+              {topProfitableItemsChartType === 'bar' && (
+                <BarChart
+                  data={topProfitableItemsData}
+                  customHeader={
               <div style={{
-                background: 'white',
-                borderRadius: '12px',
-                padding: '16px',
-                border: '1px solid #e2e8f0',
-                marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'sticky',
-                top: 0,
-                zIndex: 1
+                      justifyContent: 'space-between'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
@@ -4234,10 +6577,7 @@ const SalesDashboard = () => {
                   <option value="line">Line</option>
                 </select>
               </div>
-              {topProfitableItemsChartType === 'bar' && (
-                <BarChart
-                  data={topProfitableItemsData}
-                  title="Top Profitable Items"
+                  }
                   valuePrefix="₹"
                   onBarClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
@@ -4256,7 +6596,46 @@ const SalesDashboard = () => {
               {topProfitableItemsChartType === 'pie' && (
                 <PieChart
                   data={topProfitableItemsData}
-                  title="Top 10 Profitable Items"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topProfitable')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top 10 Profitable Items
+                        </h3>
+                      </div>
+                      <select
+                        value={topProfitableItemsChartType}
+                        onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onSliceClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
@@ -4274,7 +6653,46 @@ const SalesDashboard = () => {
               {topProfitableItemsChartType === 'treemap' && (
                 <TreeMap
                   data={topProfitableItemsData}
-                  title="Top 10 Profitable Items"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topProfitable')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top 10 Profitable Items
+                        </h3>
+                      </div>
+                      <select
+                        value={topProfitableItemsChartType}
+                        onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onBoxClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
@@ -4292,7 +6710,46 @@ const SalesDashboard = () => {
               {topProfitableItemsChartType === 'line' && (
                 <LineChart
                   data={topProfitableItemsData}
-                  title="Top 10 Profitable Items"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topProfitable')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top 10 Profitable Items
+                        </h3>
+                      </div>
+                      <select
+                        value={topProfitableItemsChartType}
+                        onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onPointClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
@@ -4314,21 +6771,16 @@ const SalesDashboard = () => {
               display: 'flex',
               flexDirection: 'column',
               height: '500px',
-              overflowY: 'auto',
-              overflowX: 'hidden'
+              overflow: 'hidden'
             }}>
+              {topLossItemsChartType === 'bar' && (
+                <BarChart
+                  data={topLossItemsData}
+                  customHeader={
               <div style={{
-                background: 'white',
-                borderRadius: '12px',
-                padding: '16px',
-                border: '1px solid #e2e8f0',
-                marginBottom: '12px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                position: 'sticky',
-                top: 0,
-                zIndex: 1
+                      justifyContent: 'space-between'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
@@ -4363,10 +6815,7 @@ const SalesDashboard = () => {
                   <option value="line">Line</option>
                 </select>
               </div>
-              {topLossItemsChartType === 'bar' && (
-                <BarChart
-                  data={topLossItemsData}
-                  title="Top Loss Items"
+                  }
                   valuePrefix="₹"
                   onBarClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
@@ -4385,7 +6834,46 @@ const SalesDashboard = () => {
               {topLossItemsChartType === 'pie' && (
                 <PieChart
                   data={topLossItemsData}
-                  title="Top 10 Loss Items"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topLoss')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top 10 Loss Items
+                        </h3>
+                      </div>
+                      <select
+                        value={topLossItemsChartType}
+                        onChange={(e) => setTopLossItemsChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onSliceClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
@@ -4394,7 +6882,46 @@ const SalesDashboard = () => {
               {topLossItemsChartType === 'treemap' && (
                 <TreeMap
                   data={topLossItemsData}
-                  title="Top 10 Loss Items"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topLoss')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top 10 Loss Items
+                        </h3>
+                      </div>
+                      <select
+                        value={topLossItemsChartType}
+                        onChange={(e) => setTopLossItemsChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onBoxClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
@@ -4403,7 +6930,46 @@ const SalesDashboard = () => {
               {topLossItemsChartType === 'line' && (
                 <LineChart
                   data={topLossItemsData}
-                  title="Top 10 Loss Items"
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('topLoss')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Top 10 Loss Items
+                        </h3>
+                      </div>
+                      <select
+                        value={topLossItemsChartType}
+                        onChange={(e) => setTopLossItemsChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
                   onPointClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
@@ -4630,7 +7196,12 @@ const SalesDashboard = () => {
                   {paginatedRawRows.map((row, rowIndex) => (
                     <tr
                       key={rowIndex}
-                      style={{ borderBottom: '1px solid #e2e8f0', transition: 'background 0.2s ease' }}
+                      style={{ 
+                        borderBottom: '1px solid #e2e8f0', 
+                        transition: 'background 0.2s ease',
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => handleBillRowClick(row)}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.background = '#f8fafc';
                       }}
@@ -4722,6 +7293,69 @@ const SalesDashboard = () => {
         salesData={sales} 
         metrics={metrics}
       />
+    )}
+
+    {/* Bill Drilldown Modal */}
+    {showDrilldown && (
+      <div 
+        style={{ 
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 13000,
+          pointerEvents: 'auto'
+        }}
+      >
+        <BillDrilldownModal
+          data={drilldownData}
+          loading={drilldownLoading}
+          error={drilldownError}
+          selectedBill={selectedBill}
+          showInfoCard={false}
+          onClose={() => {
+            setShowDrilldown(false);
+            setDrilldownData(null);
+            setDrilldownError(null);
+            if (abortControllerRef.current) {
+              abortControllerRef.current.abort();
+              abortControllerRef.current = null;
+            }
+          }}
+          onRowClick={handleVoucherRowClick}
+        />
+      </div>
+    )}
+
+    {/* Voucher Details Modal */}
+    {showVoucherDetails && (
+      <div 
+        style={{ 
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          zIndex: 15000,
+          pointerEvents: 'auto'
+        }}
+      >
+        <VoucherDetailsModal
+          voucherData={voucherDetailsData}
+          loading={voucherDetailsLoading}
+          error={voucherDetailsError}
+          onClose={() => {
+            setShowVoucherDetails(false);
+            setVoucherDetailsData(null);
+            setVoucherDetailsError(null);
+            if (abortControllerRef.current) {
+              abortControllerRef.current.abort();
+              abortControllerRef.current = null;
+            }
+          }}
+        />
+      </div>
     )}
     </>
   );
