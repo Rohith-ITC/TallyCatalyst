@@ -1,9 +1,10 @@
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 // Use dev API URL in development, otherwise production URL
+// In development mode, hardcode the URL regardless of .env values
 const DEFAULT_TARGET =
   process.env.NODE_ENV === 'development'
-    ? process.env.REACT_APP_DEV_API_URL || 'http://localhost:1235'
+    ? 'https://itcatalystindia.com/Development/CustomerPortal_API'
     : process.env.REACT_APP_PRODUCTION_API_URL;
 
 module.exports = function setupProxy(app) {
