@@ -8,6 +8,7 @@ function VoucherAuthorization() {
   const [error, setError] = useState('');
   const [selectedVouchers, setSelectedVouchers] = useState([]);
   const [authorizing, setAuthorizing] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
@@ -20,6 +21,15 @@ function VoucherAuthorization() {
   const [selectedParty, setSelectedParty] = useState('all');
   const [showVoucherDetails, setShowVoucherDetails] = useState(false);
   const [viewingVoucher, setViewingVoucher] = useState(null);
+  const [activeTab, setActiveTab] = useState('pending'); // 'pending', 'authorized', 'rejected'
+  const [showRejectNarrationModal, setShowRejectNarrationModal] = useState(false);
+  const [rejectNarration, setRejectNarration] = useState('');
+  const [voucherToReject, setVoucherToReject] = useState(null);
+  const [rejectingMultiple, setRejectingMultiple] = useState(false);
+  const [showAuthorizeNarrationModal, setShowAuthorizeNarrationModal] = useState(false);
+  const [authorizeNarration, setAuthorizeNarration] = useState('');
+  const [voucherToAuthorize, setVoucherToAuthorize] = useState(null);
+  const [authorizingMultiple, setAuthorizingMultiple] = useState(false);
   const [progressState, setProgressState] = useState({
     active: false,
     total: 0,
@@ -167,7 +177,24 @@ function VoucherAuthorization() {
         customer = partyName;
       }
       
-      // For now, always set status to Pending - ISALTAUTH logic will be implemented later
+      // Determine status based on ISALTAUTH or other fields
+      // Check if voucher has rejection/authorization narration or status field
+      let status = 'Pending';
+      let rejectionNarration = '';
+      let authorizationNarration = '';
+      
+      // Check if voucher is already authorized or rejected
+      if (v.ISALTAUTH === 'Yes' || v.ISALTAUTH === true || v.status === 'Authorized') {
+        status = 'Authorized';
+        authorizationNarration = v.AUTHORIZATIONNARRATION || v.authorizationNarration || '';
+      } else if (v.ISALTAUTH === 'No' || v.status === 'Rejected' || v.REJECTIONNARRATION) {
+        status = 'Rejected';
+        rejectionNarration = v.REJECTIONNARRATION || v.rejectionNarration || '';
+      }
+      
+      // Extract narration from NARRATION or CP_Temp7 field
+      const narration = v.NARRATION || v.narration || v.Narration || v.CP_Temp7 || v.cp_temp7 || '';
+      
       return {
         id: v.MASTERID || `temp-${chunkIndex}-${index}`,
         masterId: v.MASTERID,
@@ -180,8 +207,11 @@ function VoucherAuthorization() {
         creditAmount: creditAmount,
         customer: customer,
         supplier: supplier,
-        status: 'Pending', // Always pending for now - ISALTAUTH logic later
+        status: status,
+        rejectionNarration: rejectionNarration,
+        authorizationNarration: authorizationNarration,
         description: v.PARTICULARS,
+        narration: narration, // Add narration field
         rawData: v // Keep raw data for authorization
       };
     });
@@ -297,6 +327,26 @@ function VoucherAuthorization() {
         const response = await apiPost('/api/tally/pend-vch-auth', payload);
 
         console.log('📋 API Chunk Response:', response);
+        
+        // Debug: Check if narration fields are in the response
+        if (response && response.pendingVchAuth && response.pendingVchAuth.length > 0) {
+          const sampleVoucher = response.pendingVchAuth[0];
+          console.log('🔍 Voucher Auth - Sample voucher keys:', Object.keys(sampleVoucher));
+          console.log('🔍 Voucher Auth - Checking for narration fields:');
+          const narrationFields = ['CP_Temp7', 'cp_temp7', 'NARRATION', 'narration', 'Narration'];
+          narrationFields.forEach(field => {
+            if (sampleVoucher.hasOwnProperty(field)) {
+              console.log(`  ✅ Found ${field}:`, sampleVoucher[field]);
+            }
+          });
+          // Check for any field that might contain narration
+          Object.keys(sampleVoucher).forEach(key => {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.includes('narr') || lowerKey.includes('temp') || lowerKey.includes('note') || lowerKey.includes('desc')) {
+              console.log(`  🔍 Potential narration field: ${key} =`, sampleVoucher[key]);
+            }
+          });
+        }
 
         if (response && response.pendingVchAuth) {
           const transformedVouchers = transformVoucherData(response.pendingVchAuth, i);
@@ -384,51 +434,212 @@ function VoucherAuthorization() {
     return `${fullYear}${month}${formattedDay}`;
   };
 
-  const handleAuthorizeVouchers = async () => {
+  // Helper function to authorize a single voucher
+  const authorizeSingleVoucher = async (voucher, narration = '') => {
+    if (!voucher) return false;
+
+    try {
+      // Get company info
+      const companyInfo = getCompanyInfo();
+      
+      const dateYYMMDD = convertDateToYYYYMMDD(voucher.date);
+      
+      console.log('📝 Authorizing voucher:', {
+        masterid: voucher.masterId,
+        date: dateYYMMDD,
+        narration
+      });
+      
+      const response = await apiPost('/api/tally/vchauth/auth', {
+        tallyloc_id: parseInt(companyInfo.tallyloc_id),
+        company: companyInfo.company,
+        guid: companyInfo.guid,
+        date: parseInt(dateYYMMDD),
+        masterid: parseInt(voucher.masterId),
+        narration: narration || ''
+      });
+      
+      if (response && response.success) {
+        // Update voucher status locally
+        setVouchers(prevVouchers => 
+          prevVouchers.map(v => 
+            v.id === voucher.id || v.masterId === voucher.masterId
+              ? { ...v, status: 'Authorized', authorizationNarration: narration || '' }
+              : v
+          )
+        );
+      }
+      
+      return response && response.success;
+    } catch (err) {
+      console.error('Error authorizing voucher:', err);
+      throw err;
+    }
+  };
+
+  // Helper function to reject a single voucher
+  const rejectSingleVoucher = async (voucher, narration = '') => {
+    if (!voucher) return false;
+
+    try {
+      // Get company info
+      const companyInfo = getCompanyInfo();
+      
+      const dateYYMMDD = convertDateToYYYYMMDD(voucher.date);
+      
+      console.log('📝 Rejecting voucher:', {
+        masterid: voucher.masterId,
+        date: dateYYMMDD,
+        narration
+      });
+      
+      const response = await apiPost('/api/tally/vchauth/reject', {
+        tallyloc_id: parseInt(companyInfo.tallyloc_id),
+        company: companyInfo.company,
+        guid: companyInfo.guid,
+        date: parseInt(dateYYMMDD),
+        masterid: parseInt(voucher.masterId),
+        narration: narration || ''
+      });
+      
+      if (response && response.success) {
+        // Update voucher status locally
+        setVouchers(prevVouchers => 
+          prevVouchers.map(v => 
+            v.id === voucher.id || v.masterId === voucher.masterId
+              ? { ...v, status: 'Rejected', rejectionNarration: narration || '' }
+              : v
+          )
+        );
+      }
+      
+      return response && response.success;
+    } catch (err) {
+      console.error('Error rejecting voucher:', err);
+      throw err;
+    }
+  };
+
+  // Handle authorizing a single voucher from modal
+  const handleAuthorizeSingleVoucher = () => {
+    if (!viewingVoucher) {
+      alert('No voucher selected');
+      return;
+    }
+
+    setVoucherToAuthorize(viewingVoucher);
+    setAuthorizeNarration('');
+    setShowAuthorizeNarrationModal(true);
+  };
+
+  // Confirm authorization with narration
+  const confirmAuthorizeSingleVoucher = async () => {
+    if (!voucherToAuthorize) return;
+
+    setAuthorizing(true);
+    setShowAuthorizeNarrationModal(false);
+    try {
+      const success = await authorizeSingleVoucher(voucherToAuthorize, authorizeNarration);
+      
+      if (success) {
+        alert('Voucher authorized successfully');
+        setShowVoucherDetails(false);
+        setViewingVoucher(null);
+        setVoucherToAuthorize(null);
+        setAuthorizeNarration('');
+        // Switch to authorized tab to show the newly authorized voucher
+        setActiveTab('authorized');
+        // Don't reload - status is already updated locally
+      } else {
+        alert('Failed to authorize voucher');
+      }
+    } catch (err) {
+      alert('Error authorizing voucher: ' + err.message);
+    } finally {
+      setAuthorizing(false);
+    }
+  };
+
+  // Handle rejecting a single voucher from modal
+  const handleRejectSingleVoucher = () => {
+    if (!viewingVoucher) {
+      alert('No voucher selected');
+      return;
+    }
+
+    setVoucherToReject(viewingVoucher);
+    setRejectNarration('');
+    setShowRejectNarrationModal(true);
+  };
+
+  // Confirm rejection with narration
+  const confirmRejectSingleVoucher = async () => {
+    if (!voucherToReject) return;
+
+    setRejecting(true);
+    setShowRejectNarrationModal(false);
+    try {
+      const success = await rejectSingleVoucher(voucherToReject, rejectNarration);
+      
+      if (success) {
+        alert('Voucher rejected successfully');
+        setShowVoucherDetails(false);
+        setViewingVoucher(null);
+        setVoucherToReject(null);
+        setRejectNarration('');
+        // Switch to rejected tab to show the newly rejected voucher
+        setActiveTab('rejected');
+        // Don't reload - status is already updated locally
+      } else {
+        alert('Failed to reject voucher');
+      }
+    } catch (err) {
+      alert('Error rejecting voucher: ' + err.message);
+    } finally {
+      setRejecting(false);
+    }
+  };
+
+  const handleAuthorizeVouchers = () => {
     if (selectedVouchers.length === 0) {
       alert('Please select vouchers to authorize');
       return;
     }
 
+    // Get selected voucher objects
+    const selectedVoucherObjects = vouchers.filter(v => selectedVouchers.includes(v.id));
+    setVoucherToAuthorize(selectedVoucherObjects); // Store array for bulk authorization
+    setAuthorizingMultiple(true);
+    setAuthorizeNarration('');
+    setShowAuthorizeNarrationModal(true);
+  };
+
+  // Confirm bulk authorization with narration
+  const confirmAuthorizeMultipleVouchers = async () => {
+    if (!voucherToAuthorize || !Array.isArray(voucherToAuthorize)) return;
+
     setAuthorizing(true);
+    setShowAuthorizeNarrationModal(false);
     try {
-      // Get company info
-      const companyInfo = getCompanyInfo();
-      
-      // Get selected voucher objects
-      const selectedVoucherObjects = vouchers.filter(v => selectedVouchers.includes(v.id));
-      
-      console.log('🔍 Authorizing vouchers:', selectedVoucherObjects);
-      
-      // Authorize each voucher individually
-      const authorizationPromises = selectedVoucherObjects.map(voucher => {
-        const dateYYMMDD = convertDateToYYYYMMDD(voucher.date);
-        
-        console.log('📝 Authorizing voucher:', {
-          masterid: voucher.masterId,
-          date: dateYYMMDD
-        });
-        
-        return apiPost('/api/tally/vchauth/auth', {
-          tallyloc_id: parseInt(companyInfo.tallyloc_id),
-          company: companyInfo.company,
-          guid: companyInfo.guid,
-          date: parseInt(dateYYMMDD),
-          masterid: parseInt(voucher.masterId)
-        });
-      });
+      // Authorize each voucher individually with the same narration
+      const authorizationPromises = voucherToAuthorize.map(voucher => authorizeSingleVoucher(voucher, authorizeNarration));
       
       // Wait for all authorizations to complete
       const responses = await Promise.all(authorizationPromises);
       console.log('📋 Authorization responses:', responses);
       
       // Check if all were successful
-      const allSuccessful = responses.every(response => response && response.success);
+      const allSuccessful = responses.every(response => response === true);
       
       if (allSuccessful) {
-        alert(`${selectedVouchers.length} voucher(s) authorized successfully`);
+        alert(`${voucherToAuthorize.length} voucher(s) authorized successfully`);
         setSelectedVouchers([]);
-        loadVouchers(); // Reload the list
+        setVoucherToAuthorize(null);
+        setAuthorizeNarration('');
+        setAuthorizingMultiple(false);
+        // Switch to authorized tab to show the newly authorized vouchers
+        setActiveTab('authorized');
+        // Don't reload - status is already updated locally
       } else {
         alert('Some vouchers failed to authorize');
       }
@@ -440,9 +651,70 @@ function VoucherAuthorization() {
     }
   };
 
-  // Filter vouchers based on selected filters
+  const handleRejectVouchers = () => {
+    if (selectedVouchers.length === 0) {
+      alert('Please select vouchers to reject');
+      return;
+    }
+
+    // Get selected voucher objects
+    const selectedVoucherObjects = vouchers.filter(v => selectedVouchers.includes(v.id));
+    setVoucherToReject(selectedVoucherObjects); // Store array for bulk rejection
+    setRejectingMultiple(true);
+    setRejectNarration('');
+    setShowRejectNarrationModal(true);
+  };
+
+  // Confirm bulk rejection with narration
+  const confirmRejectMultipleVouchers = async () => {
+    if (!voucherToReject || !Array.isArray(voucherToReject)) return;
+
+    setRejecting(true);
+    setShowRejectNarrationModal(false);
+    try {
+      // Reject each voucher individually with the same narration
+      const rejectionPromises = voucherToReject.map(voucher => rejectSingleVoucher(voucher, rejectNarration));
+      
+      // Wait for all rejections to complete
+      const responses = await Promise.all(rejectionPromises);
+      console.log('📋 Rejection responses:', responses);
+      
+      // Check if all were successful
+      const allSuccessful = responses.every(response => response === true);
+      
+      if (allSuccessful) {
+        alert(`${voucherToReject.length} voucher(s) rejected successfully`);
+        setSelectedVouchers([]);
+        setVoucherToReject(null);
+        setRejectNarration('');
+        setRejectingMultiple(false);
+        // Switch to rejected tab to show the newly rejected vouchers
+        setActiveTab('rejected');
+        // Don't reload - status is already updated locally
+      } else {
+        alert('Some vouchers failed to reject');
+      }
+    } catch (err) {
+      console.error('Error rejecting vouchers:', err);
+      alert('Error rejecting vouchers: ' + err.message);
+    } finally {
+      setRejecting(false);
+    }
+  };
+
+  // Filter vouchers based on active tab and selected filters
   const filteredVouchers = useMemo(() => {
     const filtered = vouchers.filter(voucher => {
+      // Filter by active tab (pending, authorized, rejected)
+      let tabMatch = true;
+      if (activeTab === 'pending') {
+        tabMatch = voucher.status === 'Pending';
+      } else if (activeTab === 'authorized') {
+        tabMatch = voucher.status === 'Authorized';
+      } else if (activeTab === 'rejected') {
+        tabMatch = voucher.status === 'Rejected';
+      }
+      
       // All vouchers returned from API are already filtered by date, so we don't need date filtering here
       const searchMatch = 
         voucher.voucherNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -450,18 +722,24 @@ function VoucherAuthorization() {
         (voucher.supplier && voucher.supplier.toLowerCase().includes(searchTerm.toLowerCase())) ||
         voucher.type.toLowerCase().includes(searchTerm.toLowerCase());
       const typeMatch = selectedVoucherType === 'all' || voucher.type === selectedVoucherType;
-      const statusMatch = selectedStatus === 'all' || voucher.status === selectedStatus;
+      // Don't apply statusMatch filter when using tabs - the tab already filters by status
+      // const statusMatch = selectedStatus === 'all' || voucher.status === selectedStatus;
       const partyMatch = selectedParty === 'all' || 
         (voucher.customer && voucher.customer === selectedParty) ||
         (voucher.supplier && voucher.supplier === selectedParty);
       
-      return searchMatch && typeMatch && statusMatch && partyMatch;
+      return tabMatch && searchMatch && typeMatch && partyMatch;
     });
     
-    console.log(`✅ Filtered ${filtered.length} vouchers from ${vouchers.length} total`);
+    console.log(`✅ Filtered ${filtered.length} vouchers from ${vouchers.length} total (tab: ${activeTab})`);
+    console.log(`   Vouchers by status:`, {
+      pending: vouchers.filter(v => v.status === 'Pending').length,
+      authorized: vouchers.filter(v => v.status === 'Authorized').length,
+      rejected: vouchers.filter(v => v.status === 'Rejected').length
+    });
     
     return filtered;
-  }, [vouchers, searchTerm, selectedVoucherType, selectedStatus, selectedParty]);
+  }, [vouchers, searchTerm, selectedVoucherType, selectedParty, activeTab]);
 
   // Calculate metrics
   const metrics = useMemo(() => {
@@ -526,6 +804,20 @@ function VoucherAuthorization() {
           @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
+          }
+          @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+          @keyframes slideUp {
+            from { 
+              opacity: 0;
+              transform: translateY(20px);
+            }
+            to { 
+              opacity: 1;
+              transform: translateY(0);
+            }
           }
         `}
       </style>
@@ -618,10 +910,10 @@ function VoucherAuthorization() {
 
           {/* Form */}
           <form onSubmit={handleSubmit} style={{ padding: '24px', width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
-            {/* Single Line: Start Date, End Date, Submit Button, Authorize Button */}
+            {/* Single Line: Start Date, End Date, Submit Button, Authorize Button, Reject Button */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '250px 250px 160px 180px',
+              gridTemplateColumns: '250px 250px 160px 180px 180px',
               gap: '20px',
               alignItems: 'end',
               minHeight: '60px',
@@ -769,13 +1061,13 @@ function VoucherAuthorization() {
               }}>
                 <button
                   onClick={handleAuthorizeVouchers}
-                  disabled={authorizing || selectedVouchers.length === 0}
+                  disabled={authorizing || rejecting || selectedVouchers.length === 0}
                   style={{
-                    background: authorizing || selectedVouchers.length === 0 ? '#94a3b8' : 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)',
+                    background: authorizing || rejecting || selectedVouchers.length === 0 ? '#94a3b8' : 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)',
                     border: 'none',
                     borderRadius: '10px',
                     padding: '12px 20px',
-                    cursor: authorizing || selectedVouchers.length === 0 ? 'not-allowed' : 'pointer',
+                    cursor: authorizing || rejecting || selectedVouchers.length === 0 ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
@@ -786,21 +1078,64 @@ function VoucherAuthorization() {
                     boxShadow: '0 2px 4px rgba(242, 112, 32, 0.2)',
                     width: '100%',
                     justifyContent: 'center',
-                    opacity: authorizing || selectedVouchers.length === 0 ? 0.7 : 1
+                    opacity: authorizing || rejecting || selectedVouchers.length === 0 ? 0.7 : 1
                   }}
                   onMouseEnter={(e) => {
-                    if (!authorizing && selectedVouchers.length > 0) {
+                    if (!authorizing && !rejecting && selectedVouchers.length > 0) {
                       e.target.style.background = 'linear-gradient(135deg, #e55a00 0%, #cc4a00 100%)';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (!authorizing && selectedVouchers.length > 0) {
+                    if (!authorizing && !rejecting && selectedVouchers.length > 0) {
                       e.target.style.background = 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)';
                     }
                   }}
                 >
                   <span className="material-icons" style={{ fontSize: '16px' }}>check_circle</span>
                   {authorizing ? 'Authorizing...' : `Authorize (${selectedVouchers.length})`}
+                </button>
+              </div>
+
+              {/* Reject Button */}
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'flex-start'
+              }}>
+                <button
+                  onClick={handleRejectVouchers}
+                  disabled={rejecting || authorizing || selectedVouchers.length === 0}
+                  style={{
+                    background: rejecting || authorizing || selectedVouchers.length === 0 ? '#94a3b8' : 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                    border: 'none',
+                    borderRadius: '10px',
+                    padding: '12px 20px',
+                    cursor: rejecting || authorizing || selectedVouchers.length === 0 ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: '#fff',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 2px 4px rgba(220, 38, 38, 0.2)',
+                    width: '100%',
+                    justifyContent: 'center',
+                    opacity: rejecting || authorizing || selectedVouchers.length === 0 ? 0.7 : 1
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!rejecting && !authorizing && selectedVouchers.length > 0) {
+                      e.target.style.background = 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!rejecting && !authorizing && selectedVouchers.length > 0) {
+                      e.target.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '16px' }}>cancel</span>
+                  {rejecting ? 'Rejecting...' : `Reject (${selectedVouchers.length})`}
                 </button>
               </div>
             </div>
@@ -860,6 +1195,114 @@ function VoucherAuthorization() {
             </div>
           )}
 
+          {/* Tabs for Pending/Authorized/Rejected */}
+          <div style={{ padding: '0 24px', borderBottom: '1px solid #e5e7eb' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => {
+                  setActiveTab('pending');
+                  setSelectedVouchers([]);
+                }}
+                style={{
+                  padding: '12px 24px',
+                  border: 'none',
+                  borderBottom: activeTab === 'pending' ? '3px solid #F27020' : '3px solid transparent',
+                  background: 'transparent',
+                  color: activeTab === 'pending' ? '#F27020' : '#64748b',
+                  fontSize: '14px',
+                  fontWeight: activeTab === 'pending' ? '600' : '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>pending_actions</span>
+                Pending
+                <span style={{
+                  background: activeTab === 'pending' ? '#F27020' : '#e5e7eb',
+                  color: activeTab === 'pending' ? 'white' : '#64748b',
+                  borderRadius: '12px',
+                  padding: '2px 8px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  marginLeft: '4px'
+                }}>
+                  {vouchers.filter(v => v.status === 'Pending').length}
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab('authorized');
+                  setSelectedVouchers([]);
+                }}
+                style={{
+                  padding: '12px 24px',
+                  border: 'none',
+                  borderBottom: activeTab === 'authorized' ? '3px solid #10b981' : '3px solid transparent',
+                  background: 'transparent',
+                  color: activeTab === 'authorized' ? '#10b981' : '#64748b',
+                  fontSize: '14px',
+                  fontWeight: activeTab === 'authorized' ? '600' : '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
+                Authorized
+                <span style={{
+                  background: activeTab === 'authorized' ? '#10b981' : '#e5e7eb',
+                  color: activeTab === 'authorized' ? 'white' : '#64748b',
+                  borderRadius: '12px',
+                  padding: '2px 8px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  marginLeft: '4px'
+                }}>
+                  {vouchers.filter(v => v.status === 'Authorized').length}
+                </span>
+              </button>
+              <button
+                onClick={() => {
+                  setActiveTab('rejected');
+                  setSelectedVouchers([]);
+                }}
+                style={{
+                  padding: '12px 24px',
+                  border: 'none',
+                  borderBottom: activeTab === 'rejected' ? '3px solid #dc2626' : '3px solid transparent',
+                  background: 'transparent',
+                  color: activeTab === 'rejected' ? '#dc2626' : '#64748b',
+                  fontSize: '14px',
+                  fontWeight: activeTab === 'rejected' ? '600' : '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>cancel</span>
+                Rejected
+                <span style={{
+                  background: activeTab === 'rejected' ? '#dc2626' : '#e5e7eb',
+                  color: activeTab === 'rejected' ? 'white' : '#64748b',
+                  borderRadius: '12px',
+                  padding: '2px 8px',
+                  fontSize: '12px',
+                  fontWeight: '600',
+                  marginLeft: '4px'
+                }}>
+                  {vouchers.filter(v => v.status === 'Rejected').length}
+                </span>
+              </button>
+            </div>
+          </div>
+
           {/* Dashboard Content */}
           <div style={{ padding: '24px' }}>
             {/* Vouchers Table */}
@@ -905,7 +1348,7 @@ function VoucherAuthorization() {
                   {/* Table Header */}
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: '40px 140px 1fr 120px 100px 140px 140px',
+                    gridTemplateColumns: '40px 140px 1fr 120px 100px 140px 140px 200px',
                     gap: 16,
                     padding: '12px 20px',
                     background: '#ffffff',
@@ -921,6 +1364,7 @@ function VoucherAuthorization() {
                     <div style={{ textAlign: 'left' }}>Vch No.</div>
                     <div style={{ textAlign: 'right' }}>Debit</div>
                     <div style={{ textAlign: 'right' }}>Credit</div>
+                    <div style={{ textAlign: 'left' }}>Notes</div>
                   </div>
 
                   {/* Table Rows */}
@@ -929,7 +1373,7 @@ function VoucherAuthorization() {
                       key={voucher.id}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '40px 140px 1fr 120px 100px 140px 140px',
+                        gridTemplateColumns: '40px 140px 1fr 120px 100px 140px 140px 200px',
                         gap: 16,
                         padding: '12px 20px',
                         borderBottom: '1px solid #e5e7eb',
@@ -977,6 +1421,28 @@ function VoucherAuthorization() {
                       </div>
                       <div style={{ textAlign: 'right', color: '#1e293b', fontSize: '14px' }}>
                         {voucher.creditAmount > 0 ? formatCurrency(voucher.creditAmount) : ''}
+                      </div>
+                      <div style={{ 
+                        color: voucher.status === 'Authorized' ? '#047857' : voucher.status === 'Rejected' ? '#991b1b' : '#64748b', 
+                        fontSize: '13px',
+                        fontStyle: (voucher.status === 'Authorized' && voucher.authorizationNarration) || (voucher.status === 'Rejected' && voucher.rejectionNarration) ? 'normal' : 'italic',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {voucher.status === 'Authorized' && voucher.authorizationNarration ? (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="material-icons" style={{ fontSize: '16px', color: '#10b981' }}>check_circle</span>
+                            {voucher.authorizationNarration}
+                          </span>
+                        ) : voucher.status === 'Rejected' && voucher.rejectionNarration ? (
+                          <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="material-icons" style={{ fontSize: '16px', color: '#dc2626' }}>cancel</span>
+                            {voucher.rejectionNarration}
+                          </span>
+                        ) : (
+                          <span style={{ color: '#94a3b8' }}>-</span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1057,31 +1523,102 @@ function VoucherAuthorization() {
                   )}
                 </h2>
               </div>
-              <button
-                onClick={() => {
-                  setShowVoucherDetails(false);
-                  setViewingVoucher(null);
-                }}
-                style={{
-                  background: '#f1f5f9',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  padding: '8px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#e2e8f0';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#f1f5f9';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: '24px', color: '#64748b' }}>close</span>
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {/* Authorize Button */}
+                <button
+                  onClick={handleAuthorizeSingleVoucher}
+                  disabled={authorizing || rejecting}
+                  style={{
+                    background: authorizing || rejecting ? '#94a3b8' : 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '10px 16px',
+                    cursor: authorizing || rejecting ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: '#fff',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 2px 4px rgba(242, 112, 32, 0.2)',
+                    opacity: authorizing || rejecting ? 0.7 : 1
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!authorizing && !rejecting) {
+                      e.target.style.background = 'linear-gradient(135deg, #e55a00 0%, #cc4a00 100%)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!authorizing && !rejecting) {
+                      e.target.style.background = 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
+                  {authorizing ? 'Authorizing...' : 'Authorize'}
+                </button>
+                {/* Reject Button */}
+                <button
+                  onClick={handleRejectSingleVoucher}
+                  disabled={rejecting || authorizing}
+                  style={{
+                    background: rejecting || authorizing ? '#94a3b8' : 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '10px 16px',
+                    cursor: rejecting || authorizing ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    color: '#fff',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 2px 4px rgba(220, 38, 38, 0.2)',
+                    opacity: rejecting || authorizing ? 0.7 : 1
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!rejecting && !authorizing) {
+                      e.target.style.background = 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!rejecting && !authorizing) {
+                      e.target.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '18px' }}>cancel</span>
+                  {rejecting ? 'Rejecting...' : 'Reject'}
+                </button>
+                {/* Close Button */}
+                <button
+                  onClick={() => {
+                    setShowVoucherDetails(false);
+                    setViewingVoucher(null);
+                  }}
+                  style={{
+                    background: '#f1f5f9',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    padding: '8px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#e2e8f0';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = '#f1f5f9';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '24px', color: '#64748b' }}>close</span>
+                </button>
+              </div>
             </div>
 
             {/* Modal Content */}
@@ -1124,6 +1661,79 @@ function VoucherAuthorization() {
                     <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
                       <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Particulars</div>
                       <div style={{ fontSize: '16px', color: '#1e293b', fontWeight: 600 }}>{viewingVoucher.rawData.PARTICULARS}</div>
+                    </div>
+                    {/* Status and Narration Section */}
+                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '8px' }}>Status</div>
+                      <div style={{ 
+                        display: 'inline-flex', 
+                        alignItems: 'center', 
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        fontSize: '14px',
+                        fontWeight: 600,
+                        background: viewingVoucher.status === 'Authorized' ? '#d1fae5' : viewingVoucher.status === 'Rejected' ? '#fef2f2' : '#fef3c7',
+                        color: viewingVoucher.status === 'Authorized' ? '#047857' : viewingVoucher.status === 'Rejected' ? '#991b1b' : '#92400e',
+                        border: `1px solid ${viewingVoucher.status === 'Authorized' ? '#a7f3d0' : viewingVoucher.status === 'Rejected' ? '#fecaca' : '#fde68a'}`
+                      }}>
+                        {viewingVoucher.status === 'Authorized' && (
+                          <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
+                        )}
+                        {viewingVoucher.status === 'Rejected' && (
+                          <span className="material-icons" style={{ fontSize: '18px' }}>cancel</span>
+                        )}
+                        {viewingVoucher.status === 'Pending' && (
+                          <span className="material-icons" style={{ fontSize: '18px' }}>pending_actions</span>
+                        )}
+                        {viewingVoucher.status}
+                      </div>
+                    </div>
+                    {/* Authorization Narration */}
+                    {viewingVoucher.authorizationNarration && (
+                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: '12px', color: '#10b981', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span className="material-icons" style={{ fontSize: '16px' }}>check_circle</span>
+                          Authorization Note
+                        </div>
+                        <div style={{ fontSize: '14px', color: '#047857', fontWeight: 500, padding: '12px 16px', background: '#d1fae5', borderRadius: '8px', border: '1px solid #a7f3d0', lineHeight: '1.5' }}>
+                          {viewingVoucher.authorizationNarration}
+                        </div>
+                      </div>
+                    )}
+                    {/* Rejection Narration */}
+                    {viewingVoucher.rejectionNarration && (
+                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: '12px', color: '#dc2626', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span className="material-icons" style={{ fontSize: '16px' }}>cancel</span>
+                          Rejection Reason
+                        </div>
+                        <div style={{ fontSize: '14px', color: '#991b1b', fontWeight: 500, padding: '12px 16px', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca', lineHeight: '1.5' }}>
+                          {viewingVoucher.rejectionNarration}
+                        </div>
+                      </div>
+                    )}
+                    {/* Voucher Narration */}
+                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
+                      <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <span className="material-icons" style={{ fontSize: '16px', color: '#64748b' }}>description</span>
+                        Narration
+                      </div>
+                      <div style={{ 
+                        fontSize: '14px', 
+                        fontWeight: 500, 
+                        color: viewingVoucher.narration || viewingVoucher.rawData?.NARRATION ? '#1e293b' : '#94a3b8',
+                        padding: '12px 16px',
+                        background: viewingVoucher.narration || viewingVoucher.rawData?.NARRATION ? '#f8fafc' : '#f1f5f9',
+                        borderRadius: '8px',
+                        border: '1px solid #e2e8f0',
+                        lineHeight: '1.5',
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word',
+                        fontStyle: viewingVoucher.narration || viewingVoucher.rawData?.NARRATION ? 'normal' : 'italic'
+                      }}>
+                        {viewingVoucher.narration || viewingVoucher.rawData?.NARRATION || viewingVoucher.rawData?.CP_Temp7 || 'Data not available'}
+                      </div>
                     </div>
                   </div>
 
@@ -1352,6 +1962,500 @@ function VoucherAuthorization() {
                   </p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rejection Narration Modal */}
+      {showRejectNarrationModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 15000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            animation: 'fadeIn 0.2s ease-out'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowRejectNarrationModal(false);
+              setRejectNarration('');
+              setVoucherToReject(null);
+              setRejectingMultiple(false);
+            }
+          }}
+        >
+          <div
+            style={{
+              background: 'white',
+              borderRadius: '16px',
+              width: '90%',
+              maxWidth: '560px',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+              overflow: 'hidden',
+              animation: 'slideUp 0.3s ease-out',
+              transform: 'translateY(0)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header with Icon */}
+            <div style={{
+              background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+              padding: '24px 28px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px'
+            }}>
+              <div style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backdropFilter: 'blur(10px)'
+              }}>
+                <span className="material-icons" style={{ fontSize: '28px', color: 'white' }}>cancel</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <h3 style={{
+                  margin: 0,
+                  fontSize: '20px',
+                  fontWeight: 700,
+                  color: 'white',
+                  marginBottom: '4px',
+                  letterSpacing: '-0.01em'
+                }}>
+                  Reject Voucher{rejectingMultiple && Array.isArray(voucherToReject) ? 's' : ''}
+                </h3>
+                <p style={{
+                  margin: 0,
+                  fontSize: '14px',
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontWeight: 500
+                }}>
+                  {rejectingMultiple && Array.isArray(voucherToReject)
+                    ? `Add a reason for rejecting ${voucherToReject.length} voucher(s)`
+                    : 'Add an optional reason for rejecting this voucher'}
+                </p>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '28px' }}>
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: '#374151',
+                  marginBottom: '12px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '18px', color: '#dc2626' }}>warning</span>
+                  Rejection Reason
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: '#94a3b8',
+                    marginLeft: '4px'
+                  }}>
+                    (Optional)
+                  </span>
+                </label>
+                <textarea
+                  value={rejectNarration}
+                  onChange={(e) => setRejectNarration(e.target.value)}
+                  placeholder="Enter your rejection reason here... (e.g., Missing documents, Incorrect amount, Policy violation, etc.)"
+                  style={{
+                    width: '100%',
+                    minHeight: '120px',
+                    maxHeight: '200px',
+                    padding: '14px 16px',
+                    border: '2px solid #e2e8f0',
+                    borderRadius: '10px',
+                    fontSize: '14px',
+                    fontFamily: 'inherit',
+                    resize: 'vertical',
+                    outline: 'none',
+                    transition: 'all 0.2s ease',
+                    backgroundColor: '#fafbfc',
+                    color: '#1e293b',
+                    lineHeight: '1.6',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#dc2626';
+                    e.target.style.backgroundColor = 'white';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(220, 38, 38, 0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#e2e8f0';
+                    e.target.style.backgroundColor = '#fafbfc';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+                <div style={{
+                  marginTop: '8px',
+                  fontSize: '12px',
+                  color: '#94a3b8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px' }}>info</span>
+                  This reason will be visible in the voucher details
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'flex-end',
+                paddingTop: '8px',
+                borderTop: '1px solid #f1f5f9'
+              }}>
+                <button
+                  onClick={() => {
+                    setShowRejectNarrationModal(false);
+                    setRejectNarration('');
+                    setVoucherToReject(null);
+                    setRejectingMultiple(false);
+                  }}
+                  style={{
+                    padding: '12px 24px',
+                    border: '2px solid #e2e8f0',
+                    borderRadius: '10px',
+                    background: 'white',
+                    color: '#64748b',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#f8fafc';
+                    e.target.style.borderColor = '#cbd5e1';
+                    e.target.style.color = '#475569';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'white';
+                    e.target.style.borderColor = '#e2e8f0';
+                    e.target.style.color = '#64748b';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '18px' }}>close</span>
+                  Cancel
+                </button>
+                <button
+                  onClick={rejectingMultiple ? confirmRejectMultipleVouchers : confirmRejectSingleVoucher}
+                  disabled={rejecting}
+                  style={{
+                    padding: '12px 24px',
+                    border: 'none',
+                    borderRadius: '10px',
+                    background: rejecting ? '#94a3b8' : 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                    color: 'white',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: rejecting ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    opacity: rejecting ? 0.7 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: rejecting ? 'none' : '0 4px 12px rgba(220, 38, 38, 0.3)'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!rejecting) {
+                      e.target.style.background = 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)';
+                      e.target.style.boxShadow = '0 6px 16px rgba(220, 38, 38, 0.4)';
+                      e.target.style.transform = 'translateY(-1px)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!rejecting) {
+                      e.target.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)';
+                      e.target.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.3)';
+                      e.target.style.transform = 'translateY(0)';
+                    }
+                  }}
+                >
+                  {rejecting ? (
+                    <>
+                      <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite' }}>refresh</span>
+                      Rejecting...
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-icons" style={{ fontSize: '18px' }}>cancel</span>
+                      Confirm Reject
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Authorization Narration Modal */}
+      {showAuthorizeNarrationModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.6)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 15000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px',
+            animation: 'fadeIn 0.2s ease-out'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowAuthorizeNarrationModal(false);
+              setAuthorizeNarration('');
+              setVoucherToAuthorize(null);
+              setAuthorizingMultiple(false);
+            }
+          }}
+        >
+          <div
+            style={{
+              background: 'white',
+              borderRadius: '16px',
+              width: '90%',
+              maxWidth: '560px',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+              overflow: 'hidden',
+              animation: 'slideUp 0.3s ease-out',
+              transform: 'translateY(0)'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header with Icon */}
+            <div style={{
+              background: 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)',
+              padding: '24px 28px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '16px'
+            }}>
+              <div style={{
+                width: '48px',
+                height: '48px',
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backdropFilter: 'blur(10px)'
+              }}>
+                <span className="material-icons" style={{ fontSize: '28px', color: 'white' }}>check_circle</span>
+              </div>
+              <div style={{ flex: 1 }}>
+                <h3 style={{
+                  margin: 0,
+                  fontSize: '20px',
+                  fontWeight: 700,
+                  color: 'white',
+                  marginBottom: '4px',
+                  letterSpacing: '-0.01em'
+                }}>
+                  Authorize Voucher{authorizingMultiple && Array.isArray(voucherToAuthorize) ? 's' : ''}
+                </h3>
+                <p style={{
+                  margin: 0,
+                  fontSize: '14px',
+                  color: 'rgba(255, 255, 255, 0.9)',
+                  fontWeight: 500
+                }}>
+                  {authorizingMultiple && Array.isArray(voucherToAuthorize)
+                    ? `Add a note for ${voucherToAuthorize.length} voucher(s)`
+                    : 'Add an optional note for this authorization'}
+                </p>
+              </div>
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: '28px' }}>
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  color: '#374151',
+                  marginBottom: '12px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '18px', color: '#F27020' }}>note</span>
+                  Authorization Note
+                  <span style={{
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: '#94a3b8',
+                    marginLeft: '4px'
+                  }}>
+                    (Optional)
+                  </span>
+                </label>
+                <textarea
+                  value={authorizeNarration}
+                  onChange={(e) => setAuthorizeNarration(e.target.value)}
+                  placeholder="Enter your authorization note here... (e.g., Verified and approved, All documents checked, etc.)"
+                  style={{
+                    width: '100%',
+                    minHeight: '120px',
+                    maxHeight: '200px',
+                    padding: '14px 16px',
+                    border: '2px solid #e2e8f0',
+                    borderRadius: '10px',
+                    fontSize: '14px',
+                    fontFamily: 'inherit',
+                    resize: 'vertical',
+                    outline: 'none',
+                    transition: 'all 0.2s ease',
+                    backgroundColor: '#fafbfc',
+                    color: '#1e293b',
+                    lineHeight: '1.6',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#F27020';
+                    e.target.style.backgroundColor = 'white';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(242, 112, 32, 0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#e2e8f0';
+                    e.target.style.backgroundColor = '#fafbfc';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+                <div style={{
+                  marginTop: '8px',
+                  fontSize: '12px',
+                  color: '#94a3b8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px' }}>info</span>
+                  This note will be visible in the voucher details
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'flex-end',
+                paddingTop: '8px',
+                borderTop: '1px solid #f1f5f9'
+              }}>
+                <button
+                  onClick={() => {
+                    setShowAuthorizeNarrationModal(false);
+                    setAuthorizeNarration('');
+                    setVoucherToAuthorize(null);
+                    setAuthorizingMultiple(false);
+                  }}
+                  style={{
+                    padding: '12px 24px',
+                    border: '2px solid #e2e8f0',
+                    borderRadius: '10px',
+                    background: 'white',
+                    color: '#64748b',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#f8fafc';
+                    e.target.style.borderColor = '#cbd5e1';
+                    e.target.style.color = '#475569';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'white';
+                    e.target.style.borderColor = '#e2e8f0';
+                    e.target.style.color = '#64748b';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '18px' }}>close</span>
+                  Cancel
+                </button>
+                <button
+                  onClick={authorizingMultiple ? confirmAuthorizeMultipleVouchers : confirmAuthorizeSingleVoucher}
+                  disabled={authorizing}
+                  style={{
+                    padding: '12px 24px',
+                    border: 'none',
+                    borderRadius: '10px',
+                    background: authorizing ? '#94a3b8' : 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)',
+                    color: 'white',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: authorizing ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    opacity: authorizing ? 0.7 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: authorizing ? 'none' : '0 4px 12px rgba(242, 112, 32, 0.3)'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!authorizing) {
+                      e.target.style.background = 'linear-gradient(135deg, #e55a00 0%, #cc4a00 100%)';
+                      e.target.style.boxShadow = '0 6px 16px rgba(242, 112, 32, 0.4)';
+                      e.target.style.transform = 'translateY(-1px)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!authorizing) {
+                      e.target.style.background = 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)';
+                      e.target.style.boxShadow = '0 4px 12px rgba(242, 112, 32, 0.3)';
+                      e.target.style.transform = 'translateY(0)';
+                    }
+                  }}
+                >
+                  {authorizing ? (
+                    <>
+                      <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite' }}>refresh</span>
+                      Authorizing...
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
+                      Confirm Authorize
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

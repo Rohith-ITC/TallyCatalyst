@@ -392,7 +392,12 @@ const SalesDashboard = () => {
 
       console.log('🚀 Making API call with payload:', payload);
       const data = await apiPost(`/api/reports/salesvoucherextract?ts=${Date.now()}`, payload);
-      console.log('✅ API response:', data);
+      console.log('✅ API response structure:', {
+        hasVouchers: !!data?.vouchers,
+        vouchersCount: data?.vouchers?.length || 0,
+        firstVoucherKeys: data?.vouchers?.[0] ? Object.keys(data.vouchers[0]) : [],
+        firstVoucherSample: data?.vouchers?.[0] || null
+      });
       
       // Cache the response
       setApiCache(prev => new Map(prev).set(cacheKey, {
@@ -556,6 +561,31 @@ const SalesDashboard = () => {
         console.log('🔍 Sample voucher structure (all keys):', Object.keys(sampleVoucher));
         console.log('🔍 Sample voucher (full object):', sampleVoucher);
         
+        // Check for narration-related fields
+        console.log('🔍 Checking narration-related fields:');
+        const narrationFields = ['CP_Temp7', 'cp_temp7', 'NARRATION', 'narration', 'Narration'];
+        let foundNarration = false;
+        narrationFields.forEach(field => {
+          if (sampleVoucher.hasOwnProperty(field)) {
+            console.log(`  ✅ Found ${field}:`, sampleVoucher[field]);
+            foundNarration = true;
+          }
+        });
+        
+        // If no narration field found, log all fields to help debug
+        if (!foundNarration) {
+          console.warn('⚠️ No narration field found in voucher! All available fields:', Object.keys(sampleVoucher));
+          console.warn('⚠️ Sample voucher values:', sampleVoucher);
+          
+          // Check for any field that might contain narration (case-insensitive search)
+          Object.keys(sampleVoucher).forEach(key => {
+            const lowerKey = key.toLowerCase();
+            if (lowerKey.includes('narr') || lowerKey.includes('temp') || lowerKey.includes('note') || lowerKey.includes('desc')) {
+              console.log(`  🔍 Potential narration field: ${key} =`, sampleVoucher[key]);
+            }
+          });
+        }
+        
         // Log all fields that might contain country
         console.log('🔍 Checking country-related fields:');
         Object.keys(sampleVoucher).forEach(key => {
@@ -701,7 +731,10 @@ const SalesDashboard = () => {
         // Store tax information if available in original voucher
         cgst: parseFloat(voucher.cgst || voucher.CGST || 0),
         sgst: parseFloat(voucher.sgst || voucher.SGST || 0),
-        roundoff: parseFloat(voucher.roundoff || voucher.ROUNDOFF || voucher.round_off || 0)
+        roundoff: parseFloat(voucher.roundoff || voucher.ROUNDOFF || voucher.round_off || 0),
+        // Store narration from CP_Temp7 field (XML tag is "NARRATION" per line 1869)
+        // Check NARRATION first since that's the XML tag, then fallback to CP_Temp7
+        CP_Temp7: voucher.NARRATION || voucher.narration || voucher.Narration || voucher.CP_Temp7 || voucher.cp_temp7 || ''
       }));
 
       // Debug: Log country extraction statistics
@@ -1850,19 +1883,21 @@ const SalesDashboard = () => {
 					</PART>
 					<LINE NAME="CP_Vouchers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
 						<XMLTAG>"VOUCHERS"</XMLTAG>
-						<LEFTFIELDS>CP_Temp1, CP_Temp2, CP_Temp3, CP_Temp4, CP_Temp5, CP_Temp6</LEFTFIELDS>
+						<LEFTFIELDS>CP_Temp1, CP_Temp2, CP_Temp3, CP_Temp4, CP_Temp5, CP_Temp6, CP_Temp7</LEFTFIELDS>
 						<LOCAL>Field : CP_Temp1 : Set as :$MASTERID</LOCAL>
 						<LOCAL>Field : CP_Temp2 : Set as :$DATE</LOCAL>
 						<LOCAL>Field : CP_Temp3 : Set as :$VOUCHERTYPENAME</LOCAL>
 						<LOCAL>Field : CP_Temp4 : Set as :$VOUCHERNUMBER</LOCAL>
 						<LOCAL>Field : CP_Temp5 : Set as : $$IfDr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
 						<LOCAL>Field : CP_Temp6 : Set as : $$IfCr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
+						<LOCAL>Field : CP_Temp7 : Set as : $NARRATION</LOCAL>
 						<LOCAL>Field : CP_Temp1  : XMLTag : "MASTERID"</LOCAL>
 						<LOCAL>Field : CP_Temp2  : XMLTag : "DATE"</LOCAL>
 						<LOCAL>Field : CP_Temp3  : XMLTag : "VOUCHERTYPE"</LOCAL>
 						<LOCAL>Field : CP_Temp4  : XMLTag : "VOUCHERNUMBER"</LOCAL>
 						<LOCAL>Field : CP_Temp5  : XMLTag : "DEBITAMT"</LOCAL>
 						<LOCAL>Field : CP_Temp6  : XMLTag : "CREDITAMT"</LOCAL>
+						<LOCAL>Field : CP_Temp7  : XMLTag : "NARRATION"</LOCAL>
 						<Explode>CP_Ledgers : Yes</Explode>
 					</LINE>
 					<PART NAME="CP_Ledgers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
@@ -2010,6 +2045,22 @@ const SalesDashboard = () => {
       
       const roundOffValue = totalRoundOff;
 
+      // Get narration from CP_Temp7 field (XML tag is "NARRATION" per line 1869)
+      // Check NARRATION first since that's the XML tag, then fallback to CP_Temp7
+      // The sales data has CP_Temp7 field from the transformation
+      const narration = voucher.CP_Temp7 || voucher.cp_temp7 || voucher.NARRATION || voucher.narration || voucher.Narration || '';
+      
+      // Debug: Log narration extraction
+      console.log('🔍 Extracting narration for voucher:', {
+        masterid: voucher.masterid,
+        vchno: voucher.vchno,
+        CP_Temp7: voucher.CP_Temp7,
+        cp_temp7: voucher.cp_temp7,
+        NARRATION: voucher.NARRATION,
+        narration: voucher.narration,
+        extractedNarration: narration
+      });
+
       // Transform to match VoucherDetailsModal format from Receivables Dashboard
       const voucherData = {
         VOUCHERS: {
@@ -2021,6 +2072,8 @@ const SalesDashboard = () => {
           VCHTYPE: voucher.issales ? 'Sales' : 'Other',
           DEBITAMT: voucher.issales ? totalAmount : 0,
           CREDITAMT: voucher.issales ? 0 : totalAmount,
+          NARRATION: narration || '', // Always include NARRATION field
+          PARTICULARS: voucher.customer || '',
           // Format ledger entries to match expected structure
           ALLLEDGERENTRIES: [
             // Customer ledger entry (debit for sales) with bill allocation
