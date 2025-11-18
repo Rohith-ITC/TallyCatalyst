@@ -14,6 +14,7 @@ import UserDashboard from './UserDashboard';
 import AdminDashboard from './admindashboard/Dashboard';
 import ChangePassword from './admindashboard/ChangePassword';
 import TallyDashboard from './TallyDashboard/tallydashboard';
+import VendorInvitationForm from './TallyDashboard/VendorInvitationForm';
 import { APP_CONFIG } from './config';
 import './utils/apiTest'; // Optional: For browser console testing
 
@@ -136,6 +137,7 @@ function App() {
         <Route path="/" element={<Login onLogin={handleLogin} />} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/vendor-form/:token" element={<VendorInvitationForm />} />
 
         <Route
           path="/admin-dashboard"
