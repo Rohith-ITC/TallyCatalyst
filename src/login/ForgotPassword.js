@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import TallyLogo from '../Tally1.png';
+import TallyLogo from '../DLlogo.png';
 import { Link, useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../config';
 import { apiPost } from '../utils/apiUtils';

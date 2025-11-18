@@ -2,7 +2,17 @@
 const getBaseUrl = () => {
   switch (process.env.NODE_ENV) {
     case 'development':
-      return process.env.REACT_APP_DEV_API_URL;
+      const devUrl = process.env.REACT_APP_DEV_API_URL;
+      // If dev URL contains localhost and we're accessing from a different host (mobile/remote),
+      // use empty string to use relative paths (which will go through the proxy)
+      if (devUrl && typeof window !== 'undefined') {
+        const currentHost = window.location.hostname;
+        // If accessing from a different host (not localhost/127.0.0.1), use relative paths
+        if (devUrl.includes('localhost') && currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
+          return ''; // Use relative paths to go through proxy
+        }
+      }
+      return devUrl || '';
     case 'staging':
       return process.env.REACT_APP_STAGING_API_URL;
     case 'production':
@@ -12,9 +22,11 @@ const getBaseUrl = () => {
   }
 };
 
-// API Configuration
+// API Configuration - BASE_URL is computed dynamically to handle mobile access
 export const API_CONFIG = {
-  BASE_URL: getBaseUrl(),
+  get BASE_URL() {
+    return getBaseUrl();
+  },
   ENDPOINTS: {
     // Authentication endpoints
     LOGIN: '/api/login',
@@ -79,12 +91,21 @@ export const isProduction = process.env.NODE_ENV === 'production';
 
 // API URL builder
 export const getApiUrl = (endpoint) => {
-  return `${API_CONFIG.BASE_URL}${endpoint}`;
+  const baseUrl = API_CONFIG.BASE_URL; // This will call the getter dynamically
+  // If BASE_URL is empty, use relative path (will go through proxy in dev)
+  if (!baseUrl) {
+    return endpoint;
+  }
+  return `${baseUrl}${endpoint}`;
 };
 
 // Log configuration in development
-if (isDevelopment) {
-  console.log('API Configuration:', API_CONFIG);
+if (isDevelopment && typeof window !== 'undefined') {
+  console.log('API Configuration:', {
+    BASE_URL: API_CONFIG.BASE_URL,
+    currentHost: window.location.hostname,
+    devApiUrl: process.env.REACT_APP_DEV_API_URL
+  });
 }
 
 // Fallback port for development
