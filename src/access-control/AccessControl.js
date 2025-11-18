@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import TallyLogo from '../Tally1.png';
+import TallyLogo from '../DLlogo.png';
 import '../AdminHomeResponsive.css';
 import ModulesManagement from './ModulesManagement';
 import RolesManagement from './RolesManagement';
