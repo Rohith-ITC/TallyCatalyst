@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import TallyLogo from './Tally1.png';
+import TallyLogo from './DLlogo.png';
 import LedgerVouchers from './LedgerVouchers';
 import './AdminHomeResponsive.css';
 

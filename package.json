@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "homepage1": "/Development/CustomerPortal",
-  "proxy": "http://localhost:1235",
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",

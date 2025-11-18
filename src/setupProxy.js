@@ -1,18 +1,36 @@
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
+// Use dev API URL in development, otherwise production URL
 const DEFAULT_TARGET =
-  process.env.REACT_APP_PRODUCTION_API_URL;
+  process.env.NODE_ENV === 'development'
+    ? process.env.REACT_APP_DEV_API_URL || 'http://localhost:1235'
+    : process.env.REACT_APP_PRODUCTION_API_URL;
 
 module.exports = function setupProxy(app) {
+  // Only proxy /api requests, ignore webpack hot-update files and other assets
   app.use(
     '/api',
     createProxyMiddleware({
       target: DEFAULT_TARGET,
       changeOrigin: true,
-      secure: true,
-      logLevel: 'silent',
+      secure: false, // Allow self-signed certificates in development
+      logLevel: 'warn', // Only log warnings and errors, not info
       timeout: 300000,
       proxyTimeout: 300000,
+      // Filter out non-API requests
+      filter: (pathname, req) => {
+        return pathname.startsWith('/api');
+      },
+      onError: (err, req, res) => {
+        // Only log errors for /api requests, ignore webpack hot-update files
+        if (req.url && req.url.startsWith('/api')) {
+          console.error('Proxy error for API request:', err.message);
+          if (!res.headersSent) {
+            res.status(500).json({ error: 'Proxy error: ' + err.message });
+          }
+        }
+        // Silently ignore errors for non-API requests (like webpack files)
+      },
       onProxyReq: (proxyReq, req) => {
         const authHeader = req.headers.authorization || req.headers.Authorization;
         if (authHeader) {
