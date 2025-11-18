@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import TallyLogo from '../Tally1.png';
 import '../AdminHomeResponsive.css';
 import { getApiUrl, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
@@ -9,6 +9,9 @@ import CreateAccess from './CreateAccess';
 import ModulesManagement from '../access-control/ModulesManagement';
 import RolesManagement from '../access-control/RolesManagement';
 import ShareAccess from '../TallyDashboard/ShareAccess';
+import SubscriptionManagement from './SubscriptionManagement';
+import SubscriptionBadge from './components/SubscriptionBadge';
+import TrialReminderModal from './components/TrialReminderModal';
 
 // Ensure Material Icons are properly loaded and styled
 const materialIconsStyle = `
@@ -43,7 +46,8 @@ function AdminDashboard() {
   const name = sessionStorage.getItem('name');
   const email = sessionStorage.getItem('email');
   const token = sessionStorage.getItem('token');
-  const [view, setView] = useState('dashboard');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [view, setView] = useState(searchParams.get('view') || 'dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 900);
   const profileRef = useRef();
   const navigate = useNavigate();
@@ -65,7 +69,23 @@ function AdminDashboard() {
     { key: 'roles', label: 'Roles Management', icon: 'group' },
     { key: 'create-access', label: 'User Management', icon: 'person_add' },
     { key: 'share-access', label: 'Share Access', icon: 'share' },
+    { key: 'subscription', label: 'Subscription', icon: 'subscriptions' },
   ];
+
+  // Handle URL parameter changes
+  useEffect(() => {
+    const viewParam = searchParams.get('view');
+    if (viewParam && ['dashboard', 'tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(viewParam)) {
+      setView(viewParam);
+    }
+  }, [searchParams]);
+
+  // Update URL when view changes
+  const handleViewChange = (newView) => {
+    setView(newView);
+    setSearchParams({ view: newView });
+    if (window.innerWidth <= 900) setSidebarOpen(false);
+  };
 
   // State for user connections (single table)
   const [allConnections, setAllConnections] = useState([]);
@@ -296,7 +316,7 @@ function AdminDashboard() {
 
   // Auto-open Control Panel dropdown when any of its child views are active
   useEffect(() => {
-    if (['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) {
+    if (['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) {
       setControlPanelDropdownOpen(true);
     }
   }, [view]);
@@ -307,17 +327,14 @@ function AdminDashboard() {
   };
 
   const handleDashboard = () => {
-    setView('dashboard');
-    if (window.innerWidth <= 900) setSidebarOpen(false);
+    handleViewChange('dashboard');
   };
   const handleTallyConfig = () => {
-    setView('tally-config');
-    if (window.innerWidth <= 900) setSidebarOpen(false);
+    handleViewChange('tally-config');
   };
 
   const handleCreateAccess = () => {
-    setView('create-access');
-    if (window.innerWidth <= 900) setSidebarOpen(false);
+    handleViewChange('create-access');
   };
 
   return (
@@ -354,33 +371,7 @@ function AdminDashboard() {
           }}>DataLynk</span>
         </div>
         <div ref={profileDropdownRef} style={{ display: 'flex', alignItems: 'center', gap: 16, marginLeft: 'auto', position: 'relative' }}>
-          <div 
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: 10, 
-              cursor: 'pointer',
-              padding: '6px 12px',
-              borderRadius: '10px',
-              background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
-              transition: 'all 0.3s ease',
-            }}
-            onClick={() => setProfileDropdownOpen((open) => !open)}
-            onMouseEnter={(e) => {
-              if (!profileDropdownOpen) {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!profileDropdownOpen) {
-                e.currentTarget.style.background = 'transparent';
-              }
-            }}
-          >
-            <span className="material-icons profile-icon" style={{ color: '#fff', fontSize: '28px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}>account_circle</span>
-            <span className="profile-name" style={{ color: '#fff', fontWeight: 600, fontSize: '15px', textShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>{name || 'User'}</span>
-            <span className="material-icons" style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '20px', transition: 'transform 0.3s ease', transform: profileDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
-          </div>
+          <SubscriptionBadge />
           <button 
             className="logout-btn" 
             title="Logout" 
@@ -418,6 +409,33 @@ function AdminDashboard() {
             <span className="material-icons" style={{ fontSize: 18 }}>logout</span>
             Logout
           </button>
+          <div 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 10, 
+              cursor: 'pointer',
+              padding: '6px 12px',
+              borderRadius: '10px',
+              background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
+              transition: 'all 0.3s ease',
+            }}
+            onClick={() => setProfileDropdownOpen((open) => !open)}
+            onMouseEnter={(e) => {
+              if (!profileDropdownOpen) {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!profileDropdownOpen) {
+                e.currentTarget.style.background = 'transparent';
+              }
+            }}
+          >
+            <span className="material-icons profile-icon" style={{ color: '#fff', fontSize: '28px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}>account_circle</span>
+            <span className="profile-name" style={{ color: '#fff', fontWeight: 600, fontSize: '15px', textShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>{name || 'User'}</span>
+            <span className="material-icons" style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '20px', transition: 'transform 0.3s ease', transform: profileDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
+          </div>
           {profileDropdownOpen && (
             <div className="profile-dropdown" style={{ 
               position: 'absolute', 
@@ -795,17 +813,17 @@ function AdminDashboard() {
                 setControlPanelDropdownOpen(!controlPanelDropdownOpen);
               }}
               style={{
-                color: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '#ff9800' : '#fff',
-                background: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 'rgba(255,152,0,0.08)' : 'transparent',
+                color: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) ? '#ff9800' : '#fff',
+                background: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) ? 'rgba(255,152,0,0.08)' : 'transparent',
                 textDecoration: 'none',
                 padding: '10px 18px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
                 borderRadius: '8px',
-                fontWeight: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 700 : 500,
+                fontWeight: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) ? 700 : 500,
                 margin: '0 8px',
-                border: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                border: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
                 cursor: 'pointer',
                 justifyContent: sidebarOpen ? 'flex-start' : 'center',
                 position: 'relative',
@@ -836,7 +854,7 @@ function AdminDashboard() {
                   <span className="material-icons" style={{ 
                     fontSize: 18, 
                     marginLeft: 'auto',
-                    color: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
+                    color: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
                     transition: 'transform 0.2s',
                     transform: controlPanelDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                   }}>arrow_drop_down</span>
@@ -921,7 +939,7 @@ function AdminDashboard() {
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      setView(item.key);
+                      handleViewChange(item.key);
                       setControlPanelDropdownOpen(false);
                     }}
                     style={{
@@ -1496,9 +1514,13 @@ function AdminDashboard() {
           <RolesManagement />
         ) : view === 'share-access' ? (
           <ShareAccess />
+        ) : view === 'subscription' ? (
+          <SubscriptionManagement />
         ) : null}
       </main>
 
+      {/* Trial Reminder Modal */}
+      <TrialReminderModal />
 
     </div>
   );
