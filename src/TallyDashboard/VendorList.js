@@ -3,7 +3,7 @@ import { getApiUrl, API_CONFIG } from '../config';
 import { apiPost } from '../utils/apiUtils';
 import VendorForm from './VendorForm';
 
-const VendorManagement = () => {
+const VendorList = () => {
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -1415,4 +1415,4 @@ const VendorManagement = () => {
   );
 };
 
-export default VendorManagement;
+export default VendorList;
