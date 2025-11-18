@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import TallyLogo from '../Tally1.png';
+import TallyLogo from '../DLlogo.png';
 import { Link, useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../config';
 import { apiPost } from '../utils/apiUtils';
@@ -135,7 +135,7 @@ function Login({ onLogin }) {
             zIndex: 2,
           }}>
             <div style={{ fontSize: 22, fontWeight: 800, color: '#1e40af', marginBottom: 12, textAlign: 'center' }}>DataLynk</div>
-            <img src={TallyLogo} alt="Tally Logo" style={{ width: 64, height: 64, objectFit: 'contain', marginBottom: 8, marginTop: 0 }} />
+            <img src={TallyLogo} alt="Tally Logo" style={{ width: 72, height: 72, objectFit: 'contain', marginBottom: 24, marginTop: 0 }} />
             <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 300 }}>
               <div style={{ marginBottom: 12, position: 'relative' }}>
                 <input
@@ -292,7 +292,7 @@ function Login({ onLogin }) {
               alignItems: 'center',
               padding: '8px 32px',
             }}>
-              <img src={TallyLogo} alt="Tally Logo" style={{ width: 200, height: 200, objectFit: 'contain', marginBottom: 4, marginTop: 0 }} />
+              <img src={TallyLogo} alt="Tally Logo" style={{ width: 160, height: 160, objectFit: 'contain', marginBottom: 20, marginTop: 0 }} />
               <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: 300 }}>
                 <div style={{ marginBottom: 18, position: 'relative' }}>
                   <input

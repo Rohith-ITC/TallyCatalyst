@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect } from 'react';
-import TallyLogo from './Tally1.png';
+import TallyLogo from './DLlogo.png';
 import tallyConfig from './tallyConfig.json';
 import { getApiUrl, API_CONFIG } from './config';
 import './AdminHomeResponsive.css';

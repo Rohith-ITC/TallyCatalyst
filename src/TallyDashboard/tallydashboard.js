@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../config';
-import TallyLogo from '../Tally1.png';
+import TallyLogo from '../DLlogo.png';
 import '../AdminHomeResponsive.css';
 import Ledgerbook from './Ledgerbook';
 import PlaceOrder from './PlaceOrder';
