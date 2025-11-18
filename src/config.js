@@ -1,18 +1,22 @@
 // Environment-based API Configuration
 const getBaseUrl = () => {
-  switch (process.env.NODE_ENV) {
-    case 'development':
-      const devUrl = process.env.REACT_APP_DEV_API_URL;
-      // If dev URL contains localhost and we're accessing from a different host (mobile/remote),
-      // use empty string to use relative paths (which will go through the proxy)
-      if (devUrl && typeof window !== 'undefined') {
-        const currentHost = window.location.hostname;
-        // If accessing from a different host (not localhost/127.0.0.1), use relative paths
-        if (devUrl.includes('localhost') && currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
-          return ''; // Use relative paths to go through proxy
-        }
+  // Override URLs when in development mode (regardless of .env values)
+  if (process.env.NODE_ENV === 'development') {
+    const devUrl = 'https://itcatalystindia.com/Development/CustomerPortal_API';
+    // If dev URL contains localhost and we're accessing from a different host (mobile/remote),
+    // use empty string to use relative paths (which will go through the proxy)
+    if (devUrl && typeof window !== 'undefined') {
+      const currentHost = window.location.hostname;
+      // If accessing from a different host (not localhost/127.0.0.1), use relative paths
+      if (devUrl.includes('localhost') && currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
+        return ''; // Use relative paths to go through proxy
       }
-      return devUrl || '';
+    }
+    return devUrl;
+  }
+
+  // For non-development environments, use .env values
+  switch (process.env.NODE_ENV) {
     case 'staging':
       return process.env.REACT_APP_STAGING_API_URL;
     case 'production':
