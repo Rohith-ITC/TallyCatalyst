@@ -46,7 +46,25 @@ export const API_CONFIG = {
     TALLY_LEDGER_LIST: '/api/tally/ledger-list',
     TALLY_LEDGER_AUTH: '/api/tally/ledger-auth',
     TALLY_LEDGER_CHECK: '/api/tally/ledger-check',
+    
+    // Subscription endpoints
+    SUBSCRIPTION_STATUS: '/api/subscription/status',
+    SUBSCRIPTION_PLANS: '/api/subscription/plans',
+    SUBSCRIPTION_USER_COUNT: '/api/subscription/user-count',
+    SUBSCRIPTION_CREATE_ORDER: '/api/subscription/create-order',
+    SUBSCRIPTION_VERIFY_PAYMENT: '/api/subscription/verify-payment',
+    SUBSCRIPTION_UPDATE: '/api/subscription/update',
+    SUBSCRIPTION_PAYMENTS: '/api/subscription/payments',
+    SUBSCRIPTION_TRIAL_STATUS: '/api/subscription/trial-status',
+    SUBSCRIPTION_DISMISS_REMINDER: '/api/subscription/dismiss-reminder',
   }
+};
+
+// Razorpay Configuration
+export const RAZORPAY_CONFIG = {
+  KEY_ID: process.env.REACT_APP_RAZORPAY_KEY_ID || '',
+  TRIAL_DAYS: parseInt(process.env.REACT_APP_TRIAL_DAYS || '14', 10),
+  REMINDER_DAYS: parseInt(process.env.REACT_APP_REMINDER_DAYS || '7', 10)
 };
 
 // App Configuration
