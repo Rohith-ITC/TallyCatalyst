@@ -1,5 +1,5 @@
 // Service Worker for cache management
-const CACHE_NAME = 'tallycatalyst-v1';
+const CACHE_NAME = 'datalynk-v1';
 const CACHE_VERSION = '%REACT_APP_VERSION%';
 
 // Install event - cache resources
