@@ -1,14 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import TallyLogo from '../Tally1.png';
 import '../AdminHomeResponsive.css';
-import { getApiUrl } from '../config';
+import { getApiUrl, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { apiGet } from '../utils/apiUtils';
 import TallyConfig from './tallyconfig';
 import CreateAccess from './CreateAccess';
 import ModulesManagement from '../access-control/ModulesManagement';
 import RolesManagement from '../access-control/RolesManagement';
 import ShareAccess from '../TallyDashboard/ShareAccess';
+import SubscriptionManagement from './SubscriptionManagement';
+import SubscriptionBadge from './components/SubscriptionBadge';
+import TrialReminderModal from './components/TrialReminderModal';
 
 // Ensure Material Icons are properly loaded and styled
 const materialIconsStyle = `
@@ -43,15 +46,21 @@ function AdminDashboard() {
   const name = sessionStorage.getItem('name');
   const email = sessionStorage.getItem('email');
   const token = sessionStorage.getItem('token');
-  const [view, setView] = useState('dashboard');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [view, setView] = useState(searchParams.get('view') || 'dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 900);
   const profileRef = useRef();
   const navigate = useNavigate();
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const profileDropdownRef = useRef();
+  const [showGoogleConfigModal, setShowGoogleConfigModal] = useState(false);
+  const [googleConfigStatus, setGoogleConfigStatus] = useState(null);
+  const [googleAccessToken, setGoogleAccessToken] = useState(localStorage.getItem('google_access_token') || null);
   const [sidebarTooltip, setSidebarTooltip] = useState({ show: false, text: '', top: 0 });
-  const [accessControlDropdownOpen, setAccessControlDropdownOpen] = useState(false);
-  const [controlPanelOpen, setControlPanelOpen] = useState(false);
+  const [controlPanelDropdownOpen, setControlPanelDropdownOpen] = useState(false);
+  const [controlPanelDropdownPosition, setControlPanelDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const controlPanelButtonRef = useRef(null);
+  const controlPanelDropdownRef = useRef(null);
   let sidebarTooltipTimeout = null;
 
   // Access Control dropdown items
@@ -60,7 +69,23 @@ function AdminDashboard() {
     { key: 'roles', label: 'Roles Management', icon: 'group' },
     { key: 'create-access', label: 'User Management', icon: 'person_add' },
     { key: 'share-access', label: 'Share Access', icon: 'share' },
+    { key: 'subscription', label: 'Subscription', icon: 'subscriptions' },
   ];
+
+  // Handle URL parameter changes
+  useEffect(() => {
+    const viewParam = searchParams.get('view');
+    if (viewParam && ['dashboard', 'tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(viewParam)) {
+      setView(viewParam);
+    }
+  }, [searchParams]);
+
+  // Update URL when view changes
+  const handleViewChange = (newView) => {
+    setView(newView);
+    setSearchParams({ view: newView });
+    if (window.innerWidth <= 900) setSidebarOpen(false);
+  };
 
   // State for user connections (single table)
   const [allConnections, setAllConnections] = useState([]);
@@ -242,8 +267,11 @@ function AdminDashboard() {
       if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
         setProfileDropdownOpen(false);
       }
+      if (controlPanelDropdownRef.current && !controlPanelDropdownRef.current.contains(event.target)) {
+        setControlPanelDropdownOpen(false);
+      }
     }
-    if (profileDropdownOpen) {
+    if (profileDropdownOpen || controlPanelDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     } else {
       document.removeEventListener('mousedown', handleClickOutside);
@@ -251,12 +279,45 @@ function AdminDashboard() {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [profileDropdownOpen]);
+  }, [profileDropdownOpen, controlPanelDropdownOpen]);
 
-  // Auto-open Control Panel when any of its child views are active
+  // Update control panel dropdown position when it opens
   useEffect(() => {
-    if (['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) {
-      setControlPanelOpen(true);
+    const updateControlPanelDropdownPosition = () => {
+      if (controlPanelDropdownOpen && controlPanelButtonRef.current) {
+        const rect = controlPanelButtonRef.current.getBoundingClientRect();
+        setControlPanelDropdownPosition({
+          top: rect.top,
+          left: rect.left + rect.width,
+          width: rect.width
+        });
+      }
+    };
+    
+    if (controlPanelDropdownOpen) {
+      updateControlPanelDropdownPosition();
+      const handleResize = () => updateControlPanelDropdownPosition();
+      const handleScroll = () => updateControlPanelDropdownPosition();
+      window.addEventListener('resize', handleResize);
+      window.addEventListener('scroll', handleScroll, true);
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('scroll', handleScroll, true);
+      };
+    }
+  }, [controlPanelDropdownOpen]);
+
+  // Close control panel dropdown when sidebar closes
+  useEffect(() => {
+    if (!sidebarOpen) {
+      setControlPanelDropdownOpen(false);
+    }
+  }, [sidebarOpen]);
+
+  // Auto-open Control Panel dropdown when any of its child views are active
+  useEffect(() => {
+    if (['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) {
+      setControlPanelDropdownOpen(true);
     }
   }, [view]);
 
@@ -266,17 +327,14 @@ function AdminDashboard() {
   };
 
   const handleDashboard = () => {
-    setView('dashboard');
-    if (window.innerWidth <= 900) setSidebarOpen(false);
+    handleViewChange('dashboard');
   };
   const handleTallyConfig = () => {
-    setView('tally-config');
-    if (window.innerWidth <= 900) setSidebarOpen(false);
+    handleViewChange('tally-config');
   };
 
   const handleCreateAccess = () => {
-    setView('create-access');
-    if (window.innerWidth <= 900) setSidebarOpen(false);
+    handleViewChange('create-access');
   };
 
   return (
@@ -288,44 +346,410 @@ function AdminDashboard() {
         top: 0,
         left: 0,
         width: '100%',
-        height: 56,
-        background: 'linear-gradient(90deg, #1e40af 0%, #3b82f6 100%)',
+        height: 64,
+        background: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #60a5fa 100%)',
         display: 'flex',
         alignItems: 'center',
         zIndex: 4001,
-        boxShadow: '0 2px 8px 0 rgba(31,38,135,0.10)',
-        padding: '0 24px',
+        boxShadow: '0 4px 20px 0 rgba(30, 58, 138, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
+        padding: '0 28px',
         justifyContent: 'flex-end',
+        backdropFilter: 'blur(10px)',
       }}>
-        <img src={TallyLogo} alt="Tally Logo" style={{ height: 36, marginLeft: 0, marginRight: 18 }} />
-        <span style={{ color: '#fff', fontWeight: 700, fontSize: 22, letterSpacing: 1, marginRight: 32 }}>TallyCatalyst</span>
-        <div ref={profileDropdownRef} style={{ display: 'flex', alignItems: 'center', gap: 18, marginLeft: 'auto', position: 'relative' }}>
-          <span className="material-icons profile-icon" style={{ cursor: 'pointer', color: '#fff' }} onClick={() => setProfileDropdownOpen((open) => !open)}>account_circle</span>
-          <span className="profile-name" style={{ cursor: 'pointer', color: '#fff' }} onClick={() => setProfileDropdownOpen((open) => !open)}>{name || 'User'}</span>
-          <button className="logout-btn" title="Logout" style={{ background: 'rgba(220, 38, 38, 0.1)', color: '#fff', border: '1px solid rgba(220, 38, 38, 0.2)', marginRight: 32, minWidth: 100 }} onClick={handleLogout}>
-            <span className="material-icons" style={{ fontSize: 16 }}>logout</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <img src={TallyLogo} alt="Tally Logo" style={{ height: 40, width: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
+          <span style={{ 
+            color: '#fff', 
+            fontWeight: 700, 
+            fontSize: 24, 
+            letterSpacing: 0.5, 
+            textShadow: '0 2px 8px rgba(0,0,0,0.15)',
+            background: 'linear-gradient(180deg, #ffffff 0%, #e0e7ff 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+          }}>DataLynk</span>
+        </div>
+        <div ref={profileDropdownRef} style={{ display: 'flex', alignItems: 'center', gap: 16, marginLeft: 'auto', position: 'relative' }}>
+          <SubscriptionBadge />
+          <button 
+            className="logout-btn" 
+            title="Logout" 
+            style={{ 
+              background: 'rgba(220, 38, 38, 0.15)', 
+              color: '#fff', 
+              border: '1px solid rgba(220, 38, 38, 0.3)', 
+              marginRight: 0, 
+              minWidth: 110,
+              padding: '10px 18px',
+              borderRadius: '10px',
+              fontWeight: 600,
+              fontSize: '14px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: '0 2px 6px rgba(220, 38, 38, 0.2)',
+            }} 
+            onClick={handleLogout}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(220, 38, 38, 0.25)';
+              e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.4)';
+              e.currentTarget.style.transform = 'translateY(-1px)';
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.3)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'rgba(220, 38, 38, 0.15)';
+              e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.3)';
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 2px 6px rgba(220, 38, 38, 0.2)';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: 18 }}>logout</span>
             Logout
           </button>
+          <div 
+            style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: 10, 
+              cursor: 'pointer',
+              padding: '6px 12px',
+              borderRadius: '10px',
+              background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
+              transition: 'all 0.3s ease',
+            }}
+            onClick={() => setProfileDropdownOpen((open) => !open)}
+            onMouseEnter={(e) => {
+              if (!profileDropdownOpen) {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!profileDropdownOpen) {
+                e.currentTarget.style.background = 'transparent';
+              }
+            }}
+          >
+            <span className="material-icons profile-icon" style={{ color: '#fff', fontSize: '28px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}>account_circle</span>
+            <span className="profile-name" style={{ color: '#fff', fontWeight: 600, fontSize: '15px', textShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>{name || 'User'}</span>
+            <span className="material-icons" style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '20px', transition: 'transform 0.3s ease', transform: profileDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
+          </div>
           {profileDropdownOpen && (
-            <div className="profile-dropdown" style={{ position: 'absolute', top: 48, right: 0, minWidth: 220, background: '#fff', borderRadius: 12, boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.15)', padding: 16, zIndex: 4000, textAlign: 'left' }}>
-              <div className="profile-dropdown-name" style={{ marginBottom: 6, fontSize: 15, color: '#334155', fontWeight: 600 }}>{name || 'User'}</div>
-              <div className="profile-dropdown-email" style={{ marginBottom: 12, fontSize: 14, color: '#64748b' }}>{email || ''}</div>
-              <button className="change-password-btn" style={{ padding: '7px 16px', background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 14, cursor: 'pointer', boxShadow: '0 2px 8px 0 rgba(59,130,246,0.10)', minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => navigate('/change-password')}>
-                <span className="material-icons" style={{ fontSize: 16 }}>lock</span>
+            <div className="profile-dropdown" style={{ 
+              position: 'absolute', 
+              top: 56, 
+              right: 0, 
+              minWidth: 260, 
+              background: '#fff', 
+              borderRadius: 16, 
+              boxShadow: '0 12px 40px 0 rgba(31, 38, 135, 0.2), 0 0 0 1px rgba(0,0,0,0.05)', 
+              padding: 20, 
+              zIndex: 4000, 
+              textAlign: 'left',
+              animation: 'fadeIn 0.2s ease-out',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
+                <span className="material-icons" style={{ fontSize: 32, color: '#3b82f6' }}>account_circle</span>
+                <div>
+                  <div className="profile-dropdown-name" style={{ fontSize: 16, color: '#1e293b', fontWeight: 700, marginBottom: 2 }}>{name || 'User'}</div>
+                  <div className="profile-dropdown-email" style={{ fontSize: 13, color: '#64748b' }}>{email || ''}</div>
+                </div>
+              </div>
+              <button 
+                className="change-password-btn" 
+                style={{ 
+                  width: '100%',
+                  padding: '12px 18px', 
+                  background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)', 
+                  color: '#fff', 
+                  border: 'none', 
+                  borderRadius: 10, 
+                  fontWeight: 600, 
+                  fontSize: 14, 
+                  cursor: 'pointer', 
+                  boxShadow: '0 4px 12px 0 rgba(59,130,246,0.25)', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  gap: 8,
+                  transition: 'all 0.3s ease',
+                  marginBottom: 10,
+                }} 
+                onClick={() => navigate('/change-password')}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(59,130,246,0.35)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(59,130,246,0.25)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: 18 }}>lock</span>
                 Change Password
+              </button>
+              <button 
+                className="google-config-btn" 
+                style={{ 
+                  width: '100%',
+                  padding: '12px 18px', 
+                  background: 'linear-gradient(135deg, #4285f4 0%, #34a853 100%)', 
+                  color: '#fff', 
+                  border: 'none', 
+                  borderRadius: 10, 
+                  fontWeight: 600, 
+                  fontSize: 14, 
+                  cursor: 'pointer', 
+                  boxShadow: '0 4px 12px 0 rgba(66,133,244,0.25)', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  gap: 8,
+                  transition: 'all 0.3s ease',
+                }} 
+                onClick={() => {
+                  setShowGoogleConfigModal(true);
+                  setProfileDropdownOpen(false);
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(66,133,244,0.35)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(66,133,244,0.25)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: 18 }}>account_circle</span>
+                Configure Google Account
               </button>
             </div>
           )}
         </div>
       </div>
 
+      {/* Google Account Configuration Modal */}
+      {showGoogleConfigModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 5000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            animation: 'fadeIn 0.2s ease-out',
+          }}
+          onClick={() => setShowGoogleConfigModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: '#fff',
+              borderRadius: 16,
+              padding: 28,
+              maxWidth: 500,
+              width: '90%',
+              maxHeight: '90vh',
+              overflow: 'auto',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+              <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1e293b', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="material-icons" style={{ fontSize: 28, color: '#4285f4' }}>account_circle</span>
+                Google Account Configuration
+              </h2>
+              <button
+                onClick={() => setShowGoogleConfigModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#6b7280',
+                  borderRadius: '50%',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#f1f5f9';
+                  e.currentTarget.style.color = '#1e293b';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'none';
+                  e.currentTarget.style.color = '#6b7280';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: 24 }}>close</span>
+              </button>
+            </div>
+
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ 
+                padding: 16, 
+                borderRadius: 12, 
+                background: isGoogleDriveFullyConfigured().configured ? '#f0fdf4' : '#fef2f2',
+                border: `1px solid ${isGoogleDriveFullyConfigured().configured ? '#86efac' : '#fecaca'}`,
+                marginBottom: 20
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <span className="material-icons" style={{ 
+                    fontSize: 20, 
+                    color: isGoogleDriveFullyConfigured().configured ? '#16a34a' : '#dc2626' 
+                  }}>
+                    {isGoogleDriveFullyConfigured().configured ? 'check_circle' : 'error'}
+                  </span>
+                  <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                    Configuration Status
+                  </span>
+                </div>
+                <div style={{ fontSize: 14, color: '#64748b', marginLeft: 30 }}>
+                  {isGoogleDriveFullyConfigured().configured 
+                    ? 'Google Drive API is configured and ready to use.'
+                    : 'Google Drive API credentials need to be configured in environment variables.'}
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 20 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, color: '#1e293b', marginBottom: 12 }}>
+                  Account Authentication
+                </h3>
+                <p style={{ fontSize: 14, color: '#64748b', marginBottom: 16 }}>
+                  Connect your Google account to enable document upload and Google Drive integration features.
+                </p>
+                <button
+                  onClick={async () => {
+                    try {
+                      if (!isGoogleDriveFullyConfigured().configured) {
+                        alert('Google API credentials are not configured. Please configure REACT_APP_GOOGLE_CLIENT_ID and REACT_APP_GOOGLE_API_KEY in your environment variables.');
+                        return;
+                      }
+
+                      // Load Google Identity Services if not already loaded
+                      if (!window.google || !window.google.accounts) {
+                        const script = document.createElement('script');
+                        script.src = 'https://accounts.google.com/gsi/client';
+                        script.async = true;
+                        script.defer = true;
+                        document.body.appendChild(script);
+                        
+                        await new Promise((resolve) => {
+                          script.onload = resolve;
+                        });
+                      }
+
+                      // Initialize token client
+                      const tokenClient = window.google.accounts.oauth2.initTokenClient({
+                        client_id: GOOGLE_DRIVE_CONFIG.CLIENT_ID,
+                        scope: GOOGLE_DRIVE_CONFIG.SCOPES,
+                        callback: (response) => {
+                          if (response.error) {
+                            setGoogleConfigStatus({ type: 'error', message: response.error_description || 'Authentication failed' });
+                            return;
+                          }
+                          if (response.access_token) {
+                            setGoogleAccessToken(response.access_token);
+                            setGoogleConfigStatus({ type: 'success', message: 'Google account connected successfully!' });
+                            localStorage.setItem('google_access_token', response.access_token);
+                          }
+                        },
+                      });
+
+                      tokenClient.requestAccessToken({ prompt: 'consent' });
+                    } catch (error) {
+                      setGoogleConfigStatus({ type: 'error', message: error.message || 'Failed to initialize Google authentication' });
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '14px 20px',
+                    background: googleAccessToken ? 'linear-gradient(135deg, #34a853 0%, #28a745 100%)' : 'linear-gradient(135deg, #4285f4 0%, #1a73e8 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 10,
+                    fontWeight: 600,
+                    fontSize: 15,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px 0 rgba(66,133,244,0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 10,
+                    transition: 'all 0.3s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(66,133,244,0.35)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(66,133,244,0.25)';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20 }}>
+                    {googleAccessToken ? 'check_circle' : 'login'}
+                  </span>
+                  {googleAccessToken ? 'Re-authenticate Google Account' : 'Connect Google Account'}
+                </button>
+
+                {googleConfigStatus && (
+                  <div style={{
+                    marginTop: 16,
+                    padding: 12,
+                    borderRadius: 8,
+                    background: googleConfigStatus.type === 'success' ? '#f0fdf4' : '#fef2f2',
+                    border: `1px solid ${googleConfigStatus.type === 'success' ? '#86efac' : '#fecaca'}`,
+                    color: googleConfigStatus.type === 'success' ? '#16a34a' : '#dc2626',
+                    fontSize: 14,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}>
+                    <span className="material-icons" style={{ fontSize: 18 }}>
+                      {googleConfigStatus.type === 'success' ? 'check_circle' : 'error'}
+                    </span>
+                    {googleConfigStatus.message}
+                  </div>
+                )}
+
+                {googleAccessToken && (
+                  <div style={{
+                    marginTop: 16,
+                    padding: 12,
+                    borderRadius: 8,
+                    background: '#f0f9ff',
+                    border: '1px solid #bae6fd',
+                    fontSize: 14,
+                    color: '#0369a1',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                  }}>
+                    <span className="material-icons" style={{ fontSize: 18 }}>info</span>
+                    Google account is connected. Token expires after 1 hour of inactivity.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <aside
         className={`adminhome-sidebar sidebar-animated`}
         style={{
-          height: 'calc(100vh - 56px)',
+          height: 'calc(100vh - 64px)',
           position: 'fixed',
-          top: 56,
+          top: 64,
           left: 0,
           background: '#1e3a8a',
           overflowY: 'auto',
@@ -380,33 +804,35 @@ function AdminDashboard() {
           </a>
           
           {/* Control Panel */}
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative' }} ref={controlPanelDropdownRef}>
             <a
+              ref={controlPanelButtonRef}
               href="#"
               onClick={(e) => {
                 e.preventDefault();
-                if (sidebarOpen) {
-                  setControlPanelOpen(!controlPanelOpen);
-                }
+                setControlPanelDropdownOpen(!controlPanelDropdownOpen);
               }}
               style={{
-                color: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '#ff9800' : '#fff',
-                background: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 'rgba(255,152,0,0.08)' : 'transparent',
+                color: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) ? '#ff9800' : '#fff',
+                background: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) ? 'rgba(255,152,0,0.08)' : 'transparent',
                 textDecoration: 'none',
                 padding: '10px 18px',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 12,
                 borderRadius: '8px',
-                fontWeight: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 700 : 500,
+                fontWeight: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) ? 700 : 500,
                 margin: '0 8px',
-                border: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                border: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
                 cursor: 'pointer',
                 justifyContent: sidebarOpen ? 'flex-start' : 'center',
                 position: 'relative',
               }}
               title="Control Panel"
               onMouseEnter={e => {
+                if (sidebarOpen) {
+                  setControlPanelDropdownOpen(true);
+                }
                 if (!sidebarOpen) {
                   const rect = e.currentTarget.getBoundingClientRect();
                   setSidebarTooltip({ show: true, text: 'Control Panel', top: rect.top + window.scrollY });
@@ -422,150 +848,132 @@ function AdminDashboard() {
               }}
             >
               <span className="material-icons" style={{ fontSize: 22 }}>admin_panel_settings</span>
-              {sidebarOpen && <span className="sidebar-link-label">Control Panel</span>}
-              {sidebarOpen && <span className="material-icons" style={{ fontSize: 16, marginLeft: 'auto', transform: controlPanelOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>}
+              {sidebarOpen && (
+                <>
+                  <span className="sidebar-link-label">Control Panel</span>
+                  <span className="material-icons" style={{ 
+                    fontSize: 18, 
+                    marginLeft: 'auto',
+                    color: (controlPanelDropdownOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access', 'subscription'].includes(view)) ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
+                    transition: 'transform 0.2s',
+                    transform: controlPanelDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  }}>arrow_drop_down</span>
+                </>
+              )}
             </a>
             
-            {/* Control Panel Sub-menu */}
-            {sidebarOpen && controlPanelOpen && (
+            {/* Right-side dropdown menu */}
+            {sidebarOpen && controlPanelDropdownOpen && (
               <div style={{
-                marginLeft: '16px',
-                marginTop: '8px',
-                background: 'rgba(255, 255, 255, 0.1)',
-                borderRadius: '8px',
+                position: 'fixed',
+                top: `${controlPanelDropdownPosition.top}px`,
+                left: `${controlPanelDropdownPosition.left + 8}px`,
+                backgroundColor: '#1e3a8a',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '12px',
                 padding: '8px 0',
-                border: '1px solid rgba(255, 255, 255, 0.1)'
-              }}>
+                minWidth: '220px',
+                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
+                zIndex: 10000,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+              }}
+              onMouseEnter={() => {
+                setControlPanelDropdownOpen(true);
+                if (controlPanelButtonRef.current) {
+                  const rect = controlPanelButtonRef.current.getBoundingClientRect();
+                  setControlPanelDropdownPosition({
+                    top: rect.top,
+                    left: rect.left + rect.width,
+                    width: rect.width
+                  });
+                }
+              }}
+              onMouseLeave={() => setControlPanelDropdownOpen(false)}
+              >
                 {/* Tally Connections */}
-                <a
-                  href="#"
-                  onClick={handleTallyConfig}
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleTallyConfig();
+                    setControlPanelDropdownOpen(false);
+                  }}
                   style={{
                     color: view === 'tally-config' ? '#ff9800' : '#fff',
                     background: view === 'tally-config' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
-                    textDecoration: 'none',
-                    padding: '8px 16px',
+                    padding: '12px 18px',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 12,
-                    borderRadius: '6px',
-                    fontWeight: view === 'tally-config' ? 600 : 400,
+                    borderRadius: '8px',
+                    fontWeight: view === 'tally-config' ? 700 : 500,
                     margin: '0 8px',
-                    fontSize: '14px',
+                    border: 'none',
                     cursor: 'pointer',
-                    transition: 'all 0.2s',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
                   }}
-                  onMouseEnter={(e) => {
+                  onMouseEnter={e => {
                     if (view !== 'tally-config') {
-                      e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                     }
                   }}
-                  onMouseLeave={(e) => {
+                  onMouseLeave={e => {
                     if (view !== 'tally-config') {
-                      e.target.style.background = 'transparent';
-                    } else {
-                      e.target.style.background = 'rgba(255, 152, 0, 0.15)';
+                      e.currentTarget.style.background = 'transparent';
                     }
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: 18 }}>settings</span>
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>settings</span>
                   <span>Tally Connections</span>
-                </a>
+                </button>
                 
-                {/* Access Control */}
-                <div style={{ position: 'relative' }}>
-                  <a
-                    href="#"
+                {/* Access Control Items */}
+                {ACCESS_CONTROL_ITEMS.map(item => (
+                  <button
+                    key={item.key}
                     onClick={(e) => {
                       e.preventDefault();
-                      setAccessControlDropdownOpen(!accessControlDropdownOpen);
+                      e.stopPropagation();
+                      handleViewChange(item.key);
+                      setControlPanelDropdownOpen(false);
                     }}
                     style={{
-                      color: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? '#ff9800' : '#fff',
-                      background: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
-                      textDecoration: 'none',
-                      padding: '8px 16px',
+                      color: view === item.key ? '#ff9800' : '#fff',
+                      background: view === item.key ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                      padding: '12px 18px',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 12,
-                      borderRadius: '6px',
-                      fontWeight: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(view)) ? 600 : 400,
+                      borderRadius: '8px',
+                      fontWeight: view === item.key ? 700 : 500,
                       margin: '0 8px',
-                      fontSize: '14px',
+                      border: 'none',
                       cursor: 'pointer',
-                      transition: 'all 0.2s',
+                      justifyContent: 'flex-start',
+                      fontSize: '14px',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      textAlign: 'left',
                     }}
-                    onMouseEnter={(e) => {
-                      if (!['modules', 'roles', 'create-access', 'share-access'].includes(view)) {
-                        e.target.style.background = 'rgba(255, 255, 255, 0.05)';
+                    onMouseEnter={e => {
+                      if (view !== item.key) {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
                       }
                     }}
-                    onMouseLeave={(e) => {
-                      if (!['modules', 'roles', 'create-access', 'share-access'].includes(view)) {
-                        e.target.style.background = 'transparent';
-                      } else {
-                        e.target.style.background = 'rgba(255, 152, 0, 0.15)';
+                    onMouseLeave={e => {
+                      if (view !== item.key) {
+                        e.currentTarget.style.background = 'transparent';
                       }
                     }}
                   >
-                    <span className="material-icons" style={{ fontSize: 18 }}>security</span>
-                    <span>Access Control</span>
-                    <span className="material-icons" style={{ fontSize: 16, marginLeft: 'auto', transform: accessControlDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s' }}>expand_more</span>
-                  </a>
-                  
-                  {/* Access Control Sub-menu */}
-                  {accessControlDropdownOpen && (
-                    <div style={{
-                      marginLeft: '16px',
-                      marginTop: '8px',
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      borderRadius: '6px',
-                      padding: '4px 0',
-                    }}>
-                      {ACCESS_CONTROL_ITEMS.map(item => (
-                        <a
-                          key={item.key}
-                          href="#"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            setView(item.key);
-                            setAccessControlDropdownOpen(false);
-                          }}
-                          style={{
-                            color: view === item.key ? '#ff9800' : '#fff',
-                            background: view === item.key ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
-                            textDecoration: 'none',
-                            padding: '6px 12px 6px 32px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            borderRadius: '4px',
-                            fontWeight: view === item.key ? 600 : 400,
-                            margin: '0 8px',
-                            fontSize: '13px',
-                            cursor: 'pointer',
-                            transition: 'all 0.2s',
-                          }}
-                          onMouseEnter={(e) => {
-                            if (view !== item.key) {
-                              e.target.style.background = 'rgba(255, 255, 255, 0.05)';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (view !== item.key) {
-                              e.target.style.background = 'transparent';
-                            } else {
-                              e.target.style.background = 'rgba(255, 152, 0, 0.15)';
-                            }
-                          }}
-                        >
-                          <span className="material-icons" style={{ fontSize: 16 }}>{item.icon}</span>
-                          <span>{item.label}</span>
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                    <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </button>
+                ))}
               </div>
             )}
           </div>
@@ -610,7 +1018,7 @@ function AdminDashboard() {
         className="adminhome-main"
         style={{
           marginLeft: sidebarOpen ? 220 : 60,
-          paddingTop: 56,
+          paddingTop: 64,
           padding: 20,
           transition: 'margin 0.3s',
         }}
@@ -735,6 +1143,16 @@ function AdminDashboard() {
                 @keyframes spin {
                   0% { transform: rotate(0deg); }
                   100% { transform: rotate(360deg); }
+                }
+                @keyframes fadeIn {
+                  from { 
+                    opacity: 0;
+                    transform: translateY(-8px);
+                  }
+                  to { 
+                    opacity: 1;
+                    transform: translateY(0);
+                  }
                 }
               `}</style>
             {/* Connections Table */}
@@ -1096,9 +1514,13 @@ function AdminDashboard() {
           <RolesManagement />
         ) : view === 'share-access' ? (
           <ShareAccess />
+        ) : view === 'subscription' ? (
+          <SubscriptionManagement />
         ) : null}
       </main>
 
+      {/* Trial Reminder Modal */}
+      <TrialReminderModal />
 
     </div>
   );
