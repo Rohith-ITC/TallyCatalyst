@@ -21,3 +21,9 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# secrets
+client_secret_*.json
+
+# Postman collections
+CustomerPortal.postman_collection.json
