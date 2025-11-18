@@ -1553,6 +1553,7 @@ const VendorForm = ({
         }}>
           {[
             { id: 'basic', label: 'Basic Information', icon: 'person' },
+            { id: 'address', label: 'Address', icon: 'location_on' },
             { id: 'contact', label: 'Contact Details', icon: 'contact_phone' },
             { id: 'bank', label: 'Bank Details', icon: 'account_balance' }
           ].map((tab) => (
@@ -2066,6 +2067,21 @@ const VendorForm = ({
                 </div>
 
 
+
+
+              </div>
+            </div>
+          )}
+
+          {/* Address Tab */}
+          {activeTab === 'address' && (
+            <div>
+              <div className="vendor-form-grid" style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(2, 1fr)', 
+                gap: '24px',
+                alignItems: 'start'
+              }}>
                 {/* Address */}
                 <div style={{ gridColumn: 'span 2' }}>
                   <label style={{ 
@@ -2169,7 +2185,6 @@ const VendorForm = ({
                   />
                   {errors.pincode && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.pincode}</p>}
                 </div>
-
 
               </div>
             </div>
