@@ -6,6 +6,7 @@ const VENDOR_CONSTANTS = {
   FORM_LABELS: {
     PAN_NUMBER: 'PAN Number',
     VENDOR_NAME: 'Vendor Name',
+    ALIAS: 'Alias',
     ADDRESS: 'Address',
     COUNTRY: 'Country',
     STATE: 'State',
@@ -65,6 +66,13 @@ const VENDOR_CONSTANTS = {
     'Composition',
     'SEZ',
     'Deemed Export'
+  ],
+
+  GST_REGISTRATION_TYPES: [
+    'Regular',
+    'Composition',
+    'Unregistered/Consumer',
+    'Unknown'
   ]
 };
 
@@ -396,21 +404,28 @@ const initialFormData = {
   tax_type: '', // New field to store PAN or GST selection
   panno: '',
   name: '',
-  address1: '',
-  country: 'India',
-  state: '',
-  pincode: '',
-  gsttype: '',
+  alias: '',
+  addresses: [{ address: '', country: 'India', state: '', pincode: '' }], // Array of address objects
   gstinno: '',
-  contactperson: '',
-  emailid: '',
-  phoneno: '',
-  mobileno: '',
-  accountno: '',
-  ifsccode: '',
-  bankname: '',
+  // GST Registration Details (shown when GST is selected)
+  gstRegistrationType: 'Regular', // Regular, Composition, Unregistered/Consumer, Unknown
+  assesseeOfOtherTerritory: false,
+  useLedgerAsCommonParty: false,
+  setAlterAdditionalGSTDetails: false,
+  ignorePrefixesSuffixesInDocNo: false,
+  setAlterMSMERegistrationDetails: false,
+  contacts: [{ contactPerson: '', email: '', phone: '', mobile: '' }], // Array of contact objects
+  bankDetails: [{ accountNumber: '', ifscCode: '', bankName: '' }], // Array of bank detail objects
   panDocumentLink: '', // Document link for PAN
-  gstDocumentLink: ''  // Document link for GST
+  gstDocumentLink: '', // Document link for GST
+  // Additional Details
+  maintainBalancesBillByBill: false,
+  defaultCreditPeriod: '',
+  checkCreditDaysDuringVoucher: false,
+  specifyCreditLimit: false,
+  creditLimitAmount: '',
+  overrideCreditLimitPostDated: false,
+  inventoryValuesAffected: false
 };
 
 const VendorForm = ({ 
@@ -465,34 +480,73 @@ const VendorForm = ({
     if (isApprovalMode && initialData) {
       console.log('VendorForm: Pre-filling form for approval mode', initialData);
       console.log('VendorForm: Available fields in initialData:', Object.keys(initialData));
-      console.log('VendorForm: GST Type from initialData:', {
-        gstType: initialData.gstType,
-        gst_type: initialData.gst_type,
-        gsttype: initialData.gsttype
-      });
       
       const preFilledData = {
         tax_type: initialData.gstNumber ? 'GST' : (initialData.panNumber ? 'PAN' : ''),
         panno: initialData.panNumber || '',
         name: initialData.name || '',
-        address1: (initialData.address || '').replace(/\|/g, '\n'), // Convert pipe characters to line breaks for display
-        country: initialData.country || 'India',
-        state: initialData.state || '',
-        pincode: initialData.pincode || '',
-        gsttype: initialData.gstType || '',
+        alias: initialData.alias || '',
+        addresses: initialData.addresses && Array.isArray(initialData.addresses) && initialData.addresses.length > 0
+          ? initialData.addresses.map(addr => ({
+              address: (addr.address || '').replace(/\|/g, '\n'),
+              country: addr.country || 'India',
+              state: addr.state || '',
+              pincode: addr.pincode || ''
+            }))
+          : initialData.address
+            ? [{
+                address: (initialData.address || '').replace(/\|/g, '\n'),
+                country: initialData.country || 'India',
+                state: initialData.state || '',
+                pincode: initialData.pincode || ''
+              }]
+            : [{ address: '', country: 'India', state: '', pincode: '' }],
         gstinno: initialData.gstNumber || '',
-        contactperson: initialData.contactPerson || '',
-        emailid: initialData.email || '',
-        phoneno: initialData.phone || '',
-        mobileno: initialData.mobile || '',
-        accountno: initialData.bankDetails?.accountNumber || '',
-        ifsccode: initialData.bankDetails?.ifscCode || '',
-        bankname: initialData.bankDetails?.bankName || '',
+        gstRegistrationType: initialData.gstRegistrationType || 'Regular',
+        assesseeOfOtherTerritory: initialData.assesseeOfOtherTerritory || false,
+        useLedgerAsCommonParty: initialData.useLedgerAsCommonParty || false,
+        setAlterAdditionalGSTDetails: initialData.setAlterAdditionalGSTDetails || false,
+        ignorePrefixesSuffixesInDocNo: initialData.ignorePrefixesSuffixesInDocNo || false,
+        setAlterMSMERegistrationDetails: initialData.setAlterMSMERegistrationDetails || false,
+        contacts: initialData.contacts && Array.isArray(initialData.contacts) && initialData.contacts.length > 0
+          ? initialData.contacts.map(contact => ({
+              contactPerson: contact.contactPerson || '',
+              email: contact.email || '',
+              phone: contact.phone || '',
+              mobile: contact.mobile || ''
+            }))
+          : (initialData.contactPerson || initialData.email || initialData.phone || initialData.mobile)
+            ? [{
+                contactPerson: initialData.contactPerson || '',
+                email: initialData.email || '',
+                phone: initialData.phone || '',
+                mobile: initialData.mobile || ''
+              }]
+            : [{ contactPerson: '', email: '', phone: '', mobile: '' }],
+        bankDetails: initialData.bankDetails && Array.isArray(initialData.bankDetails) && initialData.bankDetails.length > 0
+          ? initialData.bankDetails.map(bank => ({
+              accountNumber: bank.accountNumber || '',
+              ifscCode: bank.ifscCode || '',
+              bankName: bank.bankName || ''
+            }))
+          : (initialData.bankDetails?.accountNumber || initialData.bankDetails?.ifscCode || initialData.bankDetails?.bankName)
+            ? [{
+                accountNumber: initialData.bankDetails?.accountNumber || '',
+                ifscCode: initialData.bankDetails?.ifscCode || '',
+                bankName: initialData.bankDetails?.bankName || ''
+              }]
+            : [{ accountNumber: '', ifscCode: '', bankName: '' }],
         panDocumentLink: initialData.panDocumentLink || '',
-        gstDocumentLink: initialData.gstDocumentLink || ''
+        gstDocumentLink: initialData.gstDocumentLink || '',
+        maintainBalancesBillByBill: initialData.maintainBalancesBillByBill || false,
+        defaultCreditPeriod: initialData.defaultCreditPeriod || '',
+        checkCreditDaysDuringVoucher: initialData.checkCreditDaysDuringVoucher || false,
+        specifyCreditLimit: initialData.specifyCreditLimit || false,
+        creditLimitAmount: initialData.creditLimitAmount || '',
+        overrideCreditLimitPostDated: initialData.overrideCreditLimitPostDated || false,
+        inventoryValuesAffected: initialData.inventoryValuesAffected || false
       };
       
-      console.log('VendorForm: Pre-filled data with GST type:', preFilledData.gsttype);
       setFormData(preFilledData);
     } else if (isEditing && initialData) {
       console.log('VendorForm: Pre-filling form for editing mode', initialData);
@@ -500,18 +554,64 @@ const VendorForm = ({
         tax_type: initialData.gstNumber ? 'GST' : (initialData.panNumber ? 'PAN' : ''),
         panno: initialData.panNumber || '',
         name: initialData.name || '',
-        address1: (initialData.address || '').replace(/\|/g, '\n'), // Convert pipe characters to line breaks for display
-        state: initialData.state || '',
-        pincode: initialData.pincode || '',
-        gsttype: initialData.gstType || '',
+        alias: initialData.alias || '',
+        addresses: initialData.addresses && Array.isArray(initialData.addresses) && initialData.addresses.length > 0
+          ? initialData.addresses.map(addr => ({
+              address: (addr.address || '').replace(/\|/g, '\n'),
+              country: addr.country || 'India',
+              state: addr.state || '',
+              pincode: addr.pincode || ''
+            }))
+          : initialData.address
+            ? [{
+                address: (initialData.address || '').replace(/\|/g, '\n'),
+                country: initialData.country || 'India',
+                state: initialData.state || '',
+                pincode: initialData.pincode || ''
+              }]
+            : [{ address: '', country: 'India', state: '', pincode: '' }],
         gstinno: initialData.gstNumber || '',
-        contactperson: initialData.contactPerson || '',
-        emailid: initialData.email || '',
-        phoneno: initialData.phone || '',
-        mobileno: initialData.mobile || '',
-        accountno: initialData.bankDetails?.accountNumber || '',
-        ifsccode: initialData.bankDetails?.ifscCode || '',
-        bankname: initialData.bankDetails?.bankName || ''
+        gstRegistrationType: initialData.gstRegistrationType || 'Regular',
+        assesseeOfOtherTerritory: initialData.assesseeOfOtherTerritory || false,
+        useLedgerAsCommonParty: initialData.useLedgerAsCommonParty || false,
+        setAlterAdditionalGSTDetails: initialData.setAlterAdditionalGSTDetails || false,
+        ignorePrefixesSuffixesInDocNo: initialData.ignorePrefixesSuffixesInDocNo || false,
+        setAlterMSMERegistrationDetails: initialData.setAlterMSMERegistrationDetails || false,
+        contacts: initialData.contacts && Array.isArray(initialData.contacts) && initialData.contacts.length > 0
+          ? initialData.contacts.map(contact => ({
+              contactPerson: contact.contactPerson || '',
+              email: contact.email || '',
+              phone: contact.phone || '',
+              mobile: contact.mobile || ''
+            }))
+          : (initialData.contactPerson || initialData.email || initialData.phone || initialData.mobile)
+            ? [{
+                contactPerson: initialData.contactPerson || '',
+                email: initialData.email || '',
+                phone: initialData.phone || '',
+                mobile: initialData.mobile || ''
+              }]
+            : [{ contactPerson: '', email: '', phone: '', mobile: '' }],
+        bankDetails: initialData.bankDetails && Array.isArray(initialData.bankDetails) && initialData.bankDetails.length > 0
+          ? initialData.bankDetails.map(bank => ({
+              accountNumber: bank.accountNumber || '',
+              ifscCode: bank.ifscCode || '',
+              bankName: bank.bankName || ''
+            }))
+          : (initialData.bankDetails?.accountNumber || initialData.bankDetails?.ifscCode || initialData.bankDetails?.bankName)
+            ? [{
+                accountNumber: initialData.bankDetails?.accountNumber || '',
+                ifscCode: initialData.bankDetails?.ifscCode || '',
+                bankName: initialData.bankDetails?.bankName || ''
+              }]
+            : [{ accountNumber: '', ifscCode: '', bankName: '' }],
+        maintainBalancesBillByBill: initialData.maintainBalancesBillByBill || false,
+        defaultCreditPeriod: initialData.defaultCreditPeriod || '',
+        checkCreditDaysDuringVoucher: initialData.checkCreditDaysDuringVoucher || false,
+        specifyCreditLimit: initialData.specifyCreditLimit || false,
+        creditLimitAmount: initialData.creditLimitAmount || '',
+        overrideCreditLimitPostDated: initialData.overrideCreditLimitPostDated || false,
+        inventoryValuesAffected: initialData.inventoryValuesAffected || false
       };
       setFormData(preFilledData);
     }
@@ -521,7 +621,8 @@ const VendorForm = ({
   const [duplicateCheck, setDuplicateCheck] = useState({
     gstinno: { isChecking: false, isDuplicate: false, message: '' },
     panno: { isChecking: false, isDuplicate: false, message: '' },
-    name: { isChecking: false, isDuplicate: false, message: '' }
+    name: { isChecking: false, isDuplicate: false, message: '' },
+    alias: { isChecking: false, isDuplicate: false, message: '' }
   });
 
   // Trigger duplicate checks when form is pre-filled (skip in approval mode and edit mode)
@@ -539,10 +640,16 @@ const VendorForm = ({
     if (formData.name && formData.name.trim().length >= 3) {
       checkDuplicate('name', formData.name);
     }
-  }, [formData.gstinno, formData.panno, formData.name, isApprovalMode, isEditing]);
+    if (formData.alias && formData.alias.trim().length >= 3) {
+      checkDuplicate('alias', formData.alias);
+    }
+  }, [formData.gstinno, formData.panno, formData.name, formData.alias, isApprovalMode, isEditing]);
   
   // Tab state
   const [activeTab, setActiveTab] = useState('basic');
+  
+  // Additional Details state
+  const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
 
   // API function to check for duplicates
   const checkDuplicate = async (field, value) => {
@@ -577,15 +684,17 @@ const VendorForm = ({
       }
 
       // Map field names to API expected values
+      // Note: alias uses 'name' type because backend treats name and alias as one
       const fieldMapping = {
         'gstinno': 'gstin',
         'panno': 'pan', 
-        'name': 'name'
+        'name': 'name',
+        'alias': 'name' // Use 'name' type for alias since backend treats them as one
       };
       
       const apiType = fieldMapping[field];
       if (!apiType) {
-        throw new Error(`Invalid field type: ${field}. Must be gstinno, panno, or name`);
+        throw new Error(`Invalid field type: ${field}. Must be gstinno, panno, name, or alias`);
       }
 
       // Prepare the check data
@@ -945,6 +1054,84 @@ const VendorForm = ({
     }
   };
 
+  // Address management functions
+  const addAddress = () => {
+    setFormData(prev => ({
+      ...prev,
+      addresses: [...prev.addresses, { address: '', country: 'India', state: '', pincode: '' }]
+    }));
+  };
+
+  const removeAddress = (index) => {
+    if (formData.addresses.length > 1) {
+      setFormData(prev => ({
+        ...prev,
+        addresses: prev.addresses.filter((_, i) => i !== index)
+      }));
+    }
+  };
+
+  const updateAddressField = (index, field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      addresses: prev.addresses.map((addr, i) => 
+        i === index ? { ...addr, [field]: value } : addr
+      )
+    }));
+  };
+
+  // Contact management functions
+  const addContact = () => {
+    setFormData(prev => ({
+      ...prev,
+      contacts: [...prev.contacts, { contactPerson: '', email: '', phone: '', mobile: '' }]
+    }));
+  };
+
+  const removeContact = (index) => {
+    if (formData.contacts.length > 1) {
+      setFormData(prev => ({
+        ...prev,
+        contacts: prev.contacts.filter((_, i) => i !== index)
+      }));
+    }
+  };
+
+  const updateContactField = (index, field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      contacts: prev.contacts.map((contact, i) => 
+        i === index ? { ...contact, [field]: value } : contact
+      )
+    }));
+  };
+
+  // Bank Details management functions
+  const addBankDetail = () => {
+    setFormData(prev => ({
+      ...prev,
+      bankDetails: [...prev.bankDetails, { accountNumber: '', ifscCode: '', bankName: '' }]
+    }));
+  };
+
+  const removeBankDetail = (index) => {
+    if (formData.bankDetails.length > 1) {
+      setFormData(prev => ({
+        ...prev,
+        bankDetails: prev.bankDetails.filter((_, i) => i !== index)
+      }));
+    }
+  };
+
+  const updateBankDetailField = (index, field, value) => {
+    setFormData(prev => ({
+      ...prev,
+      bankDetails: prev.bankDetails.map((bank, i) => 
+        i === index ? { ...bank, [field]: value } : bank
+      )
+    }));
+  };
+
   // Form management functions
   const updateField = (field, value) => {
     console.log('VendorForm: Field updated', field, ':', value);
@@ -974,6 +1161,8 @@ const VendorForm = ({
         debouncedCheckDuplicate('panno', value);
       } else if (field === 'name' && value && value.trim().length >= 3) {
         debouncedCheckDuplicate('name', value);
+      } else if (field === 'alias' && value && value.trim().length >= 3) {
+        debouncedCheckDuplicate('alias', value);
       }
     }
   };
@@ -1025,6 +1214,9 @@ const VendorForm = ({
       if (duplicateCheck.name.isDuplicate) {
         newErrors.name = duplicateCheck.name.message || 'Vendor name already exists';
       }
+      if (duplicateCheck.alias.isDuplicate) {
+        newErrors.alias = duplicateCheck.alias.message || 'Alias already exists';
+      }
       if (duplicateCheck.panno.isDuplicate) {
         newErrors.panno = duplicateCheck.panno.message || 'PAN number already exists';
       }
@@ -1034,21 +1226,34 @@ const VendorForm = ({
     }
 
     // Optional validation for other fields (only if provided)
-    if (formData.emailid && !validateEmail(formData.emailid)) {
-      newErrors.emailid = 'Invalid email format';
+    // Validate contacts
+    if (formData.contacts && Array.isArray(formData.contacts)) {
+      formData.contacts.forEach((contact, index) => {
+        if (contact.email && !validateEmail(contact.email)) {
+          newErrors[`contact_${index}_email`] = 'Invalid email format';
+        }
+        if (contact.mobile && !validateMobile(contact.mobile)) {
+          newErrors[`contact_${index}_mobile`] = 'Invalid mobile number format';
+        }
+      });
     }
 
-    if (formData.mobileno && !validateMobile(formData.mobileno)) {
-      newErrors.mobileno = 'Invalid mobile number format';
-    }
-
-    if (formData.pincode && !validatePincode(formData.pincode)) {
-      newErrors.pincode = 'Invalid pincode format';
+    // Validate addresses pincode
+    if (formData.addresses && Array.isArray(formData.addresses)) {
+      formData.addresses.forEach((addr, index) => {
+        if (addr.pincode && !validatePincode(addr.pincode)) {
+          newErrors[`address_${index}_pincode`] = 'Invalid pincode format';
+        }
+      });
     }
 
     // Optional validation for bank details (only if provided)
-    if (formData.ifsccode && !validateIFSC(formData.ifsccode)) {
-      newErrors.ifsccode = 'Invalid IFSC format';
+    if (formData.bankDetails && Array.isArray(formData.bankDetails)) {
+      formData.bankDetails.forEach((bank, index) => {
+        if (bank.ifscCode && !validateIFSC(bank.ifscCode)) {
+          newErrors[`bank_${index}_ifscCode`] = 'Invalid IFSC format';
+        }
+      });
     }
 
     setErrors(newErrors);
@@ -1067,7 +1272,8 @@ const VendorForm = ({
     setDuplicateCheck({
       gstinno: { isChecking: false, isDuplicate: false, message: '' },
       panno: { isChecking: false, isDuplicate: false, message: '' },
-      name: { isChecking: false, isDuplicate: false, message: '' }
+      name: { isChecking: false, isDuplicate: false, message: '' },
+      alias: { isChecking: false, isDuplicate: false, message: '' }
     });
   };
 
@@ -1125,20 +1331,89 @@ const VendorForm = ({
         guid: guid,
         ledgerData: {
           name: vendorData.name.trim(), // Trim whitespace
-          address: (vendorData.address1 || '').replace(/\n/g, '|'), // Convert line breaks to pipe characters for API storage
-          pincode: vendorData.pincode || '',
-          stateName: vendorData.state || '',
-          countryName: vendorData.country || 'India',
-          contactPerson: vendorData.contactperson || '',
-          phoneNo: vendorData.phoneno || '',
-          mobileNo: vendorData.mobileno || '',
-          email: vendorData.emailid || '',
+          alias: vendorData.alias || '',
+          addresses: vendorData.addresses && Array.isArray(vendorData.addresses) && vendorData.addresses.length > 0
+            ? vendorData.addresses.map(addr => ({
+                address: (addr.address || '').replace(/\n/g, '|'), // Convert line breaks to pipe characters for API storage
+                pincode: addr.pincode || '',
+                stateName: addr.state || '',
+                countryName: addr.country || 'India'
+              }))
+            : [{
+                address: (vendorData.address1 || '').replace(/\n/g, '|'), // Fallback for backward compatibility
+                pincode: vendorData.pincode || '',
+                stateName: vendorData.state || '',
+                countryName: vendorData.country || 'India'
+              }],
+          // Keep single address fields for backward compatibility (use first address if available)
+          address: vendorData.addresses && vendorData.addresses.length > 0
+            ? (vendorData.addresses[0].address || '').replace(/\n/g, '|')
+            : (vendorData.address1 || '').replace(/\n/g, '|'),
+          pincode: vendorData.addresses && vendorData.addresses.length > 0
+            ? vendorData.addresses[0].pincode || ''
+            : vendorData.pincode || '',
+          stateName: vendorData.addresses && vendorData.addresses.length > 0
+            ? vendorData.addresses[0].state || ''
+            : vendorData.state || '',
+          countryName: vendorData.addresses && vendorData.addresses.length > 0
+            ? vendorData.addresses[0].country || 'India'
+            : vendorData.country || 'India',
+          contacts: vendorData.contacts && Array.isArray(vendorData.contacts) && vendorData.contacts.length > 0
+            ? vendorData.contacts.map(contact => ({
+                contactPerson: contact.contactPerson || '',
+                email: contact.email || '',
+                phoneNo: contact.phone || '',
+                mobileNo: contact.mobile || ''
+              }))
+            : [{
+                contactPerson: vendorData.contactperson || '',
+                email: vendorData.emailid || '',
+                phoneNo: vendorData.phoneno || '',
+                mobileNo: vendorData.mobileno || ''
+              }],
+          // Keep single contact fields for backward compatibility (use first contact if available)
+          contactPerson: vendorData.contacts && vendorData.contacts.length > 0
+            ? vendorData.contacts[0].contactPerson || ''
+            : vendorData.contactperson || '',
+          phoneNo: vendorData.contacts && vendorData.contacts.length > 0
+            ? vendorData.contacts[0].phone || ''
+            : vendorData.phoneno || '',
+          mobileNo: vendorData.contacts && vendorData.contacts.length > 0
+            ? vendorData.contacts[0].mobile || ''
+            : vendorData.mobileno || '',
+          email: vendorData.contacts && vendorData.contacts.length > 0
+            ? vendorData.contacts[0].email || ''
+            : vendorData.emailid || '',
           emailCC: '', // Not collected in form
           panNo: vendorData.panno || '',
           gstinNo: vendorData.gstinno || '',
-          bankName: vendorData.bankname || '',
-          accountNo: vendorData.accountno || '',
-          ifscCode: vendorData.ifsccode || '',
+          gstRegistrationType: vendorData.gstRegistrationType || 'Regular',
+          assesseeOfOtherTerritory: vendorData.assesseeOfOtherTerritory || false,
+          useLedgerAsCommonParty: vendorData.useLedgerAsCommonParty || false,
+          setAlterAdditionalGSTDetails: vendorData.setAlterAdditionalGSTDetails || false,
+          ignorePrefixesSuffixesInDocNo: vendorData.ignorePrefixesSuffixesInDocNo || false,
+          setAlterMSMERegistrationDetails: vendorData.setAlterMSMERegistrationDetails || false,
+          bankDetails: vendorData.bankDetails && Array.isArray(vendorData.bankDetails) && vendorData.bankDetails.length > 0
+            ? vendorData.bankDetails.map(bank => ({
+                accountNumber: bank.accountNumber || '',
+                ifscCode: bank.ifscCode || '',
+                bankName: bank.bankName || ''
+              }))
+            : [{
+                accountNumber: vendorData.accountno || '',
+                ifscCode: vendorData.ifsccode || '',
+                bankName: vendorData.bankname || ''
+              }],
+          // Keep single bank fields for backward compatibility (use first bank detail if available)
+          bankName: vendorData.bankDetails && vendorData.bankDetails.length > 0
+            ? vendorData.bankDetails[0].bankName || ''
+            : vendorData.bankname || '',
+          accountNo: vendorData.bankDetails && vendorData.bankDetails.length > 0
+            ? vendorData.bankDetails[0].accountNumber || ''
+            : vendorData.accountno || '',
+          ifscCode: vendorData.bankDetails && vendorData.bankDetails.length > 0
+            ? vendorData.bankDetails[0].ifscCode || ''
+            : vendorData.ifsccode || '',
           panDocumentLink: vendorData.panDocumentLink || '',
           gstDocumentLink: vendorData.gstDocumentLink || ''
         }
@@ -1589,8 +1864,10 @@ const VendorForm = ({
         }}>
           {[
             { id: 'basic', label: 'Basic Information', icon: 'person' },
+            { id: 'address', label: 'Address', icon: 'location_on' },
             { id: 'contact', label: 'Contact Details', icon: 'contact_phone' },
-            { id: 'bank', label: 'Bank Details', icon: 'account_balance' }
+            { id: 'bank', label: 'Bank Details', icon: 'account_balance' },
+            { id: 'statutory', label: 'Statutory', icon: 'description' }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -1611,7 +1888,7 @@ const VendorForm = ({
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: '8px',
-                borderRight: tab.id !== 'bank' ? '1px solid #e5e7eb' : 'none'
+                borderRight: tab.id !== 'statutory' ? '1px solid #e5e7eb' : 'none'
               }}
               onMouseEnter={(e) => {
                 if (activeTab !== tab.id) {
@@ -1643,6 +1920,1025 @@ const VendorForm = ({
                 gap: '24px',
                 alignItems: 'start'
               }}>
+                {/* Vendor Name */}
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '14px', 
+                    fontWeight: '500', 
+                    color: '#374151', 
+                    marginBottom: '6px',
+                    fontFamily: 'system-ui, -apple-system, sans-serif'
+                  }}>
+                    {VENDOR_CONSTANTS.FORM_LABELS.VENDOR_NAME} *
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => updateField('name', e.target.value)}
+                      style={{
+                        ...inputStyles,
+                        border: `1px solid ${errors.name ? '#ef4444' : duplicateCheck.name.isDuplicate ? '#ef4444' : '#d1d5db'}`,
+                        paddingRight: duplicateCheck.name.isChecking ? '40px' : '16px'
+                      }}
+                      placeholder="Enter vendor name"
+                    />
+                    {duplicateCheck.name.isChecking && (
+                      <div style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        display: 'flex',
+                        alignItems: 'center'
+                      }}>
+                        <div style={{
+                          width: '16px',
+                          height: '16px',
+                          border: '2px solid #3b82f6',
+                          borderTop: '2px solid transparent',
+                          borderRadius: '50%',
+                          animation: 'spin 1s linear infinite'
+                        }}></div>
+                      </div>
+                    )}
+                    {duplicateCheck.name.isDuplicate && !duplicateCheck.name.isChecking && (
+                      <div style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: '#ef4444'
+                      }}>
+                        <span className="material-icons" style={{ fontSize: '18px' }}>error</span>
+                      </div>
+                    )}
+                    {(() => {
+                      // Only show green checkmark if:
+                      // 1. Not a duplicate
+                      // 2. Not currently checking
+                      // 3. Name is complete (3+ characters)
+                      // 4. No validation errors
+                      // 5. Duplicate check has been completed (not in initial state)
+                      const hasCompletedCheck = duplicateCheck.name.isChecking === false && 
+                                               (duplicateCheck.name.isDuplicate === true || duplicateCheck.name.isDuplicate === false);
+                      const shouldShowGreen = !duplicateCheck.name.isDuplicate && 
+                                             !duplicateCheck.name.isChecking && 
+                                             formData.name.length >= 3 && 
+                                             !errors.name &&
+                                             hasCompletedCheck;
+                      return shouldShowGreen;
+                    })() && (
+                      <div style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: '#10b981'
+                      }}>
+                        <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
+                      </div>
+                    )}
+                  </div>
+                  {errors.name && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.name}</p>}
+                  {duplicateCheck.name.isDuplicate && !errors.name && (
+                    <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span className="material-icons" style={{ fontSize: '14px' }}>warning</span>
+                      {duplicateCheck.name.message || 'Vendor name already exists'}
+                    </p>
+                  )}
+                </div>
+
+                {/* Alias */}
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '14px', 
+                    fontWeight: '500', 
+                    color: '#374151', 
+                    marginBottom: '6px',
+                    fontFamily: 'system-ui, -apple-system, sans-serif'
+                  }}>
+                    {VENDOR_CONSTANTS.FORM_LABELS.ALIAS}
+                  </label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="text"
+                      value={formData.alias}
+                      onChange={(e) => updateField('alias', e.target.value)}
+                      style={{
+                        ...inputStyles,
+                        border: `1px solid ${errors.alias ? '#ef4444' : duplicateCheck.alias.isDuplicate ? '#ef4444' : '#d1d5db'}`,
+                        paddingRight: duplicateCheck.alias.isChecking ? '40px' : '16px'
+                      }}
+                      placeholder="Enter alias name"
+                    />
+                    {duplicateCheck.alias.isChecking && (
+                      <div style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        display: 'flex',
+                        alignItems: 'center'
+                      }}>
+                        <div style={{
+                          width: '16px',
+                          height: '16px',
+                          border: '2px solid #3b82f6',
+                          borderTop: '2px solid transparent',
+                          borderRadius: '50%',
+                          animation: 'spin 1s linear infinite'
+                        }}></div>
+                      </div>
+                    )}
+                    {duplicateCheck.alias.isDuplicate && !duplicateCheck.alias.isChecking && (
+                      <div style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: '#ef4444'
+                      }}>
+                        <span className="material-icons" style={{ fontSize: '18px' }}>error</span>
+                      </div>
+                    )}
+                    {(() => {
+                      // Only show green checkmark if:
+                      // 1. Not a duplicate
+                      // 2. Not currently checking
+                      // 3. Alias is complete (3+ characters)
+                      // 4. No validation errors
+                      // 5. Duplicate check has been completed (not in initial state)
+                      const hasCompletedCheck = duplicateCheck.alias.isChecking === false && 
+                                               (duplicateCheck.alias.isDuplicate === true || duplicateCheck.alias.isDuplicate === false);
+                      const shouldShowGreen = !duplicateCheck.alias.isDuplicate && 
+                                             !duplicateCheck.alias.isChecking && 
+                                             formData.alias.length >= 3 && 
+                                             !errors.alias &&
+                                             hasCompletedCheck;
+                      return shouldShowGreen;
+                    })() && (
+                      <div style={{
+                        position: 'absolute',
+                        right: '12px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: '#10b981'
+                      }}>
+                        <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
+                      </div>
+                    )}
+                  </div>
+                  {errors.alias && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.alias}</p>}
+                  {duplicateCheck.alias.isDuplicate && !errors.alias && (
+                    <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span className="material-icons" style={{ fontSize: '14px' }}>warning</span>
+                      {duplicateCheck.alias.message || 'Alias already exists'}
+                    </p>
+                  )}
+                </div>
+
+                {/* Additional Details Button */}
+                <div style={{ gridColumn: 'span 3', marginTop: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdditionalDetails(!showAdditionalDetails)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '10px 16px',
+                      backgroundColor: showAdditionalDetails ? '#3b82f6' : '#f3f4f6',
+                      color: showAdditionalDetails ? '#fff' : '#374151',
+                      border: `1px solid ${showAdditionalDetails ? '#3b82f6' : '#d1d5db'}`,
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!showAdditionalDetails) {
+                        e.target.style.backgroundColor = '#e5e7eb';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!showAdditionalDetails) {
+                        e.target.style.backgroundColor = '#f3f4f6';
+                      }
+                    }}
+                  >
+                    <span style={{ fontSize: '18px', fontWeight: 'bold' }}>+</span>
+                    Additional Details
+                  </button>
+                </div>
+
+                {/* Additional Details Section */}
+                {showAdditionalDetails && (
+                  <div style={{ gridColumn: 'span 3', marginTop: '16px', padding: '20px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      {/* Maintain balances bill-by-bill */}
+                      <div>
+                        <label style={{ 
+                          display: 'flex', 
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '12px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif',
+                          cursor: 'pointer'
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={formData.maintainBalancesBillByBill}
+                            onChange={(e) => updateField('maintainBalancesBillByBill', e.target.checked)}
+                            style={{
+                              width: '18px',
+                              height: '18px',
+                              cursor: 'pointer',
+                              accentColor: '#3b82f6'
+                            }}
+                          />
+                          <span>Maintain balances bill-by-bill</span>
+                        </label>
+                        
+                        {formData.maintainBalancesBillByBill && (
+                          <div style={{ marginLeft: '26px', display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
+                            {/* Default credit period */}
+                            <div>
+                              <label style={{ 
+                                display: 'block', 
+                                fontSize: '13px', 
+                                fontWeight: '500', 
+                                color: '#374151', 
+                                marginBottom: '6px',
+                                fontFamily: 'system-ui, -apple-system, sans-serif'
+                              }}>
+                                Default credit period
+                              </label>
+                              <input
+                                type="text"
+                                value={formData.defaultCreditPeriod}
+                                onChange={(e) => updateField('defaultCreditPeriod', e.target.value)}
+                                style={{
+                                  ...inputStyles,
+                                  border: `1px solid ${errors.defaultCreditPeriod ? '#ef4444' : '#d1d5db'}`
+                                }}
+                                placeholder="Enter credit period (e.g., 30 days)"
+                              />
+                              {errors.defaultCreditPeriod && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.defaultCreditPeriod}</p>}
+                            </div>
+
+                            {/* Check for credit days during voucher entry */}
+                            <label style={{ 
+                              display: 'flex', 
+                              alignItems: 'center',
+                              gap: '8px',
+                              fontSize: '13px', 
+                              fontWeight: '500', 
+                              color: '#374151',
+                              fontFamily: 'system-ui, -apple-system, sans-serif',
+                              cursor: 'pointer'
+                            }}>
+                              <input
+                                type="checkbox"
+                                checked={formData.checkCreditDaysDuringVoucher}
+                                onChange={(e) => updateField('checkCreditDaysDuringVoucher', e.target.checked)}
+                                style={{
+                                  width: '18px',
+                                  height: '18px',
+                                  cursor: 'pointer',
+                                  accentColor: '#3b82f6'
+                                }}
+                              />
+                              <span>Check for credit days during voucher entry</span>
+                            </label>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Specify credit limit */}
+                      <div>
+                        <label style={{ 
+                          display: 'flex', 
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '12px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif',
+                          cursor: 'pointer'
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={formData.specifyCreditLimit}
+                            onChange={(e) => updateField('specifyCreditLimit', e.target.checked)}
+                            style={{
+                              width: '18px',
+                              height: '18px',
+                              cursor: 'pointer',
+                              accentColor: '#3b82f6'
+                            }}
+                          />
+                          <span>Specify credit limit</span>
+                        </label>
+                        
+                        {formData.specifyCreditLimit && (
+                          <div style={{ marginLeft: '26px', display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '12px' }}>
+                            {/* Credit Limit Amount */}
+                            <div>
+                              <label style={{ 
+                                display: 'block', 
+                                fontSize: '13px', 
+                                fontWeight: '500', 
+                                color: '#374151', 
+                                marginBottom: '6px',
+                                fontFamily: 'system-ui, -apple-system, sans-serif'
+                              }}>
+                                Credit Limit Amount
+                              </label>
+                              <input
+                                type="number"
+                                value={formData.creditLimitAmount}
+                                onChange={(e) => updateField('creditLimitAmount', e.target.value)}
+                                style={{
+                                  ...inputStyles,
+                                  border: `1px solid ${errors.creditLimitAmount ? '#ef4444' : '#d1d5db'}`
+                                }}
+                                placeholder="Enter credit limit amount"
+                                min="0"
+                                step="0.01"
+                              />
+                              {errors.creditLimitAmount && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.creditLimitAmount}</p>}
+                            </div>
+
+                            {/* Override credit limit using post-dated transactions */}
+                            <label style={{ 
+                              display: 'flex', 
+                              alignItems: 'center',
+                              gap: '8px',
+                              fontSize: '13px', 
+                              fontWeight: '500', 
+                              color: '#374151',
+                              fontFamily: 'system-ui, -apple-system, sans-serif',
+                              cursor: 'pointer'
+                            }}>
+                              <input
+                                type="checkbox"
+                                checked={formData.overrideCreditLimitPostDated}
+                                onChange={(e) => updateField('overrideCreditLimitPostDated', e.target.checked)}
+                                style={{
+                                  width: '18px',
+                                  height: '18px',
+                                  cursor: 'pointer',
+                                  accentColor: '#3b82f6'
+                                }}
+                              />
+                              <span>Override credit limit using post-dated transactions</span>
+                            </label>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Inventory values are affected */}
+                      <div>
+                        <label style={{ 
+                          display: 'flex', 
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151',
+                          fontFamily: 'system-ui, -apple-system, sans-serif',
+                          cursor: 'pointer'
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={formData.inventoryValuesAffected}
+                            onChange={(e) => updateField('inventoryValuesAffected', e.target.checked)}
+                            style={{
+                              width: '18px',
+                              height: '18px',
+                              cursor: 'pointer',
+                              accentColor: '#3b82f6'
+                            }}
+                          />
+                          <span>Inventory values are affected</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+              </div>
+            </div>
+          )}
+
+          {/* Address Tab */}
+          {activeTab === 'address' && (
+            <div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {formData.addresses.map((addr, index) => (
+                  <div key={index} style={{ 
+                    padding: '20px', 
+                    backgroundColor: '#f9fafb', 
+                    borderRadius: '8px', 
+                    border: '1px solid #e5e7eb',
+                    position: 'relative'
+                  }}>
+                    {formData.addresses.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeAddress(index)}
+                        style={{
+                          position: 'absolute',
+                          top: '16px',
+                          right: '16px',
+                          padding: '6px 12px',
+                          backgroundColor: '#ef4444',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          transition: 'background-color 0.2s',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.backgroundColor = '#dc2626';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.backgroundColor = '#ef4444';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: '16px' }}>delete</span>
+                        Remove
+                      </button>
+                    )}
+                    
+                    <h3 style={{ 
+                      fontSize: '16px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      marginBottom: '16px',
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>
+                      Address {index + 1}
+                    </h3>
+
+                    <div className="vendor-form-grid" style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(2, 1fr)', 
+                      gap: '24px',
+                      alignItems: 'start'
+                    }}>
+                      {/* Address */}
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          {VENDOR_CONSTANTS.FORM_LABELS.ADDRESS}
+                        </label>
+                        <textarea
+                          value={addr.address}
+                          onChange={(e) => updateAddressField(index, 'address', e.target.value)}
+                          style={{
+                            ...inputStyles,
+                            minHeight: '80px',
+                            resize: 'vertical',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}
+                          placeholder="Enter complete address"
+                          rows={3}
+                        />
+                      </div>
+
+                      {/* Country */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          {VENDOR_CONSTANTS.FORM_LABELS.COUNTRY}
+                        </label>
+                        <SearchableDropdown
+                          options={VENDOR_CONSTANTS.COUNTRIES}
+                          value={addr.country}
+                          onChange={(value) => updateAddressField(index, 'country', value)}
+                          placeholder="Start typing to search countries..."
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`address_${index}_country`] ? '#ef4444' : '#d1d5db'}`
+                          }}
+                          error={!!errors[`address_${index}_country`]}
+                        />
+                        {errors[`address_${index}_country`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`address_${index}_country`]}</p>}
+                      </div>
+
+                      {/* State */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          {VENDOR_CONSTANTS.FORM_LABELS.STATE}
+                        </label>
+                        <SearchableDropdown
+                          options={VENDOR_CONSTANTS.INDIAN_STATES}
+                          value={addr.state}
+                          onChange={(value) => updateAddressField(index, 'state', value)}
+                          placeholder="Start typing to search states..."
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`address_${index}_state`] ? '#ef4444' : '#d1d5db'}`
+                          }}
+                          error={!!errors[`address_${index}_state`]}
+                        />
+                        {errors[`address_${index}_state`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`address_${index}_state`]}</p>}
+                      </div>
+
+                      {/* Pincode */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          {VENDOR_CONSTANTS.FORM_LABELS.PINCODE}
+                        </label>
+                        <input
+                          type="text"
+                          value={addr.pincode}
+                          onChange={(e) => updateAddressField(index, 'pincode', e.target.value)}
+                          maxLength={6}
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`address_${index}_pincode`] ? '#ef4444' : '#d1d5db'}`
+                          }}
+                          placeholder="Enter 6-digit pincode"
+                        />
+                        {errors[`address_${index}_pincode`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`address_${index}_pincode`]}</p>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Add Address Button */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={addAddress}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '12px 24px',
+                      backgroundColor: '#3b82f6',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.2s',
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      width: '100%'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.backgroundColor = '#2563eb';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.backgroundColor = '#3b82f6';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
+                    Add Address
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Contact Details Tab */}
+          {activeTab === 'contact' && (
+            <div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {formData.contacts.map((contact, index) => (
+                  <div key={index} style={{ 
+                    padding: '20px', 
+                    backgroundColor: '#f9fafb', 
+                    borderRadius: '8px', 
+                    border: '1px solid #e5e7eb',
+                    position: 'relative'
+                  }}>
+                    {formData.contacts.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeContact(index)}
+                        style={{
+                          position: 'absolute',
+                          top: '16px',
+                          right: '16px',
+                          padding: '6px 12px',
+                          backgroundColor: '#ef4444',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          transition: 'background-color 0.2s',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.backgroundColor = '#dc2626';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.backgroundColor = '#ef4444';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: '16px' }}>delete</span>
+                        Remove
+                      </button>
+                    )}
+                    
+                    <h3 style={{ 
+                      fontSize: '16px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      marginBottom: '16px',
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>
+                      {index === 0 ? 'Primary Contact' : `Contact ${index + 1}`}
+                    </h3>
+
+                    <div className="vendor-form-grid" style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(2, 1fr)', 
+                      gap: '24px',
+                      alignItems: 'start'
+                    }}>
+                      {/* Contact Person/Name */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          {index === 0 ? VENDOR_CONSTANTS.FORM_LABELS.CONTACT_PERSON : 'Contact Name'}
+                        </label>
+                        <input
+                          type="text"
+                          value={contact.contactPerson}
+                          onChange={(e) => updateContactField(index, 'contactPerson', e.target.value)}
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`contact_${index}_contactPerson`] ? '#ef4444' : '#d1d5db'}`
+                          }}
+                          placeholder={index === 0 ? "Enter contact person name" : "Enter contact name"}
+                        />
+                        {errors[`contact_${index}_contactPerson`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`contact_${index}_contactPerson`]}</p>}
+                      </div>
+
+                      {/* Email ID - Only for first contact */}
+                      {index === 0 && (
+                        <div>
+                          <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#374151', 
+                            marginBottom: '6px',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
+                            {VENDOR_CONSTANTS.FORM_LABELS.EMAIL_ID}
+                          </label>
+                          <input
+                            type="email"
+                            value={contact.email}
+                            onChange={(e) => updateContactField(index, 'email', e.target.value)}
+                            style={{
+                              ...inputStyles,
+                              border: `1px solid ${errors[`contact_${index}_email`] ? '#ef4444' : '#d1d5db'}`
+                            }}
+                            placeholder="Enter email address"
+                          />
+                          {errors[`contact_${index}_email`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`contact_${index}_email`]}</p>}
+                        </div>
+                      )}
+
+                      {/* Phone Number */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          {VENDOR_CONSTANTS.FORM_LABELS.PHONE_NUMBER}
+                        </label>
+                        <input
+                          type="tel"
+                          value={contact.phone}
+                          onChange={(e) => updateContactField(index, 'phone', e.target.value)}
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`contact_${index}_phone`] ? '#ef4444' : '#d1d5db'}`
+                          }}
+                          placeholder="Enter phone number"
+                        />
+                        {errors[`contact_${index}_phone`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`contact_${index}_phone`]}</p>}
+                      </div>
+
+                      {/* Mobile Number - Only for first contact */}
+                      {index === 0 && (
+                        <div>
+                          <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#374151', 
+                            marginBottom: '6px',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
+                            {VENDOR_CONSTANTS.FORM_LABELS.MOBILE_NUMBER}
+                          </label>
+                          <input
+                            type="tel"
+                            value={contact.mobile}
+                            onChange={(e) => updateContactField(index, 'mobile', e.target.value)}
+                            style={{
+                              ...inputStyles,
+                              border: `1px solid ${errors[`contact_${index}_mobile`] ? '#ef4444' : '#d1d5db'}`
+                            }}
+                            placeholder="Enter mobile number"
+                          />
+                          {errors[`contact_${index}_mobile`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`contact_${index}_mobile`]}</p>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Add Contact Button */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={addContact}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '12px 24px',
+                      backgroundColor: '#3b82f6',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.2s',
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      width: '100%'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.backgroundColor = '#2563eb';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.backgroundColor = '#3b82f6';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
+                    Add Contact
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Bank Details Tab */}
+          {activeTab === 'bank' && (
+            <div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+                {formData.bankDetails.map((bank, index) => (
+                  <div key={index} style={{ 
+                    padding: '20px', 
+                    backgroundColor: '#f9fafb', 
+                    borderRadius: '8px', 
+                    border: '1px solid #e5e7eb',
+                    position: 'relative'
+                  }}>
+                    {formData.bankDetails.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeBankDetail(index)}
+                        style={{
+                          position: 'absolute',
+                          top: '16px',
+                          right: '16px',
+                          padding: '6px 12px',
+                          backgroundColor: '#ef4444',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          transition: 'background-color 0.2s',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.backgroundColor = '#dc2626';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.backgroundColor = '#ef4444';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: '16px' }}>delete</span>
+                        Remove
+                      </button>
+                    )}
+                    
+                    <h3 style={{ 
+                      fontSize: '16px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      marginBottom: '16px',
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>
+                      Bank Details {index + 1}
+                    </h3>
+
+                    <div className="vendor-form-grid" style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(2, 1fr)', 
+                      gap: '24px',
+                      alignItems: 'start'
+                    }}>
+                      {/* Account Number */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          {VENDOR_CONSTANTS.FORM_LABELS.ACCOUNT_NUMBER}
+                        </label>
+                        <input
+                          type="text"
+                          value={bank.accountNumber}
+                          onChange={(e) => updateBankDetailField(index, 'accountNumber', e.target.value)}
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`bank_${index}_accountNumber`] ? '#ef4444' : '#d1d5db'}`
+                          }}
+                          placeholder={VENDOR_CONSTANTS.PLACEHOLDERS.ACCOUNT_NUMBER}
+                        />
+                        {errors[`bank_${index}_accountNumber`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_accountNumber`]}</p>}
+                      </div>
+
+                      {/* IFSC Code */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          {VENDOR_CONSTANTS.FORM_LABELS.IFSC_CODE}
+                        </label>
+                        <input
+                          type="text"
+                          value={bank.ifscCode}
+                          onChange={(e) => updateBankDetailField(index, 'ifscCode', e.target.value.toUpperCase())}
+                          maxLength={11}
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`bank_${index}_ifscCode`] ? '#ef4444' : '#d1d5db'}`
+                          }}
+                          placeholder={VENDOR_CONSTANTS.PLACEHOLDERS.IFSC}
+                        />
+                        {errors[`bank_${index}_ifscCode`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_ifscCode`]}</p>}
+                      </div>
+
+                      {/* Bank Name */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          {VENDOR_CONSTANTS.FORM_LABELS.BANK_NAME}
+                        </label>
+                        <input
+                          type="text"
+                          value={bank.bankName}
+                          onChange={(e) => updateBankDetailField(index, 'bankName', e.target.value)}
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`bank_${index}_bankName`] ? '#ef4444' : '#d1d5db'}`
+                          }}
+                          placeholder="Enter bank name"
+                        />
+                        {errors[`bank_${index}_bankName`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_bankName`]}</p>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Add Bank Details Button */}
+                <div>
+                  <button
+                    type="button"
+                    onClick={addBankDetail}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '12px 24px',
+                      backgroundColor: '#3b82f6',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      cursor: 'pointer',
+                      transition: 'background-color 0.2s',
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      width: '100%'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.backgroundColor = '#2563eb';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.backgroundColor = '#3b82f6';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
+                    Add Bank Details
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Statutory Tab */}
+          {activeTab === 'statutory' && (
+            <div>
+              <div className="vendor-form-grid" style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(3, 1fr)', 
+                gap: '24px',
+                alignItems: 'start'
+              }}>
                 {/* Tax Type Selection */}
                 <div>
                   <label style={{ 
@@ -1653,7 +2949,7 @@ const VendorForm = ({
                     marginBottom: '6px',
                     fontFamily: 'system-ui, -apple-system, sans-serif'
                   }}>
-                    Tax Identification Type *
+                    Tax Identification Type
                   </label>
                   <select
                     value={formData.tax_type}
@@ -1662,7 +2958,6 @@ const VendorForm = ({
                       // Clear the other field when switching
                       if (e.target.value === 'PAN') {
                         updateField('gstinno', '');
-                        updateField('gsttype', '');
                         setIsPANAutoFilled(false);
                       } else if (e.target.value === 'GST') {
                         updateField('panno', '');
@@ -1693,7 +2988,7 @@ const VendorForm = ({
                         marginBottom: '6px',
                         fontFamily: 'system-ui, -apple-system, sans-serif'
                       }}>
-                        {VENDOR_CONSTANTS.FORM_LABELS.GST_NUMBER} {formData.tax_type === 'GST' ? '*' : ''}
+                        {VENDOR_CONSTANTS.FORM_LABELS.GST_NUMBER}
                       </label>
                       <div style={{ position: 'relative', display: 'flex', gap: '8px', alignItems: 'stretch', width: '100%', overflow: 'visible' }}>
                         <input
@@ -1855,27 +3150,157 @@ const VendorForm = ({
                       )}
                       </div>
 
-                    <div>
-                      <label style={{ 
-                        display: 'block', 
-                        fontSize: '14px', 
-                        fontWeight: '500', 
+                    {/* GST Registration Details - Show only when GST is selected */}
+                    <div style={{ gridColumn: 'span 3', marginTop: '16px', paddingTop: '24px', borderTop: '1px solid #e5e7eb' }}>
+                      <h3 style={{ 
+                        fontSize: '16px', 
+                        fontWeight: '600', 
                         color: '#374151', 
-                        marginBottom: '6px',
+                        marginBottom: '20px',
                         fontFamily: 'system-ui, -apple-system, sans-serif'
                       }}>
-                        {VENDOR_CONSTANTS.FORM_LABELS.GST_TYPE}
-                      </label>
-                      <select
-                        value={formData.gsttype}
-                        onChange={(e) => updateField('gsttype', e.target.value)}
-                        style={selectStyles}
-                      >
-                        <option value="">Select GST Type</option>
-                        {VENDOR_CONSTANTS.GST_TYPES.map((type) => (
-                          <option key={type} value={type}>{type}</option>
-                        ))}
-                      </select>
+                        Tax Registration Details
+                      </h3>
+                      
+                      <div className="vendor-form-grid" style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: 'repeat(3, 1fr)', 
+                        gap: '24px',
+                        alignItems: 'start'
+                      }}>
+                        {/* Registration Type */}
+                        <div>
+                          <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#374151', 
+                            marginBottom: '6px',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
+                            Registration type
+                          </label>
+                          <select
+                            value={formData.gstRegistrationType}
+                            onChange={(e) => updateField('gstRegistrationType', e.target.value)}
+                            style={selectStyles}
+                          >
+                            {VENDOR_CONSTANTS.GST_REGISTRATION_TYPES.map((type) => (
+                              <option key={type} value={type}>{type}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Assessee of Other Territory */}
+                        <div>
+                          <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#374151', 
+                            marginBottom: '6px',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
+                            Assessee of Other Territory
+                          </label>
+                          <select
+                            value={formData.assesseeOfOtherTerritory ? 'Yes' : 'No'}
+                            onChange={(e) => updateField('assesseeOfOtherTerritory', e.target.value === 'Yes')}
+                            style={selectStyles}
+                          >
+                            <option value="No">No</option>
+                            <option value="Yes">Yes</option>
+                          </select>
+                        </div>
+
+                        {/* Use Ledger as common Party */}
+                        <div>
+                          <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#374151', 
+                            marginBottom: '6px',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
+                            Use Ledger as common Party
+                          </label>
+                          <select
+                            value={formData.useLedgerAsCommonParty ? 'Yes' : 'No'}
+                            onChange={(e) => updateField('useLedgerAsCommonParty', e.target.value === 'Yes')}
+                            style={selectStyles}
+                          >
+                            <option value="No">No</option>
+                            <option value="Yes">Yes</option>
+                          </select>
+                        </div>
+
+                        {/* Set/Alter additional GST details */}
+                        <div>
+                          <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#374151', 
+                            marginBottom: '6px',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
+                            Set/Alter additional GST details
+                          </label>
+                          <select
+                            value={formData.setAlterAdditionalGSTDetails ? 'Yes' : 'No'}
+                            onChange={(e) => updateField('setAlterAdditionalGSTDetails', e.target.value === 'Yes')}
+                            style={selectStyles}
+                          >
+                            <option value="No">No</option>
+                            <option value="Yes">Yes</option>
+                          </select>
+                        </div>
+
+                        {/* Ignore prefixes and suffixes in Doc No. for reconciliation */}
+                        <div>
+                          <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#374151', 
+                            marginBottom: '6px',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
+                            Ignore prefixes and suffixes in Doc No. for reconciliation
+                          </label>
+                          <select
+                            value={formData.ignorePrefixesSuffixesInDocNo ? 'Yes' : 'No'}
+                            onChange={(e) => updateField('ignorePrefixesSuffixesInDocNo', e.target.value === 'Yes')}
+                            style={selectStyles}
+                          >
+                            <option value="No">No</option>
+                            <option value="Yes">Yes</option>
+                          </select>
+                        </div>
+
+                        {/* Set/Alter MSME Registration Details */}
+                        <div>
+                          <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#374151', 
+                            marginBottom: '6px',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
+                            Set/Alter MSME Registration Details
+                          </label>
+                          <select
+                            value={formData.setAlterMSMERegistrationDetails ? 'Yes' : 'No'}
+                            onChange={(e) => updateField('setAlterMSMERegistrationDetails', e.target.value === 'Yes')}
+                            style={selectStyles}
+                          >
+                            <option value="No">No</option>
+                            <option value="Yes">Yes</option>
+                          </select>
+                        </div>
+                      </div>
                     </div>
                   </>
                 )}
@@ -1891,7 +3316,7 @@ const VendorForm = ({
                       marginBottom: '6px',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.PAN_NUMBER} {formData.tax_type === 'PAN' ? '*' : ''}
+                      {VENDOR_CONSTANTS.FORM_LABELS.PAN_NUMBER}
                       <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: '400' }}> (Format: ABCDE1234F)</span>
                       {formData.tax_type === 'GST' && (
                         <span style={{ fontSize: '12px', color: '#059669', fontWeight: '400', marginLeft: '8px' }}>
@@ -2044,401 +3469,6 @@ const VendorForm = ({
                     )}
                   </div>
                 )}
-
-                {/* Vendor Name */}
-                <div>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.VENDOR_NAME} *
-                  </label>
-                  <div style={{ position: 'relative' }}>
-                    <input
-                      type="text"
-                      value={formData.name}
-                      onChange={(e) => updateField('name', e.target.value)}
-                      style={{
-                        ...inputStyles,
-                        border: `1px solid ${errors.name ? '#ef4444' : duplicateCheck.name.isDuplicate ? '#ef4444' : '#d1d5db'}`,
-                        paddingRight: duplicateCheck.name.isChecking ? '40px' : '16px'
-                      }}
-                      placeholder="Enter vendor name"
-                    />
-                    {duplicateCheck.name.isChecking && (
-                      <div style={{
-                        position: 'absolute',
-                        right: '12px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        display: 'flex',
-                        alignItems: 'center'
-                      }}>
-                        <div style={{
-                          width: '16px',
-                          height: '16px',
-                          border: '2px solid #3b82f6',
-                          borderTop: '2px solid transparent',
-                          borderRadius: '50%',
-                          animation: 'spin 1s linear infinite'
-                        }}></div>
-                      </div>
-                    )}
-                    {duplicateCheck.name.isDuplicate && !duplicateCheck.name.isChecking && (
-                      <div style={{
-                        position: 'absolute',
-                        right: '12px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        color: '#ef4444'
-                      }}>
-                        <span className="material-icons" style={{ fontSize: '18px' }}>error</span>
-                      </div>
-                    )}
-                    {(() => {
-                      // Only show green checkmark if:
-                      // 1. Not a duplicate
-                      // 2. Not currently checking
-                      // 3. Name is complete (3+ characters)
-                      // 4. No validation errors
-                      // 5. Duplicate check has been completed (not in initial state)
-                      const hasCompletedCheck = duplicateCheck.name.isChecking === false && 
-                                               (duplicateCheck.name.isDuplicate === true || duplicateCheck.name.isDuplicate === false);
-                      const shouldShowGreen = !duplicateCheck.name.isDuplicate && 
-                                             !duplicateCheck.name.isChecking && 
-                                             formData.name.length >= 3 && 
-                                             !errors.name &&
-                                             hasCompletedCheck;
-                      return shouldShowGreen;
-                    })() && (
-                      <div style={{
-                        position: 'absolute',
-                        right: '12px',
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        color: '#10b981'
-                      }}>
-                        <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
-                      </div>
-                    )}
-                  </div>
-                  {errors.name && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.name}</p>}
-                  {duplicateCheck.name.isDuplicate && !errors.name && (
-                    <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span className="material-icons" style={{ fontSize: '14px' }}>warning</span>
-                      {duplicateCheck.name.message || 'Vendor name already exists'}
-                    </p>
-                  )}
-                </div>
-
-
-                {/* Address */}
-                <div style={{ gridColumn: 'span 2' }}>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.ADDRESS}
-                  </label>
-                  <textarea
-                    value={formData.address1}
-                    onChange={(e) => updateField('address1', e.target.value)}
-                    style={{
-                      ...inputStyles,
-                      minHeight: '80px',
-                      resize: 'vertical',
-                      fontFamily: 'system-ui, -apple-system, sans-serif'
-                    }}
-                    placeholder="Enter complete address"
-                    rows={3}
-                  />
-                </div>
-
-                {/* Country */}
-                <div>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.COUNTRY}
-                  </label>
-                  <SearchableDropdown
-                    options={VENDOR_CONSTANTS.COUNTRIES}
-                    value={formData.country}
-                    onChange={(value) => updateField('country', value)}
-                    placeholder="Start typing to search countries..."
-                    style={{
-                      ...inputStyles,
-                      border: `1px solid ${errors.country ? '#ef4444' : '#d1d5db'}`
-                    }}
-                    error={!!errors.country}
-                  />
-                  {errors.country && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.country}</p>}
-                </div>
-
-                {/* State */}
-                <div>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.STATE}
-                  </label>
-                  <SearchableDropdown
-                    options={VENDOR_CONSTANTS.INDIAN_STATES}
-                    value={formData.state}
-                    onChange={(value) => updateField('state', value)}
-                    placeholder="Start typing to search states..."
-                    style={{
-                      ...inputStyles,
-                      border: `1px solid ${errors.state ? '#ef4444' : '#d1d5db'}`
-                    }}
-                    error={!!errors.state}
-                  />
-                  {errors.state && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.state}</p>}
-                </div>
-
-                {/* Pincode */}
-                <div>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.PINCODE}
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.pincode}
-                    onChange={(e) => updateField('pincode', e.target.value)}
-                    maxLength={6}
-                    style={{
-                      ...inputStyles,
-                      border: `1px solid ${errors.pincode ? '#ef4444' : '#d1d5db'}`
-                    }}
-                    placeholder="Enter 6-digit pincode"
-                  />
-                  {errors.pincode && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.pincode}</p>}
-                </div>
-
-
-              </div>
-            </div>
-          )}
-
-          {/* Contact Details Tab */}
-          {activeTab === 'contact' && (
-            <div>
-              <div className="vendor-form-grid" style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(2, 1fr)', 
-                gap: '24px',
-                alignItems: 'start'
-              }}>
-                {/* Contact Person */}
-                <div>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.CONTACT_PERSON}
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.contactperson}
-                    onChange={(e) => updateField('contactperson', e.target.value)}
-                    style={{
-                      ...inputStyles,
-                      border: `1px solid ${errors.contactperson ? '#ef4444' : '#d1d5db'}`
-                    }}
-                    placeholder="Enter contact person name"
-                  />
-                  {errors.contactperson && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.contactperson}</p>}
-                </div>
-
-                {/* Email ID */}
-                <div>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.EMAIL_ID}
-                  </label>
-                  <input
-                    type="email"
-                    value={formData.emailid}
-                    onChange={(e) => updateField('emailid', e.target.value)}
-                    style={{
-                      ...inputStyles,
-                      border: `1px solid ${errors.emailid ? '#ef4444' : '#d1d5db'}`
-                    }}
-                    placeholder="Enter email address"
-                  />
-                  {errors.emailid && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.emailid}</p>}
-                </div>
-
-                {/* Phone Number */}
-                <div>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.PHONE_NUMBER}
-                  </label>
-                  <input
-                    type="tel"
-                    value={formData.phoneno}
-                    onChange={(e) => updateField('phoneno', e.target.value)}
-                    style={inputStyles}
-                    placeholder="Enter phone number"
-                  />
-                </div>
-
-                {/* Mobile Number */}
-                <div>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.MOBILE_NUMBER}
-                  </label>
-                  <input
-                    type="tel"
-                    value={formData.mobileno}
-                    onChange={(e) => updateField('mobileno', e.target.value)}
-                    style={{
-                      ...inputStyles,
-                      border: `1px solid ${errors.mobileno ? '#ef4444' : '#d1d5db'}`
-                    }}
-                    placeholder="Enter mobile number"
-                  />
-                  {errors.mobileno && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.mobileno}</p>}
-                </div>
-
-              </div>
-            </div>
-          )}
-
-          {/* Bank Details Tab */}
-          {activeTab === 'bank' && (
-            <div>
-              <div className="vendor-form-grid" style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(2, 1fr)', 
-                gap: '24px',
-                alignItems: 'start'
-              }}>
-                {/* Account Number */}
-                <div>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.ACCOUNT_NUMBER}
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.accountno}
-                    onChange={(e) => updateField('accountno', e.target.value)}
-                    style={{
-                      ...inputStyles,
-                      border: `1px solid ${errors.accountno ? '#ef4444' : '#d1d5db'}`
-                    }}
-                    placeholder={VENDOR_CONSTANTS.PLACEHOLDERS.ACCOUNT_NUMBER}
-                  />
-                  {errors.accountno && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.accountno}</p>}
-                </div>
-
-                {/* IFSC Code */}
-                <div>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.IFSC_CODE}
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.ifsccode}
-                    onChange={(e) => updateField('ifsccode', e.target.value.toUpperCase())}
-                    maxLength={11}
-                    style={{
-                      ...inputStyles,
-                      border: `1px solid ${errors.ifsccode ? '#ef4444' : '#d1d5db'}`
-                    }}
-                    placeholder={VENDOR_CONSTANTS.PLACEHOLDERS.IFSC}
-                  />
-                  {errors.ifsccode && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.ifsccode}</p>}
-                </div>
-
-                {/* Bank Name */}
-                <div>
-                  <label style={{ 
-                    display: 'block', 
-                    fontSize: '14px', 
-                    fontWeight: '500', 
-                    color: '#374151', 
-                    marginBottom: '6px',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.BANK_NAME}
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.bankname}
-                    onChange={(e) => updateField('bankname', e.target.value)}
-                    style={{
-                      ...inputStyles,
-                      border: `1px solid ${errors.bankname ? '#ef4444' : '#d1d5db'}`
-                    }}
-                    placeholder="Enter bank name"
-                  />
-                  {errors.bankname && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.bankname}</p>}
-                </div>
-
 
               </div>
             </div>
