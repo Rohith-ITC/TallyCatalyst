@@ -15,10 +15,9 @@ import ModulesManagement from '../access-control/ModulesManagement';
 import RolesManagement from '../access-control/RolesManagement';
 import CreateAccess from '../admindashboard/CreateAccess';
 import ShareAccess from '../TallyDashboard/ShareAccess';
-import VendorForm from './VendorForm';
-import VendorAuthorization from './VendorAuthorization';
-import VendorList from './VendorList';
-import LinkAccount from './LinkAccount';
+import MasterForm from './MasterForm';
+import MasterAuthorization from './MasterAuthorization';
+import MasterList from './MasterList';
 import { 
   MODULE_SEQUENCE, 
   hasModuleAccess, 
@@ -90,10 +89,10 @@ function TallyDashboard() {
   const [controlPanelView, setControlPanelView] = useState(null); // 'tally-config', 'modules', 'roles', 'create-access', 'share-access'
   const [controlPanelOpen, setControlPanelOpen] = useState(false);
   const [accessControlDropdownOpen, setAccessControlDropdownOpen] = useState(false);
-  const [vendorManagementDropdownOpen, setVendorManagementDropdownOpen] = useState(false);
-  const vendorManagementDropdownRef = useRef(null);
-  const [vendorDropdownPosition, setVendorDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
-  const vendorButtonRef = useRef(null);
+  const [masterManagementDropdownOpen, setMasterManagementDropdownOpen] = useState(false);
+  const masterManagementDropdownRef = useRef(null);
+  const [masterDropdownPosition, setMasterDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const masterButtonRef = useRef(null);
   const controlPanelButtonRef = useRef(null);
   const accessControlButtonRef = useRef(null);
   const [controlPanelDropdownPosition, setControlPanelDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
@@ -335,10 +334,10 @@ function TallyDashboard() {
     return () => window.removeEventListener('resize', handleResize);
   }, [sidebarOpen]);
 
-  // Close vendor management dropdown when sidebar closes
+  // Close master management dropdown when sidebar closes
   useEffect(() => {
     if (!sidebarOpen) {
-      setVendorManagementDropdownOpen(false);
+      setMasterManagementDropdownOpen(false);
     }
   }, [sidebarOpen]);
 
@@ -355,8 +354,8 @@ function TallyDashboard() {
       if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
         setProfileDropdownOpen(false);
       }
-      if (vendorManagementDropdownRef.current && !vendorManagementDropdownRef.current.contains(event.target)) {
-        setVendorManagementDropdownOpen(false);
+      if (masterManagementDropdownRef.current && !masterManagementDropdownRef.current.contains(event.target)) {
+        setMasterManagementDropdownOpen(false);
       }
       if (controlPanelDropdownRef.current && !controlPanelDropdownRef.current.contains(event.target) && 
           controlPanelButtonRef.current && !controlPanelButtonRef.current.contains(event.target)) {
@@ -367,7 +366,7 @@ function TallyDashboard() {
         setAccessControlDropdownOpen(false);
       }
     }
-    if (profileDropdownOpen || vendorManagementDropdownOpen || controlPanelOpen || accessControlDropdownOpen) {
+    if (profileDropdownOpen || masterManagementDropdownOpen || controlPanelOpen || accessControlDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     } else {
       document.removeEventListener('mousedown', handleClickOutside);
@@ -375,7 +374,7 @@ function TallyDashboard() {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [profileDropdownOpen, vendorManagementDropdownOpen, controlPanelOpen, accessControlDropdownOpen]);
+  }, [profileDropdownOpen, masterManagementDropdownOpen, controlPanelOpen, accessControlDropdownOpen]);
 
   // Filter companies based on search term for top bar
   useEffect(() => {
@@ -695,23 +694,23 @@ function TallyDashboard() {
         return null;
       }
       
-      // Debug: Check vendor_form specifically
-      if (module.key === 'vendor_form') {
-        console.log('🔍 Vendor Form module check:', {
+      // Debug: Check master_form specifically
+      if (module.key === 'master_form') {
+        console.log('🔍 Master Form module check:', {
           key: module.key,
           alwaysVisible: isAlwaysVisible(module.key),
           module: module
         });
       }
       
-      // For modules with sub-modules (like Ledger Book or Vendor Management)
+      // For modules with sub-modules (like Ledger Book or Master Management)
       if (module.hasSubModules) {
-        // Check if this module should use right-side dropdown (Vendor Management)
+        // Check if this module should use right-side dropdown (Master Management)
         if (shouldUseRightSideDropdown(module.key)) {
-          // For vendor management, always show if alwaysVisible or has access
+          // For master management, always show if alwaysVisible or has access
           if (isAlwaysVisible(module.key) || hasAnySubModuleAccess(module.key, userModules)) {
-            console.log('✅ Rendering vendor management with dropdown:', module.key);
-            return renderVendorManagementWithDropdown(module, userModules);
+            console.log('✅ Rendering master management with dropdown:', module.key);
+            return renderMasterManagementWithDropdown(module, userModules);
           }
           return null;
         }
@@ -886,12 +885,12 @@ function TallyDashboard() {
     );
   };
 
-  // Update vendor dropdown position when it opens
+  // Update master dropdown position when it opens
   useEffect(() => {
-    const updateVendorDropdownPosition = () => {
-      if (vendorManagementDropdownOpen && vendorButtonRef.current) {
-        const rect = vendorButtonRef.current.getBoundingClientRect();
-        setVendorDropdownPosition({
+    const updateMasterDropdownPosition = () => {
+      if (masterManagementDropdownOpen && masterButtonRef.current) {
+        const rect = masterButtonRef.current.getBoundingClientRect();
+        setMasterDropdownPosition({
           top: rect.top,
           left: rect.left + rect.width,
           width: rect.width
@@ -899,10 +898,10 @@ function TallyDashboard() {
       }
     };
     
-    if (vendorManagementDropdownOpen) {
-      updateVendorDropdownPosition();
-      const handleResize = () => updateVendorDropdownPosition();
-      const handleScroll = () => updateVendorDropdownPosition();
+    if (masterManagementDropdownOpen) {
+      updateMasterDropdownPosition();
+      const handleResize = () => updateMasterDropdownPosition();
+      const handleScroll = () => updateMasterDropdownPosition();
       window.addEventListener('resize', handleResize);
       window.addEventListener('scroll', handleScroll, true);
       return () => {
@@ -910,10 +909,10 @@ function TallyDashboard() {
         window.removeEventListener('scroll', handleScroll, true);
       };
     }
-  }, [vendorManagementDropdownOpen]);
+  }, [masterManagementDropdownOpen]);
 
-  // Render vendor management with right-side dropdown
-  const renderVendorManagementWithDropdown = (module, userModules) => {
+  // Render master management with right-side dropdown
+  const renderMasterManagementWithDropdown = (module, userModules) => {
     // If parent module is alwaysVisible, show all submodules; otherwise filter by access
     const accessibleSubModules = isAlwaysVisible(module.key) 
       ? module.subModules 
@@ -923,9 +922,9 @@ function TallyDashboard() {
     const isParentActive = activeSidebar === module.id || accessibleSubModules.some(sub => sub.id === activeSidebar);
     
     const updateButtonPosition = () => {
-      if (vendorButtonRef.current) {
-        const rect = vendorButtonRef.current.getBoundingClientRect();
-        setVendorDropdownPosition({
+      if (masterButtonRef.current) {
+        const rect = masterButtonRef.current.getBoundingClientRect();
+        setMasterDropdownPosition({
           top: rect.top,
           left: rect.left + rect.width,
           width: rect.width
@@ -934,12 +933,12 @@ function TallyDashboard() {
     };
     
     return (
-      <div key={module.key} style={{ marginBottom: 4, position: 'relative' }} ref={vendorManagementDropdownRef}>
+      <div key={module.key} style={{ marginBottom: 4, position: 'relative' }} ref={masterManagementDropdownRef}>
         <button
-          ref={vendorButtonRef}
+          ref={masterButtonRef}
           onClick={() => { 
-            setVendorManagementDropdownOpen(!vendorManagementDropdownOpen);
-            if (!vendorManagementDropdownOpen) {
+            setMasterManagementDropdownOpen(!masterManagementDropdownOpen);
+            if (!masterManagementDropdownOpen) {
               setTimeout(updateButtonPosition, 0);
             }
           }}
@@ -973,7 +972,7 @@ function TallyDashboard() {
           title={module.label}
           onMouseEnter={e => {
             if (sidebarOpen) {
-              setVendorManagementDropdownOpen(true);
+              setMasterManagementDropdownOpen(true);
             }
             if (!isParentActive) {
               e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
@@ -1032,7 +1031,7 @@ function TallyDashboard() {
                   fontSize: 18, 
                   color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
                   transition: 'transform 0.2s',
-                  transform: vendorManagementDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transform: masterManagementDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                   flexShrink: 0,
                 }}
               >
@@ -1043,11 +1042,11 @@ function TallyDashboard() {
         </button>
         
         {/* Right-side dropdown menu */}
-        {sidebarOpen && vendorManagementDropdownOpen && accessibleSubModules.length > 0 && (
+        {sidebarOpen && masterManagementDropdownOpen && accessibleSubModules.length > 0 && (
           <div style={{
             position: 'fixed',
-            top: `${vendorDropdownPosition.top}px`,
-            left: `${vendorDropdownPosition.left + 8}px`,
+            top: `${masterDropdownPosition.top}px`,
+            left: `${masterDropdownPosition.left + 8}px`,
             backgroundColor: '#1e3a8a',
             border: '1px solid rgba(255, 255, 255, 0.2)',
             borderRadius: '12px',
@@ -1060,17 +1059,17 @@ function TallyDashboard() {
             gap: 2,
           }}
           onMouseEnter={() => {
-            setVendorManagementDropdownOpen(true);
-            if (vendorButtonRef.current) {
-              const rect = vendorButtonRef.current.getBoundingClientRect();
-              setVendorDropdownPosition({
+            setMasterManagementDropdownOpen(true);
+            if (masterButtonRef.current) {
+              const rect = masterButtonRef.current.getBoundingClientRect();
+              setMasterDropdownPosition({
                 top: rect.top,
                 left: rect.left + rect.width,
                 width: rect.width
               });
             }
           }}
-          onMouseLeave={() => setVendorManagementDropdownOpen(false)}
+          onMouseLeave={() => setMasterManagementDropdownOpen(false)}
           >
             {accessibleSubModules.map(subModule => {
               const isSubActive = activeSidebar === subModule.id;
@@ -1080,9 +1079,9 @@ function TallyDashboard() {
                   onClick={(e) => { 
                     e.preventDefault();
                     e.stopPropagation();
-                    console.log('🖱️ Vendor dropdown item clicked:', subModule.key, subModule.id);
+                    console.log('🖱️ Master dropdown item clicked:', subModule.key, subModule.id);
                     setActiveSidebar(subModule.id);
-                    setVendorManagementDropdownOpen(false);
+                    setMasterManagementDropdownOpen(false);
                     if (showControlPanel) {
                       handleCloseControlPanel();
                     }
@@ -2721,10 +2720,9 @@ function TallyDashboard() {
             </div>
           )}
           {activeSidebar === 'voucher_authorization' && <VoucherAuthorization />}
-          {activeSidebar === 'vendor_form' && <VendorForm key="vendor-form" />}
-          {activeSidebar === 'vendor_authorization' && <VendorAuthorization />}
-          {activeSidebar === 'vendor_list' && <VendorList />}
-          {activeSidebar === 'link_account' && <LinkAccount />}
+          {activeSidebar === 'master_form' && <MasterForm key="master-form" />}
+          {activeSidebar === 'master_authorization' && <MasterAuthorization />}
+          {activeSidebar === 'master_list' && <MasterList />}
             </>
           )}
         </div>
