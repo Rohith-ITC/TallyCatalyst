@@ -1,6 +1,6 @@
 // Cache management utilities
 export const CACHE_VERSION = process.env.REACT_APP_VERSION || '1.0.0';
-export const CACHE_KEY_PREFIX = 'tallycatalyst_';
+export const CACHE_KEY_PREFIX = 'datalynk_';
 
 // Clear all application caches
 export const clearAllCaches = () => {

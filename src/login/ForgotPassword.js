@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import TallyLogo from '../Tally1.png';
+import TallyLogo from '../DLlogo.png';
 import { Link, useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../config';
 import { apiPost } from '../utils/apiUtils';
@@ -205,7 +205,7 @@ function ForgotPassword() {
             alignItems: 'flex-start',
             padding: '0 36px 48px 0',
           }}>
-            <div style={{ fontSize: 32, fontWeight: 800, margin: 0, marginTop: 24, marginLeft: 24, letterSpacing: 1 }}>TallyCatalyst</div>
+            <div style={{ fontSize: 32, fontWeight: 800, margin: 0, marginTop: 24, marginLeft: 24, letterSpacing: 1 }}>DataLynk</div>
             <ul style={{ fontSize: 16, lineHeight: 2, margin: '24px 0 0 0', marginLeft: 28, color: '#e0e7ef', fontWeight: 500, listStyle: 'none', paddingLeft: 0 }}>
               <li><span className="material-icons" style={{ verticalAlign: 'middle', marginRight: 8 }}>dashboard</span> Dashboard</li>
               <li><span className="material-icons" style={{ verticalAlign: 'middle', marginRight: 8 }}>menu_book</span> Ledger vouchers</li>
