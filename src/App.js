@@ -14,6 +14,7 @@ import UserDashboard from './UserDashboard';
 import AdminDashboard from './admindashboard/Dashboard';
 import ChangePassword from './admindashboard/ChangePassword';
 import TallyDashboard from './TallyDashboard/tallydashboard';
+import SubscriptionPlans from './subscription/SubscriptionPlans';
 import { APP_CONFIG } from './config';
 import './utils/apiTest'; // Optional: For browser console testing
 
@@ -158,6 +159,14 @@ function App() {
           element={
             <ProtectedRoute>
               <TallyDashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/subscription"
+          element={
+            <ProtectedRoute>
+              <SubscriptionPlans />
             </ProtectedRoute>
           }
         />

@@ -493,33 +493,9 @@ function TallyDashboard() {
     console.log('🔄 Global refresh triggered - clearing all caches...');
     console.log('🔄 Refresh button clicked!');
     
-    // Get current company info
-    const currentCompany = allConnections.find(c => c.guid === selectedCompanyGuid);
-    console.log('🔄 Current company:', currentCompany);
-    if (!currentCompany) {
-      console.log('⚠️ No company selected for refresh');
-      return;
-    }
-    
-    const { tallyloc_id, company: companyVal } = currentCompany;
-    console.log('🔄 Clearing caches for:', { tallyloc_id, companyVal });
-    
-    // Clear all relevant caches
-    const cacheKeys = [
-      `ledgerlist_${tallyloc_id}_${companyVal}`,
-      `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`,
-      `stockitems_${tallyloc_id}_${companyVal}`,
-      `reportlist_${tallyloc_id}_${companyVal}`
-    ];
-    
-    cacheKeys.forEach(key => {
-      sessionStorage.removeItem(key);
-      console.log(`🗑️ Cleared cache: ${key}`);
-    });
-    
-    // Refresh user connections so latest companies are available after cache clear
+    // First, refresh user connections (companies) - do this first so we have latest company data
     try {
-      console.log('🔄 Refreshing user connections...');
+      console.log('🔄 Refreshing user connections (companies)...');
       const response = await apiGet(`/api/tally/user-connections?ts=${Date.now()}`);
       if (response) {
         let connections = [];
@@ -545,17 +521,51 @@ function TallyDashboard() {
           setFilteredTopBarCompanies([]);
         }
         setConnectionsVersion((prev) => prev + 1);
-        console.log(`✅ Refreshed user connections: ${connections.length} entries`);
+        console.log(`✅ Refreshed user connections (companies): ${connections.length} entries`);
       }
     } catch (error) {
       console.error('⚠️ Failed to refresh user connections during global refresh:', error);
+    }
+    
+    // Get current company info (after refreshing connections)
+    const currentCompany = allConnections.find(c => c.guid === selectedCompanyGuid) || 
+                          JSON.parse(sessionStorage.getItem('allConnections') || '[]').find(c => c.guid === selectedCompanyGuid);
+    console.log('🔄 Current company:', currentCompany);
+    
+    // Clear all relevant caches for the selected company (if one is selected)
+    if (currentCompany) {
+      const { tallyloc_id, company: companyVal } = currentCompany;
+      console.log('🔄 Clearing caches for:', { tallyloc_id, companyVal });
+      
+      // Clear all relevant caches
+      const cacheKeys = [
+        `ledgerlist_${tallyloc_id}_${companyVal}`,
+        `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`,
+        `stockitems_${tallyloc_id}_${companyVal}`,
+        `reportlist_${tallyloc_id}_${companyVal}`
+      ];
+      
+      cacheKeys.forEach(key => {
+        sessionStorage.removeItem(key);
+        console.log(`🗑️ Cleared cache: ${key}`);
+      });
+    } else {
+      // If no company selected, clear all company-related caches
+      console.log('🔄 No company selected - clearing all company-related caches...');
+      const allKeys = Object.keys(sessionStorage);
+      allKeys.forEach(key => {
+        if (key.startsWith('ledgerlist_') || key.startsWith('stockitems_') || key.startsWith('reportlist_')) {
+          sessionStorage.removeItem(key);
+          console.log(`🗑️ Cleared cache: ${key}`);
+        }
+      });
     }
     
     // Dispatch custom event to notify all components to refresh
     console.log('🔄 Dispatching globalRefresh event...');
     window.dispatchEvent(new CustomEvent('globalRefresh'));
     
-    console.log('✅ Global refresh completed - all components will reload data');
+    console.log('✅ Global refresh completed - companies, ledgers & stock items will reload data');
   };
 
   const handleLogout = () => {
@@ -1090,7 +1100,7 @@ function TallyDashboard() {
             zIndex: 10,
             position: 'relative'
           }}
-          title="Refresh all data (ledgers & stock items)"
+          title="Refresh all data (companies, ledgers & stock items)"
           onMouseEnter={(e) => {
             e.target.style.background = 'rgba(255, 255, 255, 0.2)';
             e.target.style.borderColor = 'rgba(255, 255, 255, 0.4)';
