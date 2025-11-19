@@ -1713,28 +1713,29 @@ function VoucherAuthorization() {
                         </div>
                       </div>
                     )}
-                    {/* Voucher Narration */}
-                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
-                      <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <span className="material-icons" style={{ fontSize: '16px', color: '#64748b' }}>description</span>
-                        Narration
+                    {/* Voucher Narration - Only show if narration exists */}
+                    {(viewingVoucher.narration || viewingVoucher.rawData?.NARRATION || viewingVoucher.rawData?.CP_Temp7) && (
+                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span className="material-icons" style={{ fontSize: '16px', color: '#64748b' }}>description</span>
+                          Narration
+                        </div>
+                        <div style={{ 
+                          fontSize: '14px', 
+                          fontWeight: 500, 
+                          color: '#1e293b',
+                          padding: '12px 16px',
+                          background: '#f8fafc',
+                          borderRadius: '8px',
+                          border: '1px solid #e2e8f0',
+                          lineHeight: '1.5',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word'
+                        }}>
+                          {viewingVoucher.narration || viewingVoucher.rawData?.NARRATION || viewingVoucher.rawData?.CP_Temp7}
+                        </div>
                       </div>
-                      <div style={{ 
-                        fontSize: '14px', 
-                        fontWeight: 500, 
-                        color: viewingVoucher.narration || viewingVoucher.rawData?.NARRATION ? '#1e293b' : '#94a3b8',
-                        padding: '12px 16px',
-                        background: viewingVoucher.narration || viewingVoucher.rawData?.NARRATION ? '#f8fafc' : '#f1f5f9',
-                        borderRadius: '8px',
-                        border: '1px solid #e2e8f0',
-                        lineHeight: '1.5',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                        fontStyle: viewingVoucher.narration || viewingVoucher.rawData?.NARRATION ? 'normal' : 'italic'
-                      }}>
-                        {viewingVoucher.narration || viewingVoucher.rawData?.NARRATION || viewingVoucher.rawData?.CP_Temp7 || 'Data not available'}
-                      </div>
-                    </div>
+                    )}
                   </div>
 
                   {/* Ledger Entries */}
