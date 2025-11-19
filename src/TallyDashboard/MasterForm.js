@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getApiUrl, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 
-// Vendor Constants
-const VENDOR_CONSTANTS = {
+// Master Constants
+const MASTER_CONSTANTS = {
   FORM_LABELS: {
     PAN_NUMBER: 'PAN Number',
-    VENDOR_NAME: 'Vendor Name',
+    MASTER_NAME: 'Master Name',
     ALIAS: 'Alias',
     ADDRESS: 'Address',
     COUNTRY: 'Country',
@@ -29,12 +29,12 @@ const VENDOR_CONSTANTS = {
 
   BUTTON_LABELS: {
     CANCEL: 'Cancel',
-    SAVE_VENDOR: 'Save Vendor',
-    APPROVE_VENDOR: 'Approve Vendor'
+    SAVE_MASTER: 'Save Master',
+    APPROVE_MASTER: 'Approve Master'
   },
 
   MESSAGES: {
-    VENDOR_CREATED: 'Vendor created, sent for authorization'
+    MASTER_CREATED: 'Master created, sent for authorization'
   },
 
   COUNTRIES: [
@@ -93,18 +93,38 @@ const SearchableDropdown = ({
 
   // Filter options based on search term with smart prioritization
   useEffect(() => {
+    const searchLower = searchTerm.toLowerCase();
+    
+    // Helper function to get the string value from an option (handles both strings and objects)
+    const getOptionString = (option) => {
+      if (typeof option === 'string') return option;
+      if (typeof option === 'object' && option !== null) {
+        return option.label || option.value || option.name || String(option);
+      }
+      return String(option);
+    };
+    
+    // If search term is empty, show all options (sorted alphabetically)
     if (searchTerm.trim() === '') {
-      setFilteredOptions([]);
+      const sorted = [...options].sort((a, b) => {
+        const aStr = getOptionString(a);
+        const bStr = getOptionString(b);
+        return aStr.localeCompare(bStr);
+      });
+      setFilteredOptions(sorted);
     } else {
-      const searchLower = searchTerm.toLowerCase();
-      const filtered = options.filter(option =>
-        option.toLowerCase().includes(searchLower)
-      );
+      // Filter options based on search term
+      const filtered = options.filter(option => {
+        const optionStr = getOptionString(option);
+        return optionStr.toLowerCase().includes(searchLower);
+      });
       
       // Sort results to prioritize exact matches and better suggestions
       const sorted = filtered.sort((a, b) => {
-        const aLower = a.toLowerCase();
-        const bLower = b.toLowerCase();
+        const aStr = getOptionString(a);
+        const bStr = getOptionString(b);
+        const aLower = aStr.toLowerCase();
+        const bLower = bStr.toLowerCase();
         
         // Exact match gets highest priority
         if (aLower === searchLower) return -1;
@@ -118,7 +138,7 @@ const SearchableDropdown = ({
         
         // If both start with search term, sort alphabetically
         if (aStartsWith && bStartsWith) {
-          return a.localeCompare(b);
+          return aStr.localeCompare(bStr);
         }
         
         // For other matches, sort by position of match (earlier match = higher priority)
@@ -129,7 +149,7 @@ const SearchableDropdown = ({
         }
         
         // If same position, sort alphabetically
-        return a.localeCompare(b);
+        return aStr.localeCompare(bStr);
       });
       
       setFilteredOptions(sorted);
@@ -163,12 +183,8 @@ const SearchableDropdown = ({
     const newSearchTerm = e.target.value;
     setSearchTerm(newSearchTerm);
     
-    // Only open dropdown if user has typed something
-    if (newSearchTerm.trim().length > 0) {
-      setIsOpen(true);
-    } else {
-      setIsOpen(false);
-    }
+    // Always keep dropdown open when user is typing or has focus
+    setIsOpen(true);
     
     // If user clears the input, clear the value
     if (newSearchTerm === '') {
@@ -177,14 +193,26 @@ const SearchableDropdown = ({
   };
 
   const handleOptionSelect = (option) => {
-    setSearchTerm(option);
-    onChange(option);
+    // Extract the value from option (handles both strings and objects)
+    const optionValue = typeof option === 'string' 
+      ? option 
+      : (option?.value || option?.label || option?.name || String(option));
+    const optionLabel = typeof option === 'string'
+      ? option
+      : (option?.label || option?.value || option?.name || String(option));
+    
+    setSearchTerm(optionLabel);
+    onChange(optionValue);
     setIsOpen(false);
   };
 
   const handleInputFocus = () => {
-    // Don't show dropdown on focus, only when user types
-    setSearchTerm('');
+    // Show dropdown on focus with all options
+    setIsOpen(true);
+    // Keep current value in search term if it exists, otherwise clear it
+    if (!value) {
+      setSearchTerm('');
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -199,32 +227,55 @@ const SearchableDropdown = ({
 
   return (
     <div ref={dropdownRef} style={{ position: 'relative', width: '100%', zIndex: 1 }}>
-      <input
-        ref={inputRef}
-        type="text"
-        value={searchTerm}
-        onChange={handleInputChange}
-        onFocus={handleInputFocus}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        style={{
-          ...style,
-          border: `1px solid ${error ? '#ef4444' : isOpen ? '#3b82f6' : '#d1d5db'}`,
-          boxShadow: isOpen ? '0 0 0 3px rgba(59, 130, 246, 0.1)' : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-          cursor: 'text'
-        }}
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        spellCheck="false"
-        data-lpignore="true"
-        data-form-type="other"
-        name="state-search"
-        role="combobox"
-        aria-expanded={isOpen}
-        aria-haspopup="listbox"
-        aria-autocomplete="list"
-      />
+      <div style={{ position: 'relative', width: '100%' }}>
+        <input
+          ref={inputRef}
+          type="text"
+          value={searchTerm}
+          onChange={handleInputChange}
+          onFocus={handleInputFocus}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          style={{
+            ...style,
+            width: '100%',
+            border: `1px solid ${error ? '#ef4444' : isOpen ? '#3b82f6' : '#d1d5db'}`,
+            boxShadow: isOpen ? '0 0 0 3px rgba(59, 130, 246, 0.1)' : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+            cursor: style.cursor || 'text',
+            outline: 'none',
+            transition: 'all 0.2s',
+            paddingRight: style.paddingRight || '40px'
+          }}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck="false"
+          data-lpignore="true"
+          data-form-type="other"
+          name="state-search"
+          role="combobox"
+          aria-expanded={isOpen}
+          aria-haspopup="listbox"
+          aria-autocomplete="list"
+        />
+        <span 
+          className="material-icons" 
+          style={{
+            position: 'absolute',
+            right: '12px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            fontSize: '20px',
+            color: isOpen ? '#3b82f6' : '#9ca3af',
+            pointerEvents: 'none',
+            transition: 'color 0.2s',
+            display: 'flex',
+            alignItems: 'center'
+          }}
+        >
+          {isOpen ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}
+        </span>
+      </div>
       
       {isOpen && (
         <div 
@@ -245,6 +296,11 @@ const SearchableDropdown = ({
         }}>
           {filteredOptions.length > 0 ? (
             filteredOptions.map((option, index) => {
+              // Extract the display label from option (handles both strings and objects)
+              const optionLabel = typeof option === 'string'
+                ? option
+                : (option?.label || option?.value || option?.name || String(option));
+              
               // Highlight matching text
               const highlightMatch = (text, searchTerm) => {
                 if (!searchTerm.trim()) return text;
@@ -261,7 +317,7 @@ const SearchableDropdown = ({
 
               return (
                 <div
-                  key={option}
+                  key={typeof option === 'string' ? option : (option?.value || option?.label || index)}
                   onClick={() => handleOptionSelect(option)}
                   style={{
                     padding: '12px 16px',
@@ -280,7 +336,7 @@ const SearchableDropdown = ({
                     e.target.style.backgroundColor = 'transparent';
                   }}
                 >
-                  {highlightMatch(option, searchTerm)}
+                  {highlightMatch(optionLabel, searchTerm)}
                 </div>
               );
             })
@@ -405,6 +461,7 @@ const initialFormData = {
   panno: '',
   name: '',
   alias: '',
+  group: '', // Group field for master
   addresses: [{ address: '', country: 'India', state: '', pincode: '' }], // Array of address objects
   gstinno: '',
   // GST Registration Details (shown when GST is selected)
@@ -414,6 +471,14 @@ const initialFormData = {
   setAlterAdditionalGSTDetails: false,
   ignorePrefixesSuffixesInDocNo: false,
   setAlterMSMERegistrationDetails: false,
+  // MSME Registration Details
+  msmeTypeOfEnterprise: '', // Type of Enterprise (Micro, Small, Medium)
+  msmeUdyamRegistrationNumber: '', // UDYAM Registration Number
+  msmeActivityType: 'Unknown', // Activity Type (Unknown, Manufacturing, Services, Traders)
+  // TDS Details
+  isTDSDeductable: false, // Is TDS Deductable (Yes/No)
+  deducteeType: '', // Deductee type
+  deductTDSInSameVoucher: false, // Deduct TDS in Same Voucher (Yes/No)
   contacts: [{ contactPerson: '', email: '', phone: '', mobile: '' }], // Array of contact objects
   bankDetails: [{ accountNumber: '', ifscCode: '', bankName: '' }], // Array of bank detail objects
   panDocumentLink: '', // Document link for PAN
@@ -425,10 +490,12 @@ const initialFormData = {
   specifyCreditLimit: false,
   creditLimitAmount: '',
   overrideCreditLimitPostDated: false,
-  inventoryValuesAffected: false
+  inventoryValuesAffected: false,
+  priceLevelApplicable: false,
+  priceLevel: ''
 };
 
-const VendorForm = ({ 
+const MasterForm = ({ 
   onSuccess, 
   onCancel, 
   initialData, 
@@ -436,7 +503,7 @@ const VendorForm = ({
   isApprovalMode = false,
   onApprove
 }) => {
-  console.log('VendorForm: Component initialized', { isEditing, isApprovalMode, hasInitialData: !!initialData });
+  console.log('MasterForm: Component initialized', { isEditing, isApprovalMode, hasInitialData: !!initialData });
 
   // Common input styles
   const inputStyles = {
@@ -474,18 +541,28 @@ const VendorForm = ({
   const [successMessage, setSuccessMessage] = useState(null);
   const [googleDriveMessage, setGoogleDriveMessage] = useState(null);
   const [isUploadingDocument, setIsUploadingDocument] = useState({ pan: false, gst: false });
+  const [groups, setGroups] = useState([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [priceLevels, setPriceLevels] = useState([]);
+  const [loadingPriceLevels, setLoadingPriceLevels] = useState(false);
+  const [banks, setBanks] = useState([]);
+  const [msmeEnterpriseTypes, setMsmeEnterpriseTypes] = useState([]);
+  const [msmeActivityTypes, setMsmeActivityTypes] = useState([]);
+  const [tdsDeducteeTypes, setTdsDeducteeTypes] = useState([]);
+  const [loadingMasters, setLoadingMasters] = useState(false);
 
   // Pre-fill form data when in approval mode or editing
   useEffect(() => {
     if (isApprovalMode && initialData) {
-      console.log('VendorForm: Pre-filling form for approval mode', initialData);
-      console.log('VendorForm: Available fields in initialData:', Object.keys(initialData));
+      console.log('MasterForm: Pre-filling form for approval mode', initialData);
+      console.log('MasterForm: Available fields in initialData:', Object.keys(initialData));
       
       const preFilledData = {
         tax_type: initialData.gstNumber ? 'GST' : (initialData.panNumber ? 'PAN' : ''),
         panno: initialData.panNumber || '',
         name: initialData.name || '',
         alias: initialData.alias || '',
+        group: initialData.group || '',
         addresses: initialData.addresses && Array.isArray(initialData.addresses) && initialData.addresses.length > 0
           ? initialData.addresses.map(addr => ({
               address: (addr.address || '').replace(/\|/g, '\n'),
@@ -508,6 +585,12 @@ const VendorForm = ({
         setAlterAdditionalGSTDetails: initialData.setAlterAdditionalGSTDetails || false,
         ignorePrefixesSuffixesInDocNo: initialData.ignorePrefixesSuffixesInDocNo || false,
         setAlterMSMERegistrationDetails: initialData.setAlterMSMERegistrationDetails || false,
+        msmeTypeOfEnterprise: initialData.msmeTypeOfEnterprise || '',
+        msmeUdyamRegistrationNumber: initialData.msmeUdyamRegistrationNumber || '',
+        msmeActivityType: initialData.msmeActivityType || 'Unknown',
+        isTDSDeductable: initialData.isTDSDeductable || false,
+        deducteeType: initialData.deducteeType || '',
+        deductTDSInSameVoucher: initialData.deductTDSInSameVoucher || false,
         contacts: initialData.contacts && Array.isArray(initialData.contacts) && initialData.contacts.length > 0
           ? initialData.contacts.map(contact => ({
               contactPerson: contact.contactPerson || '',
@@ -549,7 +632,7 @@ const VendorForm = ({
       
       setFormData(preFilledData);
     } else if (isEditing && initialData) {
-      console.log('VendorForm: Pre-filling form for editing mode', initialData);
+      console.log('MasterForm: Pre-filling form for editing mode', initialData);
       const preFilledData = {
         tax_type: initialData.gstNumber ? 'GST' : (initialData.panNumber ? 'PAN' : ''),
         panno: initialData.panNumber || '',
@@ -611,7 +694,9 @@ const VendorForm = ({
         specifyCreditLimit: initialData.specifyCreditLimit || false,
         creditLimitAmount: initialData.creditLimitAmount || '',
         overrideCreditLimitPostDated: initialData.overrideCreditLimitPostDated || false,
-        inventoryValuesAffected: initialData.inventoryValuesAffected || false
+        inventoryValuesAffected: initialData.inventoryValuesAffected || false,
+        priceLevelApplicable: initialData.priceLevelApplicable || false,
+        priceLevel: initialData.priceLevel || ''
       };
       setFormData(preFilledData);
     }
@@ -656,7 +741,7 @@ const VendorForm = ({
     if (!value || value.trim() === '') {
       return;
     }
-    console.log('VendorForm: Checking duplicate for', field, ':', value);
+    console.log('MasterForm: Checking duplicate for', field, ':', value);
 
     try {
       setDuplicateCheck(prev => ({
@@ -752,7 +837,7 @@ const VendorForm = ({
       }
 
       const result = await response.json();
-      console.log('VendorForm: Duplicate check result for', field, ':', result);
+      console.log('MasterForm: Duplicate check result for', field, ':', result);
 
       // Only show as duplicate if the existing ledger is authorized/approved
       // If it exists but is pending, it's not a duplicate
@@ -808,7 +893,7 @@ const VendorForm = ({
   
   // Debug: Log Google Drive configuration status
   useEffect(() => {
-    console.log('🔍 VendorForm - Google Drive Config Check:', {
+    console.log('🔍 MasterForm - Google Drive Config Check:', {
       configured: isGoogleDriveConfigured,
       hasClientId: googleDriveConfigStatus.hasClientId,
       hasApiKey: googleDriveConfigStatus.hasApiKey,
@@ -1134,7 +1219,7 @@ const VendorForm = ({
 
   // Form management functions
   const updateField = (field, value) => {
-    console.log('VendorForm: Field updated', field, ':', value);
+    console.log('MasterForm: Field updated', field, ':', value);
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -1186,12 +1271,19 @@ const VendorForm = ({
   };
 
   const validateForm = () => {
-    console.log('VendorForm: Validating form');
+    console.log('MasterForm: Validating form');
     const newErrors = {};
 
-    // Only essential mandatory fields for vendor creation
+    // Only essential mandatory fields for master creation
     if (!formData.name.trim()) {
-      newErrors.name = 'Vendor Name is required';
+      newErrors.name = 'Master Name is required';
+    }
+
+    // Check if name and alias are the same
+    if (formData.name.trim() && formData.alias.trim() && 
+        formData.name.trim().toLowerCase() === formData.alias.trim().toLowerCase()) {
+      newErrors.name = 'Master Name and Alias cannot be the same';
+      newErrors.alias = 'Master Name and Alias cannot be the same';
     }
 
     // Tax identification validation - optional but validate format when provided
@@ -1212,7 +1304,7 @@ const VendorForm = ({
     // Check for duplicates (skip in approval mode and edit mode)
     if (!isApprovalMode && !isEditing) {
       if (duplicateCheck.name.isDuplicate) {
-        newErrors.name = duplicateCheck.name.message || 'Vendor name already exists';
+        newErrors.name = duplicateCheck.name.message || 'Master name already exists';
       }
       if (duplicateCheck.alias.isDuplicate) {
         newErrors.alias = duplicateCheck.alias.message || 'Alias already exists';
@@ -1258,7 +1350,7 @@ const VendorForm = ({
 
     setErrors(newErrors);
     const isValid = Object.keys(newErrors).length === 0;
-    console.log('VendorForm: Form validation result:', { isValid, errors: newErrors });
+    console.log('MasterForm: Form validation result:', { isValid, errors: newErrors });
     return isValid;
   };
 
@@ -1299,9 +1391,279 @@ const VendorForm = ({
     }
   }, [successMessage]);
 
-  // Create vendor function
-  const createVendor = async (vendorData) => {
-    console.log('VendorForm: Creating vendor with data:', vendorData);
+  // Fetch all masters data from API (groups, banks, MSME types, price levels)
+  useEffect(() => {
+    const fetchMasters = async () => {
+      setLoadingMasters(true);
+      setLoadingGroups(true);
+      setLoadingPriceLevels(true);
+      try {
+        const token = sessionStorage.getItem('token');
+        if (!token) {
+          console.warn('No authentication token found, skipping masters fetch');
+          return;
+        }
+
+        const tallylocId = sessionStorage.getItem('tallyloc_id');
+        const company = sessionStorage.getItem('company');
+        const guid = sessionStorage.getItem('guid');
+
+        if (!tallylocId || !company || !guid) {
+          console.warn('Missing required session data, skipping masters fetch');
+          return;
+        }
+
+        const payload = {
+          tallyloc_id: parseInt(tallylocId),
+          company: company,
+          guid: guid
+        };
+
+        const response = await fetch(getApiUrl('/api/tally/masters'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Log the full response to understand the structure
+        console.log('📡 Full API response from /api/tally/masters:', data);
+        
+        // Extract GROUPLIST - structure: GROUPLIST.GROUP[]
+        let groupsList = [];
+        if (data && data.GROUPLIST && data.GROUPLIST.GROUP) {
+          groupsList = Array.isArray(data.GROUPLIST.GROUP) 
+            ? data.GROUPLIST.GROUP 
+            : [data.GROUPLIST.GROUP];
+          console.log('✅ Found groups in GROUPLIST.GROUP:', groupsList);
+        } else if (data && data.groups) {
+          // Fallback for alternative structure
+          if (data.groups.GROUP && Array.isArray(data.groups.GROUP)) {
+            groupsList = data.groups.GROUP;
+          } else if (Array.isArray(data.groups)) {
+            groupsList = data.groups;
+          }
+        }
+        
+        if (groupsList.length > 0) {
+          console.log('✅ Setting groups list with', groupsList.length, 'items');
+          setGroups(groupsList);
+        } else {
+          console.warn('⚠️ Groups not found in expected format');
+          setGroups([]);
+        }
+        
+        // Extract BANKLIST - structure: BANKLIST.BANK[]
+        let banksList = [];
+        if (data && data.BANKLIST && data.BANKLIST.BANK) {
+          banksList = Array.isArray(data.BANKLIST.BANK)
+            ? data.BANKLIST.BANK.map(bank => bank.NAME || bank.name || bank)
+            : [data.BANKLIST.BANK.NAME || data.BANKLIST.BANK.name || data.BANKLIST.BANK];
+          console.log('✅ Found banks in BANKLIST.BANK:', banksList);
+        }
+        
+        if (banksList.length > 0) {
+          console.log('✅ Setting banks list with', banksList.length, 'items');
+          setBanks(banksList);
+        } else {
+          console.warn('⚠️ Banks not found in expected format');
+          setBanks([]);
+        }
+        
+        // Extract MSMEENTRPTYPELIST - structure: MSMEENTRPTYPELIST.MSMEENTRPTYPE[]
+        let msmeEntrpTypes = [];
+        if (data && data.MSMEENTRPTYPELIST && data.MSMEENTRPTYPELIST.MSMEENTRPTYPE) {
+          msmeEntrpTypes = Array.isArray(data.MSMEENTRPTYPELIST.MSMEENTRPTYPE)
+            ? data.MSMEENTRPTYPELIST.MSMEENTRPTYPE.map(type => type.NAME || type.name || type)
+            : [data.MSMEENTRPTYPELIST.MSMEENTRPTYPE.NAME || data.MSMEENTRPTYPELIST.MSMEENTRPTYPE.name || data.MSMEENTRPTYPELIST.MSMEENTRPTYPE];
+          console.log('✅ Found MSME enterprise types in MSMEENTRPTYPELIST.MSMEENTRPTYPE:', msmeEntrpTypes);
+        }
+        
+        if (msmeEntrpTypes.length > 0) {
+          console.log('✅ Setting MSME enterprise types list with', msmeEntrpTypes.length, 'items');
+          setMsmeEnterpriseTypes(msmeEntrpTypes);
+        } else {
+          console.warn('⚠️ MSME enterprise types not found in expected format');
+          setMsmeEnterpriseTypes([]);
+        }
+        
+        // Extract MSMEACTVTYPELIST - structure: MSMEACTVTYPELIST.MSMEACTVTYPE[]
+        let msmeActvTypes = [];
+        if (data && data.MSMEACTVTYPELIST && data.MSMEACTVTYPELIST.MSMEACTVTYPE) {
+          msmeActvTypes = Array.isArray(data.MSMEACTVTYPELIST.MSMEACTVTYPE)
+            ? data.MSMEACTVTYPELIST.MSMEACTVTYPE.map(type => type.NAME || type.name || type)
+            : [data.MSMEACTVTYPELIST.MSMEACTVTYPE.NAME || data.MSMEACTVTYPELIST.MSMEACTVTYPE.name || data.MSMEACTVTYPELIST.MSMEACTVTYPE];
+          console.log('✅ Found MSME activity types in MSMEACTVTYPELIST.MSMEACTVTYPE:', msmeActvTypes);
+        }
+        
+        if (msmeActvTypes.length > 0) {
+          console.log('✅ Setting MSME activity types list with', msmeActvTypes.length, 'items');
+          setMsmeActivityTypes(msmeActvTypes);
+        } else {
+          console.warn('⚠️ MSME activity types not found in expected format');
+          setMsmeActivityTypes([]);
+        }
+        
+        // Extract PRICELEVELLIST - structure: PRICELEVELLIST.PRICELEVEL[] (if exists)
+        let priceLevelList = [];
+        if (data && data.PRICELEVELLIST && data.PRICELEVELLIST.PRICELEVEL) {
+          priceLevelList = Array.isArray(data.PRICELEVELLIST.PRICELEVEL)
+            ? data.PRICELEVELLIST.PRICELEVEL
+            : [data.PRICELEVELLIST.PRICELEVEL];
+          console.log('✅ Found price levels in PRICELEVELLIST.PRICELEVEL:', priceLevelList);
+        } else if (data && data.priceLevelList && Array.isArray(data.priceLevelList)) {
+          priceLevelList = data.priceLevelList;
+        }
+        
+        if (priceLevelList.length > 0) {
+          console.log('✅ Setting price levels list with', priceLevelList.length, 'items');
+          setPriceLevels(priceLevelList);
+        } else {
+          console.warn('⚠️ Price levels not found in expected format');
+          setPriceLevels([]);
+        }
+        
+        // Extract TDSDEDUCTEETYPELIST - structure: TDSDEDUCTEETYPELIST.TDSDEDUCTEETYPE[]
+        let tdsDeducteeTypesList = [];
+        if (data && data.TDSDEDUCTEETYPELIST && data.TDSDEDUCTEETYPELIST.TDSDEDUCTEETYPE) {
+          tdsDeducteeTypesList = Array.isArray(data.TDSDEDUCTEETYPELIST.TDSDEDUCTEETYPE)
+            ? data.TDSDEDUCTEETYPELIST.TDSDEDUCTEETYPE.map(type => type.NAME || type.name || type)
+            : [data.TDSDEDUCTEETYPELIST.TDSDEDUCTEETYPE.NAME || data.TDSDEDUCTEETYPELIST.TDSDEDUCTEETYPE.name || data.TDSDEDUCTEETYPELIST.TDSDEDUCTEETYPE];
+          console.log('✅ Found TDS deductee types in TDSDEDUCTEETYPELIST.TDSDEDUCTEETYPE:', tdsDeducteeTypesList);
+        }
+        
+        if (tdsDeducteeTypesList.length > 0) {
+          console.log('✅ Setting TDS deductee types list with', tdsDeducteeTypesList.length, 'items');
+          setTdsDeducteeTypes(tdsDeducteeTypesList);
+        } else {
+          console.warn('⚠️ TDS deductee types not found in expected format');
+          setTdsDeducteeTypes([]);
+        }
+      } catch (error) {
+        console.error('Error fetching masters:', error);
+        setGroups([]);
+        setBanks([]);
+        setMsmeEnterpriseTypes([]);
+        setMsmeActivityTypes([]);
+        setPriceLevels([]);
+        setTdsDeducteeTypes([]);
+      } finally {
+        setLoadingMasters(false);
+        setLoadingGroups(false);
+        setLoadingPriceLevels(false);
+      }
+    };
+
+    fetchMasters();
+  }, []);
+
+  // Get field states based on selected group's ACTIONS
+  const getFieldStates = () => {
+    if (!formData.group) {
+      // If no group selected, enable all fields by default
+      return {
+        hasBankDetails: true,
+        hasGST: true,
+        hasTDS: true,
+        hasAddress: true,
+        hasMSME: true,
+        hasPriceLevel: true,
+        hasCostCenter: true,
+        hasBillByBill: true,
+        hasMultipleAddresses: true,
+        hasMultipleBanks: true,
+        hasODLimit: true,
+        hasGSTAssVal: true,
+        hasGSTHSN: true,
+        hasAffInv: true
+      };
+    }
+
+    // Find the selected group
+    const selectedGroup = groups.find(group => {
+      const groupName = group.NAME || group.name || group.groupName || group.label || String(group) || '';
+      const groupValue = group.NAME || group.name || group.groupName || group.MASTERID || group.id || group.value || String(group) || '';
+      return groupName === formData.group || groupValue === formData.group;
+    });
+
+    if (!selectedGroup || !selectedGroup.ACTIONS) {
+      // If group not found or no ACTIONS, enable all fields
+      return {
+        hasBankDetails: true,
+        hasGST: true,
+        hasTDS: true,
+        hasAddress: true,
+        hasMSME: true,
+        hasPriceLevel: true,
+        hasCostCenter: true,
+        hasBillByBill: true,
+        hasMultipleAddresses: true,
+        hasMultipleBanks: true,
+        hasODLimit: true,
+        hasGSTAssVal: true,
+        hasGSTHSN: true,
+        hasAffInv: true
+      };
+    }
+
+    const actions = selectedGroup.ACTIONS;
+    
+    // Map ACTIONS to field states (Yes = enabled, No = disabled)
+    return {
+      hasBankDetails: actions.HAS_BANKDTLS === 'Yes',
+      hasGST: actions.HAS_GST === 'Yes',
+      hasTDS: actions.HAS_TDS === 'Yes',
+      hasAddress: actions.HAS_ADDRDTLS === 'Yes',
+      hasMSME: actions.HAS_MSMEDTLS === 'Yes',
+      hasPriceLevel: actions.HAS_PRICLVL === 'Yes',
+      hasCostCenter: actions.HAS_COSTCENT === 'Yes',
+      hasBillByBill: actions.HAS_BILLBYBILL === 'Yes',
+      hasMultipleAddresses: actions.HAS_MULTADDRS === 'Yes',
+      hasMultipleBanks: actions.MULTIBANK === 'Yes',
+      hasODLimit: actions.HAS_ODLIMIT === 'Yes',
+      hasGSTAssVal: actions.HAS_GSTASSVAL === 'Yes',
+      hasGSTHSN: actions.HAS_GSTHSNDTLS === 'Yes',
+      hasAffInv: actions.HAS_AFFINV === 'Yes'
+    };
+  };
+
+  const fieldStates = getFieldStates();
+
+  // Real-time validation for name and alias equality
+  useEffect(() => {
+    if (formData.name.trim() && formData.alias.trim() && 
+        formData.name.trim().toLowerCase() === formData.alias.trim().toLowerCase()) {
+      setErrors(prev => ({
+        ...prev,
+        name: 'Master Name and Alias cannot be the same',
+        alias: 'Master Name and Alias cannot be the same'
+      }));
+    } else {
+      // Clear the error if name and alias are different
+      setErrors(prev => {
+        const newErrors = { ...prev };
+        if (newErrors.name === 'Master Name and Alias cannot be the same') {
+          delete newErrors.name;
+        }
+        if (newErrors.alias === 'Master Name and Alias cannot be the same') {
+          delete newErrors.alias;
+        }
+        return newErrors;
+      });
+    }
+  }, [formData.name, formData.alias]);
+
+  // Create master function
+  const createMaster = async (masterData) => {
+    console.log('MasterForm: Creating master with data:', masterData);
     try {
       setSubmitError(null);
 
@@ -1324,110 +1686,119 @@ const VendorForm = ({
         throw new Error('Invalid tallyloc_id: must be a number');
       }
 
-      // Prepare the vendor data for API according to the Postman collection structure
+      // Prepare the master data for API according to the Postman collection structure
       const apiData = {
         tallyloc_id: parseInt(tallylocId),
         company: company,
         guid: guid,
         ledgerData: {
-          name: vendorData.name.trim(), // Trim whitespace
-          alias: vendorData.alias || '',
-          addresses: vendorData.addresses && Array.isArray(vendorData.addresses) && vendorData.addresses.length > 0
-            ? vendorData.addresses.map(addr => ({
+          name: masterData.name.trim(), // Trim whitespace
+          alias: masterData.alias || '',
+          group: masterData.group || '',
+          addresses: masterData.addresses && Array.isArray(masterData.addresses) && masterData.addresses.length > 0
+            ? masterData.addresses.map(addr => ({
                 address: (addr.address || '').replace(/\n/g, '|'), // Convert line breaks to pipe characters for API storage
                 pincode: addr.pincode || '',
                 stateName: addr.state || '',
                 countryName: addr.country || 'India'
               }))
             : [{
-                address: (vendorData.address1 || '').replace(/\n/g, '|'), // Fallback for backward compatibility
-                pincode: vendorData.pincode || '',
-                stateName: vendorData.state || '',
-                countryName: vendorData.country || 'India'
+                address: (masterData.address1 || '').replace(/\n/g, '|'), // Fallback for backward compatibility
+                pincode: masterData.pincode || '',
+                stateName: masterData.state || '',
+                countryName: masterData.country || 'India'
               }],
           // Keep single address fields for backward compatibility (use first address if available)
-          address: vendorData.addresses && vendorData.addresses.length > 0
-            ? (vendorData.addresses[0].address || '').replace(/\n/g, '|')
-            : (vendorData.address1 || '').replace(/\n/g, '|'),
-          pincode: vendorData.addresses && vendorData.addresses.length > 0
-            ? vendorData.addresses[0].pincode || ''
-            : vendorData.pincode || '',
-          stateName: vendorData.addresses && vendorData.addresses.length > 0
-            ? vendorData.addresses[0].state || ''
-            : vendorData.state || '',
-          countryName: vendorData.addresses && vendorData.addresses.length > 0
-            ? vendorData.addresses[0].country || 'India'
-            : vendorData.country || 'India',
-          contacts: vendorData.contacts && Array.isArray(vendorData.contacts) && vendorData.contacts.length > 0
-            ? vendorData.contacts.map(contact => ({
+          address: masterData.addresses && masterData.addresses.length > 0
+            ? (masterData.addresses[0].address || '').replace(/\n/g, '|')
+            : (masterData.address1 || '').replace(/\n/g, '|'),
+          pincode: masterData.addresses && masterData.addresses.length > 0
+            ? masterData.addresses[0].pincode || ''
+            : masterData.pincode || '',
+          stateName: masterData.addresses && masterData.addresses.length > 0
+            ? masterData.addresses[0].state || ''
+            : masterData.state || '',
+          countryName: masterData.addresses && masterData.addresses.length > 0
+            ? masterData.addresses[0].country || 'India'
+            : masterData.country || 'India',
+          contacts: masterData.contacts && Array.isArray(masterData.contacts) && masterData.contacts.length > 0
+            ? masterData.contacts.map(contact => ({
                 contactPerson: contact.contactPerson || '',
                 email: contact.email || '',
                 phoneNo: contact.phone || '',
                 mobileNo: contact.mobile || ''
               }))
             : [{
-                contactPerson: vendorData.contactperson || '',
-                email: vendorData.emailid || '',
-                phoneNo: vendorData.phoneno || '',
-                mobileNo: vendorData.mobileno || ''
+                contactPerson: masterData.contactperson || '',
+                email: masterData.emailid || '',
+                phoneNo: masterData.phoneno || '',
+                mobileNo: masterData.mobileno || ''
               }],
           // Keep single contact fields for backward compatibility (use first contact if available)
-          contactPerson: vendorData.contacts && vendorData.contacts.length > 0
-            ? vendorData.contacts[0].contactPerson || ''
-            : vendorData.contactperson || '',
-          phoneNo: vendorData.contacts && vendorData.contacts.length > 0
-            ? vendorData.contacts[0].phone || ''
-            : vendorData.phoneno || '',
-          mobileNo: vendorData.contacts && vendorData.contacts.length > 0
-            ? vendorData.contacts[0].mobile || ''
-            : vendorData.mobileno || '',
-          email: vendorData.contacts && vendorData.contacts.length > 0
-            ? vendorData.contacts[0].email || ''
-            : vendorData.emailid || '',
+          contactPerson: masterData.contacts && masterData.contacts.length > 0
+            ? masterData.contacts[0].contactPerson || ''
+            : masterData.contactperson || '',
+          phoneNo: masterData.contacts && masterData.contacts.length > 0
+            ? masterData.contacts[0].phone || ''
+            : masterData.phoneno || '',
+          mobileNo: masterData.contacts && masterData.contacts.length > 0
+            ? masterData.contacts[0].mobile || ''
+            : masterData.mobileno || '',
+          email: masterData.contacts && masterData.contacts.length > 0
+            ? masterData.contacts[0].email || ''
+            : masterData.emailid || '',
           emailCC: '', // Not collected in form
-          panNo: vendorData.panno || '',
-          gstinNo: vendorData.gstinno || '',
-          gstRegistrationType: vendorData.gstRegistrationType || 'Regular',
-          assesseeOfOtherTerritory: vendorData.assesseeOfOtherTerritory || false,
-          useLedgerAsCommonParty: vendorData.useLedgerAsCommonParty || false,
-          setAlterAdditionalGSTDetails: vendorData.setAlterAdditionalGSTDetails || false,
-          ignorePrefixesSuffixesInDocNo: vendorData.ignorePrefixesSuffixesInDocNo || false,
-          setAlterMSMERegistrationDetails: vendorData.setAlterMSMERegistrationDetails || false,
-          bankDetails: vendorData.bankDetails && Array.isArray(vendorData.bankDetails) && vendorData.bankDetails.length > 0
-            ? vendorData.bankDetails.map(bank => ({
+          panNo: masterData.panno || '',
+          gstinNo: masterData.gstinno || '',
+          gstRegistrationType: masterData.gstRegistrationType || 'Regular',
+          assesseeOfOtherTerritory: masterData.assesseeOfOtherTerritory || false,
+          useLedgerAsCommonParty: masterData.useLedgerAsCommonParty || false,
+          setAlterAdditionalGSTDetails: masterData.setAlterAdditionalGSTDetails || false,
+          ignorePrefixesSuffixesInDocNo: masterData.ignorePrefixesSuffixesInDocNo || false,
+          setAlterMSMERegistrationDetails: masterData.setAlterMSMERegistrationDetails || false,
+          msmeTypeOfEnterprise: masterData.msmeTypeOfEnterprise || '',
+          msmeUdyamRegistrationNumber: masterData.msmeUdyamRegistrationNumber || '',
+          msmeActivityType: masterData.msmeActivityType || 'Unknown',
+          isTDSDeductable: masterData.isTDSDeductable || false,
+          deducteeType: masterData.deducteeType || '',
+          deductTDSInSameVoucher: masterData.deductTDSInSameVoucher || false,
+          priceLevelApplicable: masterData.priceLevelApplicable || false,
+          priceLevel: masterData.priceLevel || '',
+          bankDetails: masterData.bankDetails && Array.isArray(masterData.bankDetails) && masterData.bankDetails.length > 0
+            ? masterData.bankDetails.map(bank => ({
                 accountNumber: bank.accountNumber || '',
                 ifscCode: bank.ifscCode || '',
                 bankName: bank.bankName || ''
               }))
             : [{
-                accountNumber: vendorData.accountno || '',
-                ifscCode: vendorData.ifsccode || '',
-                bankName: vendorData.bankname || ''
+                accountNumber: masterData.accountno || '',
+                ifscCode: masterData.ifsccode || '',
+                bankName: masterData.bankname || ''
               }],
           // Keep single bank fields for backward compatibility (use first bank detail if available)
-          bankName: vendorData.bankDetails && vendorData.bankDetails.length > 0
-            ? vendorData.bankDetails[0].bankName || ''
-            : vendorData.bankname || '',
-          accountNo: vendorData.bankDetails && vendorData.bankDetails.length > 0
-            ? vendorData.bankDetails[0].accountNumber || ''
-            : vendorData.accountno || '',
-          ifscCode: vendorData.bankDetails && vendorData.bankDetails.length > 0
-            ? vendorData.bankDetails[0].ifscCode || ''
-            : vendorData.ifsccode || '',
-          panDocumentLink: vendorData.panDocumentLink || '',
-          gstDocumentLink: vendorData.gstDocumentLink || ''
+          bankName: masterData.bankDetails && masterData.bankDetails.length > 0
+            ? masterData.bankDetails[0].bankName || ''
+            : masterData.bankname || '',
+          accountNo: masterData.bankDetails && masterData.bankDetails.length > 0
+            ? masterData.bankDetails[0].accountNumber || ''
+            : masterData.accountno || '',
+          ifscCode: masterData.bankDetails && masterData.bankDetails.length > 0
+            ? masterData.bankDetails[0].ifscCode || ''
+            : masterData.ifsccode || '',
+          panDocumentLink: masterData.panDocumentLink || '',
+          gstDocumentLink: masterData.gstDocumentLink || ''
         }
       };
 
 
       // Validate required fields before API call
       if (!apiData.ledgerData.name) {
-        throw new Error('Vendor Name is mandatory');
+        throw new Error('Master Name is mandatory');
       }
 
       // Additional validation for data quality
       if (apiData.ledgerData.name.length < 2) {
-        throw new Error('Vendor name must be at least 2 characters long');
+        throw new Error('Master name must be at least 2 characters long');
       }
       
       if (apiData.ledgerData.mobileNo && !/^[6-9][0-9]{9}$/.test(apiData.ledgerData.mobileNo)) {
@@ -1500,7 +1871,7 @@ const VendorForm = ({
       });
 
       if (!response.ok) {
-        let errorMessage = 'Failed to create vendor';
+        let errorMessage = 'Failed to create master';
         try {
           const errorData = await response.json();
           console.error('API Error Response:', errorData);
@@ -1513,7 +1884,7 @@ const VendorForm = ({
       }
 
       const result = await response.json();
-      console.log('VendorForm: Vendor creation API response:', result);
+      console.log('MasterForm: Master creation API response:', result);
       
       // Check if the API response indicates success
       if (result.success === false) {
@@ -1534,17 +1905,17 @@ const VendorForm = ({
           errorMessage += `\n\nTry using a unique name like: "${uniqueName}"`;
           
           // Also suggest checking existing ledgers
-          errorMessage += `\n\nOr check the vendor list to see if "${result.ledgerName}" already exists.`;
+          errorMessage += `\n\nOr check the master list to see if "${result.ledgerName}" already exists.`;
         }
         
         
         throw new Error(errorMessage);
       }
       
-      console.log('VendorForm: Vendor created successfully');
+      console.log('MasterForm: Master created successfully');
       return result;
     } catch (err) {
-      console.error('Error creating vendor:', err);
+      console.error('Error creating master:', err);
       setSubmitError(err.message);
       throw err;
     }
@@ -1552,67 +1923,67 @@ const VendorForm = ({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log('VendorForm: Form submitted');
+    console.log('MasterForm: Form submitted');
 
     if (!validateForm()) {
-      console.log('VendorForm: Form validation failed');
+      console.log('MasterForm: Form validation failed');
       return;
     }
 
     try {
       if (isApprovalMode) {
         // In approval mode, call the approve callback
-        console.log('VendorForm: Approving vendor');
+        console.log('MasterForm: Approving master');
         await onApprove?.(formData);
       } else if (isEditing) {
-        // Vendor editing/updating
-        console.log('VendorForm: Updating vendor');
-        const result = await createVendor(formData); // ledger-create handles updates if vendor exists
+        // Master editing/updating
+        console.log('MasterForm: Updating master');
+        const result = await createMaster(formData); // ledger-create handles updates if master exists
         
-        // Save vendor name before resetting form
-        const updatedVendorName = formData.name;
+        // Save master name before resetting form
+        const updatedMasterName = formData.name;
         
         // Reset form (but keep success message for now)
         resetForm(true);
         
-        // Show success message with vendor details
-        console.log('VendorForm: Vendor update successful');
-        setSuccessMessage(`Vendor updated successfully\n\nVendor: ${updatedVendorName}`);
+        // Show success message with master details
+        console.log('MasterForm: Master update successful');
+        setSuccessMessage(`Master updated successfully\n\nMaster: ${updatedMasterName}`);
         
-        // Trigger global refresh to update vendor lists
+        // Trigger global refresh to update master lists
         window.dispatchEvent(new CustomEvent('globalRefresh'));
         
         // Call success callback
         onSuccess?.();
       } else {
-        // Normal vendor creation
-        console.log('VendorForm: Creating new vendor');
-        const result = await createVendor(formData);
+        // Normal master creation
+        console.log('MasterForm: Creating new master');
+        const result = await createMaster(formData);
         
-        // Save vendor name before resetting form
-        const createdVendorName = formData.name;
+        // Save master name before resetting form
+        const createdMasterName = formData.name;
         
         // Reset form (but keep success message for now)
         resetForm(true);
         
-        // Show success message with vendor details
-        console.log('VendorForm: Vendor creation successful');
-        setSuccessMessage(`Vendor created, sent for authorization\n\nVendor: ${createdVendorName}`);
+        // Show success message with master details
+        console.log('MasterForm: Master creation successful');
+        setSuccessMessage(`Master created, sent for authorization\n\nMaster: ${createdMasterName}`);
         
-        // Trigger global refresh to update vendor lists
+        // Trigger global refresh to update master lists
         window.dispatchEvent(new CustomEvent('globalRefresh'));
         
         // Call success callback
         onSuccess?.();
       }
     } catch (error) {
-      console.error(isApprovalMode ? 'Vendor approval failed:' : (isEditing ? 'Vendor update failed:' : 'Vendor creation failed:'), error);
-      // Error is already handled in the createVendor function
+      console.error(isApprovalMode ? 'Master approval failed:' : (isEditing ? 'Master update failed:' : 'Master creation failed:'), error);
+      // Error is already handled in the createMaster function
     }
   };
 
   const handleCancel = () => {
-    console.log('VendorForm: Form cancelled');
+    console.log('MasterForm: Form cancelled');
     resetForm();
     onCancel?.();
   };
@@ -1627,30 +1998,30 @@ const VendorForm = ({
       paddingLeft: 220,
     }}>
       <style>{`
-        .vendor-form-grid > div {
+        .master-form-grid > div {
           min-width: 0;
           overflow: hidden;
         }
-        .vendor-form-grid input,
-        .vendor-form-grid select,
-        .vendor-form-grid textarea {
+        .master-form-grid input,
+        .master-form-grid select,
+        .master-form-grid textarea {
           max-width: 100%;
           box-sizing: border-box;
         }
         @media (max-width: 1200px) {
-          .vendor-form-grid {
+          .master-form-grid {
             grid-template-columns: repeat(2, 1fr) !important;
             gap: 20px !important;
           }
         }
         @media (max-width: 900px) {
-          .vendor-form-grid {
+          .master-form-grid {
             grid-template-columns: 1fr !important;
             gap: 20px !important;
           }
         }
         @media (max-width: 600px) {
-          .vendor-form-grid {
+          .master-form-grid {
             gap: 16px !important;
           }
         }
@@ -1685,7 +2056,7 @@ const VendorForm = ({
             <span className="material-icons" style={{ fontSize: '24px', color: '#3b82f6' }}>
               {isApprovalMode ? 'verified_user' : (isEditing ? 'edit' : 'person_add')}
             </span>
-            {isApprovalMode ? 'Approve Vendor' : (isEditing ? 'Edit Vendor' : 'Vendor Information Form')}
+            {isApprovalMode ? 'Approve Master' : (isEditing ? 'Edit Master' : 'Master Information Form')}
           </h2>
 
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -1720,7 +2091,7 @@ const VendorForm = ({
                   margin: '0 0 8px 0',
                   lineHeight: '1.5'
                 }}>
-                  Vendor created, sent for authorization
+                  Master created, sent for authorization
                 </p>
                 <p style={{ 
                   color: '#047857', 
@@ -1914,13 +2285,13 @@ const VendorForm = ({
           {/* Basic Information Tab */}
           {activeTab === 'basic' && (
             <div>
-              <div className="vendor-form-grid" style={{ 
+              <div className="master-form-grid" style={{ 
                 display: 'grid', 
                 gridTemplateColumns: 'repeat(3, 1fr)', 
                 gap: '24px',
                 alignItems: 'start'
               }}>
-                {/* Vendor Name */}
+                {/* Master Name */}
                 <div>
                   <label style={{ 
                     display: 'block', 
@@ -1930,7 +2301,7 @@ const VendorForm = ({
                     marginBottom: '6px',
                     fontFamily: 'system-ui, -apple-system, sans-serif'
                   }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.VENDOR_NAME} *
+                    {MASTER_CONSTANTS.FORM_LABELS.MASTER_NAME} *
                   </label>
                   <div style={{ position: 'relative' }}>
                     <input
@@ -1942,7 +2313,7 @@ const VendorForm = ({
                         border: `1px solid ${errors.name ? '#ef4444' : duplicateCheck.name.isDuplicate ? '#ef4444' : '#d1d5db'}`,
                         paddingRight: duplicateCheck.name.isChecking ? '40px' : '16px'
                       }}
-                      placeholder="Enter vendor name"
+                      placeholder="Enter master name"
                     />
                     {duplicateCheck.name.isChecking && (
                       <div style={{
@@ -2005,7 +2376,7 @@ const VendorForm = ({
                   {duplicateCheck.name.isDuplicate && !errors.name && (
                     <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <span className="material-icons" style={{ fontSize: '14px' }}>warning</span>
-                      {duplicateCheck.name.message || 'Vendor name already exists'}
+                      {duplicateCheck.name.message || 'Master name already exists'}
                     </p>
                   )}
                 </div>
@@ -2020,7 +2391,7 @@ const VendorForm = ({
                     marginBottom: '6px',
                     fontFamily: 'system-ui, -apple-system, sans-serif'
                   }}>
-                    {VENDOR_CONSTANTS.FORM_LABELS.ALIAS}
+                    {MASTER_CONSTANTS.FORM_LABELS.ALIAS}
                   </label>
                   <div style={{ position: 'relative' }}>
                     <input
@@ -2100,6 +2471,60 @@ const VendorForm = ({
                   )}
                 </div>
 
+                {/* Group */}
+                <div>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '14px', 
+                    fontWeight: '500', 
+                    color: '#374151', 
+                    marginBottom: '6px',
+                    fontFamily: 'system-ui, -apple-system, sans-serif'
+                  }}>
+                    Group
+                  </label>
+                  <div style={{ 
+                    opacity: loadingGroups ? 0.6 : 1, 
+                    pointerEvents: loadingGroups ? 'none' : 'auto',
+                    position: 'relative'
+                  }}>
+                    <SearchableDropdown
+                      options={groups.map((group, index) => {
+                        // Extract NAME from GROUPLIST.GROUP[] structure
+                        const groupName = group.NAME || group.name || group.groupName || group.label || String(group) || '';
+                        const groupValue = group.NAME || group.name || group.groupName || group.MASTERID || group.id || group.value || String(group) || '';
+                        return {
+                          value: groupName || groupValue,
+                          label: groupName || groupValue || 'Unnamed Group'
+                        };
+                      })}
+                      value={formData.group}
+                      onChange={(value) => updateField('group', value)}
+                      placeholder={loadingGroups ? "Loading groups..." : "Search or select group"}
+                      style={{
+                        ...inputStyles,
+                        border: `1px solid ${errors.group ? '#ef4444' : '#d1d5db'}`,
+                        width: '100%',
+                        padding: '12px 16px',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontFamily: 'system-ui, -apple-system, sans-serif',
+                        backgroundColor: loadingGroups ? '#f3f4f6' : '#fff',
+                        cursor: loadingGroups ? 'not-allowed' : 'text',
+                        transition: 'all 0.2s',
+                        paddingRight: '40px'
+                      }}
+                      error={!!errors.group}
+                    />
+                  </div>
+                  {loadingGroups && (
+                    <p style={{ color: '#6b7280', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+                      Loading groups...
+                    </p>
+                  )}
+                  {errors.group && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.group}</p>}
+                </div>
+
                 {/* Additional Details Button */}
                 <div style={{ gridColumn: 'span 3', marginTop: '8px' }}>
                   <button
@@ -2153,17 +2578,19 @@ const VendorForm = ({
                           fontFamily: 'system-ui, -apple-system, sans-serif',
                           cursor: 'pointer'
                         }}>
-                          <input
-                            type="checkbox"
-                            checked={formData.maintainBalancesBillByBill}
-                            onChange={(e) => updateField('maintainBalancesBillByBill', e.target.checked)}
-                            style={{
-                              width: '18px',
-                              height: '18px',
-                              cursor: 'pointer',
-                              accentColor: '#3b82f6'
-                            }}
-                          />
+                            <input
+                              type="checkbox"
+                              checked={formData.maintainBalancesBillByBill}
+                              onChange={(e) => updateField('maintainBalancesBillByBill', e.target.checked)}
+                              disabled={!fieldStates.hasBillByBill}
+                              style={{
+                                width: '18px',
+                                height: '18px',
+                                cursor: !fieldStates.hasBillByBill ? 'not-allowed' : 'pointer',
+                                accentColor: '#3b82f6',
+                                opacity: !fieldStates.hasBillByBill ? 0.6 : 1
+                              }}
+                            />
                           <span>Maintain balances bill-by-bill</span>
                         </label>
                         
@@ -2185,9 +2612,13 @@ const VendorForm = ({
                                 type="text"
                                 value={formData.defaultCreditPeriod}
                                 onChange={(e) => updateField('defaultCreditPeriod', e.target.value)}
+                                disabled={!fieldStates.hasBillByBill}
                                 style={{
                                   ...inputStyles,
-                                  border: `1px solid ${errors.defaultCreditPeriod ? '#ef4444' : '#d1d5db'}`
+                                  border: `1px solid ${errors.defaultCreditPeriod ? '#ef4444' : '#d1d5db'}`,
+                                  opacity: !fieldStates.hasBillByBill ? 0.6 : 1,
+                                  cursor: !fieldStates.hasBillByBill ? 'not-allowed' : 'text',
+                                  backgroundColor: !fieldStates.hasBillByBill ? '#f3f4f6' : '#fff'
                                 }}
                                 placeholder="Enter credit period (e.g., 30 days)"
                               />
@@ -2209,14 +2640,16 @@ const VendorForm = ({
                                 type="checkbox"
                                 checked={formData.checkCreditDaysDuringVoucher}
                                 onChange={(e) => updateField('checkCreditDaysDuringVoucher', e.target.checked)}
+                                disabled={!fieldStates.hasBillByBill}
                                 style={{
                                   width: '18px',
                                   height: '18px',
-                                  cursor: 'pointer',
-                                  accentColor: '#3b82f6'
+                                  cursor: !fieldStates.hasBillByBill ? 'not-allowed' : 'pointer',
+                                  accentColor: '#3b82f6',
+                                  opacity: !fieldStates.hasBillByBill ? 0.6 : 1
                                 }}
                               />
-                              <span>Check for credit days during voucher entry</span>
+                              <span style={{ opacity: !fieldStates.hasBillByBill ? 0.6 : 1 }}>Check for credit days during voucher entry</span>
                             </label>
                           </div>
                         )}
@@ -2332,6 +2765,87 @@ const VendorForm = ({
                           <span>Inventory values are affected</span>
                         </label>
                       </div>
+
+                      {/* Price level applicable */}
+                      <div>
+                        <label style={{ 
+                          display: 'flex', 
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151',
+                          fontFamily: 'system-ui, -apple-system, sans-serif',
+                          cursor: 'pointer'
+                        }}>
+                        <input
+                          type="checkbox"
+                          checked={formData.priceLevelApplicable}
+                          onChange={(e) => updateField('priceLevelApplicable', e.target.checked)}
+                          disabled={!fieldStates.hasPriceLevel}
+                          style={{
+                            width: '18px',
+                            height: '18px',
+                            cursor: !fieldStates.hasPriceLevel ? 'not-allowed' : 'pointer',
+                            accentColor: '#3b82f6',
+                            opacity: !fieldStates.hasPriceLevel ? 0.6 : 1
+                          }}
+                        />
+                        <span style={{ opacity: !fieldStates.hasPriceLevel ? 0.6 : 1 }}>Price level applicable</span>
+                        </label>
+                        
+                        {formData.priceLevelApplicable && (
+                          <div style={{ marginLeft: '26px', marginTop: '12px' }}>
+                            {/* Price Level Dropdown */}
+                            <div>
+                              <label style={{ 
+                                display: 'block', 
+                                fontSize: '13px', 
+                                fontWeight: '500', 
+                                color: '#374151', 
+                                marginBottom: '6px',
+                                fontFamily: 'system-ui, -apple-system, sans-serif'
+                              }}>
+                                Price Level
+                              </label>
+                              <select
+                                value={formData.priceLevel}
+                                onChange={(e) => updateField('priceLevel', e.target.value)}
+                                style={{
+                                  ...selectStyles,
+                                  border: `1px solid ${errors.priceLevel ? '#ef4444' : '#d1d5db'}`,
+                                  opacity: !fieldStates.hasPriceLevel ? 0.6 : 1,
+                                  cursor: !fieldStates.hasPriceLevel ? 'not-allowed' : 'pointer'
+                                }}
+                                disabled={loadingPriceLevels || !fieldStates.hasPriceLevel}
+                              >
+                                <option value="">Select Price Level</option>
+                                {priceLevels.map((level, index) => {
+                                  // Handle different possible price level object structures
+                                  // Tally API typically uses MASTERID and NAME
+                                  const levelName = level.NAME || level.name || level.priceLevelName || level.label || String(level) || '';
+                                  const levelValue = level.NAME || level.name || level.priceLevelName || level.MASTERID || level.id || level.value || String(level) || '';
+                                  
+                                  // Use index as fallback key if value is empty
+                                  const key = levelValue || `priceLevel-${index}`;
+                                  
+                                  return (
+                                    <option key={key} value={levelValue}>
+                                      {levelName || levelValue || 'Unnamed Price Level'}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                              {loadingPriceLevels && (
+                                <p style={{ color: '#6b7280', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+                                  Loading price levels...
+                                </p>
+                              )}
+                              {errors.priceLevel && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.priceLevel}</p>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2343,6 +2857,24 @@ const VendorForm = ({
           {/* Address Tab */}
           {activeTab === 'address' && (
             <div>
+              {!fieldStates.hasAddress && (
+                <div style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#fef3c7',
+                  border: '1px solid #fbbf24',
+                  borderRadius: '6px',
+                  marginBottom: '16px'
+                }}>
+                  <p style={{ 
+                    color: '#92400e', 
+                    fontSize: '14px', 
+                    margin: '0',
+                    fontFamily: 'system-ui, -apple-system, sans-serif'
+                  }}>
+                    Address Details are disabled for the selected group.
+                  </p>
+                </div>
+              )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 {formData.addresses.map((addr, index) => (
                   <div key={index} style={{ 
@@ -2396,7 +2928,7 @@ const VendorForm = ({
                       Address {index + 1}
                     </h3>
 
-                    <div className="vendor-form-grid" style={{ 
+                    <div className="master-form-grid" style={{ 
                       display: 'grid', 
                       gridTemplateColumns: 'repeat(2, 1fr)', 
                       gap: '24px',
@@ -2412,16 +2944,20 @@ const VendorForm = ({
                           marginBottom: '6px',
                           fontFamily: 'system-ui, -apple-system, sans-serif'
                         }}>
-                          {VENDOR_CONSTANTS.FORM_LABELS.ADDRESS}
+                          {MASTER_CONSTANTS.FORM_LABELS.ADDRESS}
                         </label>
                         <textarea
                           value={addr.address}
                           onChange={(e) => updateAddressField(index, 'address', e.target.value)}
+                          disabled={!fieldStates.hasAddress}
                           style={{
                             ...inputStyles,
                             minHeight: '80px',
                             resize: 'vertical',
-                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                            fontFamily: 'system-ui, -apple-system, sans-serif',
+                            opacity: !fieldStates.hasAddress ? 0.6 : 1,
+                            cursor: !fieldStates.hasAddress ? 'not-allowed' : 'text',
+                            backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
                           }}
                           placeholder="Enter complete address"
                           rows={3}
@@ -2438,19 +2974,22 @@ const VendorForm = ({
                           marginBottom: '6px',
                           fontFamily: 'system-ui, -apple-system, sans-serif'
                         }}>
-                          {VENDOR_CONSTANTS.FORM_LABELS.COUNTRY}
+                          {MASTER_CONSTANTS.FORM_LABELS.COUNTRY}
                         </label>
-                        <SearchableDropdown
-                          options={VENDOR_CONSTANTS.COUNTRIES}
-                          value={addr.country}
-                          onChange={(value) => updateAddressField(index, 'country', value)}
-                          placeholder="Start typing to search countries..."
-                          style={{
-                            ...inputStyles,
-                            border: `1px solid ${errors[`address_${index}_country`] ? '#ef4444' : '#d1d5db'}`
-                          }}
-                          error={!!errors[`address_${index}_country`]}
-                        />
+                        <div style={{ opacity: !fieldStates.hasAddress ? 0.6 : 1, pointerEvents: !fieldStates.hasAddress ? 'none' : 'auto' }}>
+                          <SearchableDropdown
+                            options={MASTER_CONSTANTS.COUNTRIES}
+                            value={addr.country}
+                            onChange={(value) => updateAddressField(index, 'country', value)}
+                            placeholder="Start typing to search countries..."
+                            style={{
+                              ...inputStyles,
+                              border: `1px solid ${errors[`address_${index}_country`] ? '#ef4444' : '#d1d5db'}`,
+                              backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
+                            }}
+                            error={!!errors[`address_${index}_country`]}
+                          />
+                        </div>
                         {errors[`address_${index}_country`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`address_${index}_country`]}</p>}
                       </div>
 
@@ -2464,19 +3003,22 @@ const VendorForm = ({
                           marginBottom: '6px',
                           fontFamily: 'system-ui, -apple-system, sans-serif'
                         }}>
-                          {VENDOR_CONSTANTS.FORM_LABELS.STATE}
+                          {MASTER_CONSTANTS.FORM_LABELS.STATE}
                         </label>
-                        <SearchableDropdown
-                          options={VENDOR_CONSTANTS.INDIAN_STATES}
-                          value={addr.state}
-                          onChange={(value) => updateAddressField(index, 'state', value)}
-                          placeholder="Start typing to search states..."
-                          style={{
-                            ...inputStyles,
-                            border: `1px solid ${errors[`address_${index}_state`] ? '#ef4444' : '#d1d5db'}`
-                          }}
-                          error={!!errors[`address_${index}_state`]}
-                        />
+                        <div style={{ opacity: !fieldStates.hasAddress ? 0.6 : 1, pointerEvents: !fieldStates.hasAddress ? 'none' : 'auto' }}>
+                          <SearchableDropdown
+                            options={MASTER_CONSTANTS.INDIAN_STATES}
+                            value={addr.state}
+                            onChange={(value) => updateAddressField(index, 'state', value)}
+                            placeholder="Start typing to search states..."
+                            style={{
+                              ...inputStyles,
+                              border: `1px solid ${errors[`address_${index}_state`] ? '#ef4444' : '#d1d5db'}`,
+                              backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
+                            }}
+                            error={!!errors[`address_${index}_state`]}
+                          />
+                        </div>
                         {errors[`address_${index}_state`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`address_${index}_state`]}</p>}
                       </div>
 
@@ -2490,16 +3032,20 @@ const VendorForm = ({
                           marginBottom: '6px',
                           fontFamily: 'system-ui, -apple-system, sans-serif'
                         }}>
-                          {VENDOR_CONSTANTS.FORM_LABELS.PINCODE}
+                          {MASTER_CONSTANTS.FORM_LABELS.PINCODE}
                         </label>
                         <input
                           type="text"
                           value={addr.pincode}
                           onChange={(e) => updateAddressField(index, 'pincode', e.target.value)}
                           maxLength={6}
+                          disabled={!fieldStates.hasAddress}
                           style={{
                             ...inputStyles,
-                            border: `1px solid ${errors[`address_${index}_pincode`] ? '#ef4444' : '#d1d5db'}`
+                            border: `1px solid ${errors[`address_${index}_pincode`] ? '#ef4444' : '#d1d5db'}`,
+                            opacity: !fieldStates.hasAddress ? 0.6 : 1,
+                            cursor: !fieldStates.hasAddress ? 'not-allowed' : 'text',
+                            backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
                           }}
                           placeholder="Enter 6-digit pincode"
                         />
@@ -2510,38 +3056,46 @@ const VendorForm = ({
                 ))}
 
                 {/* Add Address Button */}
-                <div>
-                  <button
-                    type="button"
-                    onClick={addAddress}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                      padding: '12px 24px',
-                      backgroundColor: '#3b82f6',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '8px',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      cursor: 'pointer',
-                      transition: 'background-color 0.2s',
-                      fontFamily: 'system-ui, -apple-system, sans-serif',
-                      width: '100%'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.backgroundColor = '#2563eb';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.backgroundColor = '#3b82f6';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
-                    Add Address
-                  </button>
-                </div>
+                {fieldStates.hasMultipleAddresses && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={addAddress}
+                      disabled={!fieldStates.hasAddress}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        padding: '12px 24px',
+                        backgroundColor: !fieldStates.hasAddress ? '#9ca3af' : '#3b82f6',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        cursor: !fieldStates.hasAddress ? 'not-allowed' : 'pointer',
+                        transition: 'background-color 0.2s',
+                        fontFamily: 'system-ui, -apple-system, sans-serif',
+                        width: '100%',
+                        opacity: !fieldStates.hasAddress ? 0.6 : 1
+                      }}
+                      onMouseEnter={(e) => {
+                        if (fieldStates.hasAddress) {
+                          e.target.style.backgroundColor = '#2563eb';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (fieldStates.hasAddress) {
+                          e.target.style.backgroundColor = '#3b82f6';
+                        }
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
+                      Add Address
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2549,6 +3103,24 @@ const VendorForm = ({
           {/* Contact Details Tab */}
           {activeTab === 'contact' && (
             <div>
+              {!fieldStates.hasAddress && (
+                <div style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#fef3c7',
+                  border: '1px solid #fbbf24',
+                  borderRadius: '6px',
+                  marginBottom: '16px'
+                }}>
+                  <p style={{ 
+                    color: '#92400e', 
+                    fontSize: '14px', 
+                    margin: '0',
+                    fontFamily: 'system-ui, -apple-system, sans-serif'
+                  }}>
+                    Contact Details are disabled for the selected group.
+                  </p>
+                </div>
+              )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 {formData.contacts.map((contact, index) => (
                   <div key={index} style={{ 
@@ -2602,7 +3174,7 @@ const VendorForm = ({
                       {index === 0 ? 'Primary Contact' : `Contact ${index + 1}`}
                     </h3>
 
-                    <div className="vendor-form-grid" style={{ 
+                    <div className="master-form-grid" style={{ 
                       display: 'grid', 
                       gridTemplateColumns: 'repeat(2, 1fr)', 
                       gap: '24px',
@@ -2618,15 +3190,19 @@ const VendorForm = ({
                           marginBottom: '6px',
                           fontFamily: 'system-ui, -apple-system, sans-serif'
                         }}>
-                          {index === 0 ? VENDOR_CONSTANTS.FORM_LABELS.CONTACT_PERSON : 'Contact Name'}
+                          {index === 0 ? MASTER_CONSTANTS.FORM_LABELS.CONTACT_PERSON : 'Contact Name'}
                         </label>
                         <input
                           type="text"
                           value={contact.contactPerson}
                           onChange={(e) => updateContactField(index, 'contactPerson', e.target.value)}
+                          disabled={!fieldStates.hasAddress}
                           style={{
                             ...inputStyles,
-                            border: `1px solid ${errors[`contact_${index}_contactPerson`] ? '#ef4444' : '#d1d5db'}`
+                            border: `1px solid ${errors[`contact_${index}_contactPerson`] ? '#ef4444' : '#d1d5db'}`,
+                            opacity: !fieldStates.hasAddress ? 0.6 : 1,
+                            cursor: !fieldStates.hasAddress ? 'not-allowed' : 'text',
+                            backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
                           }}
                           placeholder={index === 0 ? "Enter contact person name" : "Enter contact name"}
                         />
@@ -2644,15 +3220,19 @@ const VendorForm = ({
                             marginBottom: '6px',
                             fontFamily: 'system-ui, -apple-system, sans-serif'
                           }}>
-                            {VENDOR_CONSTANTS.FORM_LABELS.EMAIL_ID}
+                            {MASTER_CONSTANTS.FORM_LABELS.EMAIL_ID}
                           </label>
                           <input
                             type="email"
                             value={contact.email}
                             onChange={(e) => updateContactField(index, 'email', e.target.value)}
+                            disabled={!fieldStates.hasAddress}
                             style={{
                               ...inputStyles,
-                              border: `1px solid ${errors[`contact_${index}_email`] ? '#ef4444' : '#d1d5db'}`
+                              border: `1px solid ${errors[`contact_${index}_email`] ? '#ef4444' : '#d1d5db'}`,
+                              opacity: !fieldStates.hasAddress ? 0.6 : 1,
+                              cursor: !fieldStates.hasAddress ? 'not-allowed' : 'text',
+                              backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
                             }}
                             placeholder="Enter email address"
                           />
@@ -2670,15 +3250,19 @@ const VendorForm = ({
                           marginBottom: '6px',
                           fontFamily: 'system-ui, -apple-system, sans-serif'
                         }}>
-                          {VENDOR_CONSTANTS.FORM_LABELS.PHONE_NUMBER}
+                          {MASTER_CONSTANTS.FORM_LABELS.PHONE_NUMBER}
                         </label>
                         <input
                           type="tel"
                           value={contact.phone}
                           onChange={(e) => updateContactField(index, 'phone', e.target.value)}
+                          disabled={!fieldStates.hasAddress}
                           style={{
                             ...inputStyles,
-                            border: `1px solid ${errors[`contact_${index}_phone`] ? '#ef4444' : '#d1d5db'}`
+                            border: `1px solid ${errors[`contact_${index}_phone`] ? '#ef4444' : '#d1d5db'}`,
+                            opacity: !fieldStates.hasAddress ? 0.6 : 1,
+                            cursor: !fieldStates.hasAddress ? 'not-allowed' : 'text',
+                            backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
                           }}
                           placeholder="Enter phone number"
                         />
@@ -2696,15 +3280,19 @@ const VendorForm = ({
                             marginBottom: '6px',
                             fontFamily: 'system-ui, -apple-system, sans-serif'
                           }}>
-                            {VENDOR_CONSTANTS.FORM_LABELS.MOBILE_NUMBER}
+                            {MASTER_CONSTANTS.FORM_LABELS.MOBILE_NUMBER}
                           </label>
                           <input
                             type="tel"
                             value={contact.mobile}
                             onChange={(e) => updateContactField(index, 'mobile', e.target.value)}
+                            disabled={!fieldStates.hasAddress}
                             style={{
                               ...inputStyles,
-                              border: `1px solid ${errors[`contact_${index}_mobile`] ? '#ef4444' : '#d1d5db'}`
+                              border: `1px solid ${errors[`contact_${index}_mobile`] ? '#ef4444' : '#d1d5db'}`,
+                              opacity: !fieldStates.hasAddress ? 0.6 : 1,
+                              cursor: !fieldStates.hasAddress ? 'not-allowed' : 'text',
+                              backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
                             }}
                             placeholder="Enter mobile number"
                           />
@@ -2716,38 +3304,46 @@ const VendorForm = ({
                 ))}
 
                 {/* Add Contact Button */}
-                <div>
-                  <button
-                    type="button"
-                    onClick={addContact}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                      padding: '12px 24px',
-                      backgroundColor: '#3b82f6',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '8px',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      cursor: 'pointer',
-                      transition: 'background-color 0.2s',
-                      fontFamily: 'system-ui, -apple-system, sans-serif',
-                      width: '100%'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.backgroundColor = '#2563eb';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.backgroundColor = '#3b82f6';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
-                    Add Contact
-                  </button>
-                </div>
+                {fieldStates.hasMultipleAddresses && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={addContact}
+                      disabled={!fieldStates.hasAddress}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        padding: '12px 24px',
+                        backgroundColor: !fieldStates.hasAddress ? '#9ca3af' : '#3b82f6',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        cursor: !fieldStates.hasAddress ? 'not-allowed' : 'pointer',
+                        transition: 'background-color 0.2s',
+                        fontFamily: 'system-ui, -apple-system, sans-serif',
+                        width: '100%',
+                        opacity: !fieldStates.hasAddress ? 0.6 : 1
+                      }}
+                      onMouseEnter={(e) => {
+                        if (fieldStates.hasAddress) {
+                          e.target.style.backgroundColor = '#2563eb';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (fieldStates.hasAddress) {
+                          e.target.style.backgroundColor = '#3b82f6';
+                        }
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
+                      Add Contact
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2755,6 +3351,24 @@ const VendorForm = ({
           {/* Bank Details Tab */}
           {activeTab === 'bank' && (
             <div>
+              {!fieldStates.hasBankDetails && (
+                <div style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#fef3c7',
+                  border: '1px solid #fbbf24',
+                  borderRadius: '6px',
+                  marginBottom: '16px'
+                }}>
+                  <p style={{ 
+                    color: '#92400e', 
+                    fontSize: '14px', 
+                    margin: '0',
+                    fontFamily: 'system-ui, -apple-system, sans-serif'
+                  }}>
+                    Bank Details are disabled for the selected group.
+                  </p>
+                </div>
+              )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 {formData.bankDetails.map((bank, index) => (
                   <div key={index} style={{ 
@@ -2808,7 +3422,7 @@ const VendorForm = ({
                       Bank Details {index + 1}
                     </h3>
 
-                    <div className="vendor-form-grid" style={{ 
+                    <div className="master-form-grid" style={{ 
                       display: 'grid', 
                       gridTemplateColumns: 'repeat(2, 1fr)', 
                       gap: '24px',
@@ -2824,17 +3438,21 @@ const VendorForm = ({
                           marginBottom: '6px',
                           fontFamily: 'system-ui, -apple-system, sans-serif'
                         }}>
-                          {VENDOR_CONSTANTS.FORM_LABELS.ACCOUNT_NUMBER}
+                          {MASTER_CONSTANTS.FORM_LABELS.ACCOUNT_NUMBER}
                         </label>
                         <input
                           type="text"
                           value={bank.accountNumber}
                           onChange={(e) => updateBankDetailField(index, 'accountNumber', e.target.value)}
+                          disabled={!fieldStates.hasBankDetails}
                           style={{
                             ...inputStyles,
-                            border: `1px solid ${errors[`bank_${index}_accountNumber`] ? '#ef4444' : '#d1d5db'}`
+                            border: `1px solid ${errors[`bank_${index}_accountNumber`] ? '#ef4444' : '#d1d5db'}`,
+                            opacity: !fieldStates.hasBankDetails ? 0.6 : 1,
+                            cursor: !fieldStates.hasBankDetails ? 'not-allowed' : 'text',
+                            backgroundColor: !fieldStates.hasBankDetails ? '#f3f4f6' : '#fff'
                           }}
-                          placeholder={VENDOR_CONSTANTS.PLACEHOLDERS.ACCOUNT_NUMBER}
+                          placeholder={MASTER_CONSTANTS.PLACEHOLDERS.ACCOUNT_NUMBER}
                         />
                         {errors[`bank_${index}_accountNumber`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_accountNumber`]}</p>}
                       </div>
@@ -2849,18 +3467,21 @@ const VendorForm = ({
                           marginBottom: '6px',
                           fontFamily: 'system-ui, -apple-system, sans-serif'
                         }}>
-                          {VENDOR_CONSTANTS.FORM_LABELS.IFSC_CODE}
+                          {MASTER_CONSTANTS.FORM_LABELS.IFSC_CODE}
                         </label>
                         <input
                           type="text"
                           value={bank.ifscCode}
                           onChange={(e) => updateBankDetailField(index, 'ifscCode', e.target.value.toUpperCase())}
                           maxLength={11}
+                          disabled={!fieldStates.hasBankDetails}
                           style={{
                             ...inputStyles,
-                            border: `1px solid ${errors[`bank_${index}_ifscCode`] ? '#ef4444' : '#d1d5db'}`
+                            border: `1px solid ${errors[`bank_${index}_ifscCode`] ? '#ef4444' : '#d1d5db'}`,
+                            opacity: !fieldStates.hasBankDetails ? 0.6 : 1,
+                            cursor: !fieldStates.hasBankDetails ? 'not-allowed' : 'text'
                           }}
-                          placeholder={VENDOR_CONSTANTS.PLACEHOLDERS.IFSC}
+                          placeholder={MASTER_CONSTANTS.PLACEHOLDERS.IFSC}
                         />
                         {errors[`bank_${index}_ifscCode`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_ifscCode`]}</p>}
                       </div>
@@ -2875,18 +3496,33 @@ const VendorForm = ({
                           marginBottom: '6px',
                           fontFamily: 'system-ui, -apple-system, sans-serif'
                         }}>
-                          {VENDOR_CONSTANTS.FORM_LABELS.BANK_NAME}
+                          {MASTER_CONSTANTS.FORM_LABELS.BANK_NAME}
                         </label>
-                        <input
-                          type="text"
-                          value={bank.bankName}
-                          onChange={(e) => updateBankDetailField(index, 'bankName', e.target.value)}
-                          style={{
-                            ...inputStyles,
-                            border: `1px solid ${errors[`bank_${index}_bankName`] ? '#ef4444' : '#d1d5db'}`
-                          }}
-                          placeholder="Enter bank name"
-                        />
+                        <div style={{ 
+                          opacity: !fieldStates.hasBankDetails ? 0.6 : 1, 
+                          pointerEvents: !fieldStates.hasBankDetails ? 'none' : 'auto',
+                          position: 'relative'
+                        }}>
+                          <SearchableDropdown
+                            options={banks.map(bankName => ({ value: bankName, label: bankName }))}
+                            value={bank.bankName}
+                            onChange={(value) => updateBankDetailField(index, 'bankName', value)}
+                            placeholder="Search or select bank name"
+                            style={{
+                              ...inputStyles,
+                              border: `1px solid ${errors[`bank_${index}_bankName`] ? '#ef4444' : '#d1d5db'}`,
+                              width: '100%',
+                              padding: '12px 16px',
+                              borderRadius: '8px',
+                              fontSize: '14px',
+                              fontFamily: 'system-ui, -apple-system, sans-serif',
+                              backgroundColor: !fieldStates.hasBankDetails ? '#f3f4f6' : '#fff',
+                              cursor: !fieldStates.hasBankDetails ? 'not-allowed' : 'text',
+                              transition: 'all 0.2s'
+                            }}
+                            error={!!errors[`bank_${index}_bankName`]}
+                          />
+                        </div>
                         {errors[`bank_${index}_bankName`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_bankName`]}</p>}
                       </div>
                     </div>
@@ -2894,38 +3530,46 @@ const VendorForm = ({
                 ))}
 
                 {/* Add Bank Details Button */}
-                <div>
-                  <button
-                    type="button"
-                    onClick={addBankDetail}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '8px',
-                      padding: '12px 24px',
-                      backgroundColor: '#3b82f6',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: '8px',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      cursor: 'pointer',
-                      transition: 'background-color 0.2s',
-                      fontFamily: 'system-ui, -apple-system, sans-serif',
-                      width: '100%'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.backgroundColor = '#2563eb';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.backgroundColor = '#3b82f6';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
-                    Add Bank Details
-                  </button>
-                </div>
+                {fieldStates.hasMultipleBanks && (
+                  <div>
+                    <button
+                      type="button"
+                      onClick={addBankDetail}
+                      disabled={!fieldStates.hasBankDetails}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        padding: '12px 24px',
+                        backgroundColor: !fieldStates.hasBankDetails ? '#9ca3af' : '#3b82f6',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        cursor: !fieldStates.hasBankDetails ? 'not-allowed' : 'pointer',
+                        transition: 'background-color 0.2s',
+                        fontFamily: 'system-ui, -apple-system, sans-serif',
+                        width: '100%',
+                        opacity: !fieldStates.hasBankDetails ? 0.6 : 1
+                      }}
+                      onMouseEnter={(e) => {
+                        if (fieldStates.hasBankDetails) {
+                          e.target.style.backgroundColor = '#2563eb';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (fieldStates.hasBankDetails) {
+                          e.target.style.backgroundColor = '#3b82f6';
+                        }
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
+                      Add Bank Details
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2933,7 +3577,7 @@ const VendorForm = ({
           {/* Statutory Tab */}
           {activeTab === 'statutory' && (
             <div>
-              <div className="vendor-form-grid" style={{ 
+              <div className="master-form-grid" style={{ 
                 display: 'grid', 
                 gridTemplateColumns: 'repeat(3, 1fr)', 
                 gap: '24px',
@@ -2971,30 +3615,34 @@ const VendorForm = ({
                   >
                     <option value="">Select Tax Type</option>
                     <option value="PAN">PAN Number</option>
-                    <option value="GST">GST Number</option>
+                    {fieldStates.hasGST && <option value="GST">GST Number</option>}
                   </select>
                   {errors.tax_type && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.tax_type}</p>}
                 </div>
 
-                {/* GST Number and Type - Show only when GST is selected */}
-                {formData.tax_type === 'GST' && (
+                {/* Tax Registration Details - Show when GST or PAN is selected */}
+                {(formData.tax_type === 'GST' || formData.tax_type === 'PAN') && (
                   <>
-                    <div>
-                      <label style={{ 
-                        display: 'block', 
-                        fontSize: '14px', 
-                        fontWeight: '500', 
-                        color: '#374151', 
-                        marginBottom: '6px',
-                        fontFamily: 'system-ui, -apple-system, sans-serif'
-                      }}>
-                        {VENDOR_CONSTANTS.FORM_LABELS.GST_NUMBER}
-                      </label>
-                      <div style={{ position: 'relative', display: 'flex', gap: '8px', alignItems: 'stretch', width: '100%', overflow: 'visible' }}>
-                        <input
-                          type="text"
-                          value={formData.gstinno}
-                          onChange={(e) => {
+                    {/* GST Number and PAN Number - Show above Tax Registration Details */}
+                    <div style={{ gridColumn: 'span 3', display: 'grid', gridTemplateColumns: formData.tax_type === 'GST' ? '1.5fr 1fr' : 'max-content', gap: '24px', marginBottom: '16px' }}>
+                      {/* GST Number - Show only when GST is selected */}
+                      {formData.tax_type === 'GST' && (
+                        <div>
+                          <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#374151', 
+                            marginBottom: '6px',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
+                            {MASTER_CONSTANTS.FORM_LABELS.GST_NUMBER}
+                          </label>
+                          <div style={{ position: 'relative', display: 'flex', gap: '8px', alignItems: 'stretch', width: '100%', overflow: 'visible' }}>
+                            <input
+                              type="text"
+                              value={formData.gstinno}
+                              onChange={(e) => {
                             const inputValue = e.target.value;
                             
                             // Apply regex-based formatting
@@ -3019,6 +3667,7 @@ const VendorForm = ({
                           }}
                           onBlur={() => handleFieldBlur('gstinno')}
                           maxLength={30}
+                          disabled={!fieldStates.hasGST}
                           style={{
                             ...inputStyles,
                             border: `1px solid ${
@@ -3033,136 +3682,300 @@ const VendorForm = ({
                             fontFamily: 'monospace',
                             letterSpacing: '1px',
                             paddingRight: duplicateCheck.gstinno.isChecking ? '40px' : '16px',
-                            flex: 1
+                            flex: 1,
+                            opacity: !fieldStates.hasGST ? 0.6 : 1,
+                            cursor: !fieldStates.hasGST ? 'not-allowed' : 'text'
                           }}
-                          placeholder="22ABCDE1234F1Z5"
-                        />
-                        {/* Debug: Log button render */}
-                        {console.log('🔍 Rendering GST Upload Button:', { 
-                          isGoogleDriveConfigured, 
-                          taxType: formData.tax_type,
-                          willRender: formData.tax_type === 'GST'
-                        })}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isGoogleDriveConfigured) {
-                              openDrivePicker('gst');
-                            } else {
-                              setGoogleDriveMessage({
-                                type: 'error',
-                                title: 'Google Drive Not Configured',
-                                message: 'Please add REACT_APP_GOOGLE_API_KEY to your .env file and restart the server to enable document uploads.'
-                              });
-                            }
-                          }}
-                          disabled={isUploadingDocument.gst || !isGoogleDriveConfigured}
-                          style={{
-                            padding: '10px 16px',
-                            backgroundColor: (!isGoogleDriveConfigured || isUploadingDocument.gst) ? '#9ca3af' : '#3b82f6',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '8px',
-                            cursor: (!isGoogleDriveConfigured || isUploadingDocument.gst) ? 'not-allowed' : 'pointer',
-                            opacity: (!isGoogleDriveConfigured || isUploadingDocument.gst) ? 0.6 : 1,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            fontSize: '14px',
-                            fontWeight: '500',
-                            whiteSpace: 'nowrap',
-                            transition: 'background-color 0.2s',
-                            position: 'relative'
-                          }}
-                          onMouseEnter={(e) => {
-                            if (isGoogleDriveConfigured && !isUploadingDocument.gst) {
-                              e.target.style.backgroundColor = '#2563eb';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (isGoogleDriveConfigured && !isUploadingDocument.gst) {
-                              e.target.style.backgroundColor = '#3b82f6';
-                            }
-                          }}
-                          title={!isGoogleDriveConfigured ? 'Google Drive not configured. Add REACT_APP_GOOGLE_API_KEY to .env file.' : 'Upload GST Document'}
-                        >
-                          {isUploadingDocument.gst ? (
-                            <div style={{
-                              width: '16px',
-                              height: '16px',
-                              border: '2px solid #fff',
-                              borderTop: '2px solid transparent',
-                              borderRadius: '50%',
-                              animation: 'spin 1s linear infinite'
-                            }}></div>
-                          ) : (
-                            <>
-                              <span className="material-icons" style={{ fontSize: '18px' }}>upload_file</span>
-                              {formData.gstDocumentLink && (
-                                <span className="material-icons" style={{ fontSize: '16px', color: '#10b981' }}>check_circle</span>
-                              )}
-                            </>
-                          )}
-                        </button>
-                        {formData.gstDocumentLink && !isUploadingDocument.gst && (
-                          <a
-                            href={formData.gstDocumentLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            placeholder="22ABCDE1234F1Z5"
+                          />
+                          {/* Debug: Log button render */}
+                          {console.log('🔍 Rendering GST Upload Button:', { 
+                            isGoogleDriveConfigured, 
+                            taxType: formData.tax_type,
+                            willRender: formData.tax_type === 'GST'
+                          })}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (isGoogleDriveConfigured) {
+                                openDrivePicker('gst');
+                              } else {
+                                setGoogleDriveMessage({
+                                  type: 'error',
+                                  title: 'Google Drive Not Configured',
+                                  message: 'Please add REACT_APP_GOOGLE_API_KEY to your .env file and restart the server to enable document uploads.'
+                                });
+                              }
+                            }}
+                            disabled={isUploadingDocument.gst || !isGoogleDriveConfigured}
                             style={{
+                              padding: '10px 16px',
+                              backgroundColor: (!isGoogleDriveConfigured || isUploadingDocument.gst) ? '#9ca3af' : '#3b82f6',
+                              color: '#fff',
+                              border: 'none',
+                              borderRadius: '8px',
+                              cursor: (!isGoogleDriveConfigured || isUploadingDocument.gst) ? 'not-allowed' : 'pointer',
+                              opacity: (!isGoogleDriveConfigured || isUploadingDocument.gst) ? 0.6 : 1,
                               display: 'flex',
                               alignItems: 'center',
                               gap: '6px',
-                              padding: '10px 16px',
-                              backgroundColor: '#10b981',
-                              color: '#fff',
-                              textDecoration: 'none',
-                              borderRadius: '8px',
                               fontSize: '14px',
                               fontWeight: '500',
                               whiteSpace: 'nowrap',
-                              transition: 'background-color 0.2s'
+                              transition: 'background-color 0.2s',
+                              position: 'relative'
                             }}
                             onMouseEnter={(e) => {
-                              e.target.style.backgroundColor = '#059669';
+                              if (isGoogleDriveConfigured && !isUploadingDocument.gst) {
+                                e.target.style.backgroundColor = '#2563eb';
+                              }
                             }}
                             onMouseLeave={(e) => {
-                              e.target.style.backgroundColor = '#10b981';
+                              if (isGoogleDriveConfigured && !isUploadingDocument.gst) {
+                                e.target.style.backgroundColor = '#3b82f6';
+                              }
                             }}
-                            title="View GST Document"
+                            title={!isGoogleDriveConfigured ? 'Google Drive not configured. Add REACT_APP_GOOGLE_API_KEY to .env file.' : 'Upload GST Document'}
                           >
-                            <span className="material-icons" style={{ fontSize: '18px' }}>visibility</span>
-                            View Doc
-                          </a>
-                        )}
-                      </div>
-                      {errors.gstinno && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.gstinno}</p>}
-                      {duplicateCheck.gstinno.isDuplicate && !errors.gstinno && (
-                        <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <span className="material-icons" style={{ fontSize: '14px' }}>warning</span>
-                          {duplicateCheck.gstinno.message || 'GST number already exists'}
-                        </p>
+                            {isUploadingDocument.gst ? (
+                              <div style={{
+                                width: '16px',
+                                height: '16px',
+                                border: '2px solid #fff',
+                                borderTop: '2px solid transparent',
+                                borderRadius: '50%',
+                                animation: 'spin 1s linear infinite'
+                              }}></div>
+                            ) : (
+                              <>
+                                <span className="material-icons" style={{ fontSize: '18px' }}>upload_file</span>
+                                {formData.gstDocumentLink && (
+                                  <span className="material-icons" style={{ fontSize: '16px', color: '#10b981' }}>check_circle</span>
+                                )}
+                              </>
+                            )}
+                          </button>
+                          {formData.gstDocumentLink && !isUploadingDocument.gst && (
+                            <a
+                              href={formData.gstDocumentLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '10px 16px',
+                                backgroundColor: '#10b981',
+                                color: '#fff',
+                                textDecoration: 'none',
+                                borderRadius: '8px',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                whiteSpace: 'nowrap',
+                                transition: 'background-color 0.2s'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.backgroundColor = '#059669';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.backgroundColor = '#10b981';
+                              }}
+                              title="View GST Document"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>visibility</span>
+                              View Doc
+                            </a>
+                          )}
+                          </div>
+                          {errors.gstinno && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.gstinno}</p>}
+                          {duplicateCheck.gstinno.isDuplicate && !errors.gstinno && (
+                            <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span className="material-icons" style={{ fontSize: '14px' }}>warning</span>
+                              {duplicateCheck.gstinno.message || 'GST number already exists'}
+                            </p>
+                          )}
+                          {!errors.gstinno && !duplicateCheck.gstinno.isDuplicate && formData.gstinno.length > 0 && formData.gstinno.length < 15 && !touchedFields.gstinno && (
+                            <p style={{ color: '#6b7280', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+                              Enter complete 15-character GST number
+                            </p>
+                          )}
+                        </div>
                       )}
-                      {!errors.gstinno && !duplicateCheck.gstinno.isDuplicate && formData.gstinno.length > 0 && formData.gstinno.length < 15 && !touchedFields.gstinno && (
-                        <p style={{ color: '#6b7280', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-                          Enter complete 15-character GST number
-                        </p>
-                      )}
-                      </div>
 
-                    {/* GST Registration Details - Show only when GST is selected */}
-                    <div style={{ gridColumn: 'span 3', marginTop: '16px', paddingTop: '24px', borderTop: '1px solid #e5e7eb' }}>
-                      <h3 style={{ 
-                        fontSize: '16px', 
-                        fontWeight: '600', 
-                        color: '#374151', 
-                        marginBottom: '20px',
-                        fontFamily: 'system-ui, -apple-system, sans-serif'
-                      }}>
-                        Tax Registration Details
-                      </h3>
+                      {/* PAN Number - Show when PAN is selected or when GST is selected */}
+                      {(formData.tax_type === 'PAN' || formData.tax_type === 'GST') && (
+                        <div style={{ maxWidth: formData.tax_type === 'GST' ? '350px' : '400px' }}>
+                          <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#374151', 
+                            marginBottom: '6px',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
+                            {MASTER_CONSTANTS.FORM_LABELS.PAN_NUMBER}
+                            <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: '400' }}> (Format: ABCDE1234F)</span>
+                            {formData.tax_type === 'GST' && (
+                              <span style={{ fontSize: '12px', color: '#059669', fontWeight: '400', marginLeft: '8px' }}>
+                                Auto-filled from GST
+                              </span>
+                            )}
+                          </label>
+                          <div style={{ position: 'relative', display: 'flex', gap: '8px', alignItems: 'stretch', width: '100%', overflow: 'visible' }}>
+                            <input
+                              type="text"
+                              value={formData.panno}
+                              onChange={(e) => {
+                                if (formData.tax_type === 'PAN') {
+                                  const formatted = formatPAN(e.target.value);
+                                  updateField('panno', formatted);
+                                }
+                                // Don't allow manual editing when GST is selected
+                              }}
+                              maxLength={10}
+                              readOnly={formData.tax_type === 'GST'}
+                              style={{
+                                ...inputStyles,
+                                border: `1px solid ${errors.panno ? '#ef4444' : duplicateCheck.panno.isDuplicate ? '#ef4444' : '#d1d5db'}`,
+                                fontFamily: 'monospace',
+                                letterSpacing: '1px',
+                                backgroundColor: formData.tax_type === 'GST' ? '#f0f9ff' : '#fff',
+                                cursor: formData.tax_type === 'GST' ? 'not-allowed' : 'text',
+                                paddingRight: duplicateCheck.panno.isChecking ? '40px' : '16px',
+                                flex: 1
+                              }}
+                              onFocus={(e) => {
+                                if (formData.tax_type === 'PAN') {
+                                  e.target.style.borderColor = '#3b82f6';
+                                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                                }
+                              }}
+                              onBlur={(e) => {
+                                if (formData.tax_type === 'PAN') {
+                                  e.target.style.borderColor = errors.panno ? '#ef4444' : duplicateCheck.panno.isDuplicate ? '#ef4444' : '#d1d5db';
+                                  e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+                                }
+                              }}
+                              placeholder={formData.tax_type === 'GST' ? "Will be auto-filled from GST" : "ABCDE1234F"}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isGoogleDriveConfigured) {
+                                  openDrivePicker('pan');
+                                } else {
+                                  setGoogleDriveMessage({
+                                    type: 'error',
+                                    title: 'Google Drive Not Configured',
+                                    message: 'Please add REACT_APP_GOOGLE_API_KEY to your .env file and restart the server to enable document uploads.'
+                                  });
+                                }
+                              }}
+                              disabled={isUploadingDocument.pan || !isGoogleDriveConfigured}
+                              style={{
+                                padding: '10px 16px',
+                                backgroundColor: (!isGoogleDriveConfigured || isUploadingDocument.pan) ? '#9ca3af' : '#3b82f6',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '8px',
+                                cursor: (!isGoogleDriveConfigured || isUploadingDocument.pan) ? 'not-allowed' : 'pointer',
+                                opacity: (!isGoogleDriveConfigured || isUploadingDocument.pan) ? 0.6 : 1,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                fontSize: '14px',
+                                fontWeight: '500',
+                                whiteSpace: 'nowrap',
+                                transition: 'background-color 0.2s',
+                                position: 'relative'
+                              }}
+                              onMouseEnter={(e) => {
+                                if (isGoogleDriveConfigured && !isUploadingDocument.pan) {
+                                  e.target.style.backgroundColor = '#2563eb';
+                                }
+                              }}
+                              onMouseLeave={(e) => {
+                                if (isGoogleDriveConfigured && !isUploadingDocument.pan) {
+                                  e.target.style.backgroundColor = '#3b82f6';
+                                }
+                              }}
+                              title={!isGoogleDriveConfigured ? 'Google Drive not configured. Add REACT_APP_GOOGLE_API_KEY to .env file.' : 'Upload PAN Document'}
+                            >
+                              {isUploadingDocument.pan ? (
+                                <div style={{
+                                  width: '16px',
+                                  height: '16px',
+                                  border: '2px solid #fff',
+                                  borderTop: '2px solid transparent',
+                                  borderRadius: '50%',
+                                  animation: 'spin 1s linear infinite'
+                                }}></div>
+                              ) : (
+                                <>
+                                  <span className="material-icons" style={{ fontSize: '18px' }}>upload_file</span>
+                                  {formData.panDocumentLink && (
+                                    <span className="material-icons" style={{ fontSize: '16px', color: '#10b981' }}>check_circle</span>
+                                  )}
+                                </>
+                              )}
+                            </button>
+                            {formData.panDocumentLink && !isUploadingDocument.pan && (
+                              <a
+                                href={formData.panDocumentLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  padding: '10px 16px',
+                                  backgroundColor: '#10b981',
+                                  color: '#fff',
+                                  textDecoration: 'none',
+                                  borderRadius: '8px',
+                                  fontSize: '14px',
+                                  fontWeight: '500',
+                                  whiteSpace: 'nowrap',
+                                  transition: 'background-color 0.2s'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.target.style.backgroundColor = '#059669';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.target.style.backgroundColor = '#10b981';
+                                }}
+                                title="View PAN Document"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>visibility</span>
+                                View Doc
+                              </a>
+                            )}
+                          </div>
+                          {errors.panno && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.panno}</p>}
+                          {duplicateCheck.panno.isDuplicate && !errors.panno && (
+                            <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span className="material-icons" style={{ fontSize: '14px' }}>warning</span>
+                              {duplicateCheck.panno.message || 'PAN number already exists'}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Tax Registration Details */}
+                    {formData.tax_type === 'GST' && fieldStates.hasGST && (
+                      <div style={{ gridColumn: 'span 3', marginTop: '16px', paddingTop: '24px', borderTop: '1px solid #e5e7eb' }}>
+                        <h3 style={{ 
+                          fontSize: '16px', 
+                          fontWeight: '600', 
+                          color: '#374151', 
+                          marginBottom: '20px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          Tax Registration Details
+                        </h3>
                       
-                      <div className="vendor-form-grid" style={{ 
+                      <div className="master-form-grid" style={{ 
                         display: 'grid', 
                         gridTemplateColumns: 'repeat(3, 1fr)', 
                         gap: '24px',
@@ -3183,9 +3996,15 @@ const VendorForm = ({
                           <select
                             value={formData.gstRegistrationType}
                             onChange={(e) => updateField('gstRegistrationType', e.target.value)}
-                            style={selectStyles}
+                            disabled={!fieldStates.hasGST}
+                            style={{
+                              ...selectStyles,
+                              opacity: !fieldStates.hasGST ? 0.6 : 1,
+                              cursor: !fieldStates.hasGST ? 'not-allowed' : 'pointer',
+                              backgroundColor: !fieldStates.hasGST ? '#f3f4f6' : '#fff'
+                            }}
                           >
-                            {VENDOR_CONSTANTS.GST_REGISTRATION_TYPES.map((type) => (
+                            {MASTER_CONSTANTS.GST_REGISTRATION_TYPES.map((type) => (
                               <option key={type} value={type}>{type}</option>
                             ))}
                           </select>
@@ -3206,7 +4025,13 @@ const VendorForm = ({
                           <select
                             value={formData.assesseeOfOtherTerritory ? 'Yes' : 'No'}
                             onChange={(e) => updateField('assesseeOfOtherTerritory', e.target.value === 'Yes')}
-                            style={selectStyles}
+                            disabled={!fieldStates.hasGST}
+                            style={{
+                              ...selectStyles,
+                              opacity: !fieldStates.hasGST ? 0.6 : 1,
+                              cursor: !fieldStates.hasGST ? 'not-allowed' : 'pointer',
+                              backgroundColor: !fieldStates.hasGST ? '#f3f4f6' : '#fff'
+                            }}
                           >
                             <option value="No">No</option>
                             <option value="Yes">Yes</option>
@@ -3228,7 +4053,13 @@ const VendorForm = ({
                           <select
                             value={formData.useLedgerAsCommonParty ? 'Yes' : 'No'}
                             onChange={(e) => updateField('useLedgerAsCommonParty', e.target.value === 'Yes')}
-                            style={selectStyles}
+                            disabled={!fieldStates.hasGST}
+                            style={{
+                              ...selectStyles,
+                              opacity: !fieldStates.hasGST ? 0.6 : 1,
+                              cursor: !fieldStates.hasGST ? 'not-allowed' : 'pointer',
+                              backgroundColor: !fieldStates.hasGST ? '#f3f4f6' : '#fff'
+                            }}
                           >
                             <option value="No">No</option>
                             <option value="Yes">Yes</option>
@@ -3250,7 +4081,13 @@ const VendorForm = ({
                           <select
                             value={formData.setAlterAdditionalGSTDetails ? 'Yes' : 'No'}
                             onChange={(e) => updateField('setAlterAdditionalGSTDetails', e.target.value === 'Yes')}
-                            style={selectStyles}
+                            disabled={!fieldStates.hasGST}
+                            style={{
+                              ...selectStyles,
+                              opacity: !fieldStates.hasGST ? 0.6 : 1,
+                              cursor: !fieldStates.hasGST ? 'not-allowed' : 'pointer',
+                              backgroundColor: !fieldStates.hasGST ? '#f3f4f6' : '#fff'
+                            }}
                           >
                             <option value="No">No</option>
                             <option value="Yes">Yes</option>
@@ -3272,29 +4109,13 @@ const VendorForm = ({
                           <select
                             value={formData.ignorePrefixesSuffixesInDocNo ? 'Yes' : 'No'}
                             onChange={(e) => updateField('ignorePrefixesSuffixesInDocNo', e.target.value === 'Yes')}
-                            style={selectStyles}
-                          >
-                            <option value="No">No</option>
-                            <option value="Yes">Yes</option>
-                          </select>
-                        </div>
-
-                        {/* Set/Alter MSME Registration Details */}
-                        <div>
-                          <label style={{ 
-                            display: 'block', 
-                            fontSize: '14px', 
-                            fontWeight: '500', 
-                            color: '#374151', 
-                            marginBottom: '6px',
-                            fontFamily: 'system-ui, -apple-system, sans-serif'
-                          }}>
-                            Set/Alter MSME Registration Details
-                          </label>
-                          <select
-                            value={formData.setAlterMSMERegistrationDetails ? 'Yes' : 'No'}
-                            onChange={(e) => updateField('setAlterMSMERegistrationDetails', e.target.value === 'Yes')}
-                            style={selectStyles}
+                            disabled={!fieldStates.hasGST}
+                            style={{
+                              ...selectStyles,
+                              opacity: !fieldStates.hasGST ? 0.6 : 1,
+                              cursor: !fieldStates.hasGST ? 'not-allowed' : 'pointer',
+                              backgroundColor: !fieldStates.hasGST ? '#f3f4f6' : '#fff'
+                            }}
                           >
                             <option value="No">No</option>
                             <option value="Yes">Yes</option>
@@ -3302,172 +4123,235 @@ const VendorForm = ({
                         </div>
                       </div>
                     </div>
+                    )}
                   </>
                 )}
 
-                {/* PAN Number - Show when PAN is selected or when GST is selected */}
-                {(formData.tax_type === 'PAN' || formData.tax_type === 'GST') && (
-                  <div>
-                    <label style={{ 
-                      display: 'block', 
-                      fontSize: '14px', 
-                      fontWeight: '500', 
-                      color: '#374151', 
-                      marginBottom: '6px',
-                      fontFamily: 'system-ui, -apple-system, sans-serif'
-                    }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.PAN_NUMBER}
-                      <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: '400' }}> (Format: ABCDE1234F)</span>
-                      {formData.tax_type === 'GST' && (
-                        <span style={{ fontSize: '12px', color: '#059669', fontWeight: '400', marginLeft: '8px' }}>
-                          Auto-filled from GST
-                        </span>
-                      )}
-                    </label>
-                    <div style={{ position: 'relative', display: 'flex', gap: '8px', alignItems: 'stretch', width: '100%', overflow: 'visible' }}>
+                {/* Separator Line */}
+                <div style={{ gridColumn: 'span 3', margin: '24px 0', borderTop: '1px solid #e5e7eb' }}></div>
+
+                {/* Set/Alter MSME Registration Details */}
+                <div style={{ gridColumn: 'span 3' }}>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '14px', 
+                    fontWeight: '500', 
+                    color: '#374151', 
+                    marginBottom: '6px',
+                    fontFamily: 'system-ui, -apple-system, sans-serif'
+                  }}>
+                    Set/Alter MSME Registration Details
+                  </label>
+                  <select
+                    value={formData.setAlterMSMERegistrationDetails ? 'Yes' : 'No'}
+                    onChange={(e) => updateField('setAlterMSMERegistrationDetails', e.target.value === 'Yes')}
+                    disabled={!fieldStates.hasMSME}
+                    style={{
+                      ...selectStyles,
+                      border: `1px solid ${errors.setAlterMSMERegistrationDetails ? '#ef4444' : '#d1d5db'}`,
+                      maxWidth: '200px',
+                      opacity: !fieldStates.hasMSME ? 0.6 : 1,
+                      cursor: !fieldStates.hasMSME ? 'not-allowed' : 'pointer',
+                      backgroundColor: !fieldStates.hasMSME ? '#f3f4f6' : '#fff'
+                    }}
+                  >
+                    <option value="No">No</option>
+                    <option value="Yes">Yes</option>
+                  </select>
+                  {errors.setAlterMSMERegistrationDetails && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.setAlterMSMERegistrationDetails}</p>}
+                </div>
+
+                {/* MSME Registration Details - Show only when Yes is selected */}
+                {formData.setAlterMSMERegistrationDetails && (
+                  <>
+                    <div>
+                      <label style={{ 
+                        display: 'block', 
+                        fontSize: '14px', 
+                        fontWeight: '500', 
+                        color: '#374151', 
+                        marginBottom: '6px',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>
+                        Type of Enterprise
+                      </label>
+                      <select
+                        value={formData.msmeTypeOfEnterprise}
+                        onChange={(e) => updateField('msmeTypeOfEnterprise', e.target.value)}
+                        style={{
+                          ...selectStyles,
+                          border: `1px solid ${errors.msmeTypeOfEnterprise ? '#ef4444' : '#d1d5db'}`
+                        }}
+                        disabled={!fieldStates.hasMSME}
+                      >
+                        <option value="">Select Type</option>
+                        {msmeEnterpriseTypes.map((type, index) => (
+                          <option key={index} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                      {errors.msmeTypeOfEnterprise && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.msmeTypeOfEnterprise}</p>}
+                    </div>
+
+                    <div>
+                      <label style={{ 
+                        display: 'block', 
+                        fontSize: '14px', 
+                        fontWeight: '500', 
+                        color: '#374151', 
+                        marginBottom: '6px',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>
+                        UDYAM Registration Number
+                      </label>
                       <input
                         type="text"
-                        value={formData.panno}
-                        onChange={(e) => {
-                          if (formData.tax_type === 'PAN') {
-                            const formatted = formatPAN(e.target.value);
-                            updateField('panno', formatted);
-                          }
-                          // Don't allow manual editing when GST is selected
-                        }}
-                        maxLength={10}
-                        readOnly={formData.tax_type === 'GST'}
+                        value={formData.msmeUdyamRegistrationNumber}
+                        onChange={(e) => updateField('msmeUdyamRegistrationNumber', e.target.value)}
+                        disabled={!fieldStates.hasMSME}
                         style={{
                           ...inputStyles,
-                          border: `1px solid ${errors.panno ? '#ef4444' : duplicateCheck.panno.isDuplicate ? '#ef4444' : '#d1d5db'}`,
-                          fontFamily: 'monospace',
-                          letterSpacing: '1px',
-                          backgroundColor: formData.tax_type === 'GST' ? '#f0f9ff' : '#fff',
-                          cursor: formData.tax_type === 'GST' ? 'not-allowed' : 'text',
-                          paddingRight: duplicateCheck.panno.isChecking ? '40px' : '16px',
-                          flex: 1
+                          border: `1px solid ${errors.msmeUdyamRegistrationNumber ? '#ef4444' : '#d1d5db'}`,
+                          opacity: !fieldStates.hasMSME ? 0.6 : 1,
+                          cursor: !fieldStates.hasMSME ? 'not-allowed' : 'text',
+                          backgroundColor: !fieldStates.hasMSME ? '#f3f4f6' : '#fff'
                         }}
-                        onFocus={(e) => {
-                          if (formData.tax_type === 'PAN') {
-                            e.target.style.borderColor = '#3b82f6';
-                            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-                          }
-                        }}
-                        onBlur={(e) => {
-                          if (formData.tax_type === 'PAN') {
-                            e.target.style.borderColor = errors.panno ? '#ef4444' : duplicateCheck.panno.isDuplicate ? '#ef4444' : '#d1d5db';
-                            e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
-                          }
-                        }}
-                        placeholder={formData.tax_type === 'GST' ? "Will be auto-filled from GST" : "ABCDE1234F"}
+                        placeholder="Enter UDYAM Registration Number"
                       />
-                      {/* Debug: Log button render */}
-                      {console.log('🔍 Rendering PAN Upload Button:', { 
-                        isGoogleDriveConfigured, 
-                        taxType: formData.tax_type,
-                        willRender: formData.tax_type === 'PAN' || formData.tax_type === 'GST'
-                      })}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (isGoogleDriveConfigured) {
-                            openDrivePicker('pan');
-                          } else {
-                            setGoogleDriveMessage({
-                              type: 'error',
-                              title: 'Google Drive Not Configured',
-                              message: 'Please add REACT_APP_GOOGLE_API_KEY to your .env file and restart the server to enable document uploads.'
-                            });
-                          }
-                        }}
-                        disabled={isUploadingDocument.pan || !isGoogleDriveConfigured}
-                        style={{
-                          padding: '10px 16px',
-                          backgroundColor: (!isGoogleDriveConfigured || isUploadingDocument.pan) ? '#9ca3af' : '#3b82f6',
-                          color: '#fff',
-                          border: 'none',
-                          borderRadius: '8px',
-                          cursor: (!isGoogleDriveConfigured || isUploadingDocument.pan) ? 'not-allowed' : 'pointer',
-                          opacity: (!isGoogleDriveConfigured || isUploadingDocument.pan) ? 0.6 : 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '6px',
-                          fontSize: '14px',
-                          fontWeight: '500',
-                          whiteSpace: 'nowrap',
-                          transition: 'background-color 0.2s',
-                          position: 'relative'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (isGoogleDriveConfigured && !isUploadingDocument.pan) {
-                            e.target.style.backgroundColor = '#2563eb';
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (isGoogleDriveConfigured && !isUploadingDocument.pan) {
-                            e.target.style.backgroundColor = '#3b82f6';
-                          }
-                        }}
-                        title={!isGoogleDriveConfigured ? 'Google Drive not configured. Add REACT_APP_GOOGLE_API_KEY to .env file.' : 'Upload PAN Document'}
-                      >
-                        {isUploadingDocument.pan ? (
-                          <div style={{
-                            width: '16px',
-                            height: '16px',
-                            border: '2px solid #fff',
-                            borderTop: '2px solid transparent',
-                            borderRadius: '50%',
-                            animation: 'spin 1s linear infinite'
-                          }}></div>
-                        ) : (
-                          <>
-                            <span className="material-icons" style={{ fontSize: '18px' }}>upload_file</span>
-                            {formData.panDocumentLink && (
-                              <span className="material-icons" style={{ fontSize: '16px', color: '#10b981' }}>check_circle</span>
-                            )}
-                            </>
-                          )}
-                        </button>
-                      {formData.panDocumentLink && !isUploadingDocument.pan && (
-                        <a
-                          href={formData.panDocumentLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '10px 16px',
-                            backgroundColor: '#10b981',
-                            color: '#fff',
-                            textDecoration: 'none',
-                            borderRadius: '8px',
-                            fontSize: '14px',
-                            fontWeight: '500',
-                            whiteSpace: 'nowrap',
-                            transition: 'background-color 0.2s'
-                          }}
-                          onMouseEnter={(e) => {
-                            e.target.style.backgroundColor = '#059669';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.target.style.backgroundColor = '#10b981';
-                          }}
-                          title="View PAN Document"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>visibility</span>
-                          View Doc
-                        </a>
-                      )}
+                      {errors.msmeUdyamRegistrationNumber && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.msmeUdyamRegistrationNumber}</p>}
                     </div>
-                    {errors.panno && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.panno}</p>}
-                    {duplicateCheck.panno.isDuplicate && !errors.panno && (
-                      <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <span className="material-icons" style={{ fontSize: '14px' }}>warning</span>
-                        {duplicateCheck.panno.message || 'PAN number already exists'}
-                      </p>
-                    )}
-                  </div>
+
+                    <div>
+                      <label style={{ 
+                        display: 'block', 
+                        fontSize: '14px', 
+                        fontWeight: '500', 
+                        color: '#374151', 
+                        marginBottom: '6px',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>
+                        Activity Type
+                      </label>
+                      <select
+                        value={formData.msmeActivityType}
+                        onChange={(e) => updateField('msmeActivityType', e.target.value)}
+                        disabled={!fieldStates.hasMSME}
+                        style={{
+                          ...selectStyles,
+                          border: `1px solid ${errors.msmeActivityType ? '#ef4444' : '#d1d5db'}`,
+                          opacity: !fieldStates.hasMSME ? 0.6 : 1,
+                          cursor: !fieldStates.hasMSME ? 'not-allowed' : 'pointer',
+                          backgroundColor: !fieldStates.hasMSME ? '#f3f4f6' : '#fff'
+                        }}
+                      >
+                        <option value="Unknown">Unknown</option>
+                        {msmeActivityTypes.map((type, index) => (
+                          <option key={index} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                      {errors.msmeActivityType && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.msmeActivityType}</p>}
+                    </div>
+                  </>
+                )}
+
+                {/* Separator Line */}
+                <div style={{ gridColumn: 'span 3', margin: '24px 0', borderTop: '1px solid #e5e7eb' }}></div>
+
+                {/* TDS Details */}
+                <div style={{ gridColumn: 'span 3' }}>
+                  <label style={{ 
+                    display: 'block', 
+                    fontSize: '14px', 
+                    fontWeight: '500', 
+                    color: '#374151', 
+                    marginBottom: '6px',
+                    fontFamily: 'system-ui, -apple-system, sans-serif'
+                  }}>
+                    Is TDS Deductable
+                  </label>
+                  <select
+                    value={formData.isTDSDeductable ? 'Yes' : 'No'}
+                    onChange={(e) => updateField('isTDSDeductable', e.target.value === 'Yes')}
+                    disabled={!fieldStates.hasTDS}
+                    style={{
+                      ...selectStyles,
+                      border: `1px solid ${errors.isTDSDeductable ? '#ef4444' : '#d1d5db'}`,
+                      maxWidth: '200px',
+                      opacity: !fieldStates.hasTDS ? 0.6 : 1,
+                      cursor: !fieldStates.hasTDS ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    <option value="No">No</option>
+                    <option value="Yes">Yes</option>
+                  </select>
+                  {errors.isTDSDeductable && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.isTDSDeductable}</p>}
+                </div>
+
+                {/* TDS Details - Show only when Yes is selected */}
+                {formData.isTDSDeductable && fieldStates.hasTDS && (
+                  <>
+                    <div>
+                      <label style={{ 
+                        display: 'block', 
+                        fontSize: '14px', 
+                        fontWeight: '500', 
+                        color: '#374151', 
+                        marginBottom: '6px',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>
+                        Deductee type
+                      </label>
+                      <select
+                        value={formData.deducteeType}
+                        onChange={(e) => updateField('deducteeType', e.target.value)}
+                        disabled={!fieldStates.hasTDS}
+                        style={{
+                          ...selectStyles,
+                          border: `1px solid ${errors.deducteeType ? '#ef4444' : '#d1d5db'}`,
+                          opacity: !fieldStates.hasTDS ? 0.6 : 1,
+                          cursor: !fieldStates.hasTDS ? 'not-allowed' : 'pointer',
+                          backgroundColor: !fieldStates.hasTDS ? '#f3f4f6' : '#fff'
+                        }}
+                      >
+                        <option value="">Select Deductee Type</option>
+                        {tdsDeducteeTypes.map((type, index) => (
+                          <option key={index} value={type}>{type}</option>
+                        ))}
+                      </select>
+                      {errors.deducteeType && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.deducteeType}</p>}
+                    </div>
+
+                    <div>
+                      <label style={{ 
+                        display: 'block', 
+                        fontSize: '14px', 
+                        fontWeight: '500', 
+                        color: '#374151', 
+                        marginBottom: '6px',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>
+                        Deduct TDS in Same Voucher
+                      </label>
+                      <select
+                        value={formData.deductTDSInSameVoucher ? 'Yes' : 'No'}
+                        onChange={(e) => updateField('deductTDSInSameVoucher', e.target.value === 'Yes')}
+                        disabled={!fieldStates.hasTDS}
+                        style={{
+                          ...selectStyles,
+                          border: `1px solid ${errors.deductTDSInSameVoucher ? '#ef4444' : '#d1d5db'}`,
+                          opacity: !fieldStates.hasTDS ? 0.6 : 1,
+                          cursor: !fieldStates.hasTDS ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        <option value="No">No</option>
+                        <option value="Yes">Yes</option>
+                      </select>
+                      {errors.deductTDSInSameVoucher && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.deductTDSInSameVoucher}</p>}
+                    </div>
+                  </>
                 )}
 
               </div>
@@ -3510,7 +4394,7 @@ const VendorForm = ({
               e.target.style.borderColor = '#d1d5db';
             }}
           >
-            {VENDOR_CONSTANTS.BUTTON_LABELS.CANCEL}
+            {MASTER_CONSTANTS.BUTTON_LABELS.CANCEL}
           </button>
           <button
             type="submit"
@@ -3543,8 +4427,8 @@ const VendorForm = ({
               {isApprovalMode ? 'check_circle' : (isEditing ? 'edit' : 'person_add')}
             </span>
             <span>
-              {isApprovalMode ? VENDOR_CONSTANTS.BUTTON_LABELS.APPROVE_VENDOR : 
-               (isEditing ? 'Update Vendor' : 'Create Vendor')}
+              {isApprovalMode ? MASTER_CONSTANTS.BUTTON_LABELS.APPROVE_MASTER : 
+               (isEditing ? 'Update Master' : 'Create Master')}
             </span>
           </button>
         </div>
@@ -3555,4 +4439,4 @@ const VendorForm = ({
   );
 };
 
-export default VendorForm;
+export default MasterForm;
