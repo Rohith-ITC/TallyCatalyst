@@ -279,27 +279,28 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                 <div style={{ fontSize: 16, fontWeight: 600, color: '#1e293b' }}>{ledgerName}</div>
               </div>
             )}
-            <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className="material-icons" style={{ fontSize: 16, color: '#64748b' }}>description</span>
-                Narration
+            {voucher.NARRATION && (
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="material-icons" style={{ fontSize: 16, color: '#64748b' }}>description</span>
+                  Narration
+                </div>
+                <div style={{ 
+                  fontSize: 14, 
+                  fontWeight: 500, 
+                  color: '#1e293b',
+                  padding: '12px 16px',
+                  background: '#f8fafc',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  lineHeight: '1.6',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word'
+                }}>
+                  {voucher.NARRATION}
+                </div>
               </div>
-              <div style={{ 
-                fontSize: 14, 
-                fontWeight: 500, 
-                color: voucher.NARRATION ? '#1e293b' : '#94a3b8',
-                padding: '12px 16px',
-                background: voucher.NARRATION ? '#f8fafc' : '#f1f5f9',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
-                lineHeight: '1.6',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontStyle: voucher.NARRATION ? 'normal' : 'italic'
-              }}>
-                {voucher.NARRATION || 'Data not available'}
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Ledger Entries */}

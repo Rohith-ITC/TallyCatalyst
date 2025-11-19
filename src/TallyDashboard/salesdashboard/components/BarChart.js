@@ -1,63 +1,89 @@
 import React from 'react';
 
-const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton, rowAction }) => {
+const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton, rowAction, customHeader }) => {
   const maxValue = Math.max(...data.map(d => d.value));
 
   return (
     <div style={{
       background: 'white',
       borderRadius: '12px',
-      padding: '20px',
+      padding: '0',
       border: '1px solid #e2e8f0',
-      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%'
     }}>
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: '16px'
-      }}>
-        <h3 style={{
-          margin: 0,
-          fontSize: '16px',
-          fontWeight: '600',
-          color: '#1e293b'
+      {customHeader ? (
+        <div style={{ 
+          padding: '12px 16px',
+          position: 'sticky',
+          top: 0,
+          background: 'white',
+          zIndex: 10,
+          borderBottom: '1px solid #e2e8f0',
+          marginBottom: '0'
         }}>
-          {title}
-        </h3>
-        {showBackButton && onBackClick && (
-          <button
-            onClick={onBackClick}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              background: '#f1f5f9',
-              border: '1px solid #e2e8f0',
-              borderRadius: '6px',
-              color: '#64748b',
-              fontSize: '12px',
-              fontWeight: '500',
-              cursor: 'pointer',
-              transition: 'all 0.2s ease'
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = '#e2e8f0';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = '#f1f5f9';
-            }}
-          >
-            <span className="material-icons" style={{ fontSize: '16px' }}>arrow_back</span>
-            Back
-          </button>
-        )}
-      </div>
+          {customHeader}
+        </div>
+      ) : (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 16px',
+          position: 'sticky',
+          top: 0,
+          background: 'white',
+          zIndex: 10,
+          borderBottom: '1px solid #e2e8f0',
+          marginBottom: '0'
+        }}>
+          <h3 style={{
+            margin: 0,
+            fontSize: '16px',
+            fontWeight: '600',
+            color: '#1e293b'
+          }}>
+            {title}
+          </h3>
+          {showBackButton && onBackClick && (
+            <button
+              onClick={onBackClick}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                background: '#f1f5f9',
+                border: '1px solid #e2e8f0',
+                borderRadius: '6px',
+                color: '#64748b',
+                fontSize: '12px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = '#e2e8f0';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = '#f1f5f9';
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: '16px' }}>arrow_back</span>
+              Back
+            </button>
+          )}
+        </div>
+      )}
       <div style={{ 
         display: 'flex', 
         flexDirection: 'column', 
-        gap: '12px'
+        gap: '12px',
+        padding: '12px 16px',
+        overflowY: 'auto',
+        flex: 1
       }}>
         {data.map((item) => (
           <div

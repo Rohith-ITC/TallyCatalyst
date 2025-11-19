@@ -65,4 +65,23 @@ if (isDevelopment) {
 }
 
 // Fallback port for development
-export const DEV_API_PORT = 1235; 
+export const DEV_API_PORT = 1235;
+
+// Google Drive Configuration
+export const GOOGLE_DRIVE_CONFIG = {
+  CLIENT_ID: process.env.REACT_APP_GOOGLE_CLIENT_ID || '',
+  API_KEY: process.env.REACT_APP_GOOGLE_API_KEY || '',
+  SCOPES: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile'
+};
+
+// Check if Google Drive is fully configured
+export const isGoogleDriveFullyConfigured = () => {
+  const configured = !!(GOOGLE_DRIVE_CONFIG.CLIENT_ID && GOOGLE_DRIVE_CONFIG.API_KEY);
+  return {
+    configured,
+    missing: {
+      clientId: !GOOGLE_DRIVE_CONFIG.CLIENT_ID,
+      apiKey: !GOOGLE_DRIVE_CONFIG.API_KEY
+    }
+  };
+}; 
