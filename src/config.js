@@ -58,7 +58,7 @@ export const API_CONFIG = {
     TALLY_LEDGER_SHAREACCESS: '/api/tally/ledger-shareaccess',
     TALLY_LEDGER_SHAREACCESS_ACC: '/api/tally/ledger-shareaccess-acc',
     
-    // Vendor Authorization endpoints
+    // Master Authorization endpoints
     TALLY_LEDGER_LIST: '/api/tally/ledger-list',
     TALLY_LEDGER_AUTH: '/api/tally/ledger-auth',
     TALLY_LEDGER_CHECK: '/api/tally/ledger-check',

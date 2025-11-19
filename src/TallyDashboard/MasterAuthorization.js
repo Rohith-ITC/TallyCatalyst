@@ -1,20 +1,20 @@
 /**
- * VendorAuthorization Component
+ * MasterAuthorization Component
  * 
- * This component manages vendor authorization requests and approvals.
+ * This component manages master authorization requests and approvals.
  * It integrates with:
- * - Vendor Creation component (for new vendor requests)
- * - Payment Creation component (for approved vendors)
+ * - Master Creation component (for new master requests)
+ * - Payment Creation component (for approved masters)
  * - Backend APIs for data persistence
  * 
  * Integration Points:
- * - window.vendorAuthorization.refreshVendors() - Refresh vendor list
- * - window.vendorAuthorization.getApprovedVendors() - Get approved vendors for payment creation
- * - window.vendorAuthorization.getVendorById(id) - Get specific vendor details
+ * - window.masterAuthorization.refreshMasters() - Refresh master list
+ * - window.masterAuthorization.getApprovedMasters() - Get approved masters for payment creation
+ * - window.masterAuthorization.getMasterById(id) - Get specific master details
  * 
  * API Endpoints Required:
- * - GET /api/vendor/authorization/list?companyGuid={guid} - List vendors
- * - PUT /api/vendor/authorization/{id} - Update vendor authorization status
+ * - GET /api/master/authorization/list?companyGuid={guid} - List masters
+ * - PUT /api/master/authorization/{id} - Update master authorization status
  * 
  * Data Structure Expected:
  * {
@@ -45,8 +45,8 @@ import { getApiUrl, API_CONFIG } from '../config';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiUtils';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
 
-function VendorAuthorization({ onVendorSelect }) {
-  console.log('🎯 VendorAuthorization component loading...');
+function MasterAuthorization({ onMasterSelect }) {
+  console.log('🎯 MasterAuthorization component loading...');
   
   // Get all companies from sessionStorage
   const companies = useMemo(() => {
@@ -61,24 +61,24 @@ function VendorAuthorization({ onVendorSelect }) {
   const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
   const company = selectedCompanyGuid;
   
-  // State for vendor authorization
-  const [vendors, setVendors] = useState([]);
+  // State for master authorization
+  const [masters, setMasters] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedVendor, setSelectedVendor] = useState(null);
-  const [showVendorDetails, setShowVendorDetails] = useState(false);
+  const [selectedMaster, setSelectedMaster] = useState(null);
+  const [showMasterDetails, setShowMasterDetails] = useState(false);
   const [authorizationNotes, setAuthorizationNotes] = useState('');
   // Removed saving state - no loading indicators needed
   
-  // Filter vendors based on search term
-  const filteredVendors = vendors.filter(vendor =>
-    vendor.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    vendor.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    vendor.company?.toLowerCase().includes(searchTerm.toLowerCase())
+  // Filter masters based on search term
+  const filteredMasters = masters.filter(master =>
+    master.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    master.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    master.company?.toLowerCase().includes(searchTerm.toLowerCase())
   );
   
-  const loadVendors = useCallback(async () => {
+  const loadMasters = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
@@ -91,7 +91,7 @@ function VendorAuthorization({ onVendorSelect }) {
         throw new Error('Missing required session data (tallyloc_id, company, or guid)');
       }
 
-      // API call to get vendor list using ledger-list endpoint
+      // API call to get master list using ledger-list endpoint
       const response = await fetch(getApiUrl(API_CONFIG.ENDPOINTS.TALLY_LEDGER_LIST), {
         method: 'POST',
         headers: {
@@ -107,11 +107,11 @@ function VendorAuthorization({ onVendorSelect }) {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to fetch vendors');
+        throw new Error(errorData.message || 'Failed to fetch masters');
       }
 
       const result = await response.json();
-      console.log('📊 Vendors fetched successfully:', result);
+      console.log('📊 Masters fetched successfully:', result);
       console.log('📊 Result structure:', {
         hasData: !!result.data,
         hasLedgers: !!result.ledgers,
@@ -119,32 +119,32 @@ function VendorAuthorization({ onVendorSelect }) {
         hasLedgerData: !!result.ledgerData
       });
       
-      // Transform API response to vendor format
-      let vendors = [];
+      // Transform API response to master format
+      let masters = [];
       
       if (result.data && Array.isArray(result.data)) {
-        vendors = result.data;
+        masters = result.data;
       } else if (result.ledgers && Array.isArray(result.ledgers)) {
-        vendors = result.ledgers;
+        masters = result.ledgers;
       } else if (Array.isArray(result)) {
-        vendors = result;
+        masters = result;
       } else if (result.ledgerData && Array.isArray(result.ledgerData)) {
-        vendors = result.ledgerData;
+        masters = result.ledgerData;
       }
       
-      // Load vendor submissions from localStorage
+      // Load master submissions from localStorage
       try {
-        const submissions = localStorage.getItem('vendor_submissions');
+        const submissions = localStorage.getItem('master_submissions');
         if (submissions) {
           const submissionList = JSON.parse(submissions);
-          console.log('📝 Vendor submissions from localStorage:', submissionList);
+          console.log('📝 Master submissions from localStorage:', submissionList);
           
           // Add submissions that match current session
           submissionList.forEach(submission => {
             if (submission.tallyloc_id === tallylocId && 
                 submission.guid === guid &&
                 submission.status === 'pending') {
-              vendors.push({
+              masters.push({
                 ...submission,
                 id: submission.id,
                 name: submission.name,
@@ -164,85 +164,85 @@ function VendorAuthorization({ onVendorSelect }) {
           });
         }
       } catch (err) {
-        console.error('Error loading vendor submissions:', err);
+        console.error('Error loading master submissions:', err);
       }
       
-      // Debug: Log sample vendor data structure
-      if (vendors.length > 0) {
-        console.log('🔍 Sample vendor data from API:', vendors[0]);
-        console.log('🔍 Available fields in vendor data:', Object.keys(vendors[0]));
+      // Debug: Log sample master data structure
+      if (masters.length > 0) {
+        console.log('🔍 Sample master data from API:', masters[0]);
+        console.log('🔍 Available fields in master data:', Object.keys(masters[0]));
         console.log('🔍 GST-related fields:', {
-          gstType: vendors[0].gstType,
-          gst_type: vendors[0].gst_type,
-          gsttype: vendors[0].gsttype,
-          gstinNo: vendors[0].gstinNo,
-          gstin_no: vendors[0].gstin_no,
-          gstinno: vendors[0].gstinno,
-          gstNumber: vendors[0].gstNumber
+          gstType: masters[0].gstType,
+          gst_type: masters[0].gst_type,
+          gsttype: masters[0].gsttype,
+          gstinNo: masters[0].gstinNo,
+          gstin_no: masters[0].gstin_no,
+          gstinno: masters[0].gstinno,
+          gstNumber: masters[0].gstNumber
         });
       }
 
-      // Transform API data to our vendor format
-      const transformedVendors = Array.isArray(vendors) ? vendors.map((vendor, index) => ({
-        id: vendor.id || vendor.ledger_id || vendor.ledgerId || index + 1,
-        name: vendor.name || vendor.ledger_name || vendor.ledgerName || 'Unknown Vendor',
-        email: vendor.email || vendor.emailid || vendor.email_id || vendor.emailId || '',
+      // Transform API data to our master format
+      const transformedMasters = Array.isArray(masters) ? masters.map((master, index) => ({
+        id: master.id || master.ledger_id || master.ledgerId || index + 1,
+        name: master.name || master.ledger_name || master.ledgerName || 'Unknown Master',
+        email: master.email || master.emailid || master.email_id || master.emailId || '',
         company: companyName,
-        contactPerson: vendor.contactPerson || vendor.contact_person || vendor.contactperson || '',
-        phone: vendor.phone || vendor.phoneNo || vendor.phoneno || vendor.phone_no || vendor.phoneNumber || '',
-        mobile: vendor.mobile || vendor.mobileNo || vendor.mobileno || vendor.mobile_no || vendor.mobileNumber || '',
-        address: vendor.address || vendor.address1 || vendor.address_1 || '',
-        state: vendor.stateName || vendor.state || vendor.state_name || '',
-        pincode: vendor.pincode || vendor.pin_code || vendor.pinCode || '',
-        country: vendor.countryName || vendor.country || vendor.country_name || 'India',
-        gstNumber: vendor.gstinNo || vendor.gstin_no || vendor.gstinno || vendor.gstNumber || '',
-        gstType: vendor.gstType || vendor.gst_type || vendor.gsttype || '',
-        panNumber: vendor.panNo || vendor.pan_no || vendor.panno || vendor.panNumber || '',
-        favouringName: vendor.favouringName || vendor.favouring_name || vendor.favouringname || '',
-        status: vendor.status || vendor.authorizationStatus || 'pending', // Use actual status from API
-        createdDate: vendor.createdAt || vendor.created_at || vendor.date_created || vendor.createdDate || new Date().toISOString().split('T')[0],
+        contactPerson: master.contactPerson || master.contact_person || master.contactperson || '',
+        phone: master.phone || master.phoneNo || master.phoneno || master.phone_no || master.phoneNumber || '',
+        mobile: master.mobile || master.mobileNo || master.mobileno || master.mobile_no || master.mobileNumber || '',
+        address: master.address || master.address1 || master.address_1 || '',
+        state: master.stateName || master.state || master.state_name || '',
+        pincode: master.pincode || master.pin_code || master.pinCode || '',
+        country: master.countryName || master.country || master.country_name || 'India',
+        gstNumber: master.gstinNo || master.gstin_no || master.gstinno || master.gstNumber || '',
+        gstType: master.gstType || master.gst_type || master.gsttype || '',
+        panNumber: master.panNo || master.pan_no || master.panno || master.panNumber || '',
+        favouringName: master.favouringName || master.favouring_name || master.favouringname || '',
+        status: master.status || master.authorizationStatus || 'pending', // Use actual status from API
+        createdDate: master.createdAt || master.created_at || master.date_created || master.createdDate || new Date().toISOString().split('T')[0],
         authorizationDate: null,
         notes: '',
         bankDetails: {
-          accountNumber: vendor.accountNo || vendor.account_no || vendor.accountno || vendor.accountNumber || '',
-          bankName: vendor.bankName || vendor.bank_name || '',
-          ifscCode: vendor.ifscCode || vendor.ifsc_code || vendor.ifsccode || '',
-          branch: vendor.branch || vendor.branch_name || '',
-          accountType: vendor.accountType || vendor.account_type || vendor.accounttype || ''
+          accountNumber: master.accountNo || master.account_no || master.accountno || master.accountNumber || '',
+          bankName: master.bankName || master.bank_name || '',
+          ifscCode: master.ifscCode || master.ifsc_code || master.ifsccode || '',
+          branch: master.branch || master.branch_name || '',
+          accountType: master.accountType || master.account_type || master.accounttype || ''
         }
       })) : [];
 
-      // Debug: Log transformed vendor data
-      if (transformedVendors.length > 0) {
-        console.log('🔍 Sample transformed vendor:', transformedVendors[0]);
-        console.log('🔍 Transformed GST Type:', transformedVendors[0].gstType);
+      // Debug: Log transformed master data
+      if (transformedMasters.length > 0) {
+        console.log('🔍 Sample transformed master:', transformedMasters[0]);
+        console.log('🔍 Transformed GST Type:', transformedMasters[0].gstType);
       }
 
-      console.log('📊 Transformed vendors:', transformedVendors.map(v => ({ name: v.name, status: v.status })));
-      setVendors(transformedVendors);
+      console.log('📊 Transformed masters:', transformedMasters.map(v => ({ name: v.name, status: v.status })));
+      setMasters(transformedMasters);
     } catch (error) {
-      console.error('Error loading vendors:', error);
-      setError('Failed to load vendors. Please try again.');
+      console.error('Error loading masters:', error);
+      setError('Failed to load masters. Please try again.');
     } finally {
       setLoading(false);
     }
   }, [company]);
   
-  // Load vendors on component mount and when company changes
+  // Load masters on component mount and when company changes
   useEffect(() => {
     if (company) {
-      loadVendors();
+      loadMasters();
     }
-  }, [company, loadVendors]);
+  }, [company, loadMasters]);
   
   // Listen for company changes from top bar
   useEffect(() => {
     const handleCompanyChange = () => {
-      setVendors([]);
-      setSelectedVendor(null);
-      setShowVendorDetails(false);
+      setMasters([]);
+      setSelectedMaster(null);
+      setShowMasterDetails(false);
       if (company) {
-        loadVendors();
+        loadMasters();
       }
     };
 
@@ -253,52 +253,52 @@ function VendorAuthorization({ onVendorSelect }) {
   // Listen for global refresh events
   useEffect(() => {
     const handleGlobalRefresh = () => {
-      console.log('🔄 Global refresh triggered - refreshing vendor authorization list');
+      console.log('🔄 Global refresh triggered - refreshing master authorization list');
       console.log('🔄 Current company:', company);
       if (company) {
-        console.log('🔄 Calling loadVendors...');
-        loadVendors();
+        console.log('🔄 Calling loadMasters...');
+        loadMasters();
       } else {
-        console.log('🔄 No company selected, skipping vendor refresh');
+        console.log('🔄 No company selected, skipping master refresh');
       }
     };
 
-    const handleVendorSubmission = () => {
-      console.log('📝 Vendor submission added - refreshing vendor authorization list');
+    const handleMasterSubmission = () => {
+      console.log('📝 Master submission added - refreshing master authorization list');
       if (company) {
-        loadVendors();
+        loadMasters();
       }
     };
 
     window.addEventListener('globalRefresh', handleGlobalRefresh);
-    window.addEventListener('vendorSubmissionAdded', handleVendorSubmission);
+    window.addEventListener('masterSubmissionAdded', handleMasterSubmission);
     
     return () => {
       window.removeEventListener('globalRefresh', handleGlobalRefresh);
-      window.removeEventListener('vendorSubmissionAdded', handleVendorSubmission);
+      window.removeEventListener('masterSubmissionAdded', handleMasterSubmission);
     };
-  }, [company, loadVendors]);
+  }, [company, loadMasters]);
   
-  const handleVendorSelect = (vendor) => {
-    if (onVendorSelect) {
-      // If onVendorSelect callback is provided, use it to navigate to approval form
-      onVendorSelect(vendor);
+  const handleMasterSelect = (master) => {
+    if (onMasterSelect) {
+      // If onMasterSelect callback is provided, use it to navigate to approval form
+      onMasterSelect(master);
     } else {
       // Fallback to original behavior (show details in sidebar)
-      setSelectedVendor(vendor);
-      setShowVendorDetails(true);
-      setAuthorizationNotes(vendor.notes || '');
+      setSelectedMaster(master);
+      setShowMasterDetails(true);
+      setAuthorizationNotes(master.notes || '');
     }
   };
   
   const handleAuthorizationAction = async (action) => {
-    if (!selectedVendor) return;
+    if (!selectedMaster) return;
     
     // Add confirmation for reject action
     if (action === 'rejected') {
       const confirmReject = window.confirm(
-        `Are you sure you want to reject vendor "${selectedVendor.name}"?\n\n` +
-        `This action cannot be undone. The vendor will be marked as rejected and removed from pending approvals.`
+        `Are you sure you want to reject master "${selectedMaster.name}"?\n\n` +
+        `This action cannot be undone. The master will be marked as rejected and removed from pending approvals.`
       );
       if (!confirmReject) {
         return;
@@ -308,8 +308,8 @@ function VendorAuthorization({ onVendorSelect }) {
     // Add confirmation for approve action
     if (action === 'approved') {
       const confirmApprove = window.confirm(
-        `Are you sure you want to approve vendor "${selectedVendor.name}"?\n\n` +
-        `This will authorize the vendor and allow them to proceed with transactions.`
+        `Are you sure you want to approve master "${selectedMaster.name}"?\n\n` +
+        `This will authorize the master and allow them to proceed with transactions.`
       );
       if (!confirmApprove) {
         return;
@@ -326,35 +326,35 @@ function VendorAuthorization({ onVendorSelect }) {
         throw new Error('Missing required session data (tallyloc_id, company, or guid)');
       }
 
-      console.log('Updating vendor authorization:', {
-        vendor: selectedVendor.name,
+      console.log('Updating master authorization:', {
+        master: selectedMaster.name,
         action: action,
         notes: authorizationNotes
       });
 
-      // Check if the vendor is already authorized
-      if (selectedVendor.status === 'approved') {
-        console.log('Vendor is already authorized, skipping authorization...');
-        alert('This vendor is already authorized. No action needed.');
+      // Check if the master is already authorized
+      if (selectedMaster.status === 'approved') {
+        console.log('Master is already authorized, skipping authorization...');
+        alert('This master is already authorized. No action needed.');
         return;
       }
       
-      // Create the vendor in Tally first (if not already created)
-      console.log('Creating vendor in Tally before authorization...');
+      // Create the master in Tally first (if not already created)
+      console.log('Creating master in Tally before authorization...');
       try {
-        const createResult = await createVendorInTally(selectedVendor);
+        const createResult = await createMasterInTally(selectedMaster);
         if (createResult?.existing) {
-          console.log('Vendor already exists in Tally, proceeding with authorization...');
+          console.log('Master already exists in Tally, proceeding with authorization...');
         } else {
-          console.log('Vendor created successfully, proceeding with authorization...');
+          console.log('Master created successfully, proceeding with authorization...');
         }
       } catch (createError) {
-        // If creation fails but vendor might already exist, log and continue
-        console.warn('Vendor creation had issues, but proceeding with authorization:', createError.message);
-        // Don't throw - allow authorization to proceed as vendor might already exist
+        // If creation fails but master might already exist, log and continue
+        console.warn('Master creation had issues, but proceeding with authorization:', createError.message);
+        // Don't throw - allow authorization to proceed as master might already exist
       }
 
-      // API call to update vendor authorization using ledger-auth endpoint
+      // API call to update master authorization using ledger-auth endpoint
       const response = await fetch(getApiUrl(API_CONFIG.ENDPOINTS.TALLY_LEDGER_AUTH), {
         method: 'POST',
         headers: {
@@ -365,19 +365,19 @@ function VendorAuthorization({ onVendorSelect }) {
           tallyloc_id: parseInt(tallylocId),
           company: companyName,
           guid: guid,
-          name: selectedVendor.name
+          name: selectedMaster.name
         })
       });
 
       if (!response.ok) {
-        let errorMessage = 'Failed to update vendor authorization';
+        let errorMessage = 'Failed to update master authorization';
         try {
           const errorData = await response.json();
           console.error('API Error Response:', errorData);
           
           // Provide specific error messages
           if (errorData.message === 'Failed to authorize ledger') {
-            errorMessage = `Failed to authorize vendor "${selectedVendor.name}". Please try again or contact support.`;
+            errorMessage = `Failed to authorize master "${selectedMaster.name}". Please try again or contact support.`;
           } else {
             errorMessage = errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`;
           }
@@ -389,45 +389,45 @@ function VendorAuthorization({ onVendorSelect }) {
       }
 
       const result = await response.json();
-      console.log('Vendor authorization updated:', result);
+      console.log('Master authorization updated:', result);
       
       // Update local state immediately
-      console.log('Updating vendor status from', selectedVendor.status, 'to', action);
-      setVendors(prev => prev.map(vendor => 
-        vendor.id === selectedVendor.id 
+      console.log('Updating master status from', selectedMaster.status, 'to', action);
+      setMasters(prev => prev.map(master => 
+        master.id === selectedMaster.id 
           ? { 
-              ...vendor, 
+              ...master, 
               status: action, 
               notes: authorizationNotes,
               authorizationDate: action !== 'pending' ? new Date().toISOString().split('T')[0] : null
             }
-          : vendor
+          : master
       ));
       
-      setSelectedVendor(prev => ({
+      setSelectedMaster(prev => ({
         ...prev,
         status: action,
         notes: authorizationNotes,
         authorizationDate: action !== 'pending' ? new Date().toISOString().split('T')[0] : null
       }));
       
-      // Force a re-render by updating the vendors state again
-      setVendors(prev => [...prev]);
+      // Force a re-render by updating the masters state again
+      setMasters(prev => [...prev]);
       
       // Show success message
-      alert(`Vendor ${action === 'approved' ? 'approved' : 'rejected'} successfully!\n\nVendor: ${selectedVendor.name}\nStatus: ${action.toUpperCase()}`);
+      alert(`Master ${action === 'approved' ? 'approved' : 'rejected'} successfully!\n\nMaster: ${selectedMaster.name}\nStatus: ${action.toUpperCase()}`);
       
-      // Trigger global refresh to update vendor lists
+      // Trigger global refresh to update master lists
       window.dispatchEvent(new CustomEvent('globalRefresh'));
       
-      // Also refresh the vendor list directly
+      // Also refresh the master list directly
       setTimeout(() => {
-        loadVendors();
+        loadMasters();
       }, 500);
       
     } catch (error) {
-      console.error('Error updating vendor authorization:', error);
-      alert(`Failed to update vendor authorization: ${error.message}\n\nPlease try again.`);
+      console.error('Error updating master authorization:', error);
+      alert(`Failed to update master authorization: ${error.message}\n\nPlease try again.`);
     }
   };
   
@@ -450,28 +450,28 @@ function VendorAuthorization({ onVendorSelect }) {
   };
 
   // Integration methods for other components
-  const refreshVendors = () => {
-    loadVendors();
+  const refreshMasters = () => {
+    loadMasters();
   };
 
-  const getVendorById = (vendorId) => {
-    return vendors.find(vendor => vendor.id === vendorId);
+  const getMasterById = (masterId) => {
+    return masters.find(master => master.id === masterId);
   };
 
-  const getApprovedVendors = () => {
-    return vendors.filter(vendor => vendor.status === 'approved');
+  const getApprovedMasters = () => {
+    return masters.filter(master => master.status === 'approved');
   };
 
-  const getRejectedVendors = () => {
-    return vendors.filter(vendor => vendor.status === 'rejected');
+  const getRejectedMasters = () => {
+    return masters.filter(master => master.status === 'rejected');
   };
 
-  const getPendingVendors = () => {
-    return vendors.filter(vendor => vendor.status === 'pending');
+  const getPendingMasters = () => {
+    return masters.filter(master => master.status === 'pending');
   };
 
-  // Function to create a vendor in Tally before authorization
-  const createVendorInTally = async (vendorData) => {
+  // Function to create a master in Tally before authorization
+  const createMasterInTally = async (masterData) => {
     try {
       const tallylocId = sessionStorage.getItem('tallyloc_id');
       const companyName = sessionStorage.getItem('company');
@@ -481,9 +481,9 @@ function VendorAuthorization({ onVendorSelect }) {
         throw new Error('Missing required session data');
       }
 
-      console.log('Creating vendor in Tally before authorization:', vendorData);
+      console.log('Creating master in Tally before authorization:', masterData);
 
-      // Check if vendor already exists in Tally
+      // Check if master already exists in Tally
       const checkResponse = await fetch(getApiUrl('/api/tally/ledger-check'), {
         method: 'POST',
         headers: {
@@ -495,40 +495,40 @@ function VendorAuthorization({ onVendorSelect }) {
           company: companyName,
           guid: guid,
           type: 'name',
-          value: vendorData.name.trim()
+          value: masterData.name.trim()
         })
       });
 
       if (checkResponse.ok) {
         const checkResult = await checkResponse.json();
         if (checkResult.exists === true) {
-          console.log('Vendor already exists in Tally, skipping creation:', vendorData.name);
-          return { success: true, message: 'Vendor already exists', existing: true };
+          console.log('Master already exists in Tally, skipping creation:', masterData.name);
+          return { success: true, message: 'Master already exists', existing: true };
         }
       }
 
-      // Vendor doesn't exist, proceed with creation
-      // Prepare the vendor data for API according to the ledger-create structure
+      // Master doesn't exist, proceed with creation
+      // Prepare the master data for API according to the ledger-create structure
       const apiData = {
         tallyloc_id: parseInt(tallylocId),
         company: companyName,
         guid: guid,
         ledgerData: {
-          name: vendorData.name.trim(),
-          address: (vendorData.address || '').replace(/\n/g, '|'), // Convert line breaks to pipe characters
-          pincode: vendorData.pincode || '',
-          stateName: vendorData.state || '',
-          countryName: vendorData.country || 'India',
-          contactPerson: vendorData.contactPerson || '',
-          phoneNo: vendorData.phone || '',
-          mobileNo: vendorData.mobile || '',
-          email: vendorData.email || '',
+          name: masterData.name.trim(),
+          address: (masterData.address || '').replace(/\n/g, '|'), // Convert line breaks to pipe characters
+          pincode: masterData.pincode || '',
+          stateName: masterData.state || '',
+          countryName: masterData.country || 'India',
+          contactPerson: masterData.contactPerson || '',
+          phoneNo: masterData.phone || '',
+          mobileNo: masterData.mobile || '',
+          email: masterData.email || '',
           emailCC: '',
-          panNo: vendorData.panNumber || '',
-          gstinNo: vendorData.gstNumber || '',
-          bankName: vendorData.bankDetails?.bankName || '',
-          accountNo: vendorData.bankDetails?.accountNumber || '',
-          ifscCode: vendorData.bankDetails?.ifscCode || ''
+          panNo: masterData.panNumber || '',
+          gstinNo: masterData.gstNumber || '',
+          bankName: masterData.bankDetails?.bankName || '',
+          accountNo: masterData.bankDetails?.accountNumber || '',
+          ifscCode: masterData.bankDetails?.ifscCode || ''
         }
       };
 
@@ -543,37 +543,37 @@ function VendorAuthorization({ onVendorSelect }) {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        // If it's a 400 error and vendor already exists, treat as success
+        // If it's a 400 error and master already exists, treat as success
         if (response.status === 400 && (errorData.message?.toLowerCase().includes('already exists') || 
             errorData.message?.toLowerCase().includes('duplicate'))) {
-          console.log('Vendor already exists (from error response), proceeding with authorization');
-          return { success: true, message: 'Vendor already exists', existing: true };
+          console.log('Master already exists (from error response), proceeding with authorization');
+          return { success: true, message: 'Master already exists', existing: true };
         }
-        throw new Error(errorData.message || errorData.error || 'Failed to create vendor in Tally');
+        throw new Error(errorData.message || errorData.error || 'Failed to create master in Tally');
       }
 
       const result = await response.json();
-      console.log('Vendor created in Tally:', result);
+      console.log('Master created in Tally:', result);
       
       // Check if result indicates failure
       if (result.success === false) {
         // If it's a duplicate/exists error, treat as success
         if (result.message?.toLowerCase().includes('already exists') || 
             result.message?.toLowerCase().includes('duplicate')) {
-          console.log('Vendor already exists (from result), proceeding with authorization');
-          return { success: true, message: 'Vendor already exists', existing: true };
+          console.log('Master already exists (from result), proceeding with authorization');
+          return { success: true, message: 'Master already exists', existing: true };
         }
-        throw new Error(result.message || 'Failed to create vendor in Tally');
+        throw new Error(result.message || 'Failed to create master in Tally');
       }
       
       return result;
     } catch (error) {
-      console.error('Error creating vendor in Tally:', error);
-      // If error indicates vendor already exists, treat as success
+      console.error('Error creating master in Tally:', error);
+      // If error indicates master already exists, treat as success
       if (error.message?.toLowerCase().includes('already exists') || 
           error.message?.toLowerCase().includes('duplicate')) {
-        console.log('Vendor already exists (from error), proceeding with authorization');
-        return { success: true, message: 'Vendor already exists', existing: true };
+        console.log('Master already exists (from error), proceeding with authorization');
+        return { success: true, message: 'Master already exists', existing: true };
       }
       throw error;
     }
@@ -582,16 +582,16 @@ function VendorAuthorization({ onVendorSelect }) {
   // Expose methods for integration with other components
   useEffect(() => {
     // Make methods available globally for integration
-    window.vendorAuthorization = {
-      refreshVendors,
-      getVendorById,
-      getApprovedVendors,
-      getRejectedVendors,
-      getPendingVendors,
-      vendors,
-      selectedVendor
+    window.masterAuthorization = {
+      refreshMasters,
+      getMasterById,
+      getApprovedMasters,
+      getRejectedMasters,
+      getPendingMasters,
+      masters,
+      selectedMaster
     };
-  }, [vendors, selectedVendor]);
+  }, [masters, selectedMaster]);
   
   if (loading) {
     return (
@@ -603,16 +603,16 @@ function VendorAuthorization({ onVendorSelect }) {
         fontSize: '16px',
         color: '#6b7280'
       }}>
-        Loading vendors...
+        Loading masters...
       </div>
     );
   }
   
   return (
-    <div className="vendor-authorization-wrapper">
-      <div className="vendor-authorization-container">
+    <div className="master-authorization-wrapper">
+      <div className="master-authorization-container">
       <style>{`
-        .vendor-authorization-wrapper {
+        .master-authorization-wrapper {
           margin-top: 10px !important;
           padding-top: 5px !important;
           width: 100% !important;
@@ -622,7 +622,7 @@ function VendorAuthorization({ onVendorSelect }) {
           background: #f5f5f5 !important;
           min-height: 100vh !important;
         }
-        .vendor-authorization-container {
+        .master-authorization-container {
           padding: 20px !important;
           width: 100% !important;
           height: 100vh !important;
@@ -640,10 +640,10 @@ function VendorAuthorization({ onVendorSelect }) {
           align-items: center !important;
           justify-content: flex-start !important;
         }
-        .vendor-authorization-container * {
+        .master-authorization-container * {
           box-sizing: border-box !important;
         }
-        .vendor-authorization-main {
+        .master-authorization-main {
           display: flex !important;
           gap: 16px !important;
           height: calc(100% - 120px) !important;
@@ -652,7 +652,7 @@ function VendorAuthorization({ onVendorSelect }) {
           padding: 20px !important;
           flex: 1 !important;
         }
-        .vendor-authorization-card {
+        .master-authorization-card {
           background: white !important;
           border-radius: 12px !important;
           box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
@@ -666,7 +666,7 @@ function VendorAuthorization({ onVendorSelect }) {
           height: calc(100vh - 40px) !important;
           transform: translateX(20px) !important;
         }
-        .vendor-authorization-header {
+        .master-authorization-header {
           display: flex !important;
           justify-content: space-between !important;
           align-items: center !important;
@@ -677,7 +677,7 @@ function VendorAuthorization({ onVendorSelect }) {
           width: 100% !important;
           flex-shrink: 0 !important;
         }
-        .vendor-authorization-vendor-list {
+        .master-authorization-master-list {
           flex: 1 1 50% !important;
           min-width: 200px !important;
           background: #f8fafc !important;
@@ -688,7 +688,7 @@ function VendorAuthorization({ onVendorSelect }) {
           margin: 0 !important;
           padding: 0 !important;
         }
-        .vendor-authorization-vendor-details {
+        .master-authorization-master-details {
           flex: 1 1 50% !important;
           min-width: 200px !important;
           background: #f8fafc !important;
@@ -699,25 +699,25 @@ function VendorAuthorization({ onVendorSelect }) {
           box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
           margin: 0 !important;
         }
-        .vendor-authorization-search-bar {
+        .master-authorization-search-bar {
           padding: 12px !important;
           border-bottom: 1px solid #e2e8f0 !important;
           background: white !important;
           margin: 0 !important;
         }
-        .vendor-authorization-list-content {
+        .master-authorization-list-content {
           height: calc(100% - 50px) !important;
           overflow-y: auto !important;
           margin: 0 !important;
           padding: 0 !important;
         }
-        .vendor-authorization-details-content {
+        .master-authorization-details-content {
           padding: 8px !important;
           height: calc(100% - 50px) !important;
           overflow-y: auto !important;
           margin: 0 !important;
         }
-        .vendor-authorization-details-header {
+        .master-authorization-details-header {
           display: flex !important;
           justify-content: space-between !important;
           align-items: center !important;
@@ -726,7 +726,7 @@ function VendorAuthorization({ onVendorSelect }) {
           background: white !important;
           margin: 0 !important;
         }
-        .vendor-authorization-error {
+        .master-authorization-error {
           background: #fef2f2 !important;
           border: 1px solid #fecaca !important;
           color: #dc2626 !important;
@@ -738,7 +738,7 @@ function VendorAuthorization({ onVendorSelect }) {
           position: relative !important;
           z-index: 10 !important;
         }
-        .vendor-authorization-vendor-item {
+        .master-authorization-master-item {
           padding: 16px !important;
           border-bottom: 1px solid #e2e8f0 !important;
           cursor: pointer !important;
@@ -746,21 +746,21 @@ function VendorAuthorization({ onVendorSelect }) {
           margin: 0 !important;
           background: white !important;
         }
-        .vendor-authorization-no-vendors {
+        .master-authorization-no-masters {
           padding: 20px 10px !important;
           text-align: center !important;
           color: #6b7280 !important;
           margin: 0 !important;
         }
-        .vendor-authorization-section {
+        .master-authorization-section {
           margin-bottom: 10px !important;
           padding: 10px !important;
           border-radius: 8px !important;
           border: 1px solid #e5e7eb !important;
         }
         
-        /* Override AdminHome styles that interfere with VendorAuthorization */
-        .adminhome-main .vendor-authorization-container {
+        /* Override AdminHome styles that interfere with MasterAuthorization */
+        .adminhome-main .master-authorization-container {
           align-items: stretch !important;
           justify-content: flex-start !important;
           width: 100% !important;
@@ -770,8 +770,8 @@ function VendorAuthorization({ onVendorSelect }) {
           margin-top: 5px !important;
         }
         
-        /* Ensure VendorAuthorization container overrides parent centering */
-        .vendor-authorization-container {
+        /* Ensure MasterAuthorization container overrides parent centering */
+        .master-authorization-container {
           align-items: stretch !important;
           justify-content: flex-start !important;
           width: 100% !important;
@@ -801,37 +801,37 @@ function VendorAuthorization({ onVendorSelect }) {
         }
         
         /* Ensure no inherited margins or padding */
-        .vendor-authorization-container > * {
+        .master-authorization-container > * {
           margin: 0 !important;
           padding: 0 !important;
         }
         
-        .vendor-authorization-container > *:not(.vendor-authorization-header):not(.vendor-authorization-error) {
+        .master-authorization-container > *:not(.master-authorization-header):not(.master-authorization-error) {
           margin: 0 !important;
         }
         
         /* Material Icons Styling */
-        .vendor-authorization-card .material-icons {
+        .master-authorization-card .material-icons {
           padding: 4px !important;
           margin: 2px !important;
           border-radius: 4px !important;
           transition: all 0.2s ease !important;
         }
         
-        .vendor-authorization-card .material-icons:hover {
+        .master-authorization-card .material-icons:hover {
           background-color: rgba(0, 0, 0, 0.05) !important;
         }
       `}</style>
       
       {error && (
-        <div className="vendor-authorization-error">
+        <div className="master-authorization-error">
           {error}
         </div>
       )}
       
-      <div className="vendor-authorization-card">
+      <div className="master-authorization-card">
         {/* Header */}
-        <div className="vendor-authorization-header">
+        <div className="master-authorization-header">
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
               <div style={{
@@ -851,7 +851,7 @@ function VendorAuthorization({ onVendorSelect }) {
                 color: '#1f2937',
                 margin: 0
               }}>
-                Vendor Authorization
+                Master Authorization
               </h1>
             </div>
             <p style={{
@@ -860,7 +860,7 @@ function VendorAuthorization({ onVendorSelect }) {
               margin: 0,
               fontWeight: '500'
             }}>
-              Manage vendor authorization requests and approvals
+              Manage master authorization requests and approvals
             </p>
           </div>
           
@@ -880,11 +880,11 @@ function VendorAuthorization({ onVendorSelect }) {
             }}>
               <span className="material-icons" style={{ fontSize: '16px', color: '#64748b' }}>business</span>
               <span style={{ fontSize: '14px', color: '#64748b', fontWeight: '500' }}>
-                {vendors.length} Vendors
+                {masters.length} Masters
               </span>
             </div>
             <button
-              onClick={loadVendors}
+              onClick={loadMasters}
               style={{
                 padding: '12px 20px',
                 background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
@@ -917,11 +917,11 @@ function VendorAuthorization({ onVendorSelect }) {
           </div>
         </div>
         
-        <div className="vendor-authorization-main">
-        {/* Vendor List */}
-        <div className="vendor-authorization-vendor-list">
+        <div className="master-authorization-main">
+        {/* Master List */}
+        <div className="master-authorization-master-list">
           {/* Search Bar */}
-          <div className="vendor-authorization-search-bar">
+          <div className="master-authorization-search-bar">
             <div style={{ position: 'relative' }}>
               <span className="material-icons" style={{
                 position: 'absolute',
@@ -935,7 +935,7 @@ function VendorAuthorization({ onVendorSelect }) {
               </span>
               <input
                 type="text"
-                placeholder="Search vendors by name, email, or company..."
+                placeholder="Search masters by name, email, or company..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 style={{
@@ -960,10 +960,10 @@ function VendorAuthorization({ onVendorSelect }) {
             </div>
           </div>
           
-          {/* Vendor List */}
-          <div className="vendor-authorization-list-content">
-            {filteredVendors.length === 0 ? (
-              <div className="vendor-authorization-no-vendors">
+          {/* Master List */}
+          <div className="master-authorization-list-content">
+            {filteredMasters.length === 0 ? (
+              <div className="master-authorization-no-masters">
                 <div style={{
                   width: '64px',
                   height: '64px',
@@ -979,33 +979,33 @@ function VendorAuthorization({ onVendorSelect }) {
                   <span className="material-icons">pending_actions</span>
                 </div>
                 <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#374151', margin: '0 0 8px 0' }}>
-                  {searchTerm ? 'No vendors found' : 'No authorization requests'}
+                  {searchTerm ? 'No masters found' : 'No authorization requests'}
                 </h3>
                 <p style={{ fontSize: '14px', color: '#6b7280', margin: 0 }}>
                   {searchTerm 
                     ? 'Try adjusting your search criteria' 
-                    : 'There are no vendor authorization requests at the moment. Vendors will appear here when they need authorization.'
+                    : 'There are no master authorization requests at the moment. Masters will appear here when they need authorization.'
                   }
                 </p>
               </div>
             ) : (
-              filteredVendors.map(vendor => (
+              filteredMasters.map(master => (
                 <div
-                  key={vendor.id}
-                  onClick={() => handleVendorSelect(vendor)}
-                  className="vendor-authorization-vendor-item"
+                  key={master.id}
+                  onClick={() => handleMasterSelect(master)}
+                  className="master-authorization-master-item"
                   style={{
-                    backgroundColor: selectedVendor?.id === vendor.id ? '#f0f9ff' : 'white',
-                    borderLeft: selectedVendor?.id === vendor.id ? '4px solid #3b82f6' : '4px solid transparent'
+                    backgroundColor: selectedMaster?.id === master.id ? '#f0f9ff' : 'white',
+                    borderLeft: selectedMaster?.id === master.id ? '4px solid #3b82f6' : '4px solid transparent'
                   }}
                   onMouseEnter={(e) => {
-                    if (selectedVendor?.id !== vendor.id) {
+                    if (selectedMaster?.id !== master.id) {
                       e.target.style.backgroundColor = '#f8fafc';
                       e.target.style.transform = 'translateX(4px)';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (selectedVendor?.id !== vendor.id) {
+                    if (selectedMaster?.id !== master.id) {
                       e.target.style.backgroundColor = 'white';
                       e.target.style.transform = 'translateX(0)';
                     }
@@ -1028,7 +1028,7 @@ function VendorAuthorization({ onVendorSelect }) {
                         gap: '8px'
                       }}>
                         <span className="material-icons" style={{ fontSize: '20px', color: '#3b82f6' }}>business</span>
-                        {vendor.name}
+                        {master.name}
                       </h3>
                       <p style={{
                         fontSize: '14px',
@@ -1036,7 +1036,7 @@ function VendorAuthorization({ onVendorSelect }) {
                         margin: '0 0 8px 0',
                         fontWeight: '500'
                       }}>
-                        {vendor.email}
+                        {master.email}
                       </p>
                     </div>
                     <div style={{
@@ -1050,22 +1050,22 @@ function VendorAuthorization({ onVendorSelect }) {
                         borderRadius: '20px',
                         fontSize: '12px',
                         fontWeight: '600',
-                        backgroundColor: getStatusColor(vendor.status) + '15',
-                        color: getStatusColor(vendor.status),
-                        border: `1px solid ${getStatusColor(vendor.status)}30`,
+                        backgroundColor: getStatusColor(master.status) + '15',
+                        color: getStatusColor(master.status),
+                        border: `1px solid ${getStatusColor(master.status)}30`,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px'
                       }}>
-                        {getStatusText(vendor.status)}
+                        {getStatusText(master.status)}
                       </span>
                       <div style={{
                         fontSize: '11px',
                         color: '#9ca3af',
                         textAlign: 'right'
                       }}>
-                        {vendor.authorizationDate ? 
-                          `Auth: ${new Date(vendor.authorizationDate).toLocaleDateString()}` :
-                          `Created: ${new Date(vendor.createdDate).toLocaleDateString()}`
+                        {master.authorizationDate ? 
+                          `Auth: ${new Date(master.authorizationDate).toLocaleDateString()}` :
+                          `Created: ${new Date(master.createdDate).toLocaleDateString()}`
                         }
                       </div>
                     </div>
@@ -1080,11 +1080,11 @@ function VendorAuthorization({ onVendorSelect }) {
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <span className="material-icons" style={{ fontSize: '16px' }}>person</span>
-                      <span>{vendor.contactPerson}</span>
+                      <span>{master.contactPerson}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                       <span className="material-icons" style={{ fontSize: '16px' }}>phone</span>
-                      <span>{vendor.phone}</span>
+                      <span>{master.phone}</span>
                     </div>
                   </div>
                 </div>
@@ -1093,11 +1093,11 @@ function VendorAuthorization({ onVendorSelect }) {
           </div>
         </div>
         
-        {/* Vendor Details */}
-        {showVendorDetails && selectedVendor && (
-          <div className="vendor-authorization-vendor-details">
+        {/* Master Details */}
+        {showMasterDetails && selectedMaster && (
+          <div className="master-authorization-master-details">
             {/* Header */}
-            <div className="vendor-authorization-details-header">
+            <div className="master-authorization-details-header">
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div style={{
                   width: '40px',
@@ -1117,7 +1117,7 @@ function VendorAuthorization({ onVendorSelect }) {
                     color: '#1f2937',
                     margin: '0 0 4px 0'
                   }}>
-                    Vendor Details
+                    Master Details
                   </h2>
                   <p style={{
                     fontSize: '14px',
@@ -1125,12 +1125,12 @@ function VendorAuthorization({ onVendorSelect }) {
                     margin: 0,
                     fontWeight: '500'
                   }}>
-                    {selectedVendor.name}
+                    {selectedMaster.name}
                   </p>
                 </div>
               </div>
               <button
-                onClick={() => setShowVendorDetails(false)}
+                onClick={() => setShowMasterDetails(false)}
                 style={{
                   width: '32px',
                   height: '32px',
@@ -1157,10 +1157,10 @@ function VendorAuthorization({ onVendorSelect }) {
               </button>
             </div>
             
-            <div className="vendor-authorization-details-content">
+            <div className="master-authorization-details-content">
             
             {/* Basic Information */}
-            <div className="vendor-authorization-section" style={{ 
+            <div className="master-authorization-section" style={{ 
               background: '#f8fafc',
               border: '1px solid #e5e7eb'
             }}>
@@ -1179,32 +1179,32 @@ function VendorAuthorization({ onVendorSelect }) {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Company Name</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedVendor.company}</div>
+                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.company}</div>
                   </div>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Contact Person</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedVendor.contactPerson}</div>
+                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.contactPerson}</div>
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Email</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedVendor.email}</div>
+                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.email}</div>
                   </div>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Phone</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedVendor.phone}</div>
+                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.phone}</div>
                   </div>
                 </div>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Address</label>
-                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedVendor.address}</div>
+                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.address}</div>
                 </div>
               </div>
             </div>
             
             {/* Business Information */}
-            <div className="vendor-authorization-section" style={{ 
+            <div className="master-authorization-section" style={{ 
               background: '#f0fdf4',
               border: '1px solid #bbf7d0'
             }}>
@@ -1222,10 +1222,10 @@ function VendorAuthorization({ onVendorSelect }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>GST Number</label>
-                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedVendor.gstNumber}</div>
-                  {selectedVendor.gstDocumentLink && (
+                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedMaster.gstNumber}</div>
+                  {selectedMaster.gstDocumentLink && (
                     <button
-                      onClick={() => window.open(selectedVendor.gstDocumentLink, '_blank')}
+                      onClick={() => window.open(selectedMaster.gstDocumentLink, '_blank')}
                       style={{
                         marginTop: '8px',
                         padding: '6px 12px',
@@ -1258,10 +1258,10 @@ function VendorAuthorization({ onVendorSelect }) {
                 </div>
                 <div>
                   <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>PAN Number</label>
-                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedVendor.panNumber}</div>
-                  {selectedVendor.panDocumentLink && (
+                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedMaster.panNumber}</div>
+                  {selectedMaster.panDocumentLink && (
                     <button
-                      onClick={() => window.open(selectedVendor.panDocumentLink, '_blank')}
+                      onClick={() => window.open(selectedMaster.panDocumentLink, '_blank')}
                       style={{
                         marginTop: '8px',
                         padding: '6px 12px',
@@ -1296,8 +1296,8 @@ function VendorAuthorization({ onVendorSelect }) {
             </div>
             
             {/* Documents Section */}
-            {(selectedVendor.panDocumentLink || selectedVendor.gstDocumentLink) && (
-              <div className="vendor-authorization-section" style={{ 
+            {(selectedMaster.panDocumentLink || selectedMaster.gstDocumentLink) && (
+              <div className="master-authorization-section" style={{ 
                 background: '#fef7ff',
                 border: '1px solid #e9d5ff'
               }}>
@@ -1313,9 +1313,9 @@ function VendorAuthorization({ onVendorSelect }) {
                   </h3>
                 </div>
                 <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                  {selectedVendor.panDocumentLink && (
+                  {selectedMaster.panDocumentLink && (
                     <button
-                      onClick={() => window.open(selectedVendor.panDocumentLink, '_blank')}
+                      onClick={() => window.open(selectedMaster.panDocumentLink, '_blank')}
                       style={{
                         padding: '12px 16px',
                         background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
@@ -1345,9 +1345,9 @@ function VendorAuthorization({ onVendorSelect }) {
                       View PAN Document
                     </button>
                   )}
-                  {selectedVendor.gstDocumentLink && (
+                  {selectedMaster.gstDocumentLink && (
                     <button
-                      onClick={() => window.open(selectedVendor.gstDocumentLink, '_blank')}
+                      onClick={() => window.open(selectedMaster.gstDocumentLink, '_blank')}
                       style={{
                         padding: '12px 16px',
                         background: 'linear-gradient(135deg, #10b981, #059669)',
@@ -1394,7 +1394,7 @@ function VendorAuthorization({ onVendorSelect }) {
             )}
             
             {/* Bank Details */}
-            <div className="vendor-authorization-section" style={{ 
+            <div className="master-authorization-section" style={{ 
               background: '#fef3c7',
               border: '1px solid #fde68a'
             }}>
@@ -1413,27 +1413,27 @@ function VendorAuthorization({ onVendorSelect }) {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Account Number</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedVendor.bankDetails.accountNumber}</div>
+                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedMaster.bankDetails.accountNumber}</div>
                   </div>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Bank Name</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedVendor.bankDetails.bankName}</div>
+                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.bankDetails.bankName}</div>
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>IFSC Code</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedVendor.bankDetails.ifscCode}</div>
+                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedMaster.bankDetails.ifscCode}</div>
                   </div>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Branch</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedVendor.bankDetails.branch}</div>
+                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.bankDetails.branch}</div>
                   </div>
                 </div>
               </div>
             </div>
             
-            {/* Approve Vendor Button */}
+            {/* Approve Master Button */}
             <div style={{ 
               marginTop: '20px',
               padding: '16px',
@@ -1443,15 +1443,15 @@ function VendorAuthorization({ onVendorSelect }) {
             }}>
               <button
                 onClick={() => handleAuthorizationAction('approved')}
-                disabled={selectedVendor.status === 'approved'}
+                disabled={selectedMaster.status === 'approved'}
                 style={{
                   width: '100%',
                   padding: '14px 20px',
-                  background: selectedVendor.status === 'approved' ? '#d1d5db' : 'linear-gradient(135deg, #10b981, #059669)',
+                  background: selectedMaster.status === 'approved' ? '#d1d5db' : 'linear-gradient(135deg, #10b981, #059669)',
                   color: 'white',
                   border: 'none',
                   borderRadius: '8px',
-                  cursor: selectedVendor.status === 'approved' ? 'not-allowed' : 'pointer',
+                  cursor: selectedMaster.status === 'approved' ? 'not-allowed' : 'pointer',
                   fontSize: '14px',
                   fontWeight: '600',
                   display: 'flex',
@@ -1459,16 +1459,16 @@ function VendorAuthorization({ onVendorSelect }) {
                   justifyContent: 'center',
                   gap: '8px',
                   transition: 'all 0.2s ease',
-                  boxShadow: selectedVendor.status === 'approved' ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.3)'
+                  boxShadow: selectedMaster.status === 'approved' ? 'none' : '0 2px 4px rgba(16, 185, 129, 0.3)'
                 }}
                 onMouseEnter={(e) => {
-                  if (selectedVendor.status !== 'approved') {
+                  if (selectedMaster.status !== 'approved') {
                     e.target.style.transform = 'translateY(-1px)';
                     e.target.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.4)';
                   }
                 }}
                 onMouseLeave={(e) => {
-                  if (selectedVendor.status !== 'approved') {
+                  if (selectedMaster.status !== 'approved') {
                     e.target.style.transform = 'translateY(0)';
                     e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.3)';
                   }
@@ -1477,7 +1477,7 @@ function VendorAuthorization({ onVendorSelect }) {
                 <span className="material-icons" style={{ fontSize: '16px' }}>
                   check_circle
                 </span>
-                {selectedVendor.status === 'approved' ? 'Already Approved' : 'Approve Vendor'}
+                {selectedMaster.status === 'approved' ? 'Already Approved' : 'Approve Master'}
               </button>
             </div>
             </div>
@@ -1490,4 +1490,4 @@ function VendorAuthorization({ onVendorSelect }) {
   );
 }
 
-export default VendorAuthorization;
+export default MasterAuthorization;
