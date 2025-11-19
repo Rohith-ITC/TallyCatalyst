@@ -462,10 +462,11 @@ const initialFormData = {
   name: '',
   alias: '',
   group: '', // Group field for master
-  addresses: [{ address: '', country: 'India', state: '', pincode: '' }], // Array of address objects
+  addresses: [{ address: '', country: 'India', state: '', pincode: '', priorStateName: '', addressName: '', phoneNumber: '', countryISDCode: '+91', mobileNumber: '', contactPerson: '', placeOfSupply: '', gstRegistrationType: 'Regular', applicableFrom: '', mailingName: '' }], // Array of address objects
   gstinno: '',
   // GST Registration Details (shown when GST is selected)
   gstRegistrationType: 'Regular', // Regular, Composition, Unregistered/Consumer, Unknown
+  gstApplicableFrom: '', // Date in YYYYMMDD format
   assesseeOfOtherTerritory: false,
   useLedgerAsCommonParty: false,
   setAlterAdditionalGSTDetails: false,
@@ -475,14 +476,18 @@ const initialFormData = {
   msmeTypeOfEnterprise: '', // Type of Enterprise (Micro, Small, Medium)
   msmeUdyamRegistrationNumber: '', // UDYAM Registration Number
   msmeActivityType: 'Unknown', // Activity Type (Unknown, Manufacturing, Services, Traders)
+  msmeFromDate: '', // Date in YYYYMMDD format
   // TDS Details
   isTDSDeductable: false, // Is TDS Deductable (Yes/No)
   deducteeType: '', // Deductee type
+  natureOfPayment: '', // Nature of payment for TDS
   deductTDSInSameVoucher: false, // Deduct TDS in Same Voucher (Yes/No)
-  contacts: [{ contactPerson: '', email: '', phone: '', mobile: '' }], // Array of contact objects
-  bankDetails: [{ accountNumber: '', ifscCode: '', bankName: '' }], // Array of bank detail objects
+  isCostCentresOn: false, // Cost centres on/off
+  contacts: [{ contactPerson: '', email: '', phone: '', mobile: '', countryISDCode: '+91', isDefaultWhatsappNum: false }], // Array of contact objects
+  bankDetails: [{ accountNumber: '', ifscCode: '', bankName: '', swiftCode: '', paymentFavouring: '', bankId: '', defaultTransactionType: 'Inter Bank Transfer', setAsDefault: false }], // Array of bank detail objects (now paymentDetails)
   panDocumentLink: '', // Document link for PAN
   gstDocumentLink: '', // Document link for GST
+  documents: [], // Additional documents array
   // Additional Details
   maintainBalancesBillByBill: false,
   defaultCreditPeriod: '',
@@ -492,7 +497,16 @@ const initialFormData = {
   overrideCreditLimitPostDated: false,
   inventoryValuesAffected: false,
   priceLevelApplicable: false,
-  priceLevel: ''
+  priceLevel: '',
+  // New fields from API payload
+  nameOnPan: '', // Name on PAN card
+  emailCC: '', // CC email address
+  countryISDCode: '+91', // Country ISD code for primary contact
+  narration: '', // Narration field
+  description: '', // Description field
+  priorStateName: '', // Prior state name
+  countryOfResidence: 'India', // Country of residence
+  mailingName: '' // Mailing name (defaults to name if not provided)
 };
 
 const MasterForm = ({ 
@@ -1686,109 +1700,211 @@ const MasterForm = ({
         throw new Error('Invalid tallyloc_id: must be a number');
       }
 
-      // Prepare the master data for API according to the Postman collection structure
+      // Prepare the master data for API according to the ledger-create API structure
+      const trimmedName = masterData.name.trim();
+      const alias = masterData.alias || '';
+      
+      // Get first address for primary fields
+      const firstAddress = masterData.addresses && masterData.addresses.length > 0
+        ? masterData.addresses[0]
+        : { address: masterData.address1 || '', pincode: masterData.pincode || '', state: masterData.state || '', country: masterData.country || 'India' };
+      
+      // Get first contact for primary fields
+      const firstContact = masterData.contacts && masterData.contacts.length > 0
+        ? masterData.contacts[0]
+        : { contactPerson: masterData.contactperson || '', email: masterData.emailid || '', phone: masterData.phoneno || '', mobile: masterData.mobileno || '' };
+      
+      // Build address string with pipe separator
+      const addressString = firstAddress.address ? firstAddress.address.replace(/\n/g, '|') : '';
+      const addressArray = addressString ? addressString.split('|').filter(addr => addr.trim()) : [];
+      
+      // Build languageNames array (name and alias if different)
+      const languageNames = [trimmedName];
+      if (alias && alias.trim() && alias.trim().toLowerCase() !== trimmedName.toLowerCase()) {
+        languageNames.push(alias.trim());
+      }
+      
+      // Build contactDetails array
+      const contactDetails = masterData.contacts && Array.isArray(masterData.contacts) && masterData.contacts.length > 0
+        ? masterData.contacts.map((contact, index) => ({
+            name: contact.contactPerson || '',
+            phoneNumber: contact.mobile || contact.phone || '',
+            countryISDCode: contact.countryISDCode || '+91',
+            isDefaultWhatsappNum: index === 0 ? 'Yes' : 'No'
+          }))
+        : firstContact.mobile || firstContact.phone
+          ? [{
+              name: firstContact.contactPerson || '',
+              phoneNumber: firstContact.mobile || firstContact.phone || '',
+              countryISDCode: '+91',
+              isDefaultWhatsappNum: 'Yes'
+            }]
+          : [];
+      
+      // Build paymentDetails array from bankDetails
+      const paymentDetails = masterData.bankDetails && Array.isArray(masterData.bankDetails) && masterData.bankDetails.length > 0
+        ? masterData.bankDetails.map((bank, index) => ({
+            ifscCode: bank.ifscCode || '',
+            swiftCode: bank.swiftCode || '',
+            accountNumber: bank.accountNumber || '',
+            paymentFavouring: bank.paymentFavouring || bank.bankName || trimmedName,
+            transactionName: index === 0 ? 'Primary' : `Secondary${index > 1 ? index : ''}`,
+            bankId: bank.bankId || '',
+            setAsDefault: index === 0 ? 'Yes' : 'No',
+            defaultTransactionType: bank.defaultTransactionType || 'Inter Bank Transfer'
+          }))
+        : masterData.accountno || masterData.ifsccode
+          ? [{
+              ifscCode: masterData.ifsccode || '',
+              swiftCode: masterData.swiftCode || '',
+              accountNumber: masterData.accountno || '',
+              paymentFavouring: masterData.bankname || trimmedName,
+              transactionName: 'Primary',
+              bankId: masterData.bankId || '',
+              setAsDefault: 'Yes',
+              defaultTransactionType: 'Inter Bank Transfer'
+            }]
+          : [];
+      
+      // Build msmeDetails array
+      const msmeDetails = masterData.msmeUdyamRegistrationNumber && masterData.msmeTypeOfEnterprise
+        ? [{
+            fromDate: masterData.msmeFromDate || new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+            enterpriseType: masterData.msmeTypeOfEnterprise,
+            udyamRegNumber: masterData.msmeUdyamRegistrationNumber,
+            msmeActivityType: masterData.msmeActivityType || 'Unknown'
+          }]
+        : [];
+      
+      // Build gstRegDetails array
+      const gstRegDetails = masterData.gstinno
+        ? [{
+            applicableFrom: masterData.gstApplicableFrom || new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+            gstRegistrationType: masterData.gstRegistrationType || 'Regular',
+            placeOfSupply: firstAddress.state || '',
+            gstin: masterData.gstinno
+          }]
+        : [];
+      
+      // Build mailingDetailsList array
+      const mailingDetailsList = masterData.addresses && Array.isArray(masterData.addresses) && masterData.addresses.length > 0
+        ? masterData.addresses.map((addr, index) => {
+            const addrLines = addr.address ? addr.address.replace(/\n/g, '|').split('|').filter(line => line.trim()) : [];
+            return {
+              addresses: addrLines.length > 0 ? addrLines : [''],
+              applicableFrom: addr.applicableFrom || new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+              pincode: addr.pincode || '',
+              mailingName: addr.mailingName || trimmedName,
+              state: addr.state || '',
+              country: addr.country || 'India'
+            };
+          })
+        : addressArray.length > 0
+          ? [{
+              addresses: addressArray,
+              applicableFrom: new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+              pincode: firstAddress.pincode || '',
+              mailingName: trimmedName,
+              state: firstAddress.state || '',
+              country: firstAddress.country || 'India'
+            }]
+          : [];
+      
+      // Build multiAddressList array
+      const multiAddressList = masterData.addresses && Array.isArray(masterData.addresses) && masterData.addresses.length > 0
+        ? masterData.addresses.map((addr, index) => {
+            const addrLines = addr.address ? addr.address.replace(/\n/g, '|').split('|').filter(line => line.trim()) : [];
+            return {
+              addressName: addr.addressName || String.fromCharCode(65 + index), // A, B, C, etc.
+              addresses: addrLines.length > 0 ? addrLines : [''],
+              priorStateName: addr.priorStateName || addr.state || '',
+              pincode: addr.pincode || '',
+              phoneNumber: addr.phoneNumber || firstContact.phone || '',
+              countryISDCode: addr.countryISDCode || '+91',
+              countryName: addr.country || 'India',
+              gstRegistrationType: addr.gstRegistrationType || masterData.gstRegistrationType || 'Regular',
+              mobileNumber: addr.mobileNumber || firstContact.mobile || '',
+              contactPerson: addr.contactPerson || firstContact.contactPerson || '',
+              state: addr.state || '',
+              placeOfSupply: addr.placeOfSupply || addr.state || ''
+            };
+          })
+        : addressArray.length > 0
+          ? [{
+              addressName: 'A',
+              addresses: addressArray,
+              priorStateName: firstAddress.state || '',
+              pincode: firstAddress.pincode || '',
+              phoneNumber: firstContact.phone || '',
+              countryISDCode: '+91',
+              countryName: firstAddress.country || 'India',
+              gstRegistrationType: masterData.gstRegistrationType || 'Regular',
+              mobileNumber: firstContact.mobile || '',
+              contactPerson: firstContact.contactPerson || '',
+              state: firstAddress.state || '',
+              placeOfSupply: firstAddress.state || ''
+            }]
+          : [];
+      
+      // Build doclist from document links
+      const documents = [];
+      if (masterData.panDocumentLink) documents.push(masterData.panDocumentLink);
+      if (masterData.gstDocumentLink) documents.push(masterData.gstDocumentLink);
+      if (masterData.documents && Array.isArray(masterData.documents)) {
+        documents.push(...masterData.documents);
+      }
+      
       const apiData = {
         tallyloc_id: parseInt(tallylocId),
         company: company,
         guid: guid,
         ledgerData: {
-          name: masterData.name.trim(), // Trim whitespace
-          alias: masterData.alias || '',
+          name: trimmedName,
+          languageNames: languageNames,
           group: masterData.group || '',
-          addresses: masterData.addresses && Array.isArray(masterData.addresses) && masterData.addresses.length > 0
-            ? masterData.addresses.map(addr => ({
-                address: (addr.address || '').replace(/\n/g, '|'), // Convert line breaks to pipe characters for API storage
-                pincode: addr.pincode || '',
-                stateName: addr.state || '',
-                countryName: addr.country || 'India'
-              }))
-            : [{
-                address: (masterData.address1 || '').replace(/\n/g, '|'), // Fallback for backward compatibility
-                pincode: masterData.pincode || '',
-                stateName: masterData.state || '',
-                countryName: masterData.country || 'India'
-              }],
-          // Keep single address fields for backward compatibility (use first address if available)
-          address: masterData.addresses && masterData.addresses.length > 0
-            ? (masterData.addresses[0].address || '').replace(/\n/g, '|')
-            : (masterData.address1 || '').replace(/\n/g, '|'),
-          pincode: masterData.addresses && masterData.addresses.length > 0
-            ? masterData.addresses[0].pincode || ''
-            : masterData.pincode || '',
-          stateName: masterData.addresses && masterData.addresses.length > 0
-            ? masterData.addresses[0].state || ''
-            : masterData.state || '',
-          countryName: masterData.addresses && masterData.addresses.length > 0
-            ? masterData.addresses[0].country || 'India'
-            : masterData.country || 'India',
-          contacts: masterData.contacts && Array.isArray(masterData.contacts) && masterData.contacts.length > 0
-            ? masterData.contacts.map(contact => ({
-                contactPerson: contact.contactPerson || '',
-                email: contact.email || '',
-                phoneNo: contact.phone || '',
-                mobileNo: contact.mobile || ''
-              }))
-            : [{
-                contactPerson: masterData.contactperson || '',
-                email: masterData.emailid || '',
-                phoneNo: masterData.phoneno || '',
-                mobileNo: masterData.mobileno || ''
-              }],
-          // Keep single contact fields for backward compatibility (use first contact if available)
-          contactPerson: masterData.contacts && masterData.contacts.length > 0
-            ? masterData.contacts[0].contactPerson || ''
-            : masterData.contactperson || '',
-          phoneNo: masterData.contacts && masterData.contacts.length > 0
-            ? masterData.contacts[0].phone || ''
-            : masterData.phoneno || '',
-          mobileNo: masterData.contacts && masterData.contacts.length > 0
-            ? masterData.contacts[0].mobile || ''
-            : masterData.mobileno || '',
-          email: masterData.contacts && masterData.contacts.length > 0
-            ? masterData.contacts[0].email || ''
-            : masterData.emailid || '',
-          emailCC: '', // Not collected in form
+          isBillWiseOn: masterData.maintainBalancesBillByBill ? 'Yes' : 'No',
+          billCreditPeriod: masterData.defaultCreditPeriod || '',
+          isCreditDaysChkOn: masterData.checkCreditDaysDuringVoucher ? 'Yes' : 'No',
+          creditLimit: masterData.creditLimitAmount || '',
+          overrideCreditLimit: masterData.overrideCreditLimitPostDated ? 'Yes' : 'No',
+          affectsStock: masterData.inventoryValuesAffected ? 'Yes' : 'No',
+          isCostCentresOn: 'No', // Default value, can be updated if form has this field
+          isTdsApplicable: masterData.isTDSDeductable ? 'Yes' : 'No',
+          tdsDeducteeType: masterData.deducteeType || '',
+          natureOfPayment: masterData.natureOfPayment || '',
+          address: addressString,
+          addresses: addressArray,
+          pincode: firstAddress.pincode || '',
+          priorStateName: firstAddress.state || '',
+          stateName: firstAddress.state || '',
+          countryOfResidence: firstAddress.country || 'India',
+          mailingName: masterData.mailingName || trimmedName,
+          contactPerson: firstContact.contactPerson || '',
+          phoneNo: firstContact.phone || '',
+          countryISDCode: firstContact.countryISDCode || '+91',
+          mobileNo: firstContact.mobile || '',
+          email: firstContact.email || '',
+          emailCC: masterData.emailCC || '',
           panNo: masterData.panno || '',
+          nameOnPan: masterData.nameOnPan || trimmedName,
           gstinNo: masterData.gstinno || '',
-          gstRegistrationType: masterData.gstRegistrationType || 'Regular',
-          assesseeOfOtherTerritory: masterData.assesseeOfOtherTerritory || false,
-          useLedgerAsCommonParty: masterData.useLedgerAsCommonParty || false,
-          setAlterAdditionalGSTDetails: masterData.setAlterAdditionalGSTDetails || false,
-          ignorePrefixesSuffixesInDocNo: masterData.ignorePrefixesSuffixesInDocNo || false,
-          setAlterMSMERegistrationDetails: masterData.setAlterMSMERegistrationDetails || false,
-          msmeTypeOfEnterprise: masterData.msmeTypeOfEnterprise || '',
-          msmeUdyamRegistrationNumber: masterData.msmeUdyamRegistrationNumber || '',
-          msmeActivityType: masterData.msmeActivityType || 'Unknown',
-          isTDSDeductable: masterData.isTDSDeductable || false,
-          deducteeType: masterData.deducteeType || '',
-          deductTDSInSameVoucher: masterData.deductTDSInSameVoucher || false,
-          priceLevelApplicable: masterData.priceLevelApplicable || false,
           priceLevel: masterData.priceLevel || '',
-          bankDetails: masterData.bankDetails && Array.isArray(masterData.bankDetails) && masterData.bankDetails.length > 0
-            ? masterData.bankDetails.map(bank => ({
-                accountNumber: bank.accountNumber || '',
-                ifscCode: bank.ifscCode || '',
-                bankName: bank.bankName || ''
-              }))
-            : [{
-                accountNumber: masterData.accountno || '',
-                ifscCode: masterData.ifsccode || '',
-                bankName: masterData.bankname || ''
-              }],
-          // Keep single bank fields for backward compatibility (use first bank detail if available)
-          bankName: masterData.bankDetails && masterData.bankDetails.length > 0
-            ? masterData.bankDetails[0].bankName || ''
-            : masterData.bankname || '',
-          accountNo: masterData.bankDetails && masterData.bankDetails.length > 0
-            ? masterData.bankDetails[0].accountNumber || ''
-            : masterData.accountno || '',
-          ifscCode: masterData.bankDetails && masterData.bankDetails.length > 0
-            ? masterData.bankDetails[0].ifscCode || ''
-            : masterData.ifsccode || '',
-          panDocumentLink: masterData.panDocumentLink || '',
-          gstDocumentLink: masterData.gstDocumentLink || ''
+          narration: masterData.narration || '',
+          description: masterData.description || '',
+          contactDetails: contactDetails,
+          doclist: documents.length > 0 ? { documents: documents } : undefined,
+          paymentDetails: paymentDetails,
+          msmeDetails: msmeDetails,
+          gstRegDetails: gstRegDetails,
+          mailingDetailsList: mailingDetailsList,
+          multiAddressList: multiAddressList
         }
       };
+      
+      // Remove undefined doclist if empty
+      if (!apiData.ledgerData.doclist || !apiData.ledgerData.doclist.documents || apiData.ledgerData.doclist.documents.length === 0) {
+        delete apiData.ledgerData.doclist;
+      }
 
 
       // Validate required fields before API call
@@ -2565,6 +2681,60 @@ const MasterForm = ({
                 {showAdditionalDetails && (
                   <div style={{ gridColumn: 'span 3', marginTop: '16px', padding: '20px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      {/* Narration */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          Narration
+                        </label>
+                        <textarea
+                          value={formData.narration}
+                          onChange={(e) => updateField('narration', e.target.value)}
+                          style={{
+                            ...inputStyles,
+                            minHeight: '80px',
+                            resize: 'vertical',
+                            border: `1px solid ${errors.narration ? '#ef4444' : '#d1d5db'}`
+                          }}
+                          placeholder="Enter narration"
+                          rows={3}
+                        />
+                        {errors.narration && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.narration}</p>}
+                      </div>
+
+                      {/* Description */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          Description
+                        </label>
+                        <textarea
+                          value={formData.description}
+                          onChange={(e) => updateField('description', e.target.value)}
+                          style={{
+                            ...inputStyles,
+                            minHeight: '80px',
+                            resize: 'vertical',
+                            border: `1px solid ${errors.description ? '#ef4444' : '#d1d5db'}`
+                          }}
+                          placeholder="Enter description"
+                          rows={3}
+                        />
+                        {errors.description && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.description}</p>}
+                      </div>
+
                       {/* Maintain balances bill-by-bill */}
                       <div>
                         <label style={{ 
@@ -3211,33 +3381,62 @@ const MasterForm = ({
 
                       {/* Email ID - Only for first contact */}
                       {index === 0 && (
-                        <div>
-                          <label style={{ 
-                            display: 'block', 
-                            fontSize: '14px', 
-                            fontWeight: '500', 
-                            color: '#374151', 
-                            marginBottom: '6px',
-                            fontFamily: 'system-ui, -apple-system, sans-serif'
-                          }}>
-                            {MASTER_CONSTANTS.FORM_LABELS.EMAIL_ID}
-                          </label>
-                          <input
-                            type="email"
-                            value={contact.email}
-                            onChange={(e) => updateContactField(index, 'email', e.target.value)}
-                            disabled={!fieldStates.hasAddress}
-                            style={{
-                              ...inputStyles,
-                              border: `1px solid ${errors[`contact_${index}_email`] ? '#ef4444' : '#d1d5db'}`,
-                              opacity: !fieldStates.hasAddress ? 0.6 : 1,
-                              cursor: !fieldStates.hasAddress ? 'not-allowed' : 'text',
-                              backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
-                            }}
-                            placeholder="Enter email address"
-                          />
-                          {errors[`contact_${index}_email`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`contact_${index}_email`]}</p>}
-                        </div>
+                        <>
+                          <div>
+                            <label style={{ 
+                              display: 'block', 
+                              fontSize: '14px', 
+                              fontWeight: '500', 
+                              color: '#374151', 
+                              marginBottom: '6px',
+                              fontFamily: 'system-ui, -apple-system, sans-serif'
+                            }}>
+                              {MASTER_CONSTANTS.FORM_LABELS.EMAIL_ID}
+                            </label>
+                            <input
+                              type="email"
+                              value={contact.email}
+                              onChange={(e) => updateContactField(index, 'email', e.target.value)}
+                              disabled={!fieldStates.hasAddress}
+                              style={{
+                                ...inputStyles,
+                                border: `1px solid ${errors[`contact_${index}_email`] ? '#ef4444' : '#d1d5db'}`,
+                                opacity: !fieldStates.hasAddress ? 0.6 : 1,
+                                cursor: !fieldStates.hasAddress ? 'not-allowed' : 'text',
+                                backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
+                              }}
+                              placeholder="Enter email address"
+                            />
+                            {errors[`contact_${index}_email`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`contact_${index}_email`]}</p>}
+                          </div>
+                          <div>
+                            <label style={{ 
+                              display: 'block', 
+                              fontSize: '14px', 
+                              fontWeight: '500', 
+                              color: '#374151', 
+                              marginBottom: '6px',
+                              fontFamily: 'system-ui, -apple-system, sans-serif'
+                            }}>
+                              Email CC
+                            </label>
+                            <input
+                              type="email"
+                              value={formData.emailCC}
+                              onChange={(e) => updateField('emailCC', e.target.value)}
+                              disabled={!fieldStates.hasAddress}
+                              style={{
+                                ...inputStyles,
+                                border: `1px solid ${errors.emailCC ? '#ef4444' : '#d1d5db'}`,
+                                opacity: !fieldStates.hasAddress ? 0.6 : 1,
+                                cursor: !fieldStates.hasAddress ? 'not-allowed' : 'text',
+                                backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
+                              }}
+                              placeholder="Enter CC email address"
+                            />
+                            {errors.emailCC && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.emailCC}</p>}
+                          </div>
+                        </>
                       )}
 
                       {/* Phone Number */}
@@ -3299,6 +3498,65 @@ const MasterForm = ({
                           {errors[`contact_${index}_mobile`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`contact_${index}_mobile`]}</p>}
                         </div>
                       )}
+
+                      {/* Country ISD Code */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          Country ISD Code
+                        </label>
+                        <input
+                          type="text"
+                          value={contact.countryISDCode || '+91'}
+                          onChange={(e) => updateContactField(index, 'countryISDCode', e.target.value)}
+                          disabled={!fieldStates.hasAddress}
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`contact_${index}_countryISDCode`] ? '#ef4444' : '#d1d5db'}`,
+                            opacity: !fieldStates.hasAddress ? 0.6 : 1,
+                            cursor: !fieldStates.hasAddress ? 'not-allowed' : 'text',
+                            backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
+                          }}
+                          placeholder="+91"
+                        />
+                        {errors[`contact_${index}_countryISDCode`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`contact_${index}_countryISDCode`]}</p>}
+                      </div>
+
+                      {/* Default WhatsApp Number */}
+                      <div>
+                        <label style={{ 
+                          display: 'flex', 
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif',
+                          cursor: 'pointer'
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={contact.isDefaultWhatsappNum || false}
+                            onChange={(e) => updateContactField(index, 'isDefaultWhatsappNum', e.target.checked)}
+                            disabled={!fieldStates.hasAddress}
+                            style={{
+                              width: '18px',
+                              height: '18px',
+                              cursor: !fieldStates.hasAddress ? 'not-allowed' : 'pointer',
+                              accentColor: '#3b82f6',
+                              opacity: !fieldStates.hasAddress ? 0.6 : 1
+                            }}
+                          />
+                          <span>Set as Default WhatsApp Number</span>
+                        </label>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -3524,6 +3782,167 @@ const MasterForm = ({
                           />
                         </div>
                         {errors[`bank_${index}_bankName`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_bankName`]}</p>}
+                      </div>
+
+                      {/* Swift Code */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          Swift Code
+                        </label>
+                        <input
+                          type="text"
+                          value={bank.swiftCode || ''}
+                          onChange={(e) => updateBankDetailField(index, 'swiftCode', e.target.value.toUpperCase())}
+                          disabled={!fieldStates.hasBankDetails}
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`bank_${index}_swiftCode`] ? '#ef4444' : '#d1d5db'}`,
+                            opacity: !fieldStates.hasBankDetails ? 0.6 : 1,
+                            cursor: !fieldStates.hasBankDetails ? 'not-allowed' : 'text',
+                            backgroundColor: !fieldStates.hasBankDetails ? '#f3f4f6' : '#fff'
+                          }}
+                          placeholder="Enter SWIFT code"
+                        />
+                        {errors[`bank_${index}_swiftCode`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_swiftCode`]}</p>}
+                      </div>
+
+                      {/* Payment Favouring */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          Payment Favouring
+                        </label>
+                        <input
+                          type="text"
+                          value={bank.paymentFavouring || ''}
+                          onChange={(e) => updateBankDetailField(index, 'paymentFavouring', e.target.value)}
+                          disabled={!fieldStates.hasBankDetails}
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`bank_${index}_paymentFavouring`] ? '#ef4444' : '#d1d5db'}`,
+                            opacity: !fieldStates.hasBankDetails ? 0.6 : 1,
+                            cursor: !fieldStates.hasBankDetails ? 'not-allowed' : 'text',
+                            backgroundColor: !fieldStates.hasBankDetails ? '#f3f4f6' : '#fff'
+                          }}
+                          placeholder="Enter payment favouring name"
+                        />
+                        {errors[`bank_${index}_paymentFavouring`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_paymentFavouring`]}</p>}
+                      </div>
+
+                      {/* Bank ID */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          Bank ID
+                        </label>
+                        <input
+                          type="text"
+                          value={bank.bankId || ''}
+                          onChange={(e) => updateBankDetailField(index, 'bankId', e.target.value)}
+                          disabled={!fieldStates.hasBankDetails}
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`bank_${index}_bankId`] ? '#ef4444' : '#d1d5db'}`,
+                            opacity: !fieldStates.hasBankDetails ? 0.6 : 1,
+                            cursor: !fieldStates.hasBankDetails ? 'not-allowed' : 'text',
+                            backgroundColor: !fieldStates.hasBankDetails ? '#f3f4f6' : '#fff'
+                          }}
+                          placeholder="Enter bank ID"
+                        />
+                        {errors[`bank_${index}_bankId`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_bankId`]}</p>}
+                      </div>
+
+                      {/* Default Transaction Type */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          Default Transaction Type
+                        </label>
+                        <select
+                          value={bank.defaultTransactionType || 'Inter Bank Transfer'}
+                          onChange={(e) => updateBankDetailField(index, 'defaultTransactionType', e.target.value)}
+                          disabled={!fieldStates.hasBankDetails}
+                          style={{
+                            ...selectStyles,
+                            border: `1px solid ${errors[`bank_${index}_defaultTransactionType`] ? '#ef4444' : '#d1d5db'}`,
+                            opacity: !fieldStates.hasBankDetails ? 0.6 : 1,
+                            cursor: !fieldStates.hasBankDetails ? 'not-allowed' : 'pointer',
+                            backgroundColor: !fieldStates.hasBankDetails ? '#f3f4f6' : '#fff'
+                          }}
+                        >
+                          <option value="Inter Bank Transfer">Inter Bank Transfer</option>
+                          <option value="Intra Bank Transfer">Intra Bank Transfer</option>
+                          <option value="RTGS">RTGS</option>
+                          <option value="NEFT">NEFT</option>
+                          <option value="IMPS">IMPS</option>
+                          <option value="UPI">UPI</option>
+                        </select>
+                        {errors[`bank_${index}_defaultTransactionType`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_defaultTransactionType`]}</p>}
+                      </div>
+
+                      {/* Set as Default */}
+                      <div>
+                        <label style={{ 
+                          display: 'flex', 
+                          alignItems: 'center',
+                          gap: '8px',
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif',
+                          cursor: 'pointer'
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={bank.setAsDefault || (index === 0)}
+                            onChange={(e) => {
+                              updateBankDetailField(index, 'setAsDefault', e.target.checked);
+                              // Uncheck others if this is set as default
+                              if (e.target.checked) {
+                                formData.bankDetails.forEach((b, i) => {
+                                  if (i !== index) {
+                                    updateBankDetailField(i, 'setAsDefault', false);
+                                  }
+                                });
+                              }
+                            }}
+                            disabled={!fieldStates.hasBankDetails}
+                            style={{
+                              width: '18px',
+                              height: '18px',
+                              cursor: !fieldStates.hasBankDetails ? 'not-allowed' : 'pointer',
+                              accentColor: '#3b82f6',
+                              opacity: !fieldStates.hasBankDetails ? 0.6 : 1
+                            }}
+                          />
+                          <span>Set as Default</span>
+                        </label>
                       </div>
                     </div>
                   </div>
@@ -3960,6 +4379,33 @@ const MasterForm = ({
                           )}
                         </div>
                       )}
+
+                      {/* Name on PAN */}
+                      {formData.panno && (
+                        <div>
+                          <label style={{ 
+                            display: 'block', 
+                            fontSize: '14px', 
+                            fontWeight: '500', 
+                            color: '#374151', 
+                            marginBottom: '6px',
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
+                            Name on PAN
+                          </label>
+                          <input
+                            type="text"
+                            value={formData.nameOnPan}
+                            onChange={(e) => updateField('nameOnPan', e.target.value)}
+                            style={{
+                              ...inputStyles,
+                              border: `1px solid ${errors.nameOnPan ? '#ef4444' : '#d1d5db'}`
+                            }}
+                            placeholder="Enter name as on PAN card"
+                          />
+                          {errors.nameOnPan && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.nameOnPan}</p>}
+                        </div>
+                      )}
                     </div>
 
                     {/* Tax Registration Details */}
@@ -4322,6 +4768,34 @@ const MasterForm = ({
                         ))}
                       </select>
                       {errors.deducteeType && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.deducteeType}</p>}
+                    </div>
+
+                    <div>
+                      <label style={{ 
+                        display: 'block', 
+                        fontSize: '14px', 
+                        fontWeight: '500', 
+                        color: '#374151', 
+                        marginBottom: '6px',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>
+                        Nature of Payment
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.natureOfPayment}
+                        onChange={(e) => updateField('natureOfPayment', e.target.value)}
+                        disabled={!fieldStates.hasTDS}
+                        style={{
+                          ...inputStyles,
+                          border: `1px solid ${errors.natureOfPayment ? '#ef4444' : '#d1d5db'}`,
+                          opacity: !fieldStates.hasTDS ? 0.6 : 1,
+                          cursor: !fieldStates.hasTDS ? 'not-allowed' : 'text',
+                          backgroundColor: !fieldStates.hasTDS ? '#f3f4f6' : '#fff'
+                        }}
+                        placeholder="Enter nature of payment"
+                      />
+                      {errors.natureOfPayment && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.natureOfPayment}</p>}
                     </div>
 
                     <div>
