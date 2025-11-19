@@ -19,6 +19,7 @@ import {
   parseXMLResponse,
 } from '../../RecvDashboard/utils/helpers';
 import { getApiUrl } from '../../config';
+import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/companyConfigUtils';
 
 const SalesDashboard = () => {
   const RAW_DATA_PAGE_SIZE = 20;
@@ -62,7 +63,9 @@ const SalesDashboard = () => {
   const [selectedRegion, setSelectedRegion] = useState(() => initialCachedState?.filters?.region ?? 'all');
   const [selectedCountry, setSelectedCountry] = useState(() => initialCachedState?.filters?.country ?? 'all');
   const [selectedPeriod, setSelectedPeriod] = useState(() => initialCachedState?.filters?.period ?? null); // Format: "YYYY-MM"
+  const [selectedLedgerGroup, setSelectedLedgerGroup] = useState('all');
   const [categoryChartType, setCategoryChartType] = useState('bar');
+  const [ledgerGroupChartType, setLedgerGroupChartType] = useState('bar');
   const [regionChartType, setRegionChartType] = useState('bar');
   const [countryChartType, setCountryChartType] = useState('bar');
   const [periodChartType, setPeriodChartType] = useState('bar');
@@ -80,6 +83,7 @@ const SalesDashboard = () => {
   const [enabledSalespersons, setEnabledSalespersons] = useState(new Set());
   const [showSalespersonConfig, setShowSalespersonConfig] = useState(false);
   const salespersonsInitializedRef = useRef(false);
+  const [salespersonFormula, setSalespersonFormula] = useState(''); // Formula from company configuration
   const requestTimestampRef = useRef(Date.now());
 
   // Cache for API responses
@@ -362,7 +366,9 @@ const SalesDashboard = () => {
 
   const fetchSalesData = async (startDate, endDate) => {
     const companyInfo = getCompanyInfo();
-    const cacheKey = `${companyInfo.tallyloc_id}_${companyInfo.guid}_${requestTimestampRef.current}_${startDate}_${endDate}`;
+    // Include salesperson formula in cache key so cache invalidates when formula changes
+    const formulaHash = salespersonFormula ? btoa(salespersonFormula).substring(0, 10) : 'noformula';
+    const cacheKey = `${companyInfo.tallyloc_id}_${companyInfo.guid}_${requestTimestampRef.current}_${formulaHash}_${startDate}_${endDate}`;
     
     // Check cache first
     if (apiCache.has(cacheKey)) {
@@ -390,6 +396,15 @@ const SalesDashboard = () => {
         todate: formatDateForAPI(endDate)
       };
 
+      // Include salesperson formula from configuration if available
+      if (salespersonFormula) {
+        payload.salesperson_formula = salespersonFormula;
+        console.log('✅ Using salesperson formula from config:', salespersonFormula);
+      }
+
+      // Note: The backend API /api/reports/salesvoucherextract should use the 
+      // 'salesdash_salesprsn' company configuration to extract salesperson data.
+      // We're also passing it explicitly in the payload to ensure it's used.
       console.log('🚀 Making API call with payload:', payload);
       const data = await apiPost(`/api/reports/salesvoucherextract?ts=${Date.now()}`, payload);
       console.log('✅ API response structure:', {
@@ -398,6 +413,41 @@ const SalesDashboard = () => {
         firstVoucherKeys: data?.vouchers?.[0] ? Object.keys(data.vouchers[0]) : [],
         firstVoucherSample: data?.vouchers?.[0] || null
       });
+      
+      // Check for salesperson data in the response
+      if (data?.vouchers && data.vouchers.length > 0) {
+        const firstVoucher = data.vouchers[0];
+        const salespersonFields = Object.keys(firstVoucher).filter(key => {
+          const lowerKey = key.toLowerCase();
+          return lowerKey.includes('salesperson') || 
+                 lowerKey.includes('sales_person') ||
+                 lowerKey.includes('salespersonname') ||
+                 lowerKey.includes('sales_person_name') ||
+                 lowerKey.includes('salesprsn') ||
+                 lowerKey === 'salesprsn';
+        });
+        
+        console.log('🔍 Salesperson data check:', {
+          salespersonFieldsFound: salespersonFields,
+          sampleValues: salespersonFields.reduce((acc, field) => {
+            acc[field] = firstVoucher[field];
+            return acc;
+          }, {}),
+          allVoucherKeys: Object.keys(firstVoucher),
+          sampleVoucher: firstVoucher
+        });
+        
+        // Check how many vouchers have salesperson data
+        const vouchersWithSalesperson = data.vouchers.filter(v => {
+          return salespersonFields.some(field => v[field] && String(v[field]).trim() !== '');
+        });
+        console.log('📊 Salesperson data statistics:', {
+          totalVouchers: data.vouchers.length,
+          vouchersWithSalesperson: vouchersWithSalesperson.length,
+          vouchersWithoutSalesperson: data.vouchers.length - vouchersWithSalesperson.length,
+          percentageWithSalesperson: ((vouchersWithSalesperson.length / data.vouchers.length) * 100).toFixed(2) + '%'
+        });
+      }
       
       // Cache the response
       setApiCache(prev => new Map(prev).set(cacheKey, {
@@ -411,6 +461,64 @@ const SalesDashboard = () => {
       throw error;
     }
   };
+
+  // Fetch company configuration for sales person formula
+  useEffect(() => {
+    const loadCompanyConfig = async () => {
+      try {
+        const companyInfo = getCompanyInfo();
+        if (!companyInfo || !companyInfo.tallyloc_id || !companyInfo.guid) {
+          setSalespersonFormula('');
+          return;
+        }
+
+        try {
+          const formula = await getCompanyConfigValue('salesdash_salesprsn', companyInfo.tallyloc_id, companyInfo.guid);
+          setSalespersonFormula(formula || '');
+          console.log('✅ Sales Dashboard - Loaded sales person formula from config:', formula);
+        } catch (error) {
+          console.error('Error loading company config for sales dashboard:', error);
+          setSalespersonFormula('');
+        }
+      } catch (error) {
+        // getCompanyInfo might throw if no company selected - that's okay
+        setSalespersonFormula('');
+      }
+    };
+
+    loadCompanyConfig();
+
+    // Also reload when company changes
+    const handleCompanyChange = () => {
+      loadCompanyConfig();
+    };
+
+    window.addEventListener('companyChanged', handleCompanyChange);
+    return () => {
+      window.removeEventListener('companyChanged', handleCompanyChange);
+    };
+  }, []); // Run once on mount and when company changes via event
+
+  // Track previous formula to detect changes
+  const prevFormulaRef = useRef('');
+  
+  // Refresh data when salesperson formula changes (but not on initial load)
+  useEffect(() => {
+    // Only refresh if formula actually changed (not just initial load)
+    if (salespersonFormula !== prevFormulaRef.current && prevFormulaRef.current !== '') {
+      console.log('🔄 Salesperson formula changed, refreshing data...', {
+        old: prevFormulaRef.current,
+        new: salespersonFormula
+      });
+      // Clear cache to force fresh fetch with new formula
+      setApiCache(new Map());
+      // Refresh data if date range is already set
+      if (dateRange.start && dateRange.end) {
+        initializeDashboard({ triggerFetch: true });
+      }
+    }
+    prevFormulaRef.current = salespersonFormula;
+  }, [salespersonFormula, dateRange.start, dateRange.end, initializeDashboard]);
 
   // Set default date range on component mount
   useEffect(() => {
@@ -431,7 +539,8 @@ const SalesDashboard = () => {
       dateRange,
       selectedCustomer,
       selectedItem,
-      selectedPeriod
+      selectedPeriod,
+      selectedSalesperson
     });
     
     const filtered = sales.filter((sale) => {
@@ -441,24 +550,28 @@ const SalesDashboard = () => {
       const customerMatch = selectedCustomer === 'all' || sale.customer === selectedCustomer;
       const itemMatch = selectedItem === 'all' || sale.item === selectedItem;
       const stockGroupMatch = selectedStockGroup === 'all' || sale.category === selectedStockGroup;
+      const ledgerGroupMatch = selectedLedgerGroup === 'all' || sale.ledgerGroup === selectedLedgerGroup;
       const regionMatch = selectedRegion === 'all' || sale.region === selectedRegion;
       const countryMatch = selectedCountry === 'all' || sale.country === selectedCountry;
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const periodMatch = !selectedPeriod || salePeriod === selectedPeriod;
+      // Filter by selected salesperson if one is selected
+      const salespersonMatch = !selectedSalesperson || (sale.salesperson || 'Unassigned') === selectedSalesperson;
       
-      return dateMatch && customerMatch && itemMatch && stockGroupMatch && regionMatch && countryMatch && periodMatch;
+      return dateMatch && customerMatch && itemMatch && stockGroupMatch && ledgerGroupMatch && regionMatch && countryMatch && periodMatch && salespersonMatch;
     });
     
     console.log('✅ Filtered sales result:', {
       originalCount: sales.length,
       filteredCount: filtered.length,
+      selectedSalesperson,
       sampleRecord: filtered[0]
     });
     
     return filtered;
-  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedRegion, selectedCountry, selectedPeriod]);
+  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedLedgerGroup, selectedRegion, selectedCountry, selectedPeriod, selectedSalesperson]);
 
   // Filter sales data specifically for Total Orders (with issales filter)
   const filteredSalesForOrders = useMemo(() => {
@@ -467,7 +580,8 @@ const SalesDashboard = () => {
       dateRange,
       selectedCustomer,
       selectedItem,
-      selectedPeriod
+      selectedPeriod,
+      selectedSalesperson
     });
     
     const filtered = sales.filter((sale) => {
@@ -477,6 +591,7 @@ const SalesDashboard = () => {
       const customerMatch = selectedCustomer === 'all' || sale.customer === selectedCustomer;
       const itemMatch = selectedItem === 'all' || sale.item === selectedItem;
       const stockGroupMatch = selectedStockGroup === 'all' || sale.category === selectedStockGroup;
+      const ledgerGroupMatch = selectedLedgerGroup === 'all' || sale.ledgerGroup === selectedLedgerGroup;
       const regionMatch = selectedRegion === 'all' || sale.region === selectedRegion;
       const countryMatch = selectedCountry === 'all' || sale.country === selectedCountry;
       const saleDate = sale.cp_date || sale.date;
@@ -484,22 +599,25 @@ const SalesDashboard = () => {
       const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const periodMatch = !selectedPeriod || salePeriod === selectedPeriod;
       const isSalesMatch = sale.issales === true || sale.issales === 1 || sale.issales === '1' || sale.issales === 'Yes' || sale.issales === 'yes';
+      // Filter by selected salesperson if one is selected
+      const salespersonMatch = !selectedSalesperson || (sale.salesperson || 'Unassigned') === selectedSalesperson;
       
       if (!isSalesMatch) {
         console.log('❌ Filtered out for orders - not a sale:', { issales: sale.issales, sale });
       }
       
-      return dateMatch && customerMatch && itemMatch && stockGroupMatch && regionMatch && countryMatch && periodMatch && isSalesMatch;
+      return dateMatch && customerMatch && itemMatch && stockGroupMatch && ledgerGroupMatch && regionMatch && countryMatch && periodMatch && isSalesMatch && salespersonMatch;
     });
     
     console.log('✅ Filtered sales for orders result:', {
       originalCount: sales.length,
       filteredCount: filtered.length,
+      selectedSalesperson,
       sampleRecord: filtered[0]
     });
     
     return filtered;
-  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedRegion, selectedCountry, selectedPeriod]);
+  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedLedgerGroup, selectedRegion, selectedCountry, selectedPeriod, selectedSalesperson]);
 
   // NOTE: This is the ONLY API call made for sales data
   // It fetches ALL data including country, region, customer, items, etc. in ONE call
@@ -713,11 +831,48 @@ const SalesDashboard = () => {
         return 'Unknown';
       };
       
-      const transformedSales = allVouchers.map(voucher => ({
+      const transformedSales = allVouchers.map(voucher => {
+        // Extract salesperson with detailed logging for first voucher
+        // Check "salesprsn" first as it's the field name from the backend
+        const salesperson = voucher.salesprsn || voucher.SalesPrsn || voucher.SALESPRSN ||
+                            voucher.salesperson || voucher.SalesPerson || 
+                            voucher.salespersonname || voucher.SalesPersonName || 
+                            voucher.sales_person || voucher.SALES_PERSON || 
+                            voucher.sales_person_name || voucher.SALES_PERSON_NAME ||
+                            voucher.salespersonname || voucher.SALESPERSONNAME || 'Unassigned';
+        
+        // Log salesperson extraction for first voucher only
+        if (allVouchers.indexOf(voucher) === 0) {
+          console.log('🔍 Salesperson extraction (first voucher):', {
+            originalFields: {
+              salesprsn: voucher.salesprsn,
+              SalesPrsn: voucher.SalesPrsn,
+              SALESPRSN: voucher.SALESPRSN,
+              salesperson: voucher.salesperson,
+              SalesPerson: voucher.SalesPerson,
+              salespersonname: voucher.salespersonname,
+              SalesPersonName: voucher.SalesPersonName,
+              sales_person: voucher.sales_person,
+              SALES_PERSON: voucher.SALES_PERSON,
+              sales_person_name: voucher.sales_person_name,
+              SALES_PERSON_NAME: voucher.SALES_PERSON_NAME,
+              salespersonname: voucher.salespersonname,
+              SALESPERSONNAME: voucher.SALESPERSONNAME
+            },
+            extractedValue: salesperson,
+            allKeys: Object.keys(voucher).filter(k => {
+              const lowerKey = k.toLowerCase();
+              return lowerKey.includes('sales') || lowerKey.includes('person') || lowerKey.includes('prsn');
+            })
+          });
+        }
+        
+        return {
         category: voucher.sgrpofgrp || voucher.sgroup || 'Other',
+          ledgerGroup: voucher.group || voucher.Group || voucher.GROUP || voucher.ledgerGroup || voucher.ledger_group || voucher.ledgerGroupName || voucher.ledger_group_name || voucher.parent || voucher.parentName || voucher.customerGroup || voucher.customer_group || 'Other',
         region: voucher.state || 'Unknown',
         country: extractCountry(voucher),
-        salesperson: voucher.salesperson || voucher.SalesPerson || voucher.salespersonname || voucher.SalesPersonName || 'Unassigned',
+          salesperson: salesperson,
         amount: parseFloat(voucher.amount) || 0,
         quantity: parseInt(voucher.billedqty) || 0,
         customer: voucher.customer || 'Unknown',
@@ -731,11 +886,21 @@ const SalesDashboard = () => {
         // Store tax information if available in original voucher
         cgst: parseFloat(voucher.cgst || voucher.CGST || 0),
         sgst: parseFloat(voucher.sgst || voucher.SGST || 0),
-        roundoff: parseFloat(voucher.roundoff || voucher.ROUNDOFF || voucher.round_off || 0),
-        // Store narration from CP_Temp7 field (XML tag is "NARRATION" per line 1869)
-        // Check NARRATION first since that's the XML tag, then fallback to CP_Temp7
-        CP_Temp7: voucher.NARRATION || voucher.narration || voucher.Narration || voucher.CP_Temp7 || voucher.cp_temp7 || ''
-      }));
+          roundoff: parseFloat(voucher.roundoff || voucher.ROUNDOFF || voucher.round_off || 0),
+          // Store narration from CP_Temp7 field (XML tag is "NARRATION" per line 1869)
+          // Check NARRATION first since that's the XML tag, then fallback to CP_Temp7
+          CP_Temp7: voucher.NARRATION || voucher.narration || voucher.Narration || voucher.CP_Temp7 || voucher.cp_temp7 || '',
+          // Include all other fields from the voucher for custom card creation
+          ...Object.keys(voucher).reduce((acc, key) => {
+            // Only add fields that aren't already mapped above
+            const mappedKeys = ['sgrpofgrp', 'sgroup', 'group', 'Group', 'GROUP', 'state', 'customer', 'stockitem', 'date', 'cp_date', 'vchno', 'masterid', 'issales', 'amount', 'billedqty', 'profit', 'cgst', 'CGST', 'sgst', 'SGST', 'roundoff', 'ROUNDOFF', 'round_off', 'NARRATION', 'narration', 'Narration', 'CP_Temp7', 'cp_temp7'];
+            if (!mappedKeys.includes(key) && !key.toLowerCase().includes('sales') && !key.toLowerCase().includes('person') && !key.toLowerCase().includes('prsn')) {
+              acc[key] = voucher[key];
+            }
+            return acc;
+          }, {})
+        };
+      });
 
       // Debug: Log country extraction statistics
       const countryStats = transformedSales.reduce((acc, sale) => {
@@ -747,6 +912,24 @@ const SalesDashboard = () => {
       console.log('🌍 Total vouchers:', transformedSales.length);
       console.log('🌍 Unique countries found:', Object.keys(countryStats).length);
       console.log('🌍 Countries:', Object.keys(countryStats).sort());
+      
+      // Debug: Log salesperson extraction statistics
+      const salespersonStats = transformedSales.reduce((acc, sale) => {
+        const salesperson = sale.salesperson || 'Unassigned';
+        acc[salesperson] = (acc[salesperson] || 0) + 1;
+        return acc;
+      }, {});
+      const uniqueSalespersons = Object.keys(salespersonStats);
+      const vouchersWithSalesperson = transformedSales.filter(s => s.salesperson && s.salesperson !== 'Unassigned').length;
+      console.log('👤 Salesperson extraction statistics:', {
+        totalVouchers: transformedSales.length,
+        vouchersWithSalesperson: vouchersWithSalesperson,
+        vouchersWithoutSalesperson: transformedSales.length - vouchersWithSalesperson,
+        percentageWithSalesperson: ((vouchersWithSalesperson / transformedSales.length) * 100).toFixed(2) + '%',
+        uniqueSalespersons: uniqueSalespersons.length,
+        salespersonList: uniqueSalespersons.sort(),
+        salespersonCounts: salespersonStats
+      });
 
       setSales(transformedSales);
       setDateRange({ start: startDate, end: endDate });
@@ -860,6 +1043,47 @@ const SalesDashboard = () => {
     ];
 
     return Object.entries(categoryData)
+      .map(([label, value], index) => ({
+        label,
+        value,
+        color: colors[index % colors.length],
+      }))
+      .sort((a, b) => b.value - a.value);
+  }, [filteredSales]);
+
+  // Ledger Group chart data
+  const ledgerGroupChartData = useMemo(() => {
+    const ledgerGroupData = filteredSales.reduce((acc, sale) => {
+      const ledgerGroup = sale.ledgerGroup;
+      acc[ledgerGroup] = (acc[ledgerGroup] || 0) + sale.amount;
+      return acc;
+    }, {});
+
+    // Extended color palette for dynamic ledger groups
+    const colors = [
+      '#3b82f6', // Blue
+      '#10b981', // Green
+      '#f59e0b', // Amber
+      '#ef4444', // Red
+      '#8b5cf6', // Violet
+      '#ec4899', // Pink
+      '#06b6d4', // Cyan
+      '#84cc16', // Lime
+      '#f97316', // Orange
+      '#6366f1', // Indigo
+      '#14b8a6', // Teal
+      '#f43f5e', // Rose
+      '#8b5a2b', // Brown
+      '#6b7280', // Gray
+      '#dc2626', // Red-600
+      '#059669', // Green-600
+      '#d97706', // Orange-600
+      '#7c3aed', // Purple-600
+      '#0891b2', // Sky-600
+      '#ca8a04'  // Yellow-600
+    ];
+
+    return Object.entries(ledgerGroupData)
       .map(([label, value], index) => ({
         label,
         value,
@@ -1346,9 +1570,11 @@ const SalesDashboard = () => {
     selectedCustomer !== 'all' ||
     selectedItem !== 'all' ||
     selectedStockGroup !== 'all' ||
+    selectedLedgerGroup !== 'all' ||
     selectedRegion !== 'all' ||
     selectedCountry !== 'all' ||
-    selectedPeriod !== null;
+    selectedPeriod !== null ||
+    selectedSalesperson !== null;
 
   const clearAllFilters = () => {
     // Only clear interactive filters - do NOT touch cache or date range
@@ -1357,9 +1583,11 @@ const SalesDashboard = () => {
     setSelectedCustomer('all');
     setSelectedItem('all');
     setSelectedStockGroup('all');
+    setSelectedLedgerGroup('all');
     setSelectedRegion('all');
     setSelectedCountry('all');
     setSelectedPeriod(null);
+    setSelectedSalesperson(null);
     
     // Note: Cache and date range are preserved to avoid unnecessary API calls
   };
@@ -1436,7 +1664,12 @@ const SalesDashboard = () => {
         else if (value < 50000) groupKey = '₹10K - ₹50K';
         else groupKey = '> ₹50K';
       } else {
-        groupKey = sale[cardConfig.groupBy] || 'Unknown';
+        // Generic field access - try direct access, then case-insensitive search
+        const fieldValue = sale[cardConfig.groupBy] || 
+                          sale[cardConfig.groupBy.toLowerCase()] ||
+                          sale[cardConfig.groupBy.toUpperCase()] ||
+                          Object.keys(sale).find(k => k.toLowerCase() === cardConfig.groupBy.toLowerCase()) ? sale[Object.keys(sale).find(k => k.toLowerCase() === cardConfig.groupBy.toLowerCase())] : null;
+        groupKey = fieldValue || 'Unknown';
       }
 
       if (!grouped[groupKey]) {
@@ -1451,34 +1684,29 @@ const SalesDashboard = () => {
       let value = 0;
 
       if (cardConfig.aggregation === 'sum') {
-        if (cardConfig.valueField === 'amount') {
-          value = items.reduce((sum, item) => sum + (item.amount || 0), 0);
-        } else if (cardConfig.valueField === 'quantity') {
-          value = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
-        } else if (cardConfig.valueField === 'profit') {
-          value = items.reduce((sum, item) => sum + (item.profit || 0), 0);
-        } else if (cardConfig.valueField === 'cgst') {
-          value = items.reduce((sum, item) => sum + (item.cgst || 0), 0);
-        } else if (cardConfig.valueField === 'sgst') {
-          value = items.reduce((sum, item) => sum + (item.sgst || 0), 0);
-        } else if (cardConfig.valueField === 'roundoff') {
-          value = items.reduce((sum, item) => sum + (item.roundoff || 0), 0);
-        } else if (cardConfig.valueField === 'tax_amount') {
+        // Handle special calculated fields
+        if (cardConfig.valueField === 'tax_amount') {
           value = items.reduce((sum, item) => sum + ((item.cgst || 0) + (item.sgst || 0)), 0);
         } else if (cardConfig.valueField === 'profit_margin') {
-          const totalAmount = items.reduce((sum, item) => sum + (item.amount || 0), 0);
-          const totalProfit = items.reduce((sum, item) => sum + (item.profit || 0), 0);
+          const totalAmount = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+          const totalProfit = items.reduce((sum, item) => sum + (parseFloat(item.profit) || 0), 0);
           value = totalAmount > 0 ? (totalProfit / totalAmount) * 100 : 0;
         } else if (cardConfig.valueField === 'order_value') {
-          value = items.reduce((sum, item) => sum + (item.amount || 0), 0);
+          value = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
         } else if (cardConfig.valueField === 'avg_order_value') {
           const uniqueOrders = new Set(items.map(item => item.masterid)).size;
-          const totalAmount = items.reduce((sum, item) => sum + (item.amount || 0), 0);
+          const totalAmount = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
           value = uniqueOrders > 0 ? totalAmount / uniqueOrders : 0;
         } else if (cardConfig.valueField === 'profit_per_quantity') {
-          const totalQuantity = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
-          const totalProfit = items.reduce((sum, item) => sum + (item.profit || 0), 0);
+          const totalQuantity = items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
+          const totalProfit = items.reduce((sum, item) => sum + (parseFloat(item.profit) || 0), 0);
           value = totalQuantity > 0 ? totalProfit / totalQuantity : 0;
+        } else {
+          // Generic sum for any numeric field
+          value = items.reduce((sum, item) => {
+            const fieldValue = item[cardConfig.valueField];
+            return sum + (parseFloat(fieldValue) || 0);
+          }, 0);
         }
       } else if (cardConfig.aggregation === 'count') {
         if (cardConfig.valueField === 'transactions') {
@@ -1493,16 +1721,12 @@ const SalesDashboard = () => {
           value = items.length;
         }
       } else if (cardConfig.aggregation === 'average') {
-        if (cardConfig.valueField === 'amount') {
-          const sum = items.reduce((sum, item) => sum + (item.amount || 0), 0);
+        // Generic average for any numeric field
+        const sum = items.reduce((sum, item) => {
+          const fieldValue = item[cardConfig.valueField];
+          return sum + (parseFloat(fieldValue) || 0);
+        }, 0);
           value = items.length > 0 ? sum / items.length : 0;
-        } else if (cardConfig.valueField === 'quantity') {
-          const sum = items.reduce((sum, item) => sum + (item.quantity || 0), 0);
-          value = items.length > 0 ? sum / items.length : 0;
-        } else if (cardConfig.valueField === 'profit') {
-          const sum = items.reduce((sum, item) => sum + (item.profit || 0), 0);
-          value = items.length > 0 ? sum / items.length : 0;
-        }
       }
 
       return {
@@ -1514,12 +1738,40 @@ const SalesDashboard = () => {
     // Sort by value descending
     result.sort((a, b) => b.value - a.value);
 
-    // Apply Top N limit if specified
-    if (cardConfig.topN && cardConfig.topN > 0) {
-      return result.slice(0, cardConfig.topN);
-    }
+    // Extended color palette for custom cards (same as other charts)
+    const colors = [
+      '#3b82f6', // Blue
+      '#10b981', // Green
+      '#f59e0b', // Amber
+      '#ef4444', // Red
+      '#8b5cf6', // Violet
+      '#ec4899', // Pink
+      '#06b6d4', // Cyan
+      '#84cc16', // Lime
+      '#f97316', // Orange
+      '#6366f1', // Indigo
+      '#14b8a6', // Teal
+      '#f43f5e', // Rose
+      '#8b5a2b', // Brown
+      '#6b7280', // Gray
+      '#dc2626', // Red-600
+      '#059669', // Green-600
+      '#d97706', // Orange-600
+      '#7c3aed', // Purple-600
+      '#0891b2', // Sky-600
+      '#ca8a04'  // Yellow-600
+    ];
 
-    return result;
+    // Apply Top N limit if specified
+    const finalResult = cardConfig.topN && cardConfig.topN > 0 
+      ? result.slice(0, cardConfig.topN)
+      : result;
+
+    // Add colors to each item
+    return finalResult.map((item, index) => ({
+      ...item,
+      color: colors[index % colors.length]
+    }));
   }, []);
 
   const handleCreateCustomCard = useCallback((cardConfig) => {
@@ -1530,12 +1782,18 @@ const SalesDashboard = () => {
     setCustomCards(prev => [...prev, newCard]);
     setShowCustomCardModal(false);
     
-    // Scroll to custom cards section after a short delay to ensure DOM is updated
+    // Scroll to the newly created card after a short delay to ensure DOM is updated
     setTimeout(() => {
       if (customCardsSectionRef.current) {
         customCardsSectionRef.current.scrollIntoView({ 
           behavior: 'smooth', 
-          block: 'start' 
+          block: 'end' 
+        });
+      } else {
+        // Fallback: scroll to bottom of page if ref is not available
+        window.scrollTo({ 
+          top: document.documentElement.scrollHeight, 
+          behavior: 'smooth' 
         });
       }
     }, 100);
@@ -2276,7 +2534,7 @@ const SalesDashboard = () => {
               <div class="metric-value">${formatCurrency(totalRevenue)}</div>
             </div>
             <div class="metric-card">
-              <div class="metric-title">Total Orders</div>
+              <div class="metric-title">Total Invoices</div>
               <div class="metric-value">${totalOrders}</div>
             </div>
             <div class="metric-card">
@@ -2288,7 +2546,7 @@ const SalesDashboard = () => {
               <div class="metric-value">${uniqueCustomers}</div>
             </div>
             <div class="metric-card">
-              <div class="metric-title">Avg Order Value</div>
+              <div class="metric-title">Avg Invoice Value</div>
               <div class="metric-value">${formatCurrency(avgOrderValue)}</div>
             </div>
             ${canShowProfit ? `
@@ -2562,10 +2820,10 @@ const SalesDashboard = () => {
         'Sales Summary': [
           ['Metric', 'Value'],
           ['Total Revenue', totalRevenue],
-          ['Total Orders', totalOrders],
+          ['Total Invoices', totalOrders],
           ['Total Quantity', totalQuantity],
           ['Unique Customers', uniqueCustomers],
-          ['Average Order Value', avgOrderValue],
+          ['Average Invoice Value', avgOrderValue],
           ...(canShowProfit ? [
             ['Total Profit', totalProfit],
             ['Profit Margin (%)', profitMargin],
@@ -2724,7 +2982,7 @@ const SalesDashboard = () => {
               <div class="metric-value">${formatCurrency(totalRevenue)}</div>
             </div>
             <div class="metric-card">
-              <div class="metric-title">Total Orders</div>
+              <div class="metric-title">Total Invoices</div>
               <div class="metric-value">${totalOrders}</div>
             </div>
             <div class="metric-card">
@@ -2736,7 +2994,7 @@ const SalesDashboard = () => {
               <div class="metric-value">${uniqueCustomers}</div>
             </div>
             <div class="metric-card">
-              <div class="metric-title">Avg Order Value</div>
+              <div class="metric-title">Avg Invoice Value</div>
               <div class="metric-value">${formatCurrency(avgOrderValue)}</div>
             </div>
             ${canShowProfit ? `
@@ -3066,6 +3324,32 @@ const SalesDashboard = () => {
           (sale) => sale.category === extra
         );
         return;
+      case 'ledgerGroup':
+        config = {
+          title: 'Sales by Ledger Group',
+          columns: [
+            { key: 'ledgerGroup', label: 'Ledger Group' },
+            { key: 'revenue', label: 'Revenue (₹)', format: 'currency' },
+          ],
+          rows: ledgerGroupChartData.map((item) => ({
+            ledgerGroup: item.label,
+            revenue: item.value,
+            ledgerGroupKey: item.label,
+          })),
+          rowAction: {
+            icon: 'receipt_long',
+            title: 'View transactions',
+            onClick: (row) =>
+              openRawData('ledgerGroupItemTransactions', row.ledgerGroupKey),
+          },
+        };
+        break;
+      case 'ledgerGroupItemTransactions':
+        openTransactionRawData(
+          `Raw Data - ${extra}`,
+          (sale) => sale.ledgerGroup === extra
+        );
+        return;
       case 'region':
         config = {
           title: 'Sales by State',
@@ -3362,6 +3646,7 @@ const SalesDashboard = () => {
     }
   }, [
     categoryChartData,
+    ledgerGroupChartData,
     regionChartData,
     countryChartData,
     salespersonTotals,
@@ -3662,41 +3947,56 @@ const SalesDashboard = () => {
                   <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
                   {filteredSales.length} records
                 </div>
-                {/* Create Custom Card Button - Inline */}
-                {sales.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowCustomCardModal(true)}
+              </div>
+          </div>
+
+          {/* Create Custom Card Button - Always visible */}
+          <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center' }}>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // Only open modal - do not trigger any data fetching
+                console.log('🔒 Opening Custom Card Modal - using existing sales data only, no API calls should occur. Sales data count:', sales.length);
+                setShowCustomCardModal(true);
+              }}
+              disabled={sales.length === 0}
                     style={{
-                      background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                background: sales.length === 0 
+                  ? '#e5e7eb' 
+                  : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: sales.length === 0 ? '#9ca3af' : '#fff',
                       border: 'none',
-                      borderRadius: '6px',
-                      padding: '5px 12px',
-                      cursor: 'pointer',
+                borderRadius: '10px',
+                padding: '10px 20px',
+                cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '5px',
-                      color: '#fff',
-                      fontSize: '12px',
+                gap: '8px',
+                fontSize: '14px',
                       fontWeight: '600',
                       transition: 'all 0.2s ease',
-                      boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)',
+                boxShadow: sales.length === 0 
+                  ? 'none' 
+                  : '0 2px 4px rgba(16, 185, 129, 0.2)',
                       whiteSpace: 'nowrap'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                      e.target.style.boxShadow = '0 3px 6px rgba(16, 185, 129, 0.3)';
+                if (sales.length > 0) {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
+                }
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-                      e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: '16px' }}>add</span>
-                    Create card
+                if (sales.length > 0) {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
+                }
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: '20px' }}>add_chart</span>
+              Create Custom Card
                   </button>
-                )}
-              </div>
           </div>
 
           {/* Center: Date Range and Submit Button */}
@@ -4203,6 +4503,48 @@ const SalesDashboard = () => {
                 </div>
               )}
               
+              {selectedLedgerGroup !== 'all' && (
+                <div style={{
+                  background: '#f3e8ff',
+                  border: '1px solid #c4b5fd',
+                  borderRadius: '16px',
+                  padding: '4px 8px 4px 12px',
+                  fontSize: '12px',
+                  color: '#6b21a8',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px' }}>account_tree</span>
+                  Ledger Group: {selectedLedgerGroup}
+                  <button
+                    onClick={() => setSelectedLedgerGroup('all')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#6b21a8',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#c4b5fd';
+                      e.target.style.color = '#6b21a8';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'none';
+                      e.target.style.color = '#6b21a8';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '14px' }}>close</span>
+                  </button>
+                </div>
+              )}
+              
               {selectedRegion !== 'all' && (
                 <div style={{
                   background: '#e0e7ff',
@@ -4322,6 +4664,48 @@ const SalesDashboard = () => {
                     onMouseLeave={(e) => {
                       e.target.style.background = 'none';
                       e.target.style.color = '#9d174d';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '14px' }}>close</span>
+                  </button>
+                </div>
+              )}
+
+              {selectedSalesperson && (
+                <div style={{
+                  background: '#fff7ed',
+                  border: '1px solid #fed7aa',
+                  borderRadius: '16px',
+                  padding: '4px 8px 4px 12px',
+                  fontSize: '12px',
+                  color: '#c2410c',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px' }}>person_outline</span>
+                  Salesperson: {selectedSalesperson}
+                  <button
+                    onClick={() => setSelectedSalesperson(null)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#c2410c',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#fed7aa';
+                      e.target.style.color = '#c2410c';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'none';
+                      e.target.style.color = '#c2410c';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: '14px' }}>close</span>
@@ -4448,7 +4832,7 @@ const SalesDashboard = () => {
             >
               <div style={{ flex: 1 }}>
                 <p style={{ margin: '0 0 6px 0', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                  Total Orders
+                  Total Invoices
                 </p>
                 <p style={{ margin: '0', fontSize: '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
                   {totalOrders}
@@ -4540,7 +4924,7 @@ const SalesDashboard = () => {
             >
               <div style={{ flex: 1 }}>
                 <p style={{ margin: '0 0 6px 0', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                  Avg Order Value
+                  Avg Invoice Value
                 </p>
                 <p style={{ margin: '0', fontSize: '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
                   ₹{avgOrderValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -4720,23 +5104,23 @@ const SalesDashboard = () => {
           </div>
 
           {/* Charts Section */}
-          {/* Row 1: Sales by Stock Group and Salesperson Totals */}
+          {/* Row 1: Sales by Ledger Group and Salesperson Totals */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: '1fr 1fr',
             gap: '24px',
             marginBottom: '24px'
           }}>
-            {/* Category Chart */}
+            {/* Ledger Group Chart */}
             <div style={{
               display: 'flex',
               flexDirection: 'column',
               height: '500px', // Fixed height for consistency
               overflow: 'hidden'
             }}>
-              {categoryChartType === 'bar' && (
+              {ledgerGroupChartType === 'bar' && (
                 <BarChart
-                  data={categoryChartData}
+                  data={ledgerGroupChartData}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -4746,7 +5130,7 @@ const SalesDashboard = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
                     type="button"
-                    onClick={() => openRawData('stockGroup')}
+                    onClick={() => openRawData('ledgerGroup')}
                     style={rawDataIconButtonStyle}
                     onMouseEnter={handleRawDataButtonMouseEnter}
                     onMouseLeave={handleRawDataButtonMouseLeave}
@@ -4755,12 +5139,12 @@ const SalesDashboard = () => {
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                    Sales by Stock Group
+                    Sales by Ledger Group
                 </h3>
                 </div>
                 <select
-                  value={categoryChartType}
-                  onChange={(e) => setCategoryChartType(e.target.value)}
+                  value={ledgerGroupChartType}
+                  onChange={(e) => setLedgerGroupChartType(e.target.value)}
                   style={{
                     padding: '6px 12px',
                     border: '1px solid #d1d5db',
@@ -4777,19 +5161,19 @@ const SalesDashboard = () => {
                 </select>
               </div>
                   }
-                  onBarClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
-                  onBackClick={() => setSelectedStockGroup('all')}
-                  showBackButton={selectedStockGroup !== 'all'}
+                  onBarClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                  onBackClick={() => setSelectedLedgerGroup('all')}
+                  showBackButton={selectedLedgerGroup !== 'all'}
                   rowAction={{
                     icon: 'table_view',
                     title: 'View raw data',
-                    onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                    onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
                   }}
                 />
                 )}
-                {categoryChartType === 'pie' && (
+                {ledgerGroupChartType === 'pie' && (
                   <PieChart
-                    data={categoryChartData}
+                    data={ledgerGroupChartData}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -4799,7 +5183,7 @@ const SalesDashboard = () => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <button
                           type="button"
-                          onClick={() => openRawData('stockGroup')}
+                          onClick={() => openRawData('ledgerGroup')}
                           style={rawDataIconButtonStyle}
                           onMouseEnter={handleRawDataButtonMouseEnter}
                           onMouseLeave={handleRawDataButtonMouseLeave}
@@ -4808,12 +5192,12 @@ const SalesDashboard = () => {
                           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                         </button>
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Stock Group
+                          Sales by Ledger Group
                         </h3>
                       </div>
                       <select
-                        value={categoryChartType}
-                        onChange={(e) => setCategoryChartType(e.target.value)}
+                        value={ledgerGroupChartType}
+                        onChange={(e) => setLedgerGroupChartType(e.target.value)}
                         style={{
                           padding: '6px 12px',
                           border: '1px solid #d1d5db',
@@ -4830,19 +5214,19 @@ const SalesDashboard = () => {
                       </select>
                     </div>
                   }
-                    onSliceClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
-                    onBackClick={() => setSelectedStockGroup('all')}
-                    showBackButton={selectedStockGroup !== 'all'}
+                    onSliceClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                    onBackClick={() => setSelectedLedgerGroup('all')}
+                    showBackButton={selectedLedgerGroup !== 'all'}
                     rowAction={{
                       icon: 'table_view',
                       title: 'View raw data',
-                      onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                      onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
                     }}
                   />
                 )}
-                {categoryChartType === 'treemap' && (
+                {ledgerGroupChartType === 'treemap' && (
                   <TreeMap
-                    data={categoryChartData}
+                    data={ledgerGroupChartData}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -4852,7 +5236,7 @@ const SalesDashboard = () => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <button
                           type="button"
-                          onClick={() => openRawData('stockGroup')}
+                          onClick={() => openRawData('ledgerGroup')}
                           style={rawDataIconButtonStyle}
                           onMouseEnter={handleRawDataButtonMouseEnter}
                           onMouseLeave={handleRawDataButtonMouseLeave}
@@ -4861,12 +5245,12 @@ const SalesDashboard = () => {
                           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                         </button>
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Stock Group
+                          Sales by Ledger Group
                         </h3>
                       </div>
                       <select
-                        value={categoryChartType}
-                        onChange={(e) => setCategoryChartType(e.target.value)}
+                        value={ledgerGroupChartType}
+                        onChange={(e) => setLedgerGroupChartType(e.target.value)}
                         style={{
                           padding: '6px 12px',
                           border: '1px solid #d1d5db',
@@ -4883,19 +5267,19 @@ const SalesDashboard = () => {
                       </select>
                     </div>
                   }
-                    onBoxClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
-                    onBackClick={() => setSelectedStockGroup('all')}
-                    showBackButton={selectedStockGroup !== 'all'}
+                    onBoxClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                    onBackClick={() => setSelectedLedgerGroup('all')}
+                    showBackButton={selectedLedgerGroup !== 'all'}
                     rowAction={{
                       icon: 'table_view',
                       title: 'View raw data',
-                      onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                      onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
                     }}
                   />
                 )}
-                {categoryChartType === 'line' && (
+                {ledgerGroupChartType === 'line' && (
                   <LineChart
-                    data={categoryChartData}
+                    data={ledgerGroupChartData}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -4905,7 +5289,7 @@ const SalesDashboard = () => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <button
                           type="button"
-                          onClick={() => openRawData('stockGroup')}
+                          onClick={() => openRawData('ledgerGroup')}
                           style={rawDataIconButtonStyle}
                           onMouseEnter={handleRawDataButtonMouseEnter}
                           onMouseLeave={handleRawDataButtonMouseLeave}
@@ -4914,12 +5298,12 @@ const SalesDashboard = () => {
                           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                         </button>
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Stock Group
+                          Sales by Ledger Group
                         </h3>
                       </div>
                       <select
-                        value={categoryChartType}
-                        onChange={(e) => setCategoryChartType(e.target.value)}
+                        value={ledgerGroupChartType}
+                        onChange={(e) => setLedgerGroupChartType(e.target.value)}
                         style={{
                           padding: '6px 12px',
                           border: '1px solid #d1d5db',
@@ -4936,13 +5320,13 @@ const SalesDashboard = () => {
                       </select>
                     </div>
                   }
-                    onPointClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
-                    onBackClick={() => setSelectedStockGroup('all')}
-                    showBackButton={selectedStockGroup !== 'all'}
+                    onPointClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                    onBackClick={() => setSelectedLedgerGroup('all')}
+                    showBackButton={selectedLedgerGroup !== 'all'}
                     rowAction={{
                       icon: 'table_view',
                       title: 'View raw data',
-                      onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                      onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
                     }}
                   />
                 )}
@@ -8108,42 +8492,284 @@ const SalesDashboard = () => {
             </div>
           </div>
           )}
+
+          {/* Sales by Stock Group and Custom Cards - Moved to end */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '24px',
+            marginBottom: '24px'
+          }}>
+            {/* Sales by Stock Group */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              height: '500px',
+              overflow: 'hidden'
+            }}>
+              {categoryChartType === 'bar' && (
+                <BarChart
+                  data={categoryChartData}
+                  customHeader={
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                      justifyContent: 'space-between'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button
+                    type="button"
+                    onClick={() => openRawData('stockGroup')}
+                    style={rawDataIconButtonStyle}
+                    onMouseEnter={handleRawDataButtonMouseEnter}
+                    onMouseLeave={handleRawDataButtonMouseLeave}
+                    title="View raw data"
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                  </button>
+                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                    Sales by Stock Group
+                </h3>
+        </div>
+                <select
+                  value={categoryChartType}
+                  onChange={(e) => setCategoryChartType(e.target.value)}
+                  style={{
+                    padding: '6px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    background: 'white',
+                    color: '#374151'
+                  }}
+                >
+                  <option value="bar">Bar</option>
+                  <option value="pie">Pie</option>
+                  <option value="treemap">Tree Map</option>
+                  <option value="line">Line</option>
+                </select>
+      </div>
+                  }
+                  onBarClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                  onBackClick={() => setSelectedStockGroup('all')}
+                  showBackButton={selectedStockGroup !== 'all'}
+                  rowAction={{
+                    icon: 'table_view',
+                    title: 'View raw data',
+                    onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                  }}
+                />
+                )}
+                {categoryChartType === 'pie' && (
+                  <PieChart
+                    data={categoryChartData}
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('stockGroup')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by Stock Group
+                        </h3>
+                      </div>
+                      <select
+                        value={categoryChartType}
+                        onChange={(e) => setCategoryChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
+                    onSliceClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                    onBackClick={() => setSelectedStockGroup('all')}
+                    showBackButton={selectedStockGroup !== 'all'}
+                    rowAction={{
+                      icon: 'table_view',
+                      title: 'View raw data',
+                      onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                    }}
+                  />
+                )}
+                {categoryChartType === 'treemap' && (
+                  <TreeMap
+                    data={categoryChartData}
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('stockGroup')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by Stock Group
+                        </h3>
+                      </div>
+                      <select
+                        value={categoryChartType}
+                        onChange={(e) => setCategoryChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
+                    onBoxClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                    onBackClick={() => setSelectedStockGroup('all')}
+                    showBackButton={selectedStockGroup !== 'all'}
+                    rowAction={{
+                      icon: 'table_view',
+                      title: 'View raw data',
+                      onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                    }}
+                  />
+                )}
+                {categoryChartType === 'line' && (
+                  <LineChart
+                    data={categoryChartData}
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('stockGroup')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by Stock Group
+                        </h3>
+                      </div>
+                      <select
+                        value={categoryChartType}
+                        onChange={(e) => setCategoryChartType(e.target.value)}
+                        style={{
+                          padding: '6px 12px',
+                          border: '1px solid #d1d5db',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          background: 'white',
+                          color: '#374151'
+                        }}
+                      >
+                        <option value="bar">Bar</option>
+                        <option value="pie">Pie</option>
+                        <option value="treemap">Tree Map</option>
+                        <option value="line">Line</option>
+                      </select>
+                    </div>
+                  }
+                    onPointClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                    onBackClick={() => setSelectedStockGroup('all')}
+                    showBackButton={selectedStockGroup !== 'all'}
+                    rowAction={{
+                      icon: 'table_view',
+                      title: 'View raw data',
+                      onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                    }}
+                  />
+                )}
+    </div>
+
+            {/* First Custom Card - Next to Sales by Stock Group */}
+    {customCards.length > 0 && (
+              <div ref={customCards.length === 1 ? customCardsSectionRef : null}>
+                <CustomCard
+                  key={customCards[0].id}
+                  card={customCards[0]}
+                  salesData={filteredSales}
+                  generateCustomCardData={generateCustomCardData}
+                  chartType={customCardChartTypes[customCards[0].id] || customCards[0].chartType || 'bar'}
+                  onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [customCards[0].id]: newType }))}
+                  onDelete={() => handleDeleteCustomCard(customCards[0].id)}
+                  openTransactionRawData={openTransactionRawData}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Additional Custom Cards - Continue in the same grid layout, filling positions sequentially */}
+          {customCards.length > 1 && (
+            <div 
+              ref={customCards.length === 2 ? customCardsSectionRef : null}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '24px',
+                marginBottom: '24px'
+              }}>
+              {customCards.slice(1).map((card, index) => (
+                <div
+                  key={card.id}
+                  ref={index === customCards.slice(1).length - 1 ? customCardsSectionRef : null}
+                >
+                  <CustomCard
+                    card={card}
+                    salesData={filteredSales}
+                    generateCustomCardData={generateCustomCardData}
+                    chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
+                    onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
+                    onDelete={() => handleDeleteCustomCard(card.id)}
+                    openTransactionRawData={openTransactionRawData}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          
         </div>
       </div>
     </div>
-
-    {/* Custom Cards Section */}
-    {customCards.length > 0 && (
-      <div ref={customCardsSectionRef} style={{ padding: '24px', overflow: 'visible' }}>
-        <h2 style={{ 
-          margin: '0 0 20px 0', 
-          fontSize: '20px', 
-          fontWeight: '700', 
-          color: '#1e293b' 
-        }}>
-          Custom Cards
-        </h2>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(500px, 1fr))',
-          gap: '24px',
-          overflow: 'visible'
-        }}>
-          {customCards.map(card => (
-            <CustomCard
-              key={card.id}
-              card={card}
-              salesData={filteredSales}
-              generateCustomCardData={generateCustomCardData}
-              chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
-              onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
-              onDelete={() => handleDeleteCustomCard(card.id)}
-              openTransactionRawData={openTransactionRawData}
-            />
-          ))}
-        </div>
-      </div>
-    )}
 
     {rawDataModal.open && (
       <div
@@ -8545,8 +9171,11 @@ const SalesDashboard = () => {
         }}
       >
         <CustomCardModal
-          salesData={filteredSales}
-          onClose={() => setShowCustomCardModal(false)}
+          salesData={sales}
+          onClose={() => {
+            console.log('🔒 Custom Card Modal closed - no data fetching should occur');
+            setShowCustomCardModal(false);
+          }}
           onCreate={handleCreateCustomCard}
         />
       </div>
@@ -8560,8 +9189,115 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
   const [cardTitle, setCardTitle] = useState('');
   const [groupBy, setGroupBy] = useState('category');
   const [chartType, setChartType] = useState('bar');
-  const [valueField, setValueField] = useState('quantity');
+  const [valueField, setValueField] = useState('amount');
   const [topN, setTopN] = useState('');
+
+  // Extract all available fields from sales data dynamically
+  // NOTE: This only processes existing data in memory - NO API calls are made
+  const availableFields = useMemo(() => {
+    // Use existing data only - do not trigger any data fetching
+    if (!salesData || !Array.isArray(salesData) || salesData.length === 0) {
+      return { groupByFields: [], valueFields: [] };
+    }
+
+    // Get all unique keys from the first sale object
+    const firstSale = salesData[0];
+    const allKeys = Object.keys(firstSale);
+
+    // Filter out non-groupable fields (dates, IDs, numeric-only fields, etc.) for groupBy
+    // Keep fields that can be used for grouping (strings, categories, etc.)
+    const nonGroupableFields = ['date', 'cp_date', 'vchno', 'masterid', 'issales'];
+    
+    // Also filter out fields that are primarily numeric (but allow them if they might have string values)
+    const numericOnlyFields = ['amount', 'quantity', 'profit', 'cgst', 'sgst', 'roundoff', 'invvalue', 'billedqty', 'rate', 'addlexpense', 'invtrytotal', 'grosscost'];
+    
+    // Group By fields (X-axis) - can be any field except calculated/numeric-only values
+    // Check all sales records to see which fields have string/categorical values
+    const fieldTypes = {};
+    salesData.slice(0, Math.min(100, salesData.length)).forEach(sale => {
+      allKeys.forEach(key => {
+        if (!fieldTypes[key]) {
+          const value = sale[key];
+          if (value !== null && value !== undefined && value !== '') {
+            if (typeof value === 'string') {
+              // Check if it's a numeric string
+              const numValue = parseFloat(value);
+              if (isNaN(numValue) || !isFinite(numValue)) {
+                fieldTypes[key] = 'string'; // Non-numeric string - good for grouping
+              } else {
+                fieldTypes[key] = fieldTypes[key] || 'numeric'; // Could be numeric
+              }
+            } else if (typeof value === 'number') {
+              fieldTypes[key] = 'numeric';
+            } else {
+              fieldTypes[key] = 'other';
+            }
+          }
+        }
+      });
+    });
+
+    const groupByFields = allKeys
+      .filter(key => {
+        const lowerKey = key.toLowerCase();
+        // Exclude non-groupable fields
+        if (nonGroupableFields.includes(lowerKey)) return false;
+        // Include if field type is string (categorical) or other (not purely numeric)
+        const fieldType = fieldTypes[key];
+        if (fieldType === 'string' || fieldType === 'other') return true;
+        // Also include if it's not in numeric-only list (might have string values)
+        return !numericOnlyFields.includes(lowerKey);
+      })
+      .map(key => ({
+        value: key,
+        label: key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim()
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    // Add special grouping options
+    groupByFields.unshift(
+      { value: 'date', label: 'Date (Monthly)' },
+      { value: 'date_day', label: 'Date (Daily)' },
+      { value: 'date_week', label: 'Date (Weekly)' },
+      { value: 'date_year', label: 'Date (Yearly)' }
+    );
+
+    // Value fields (Y-axis) - numeric fields and calculated values
+    const numericFields = allKeys.filter(key => {
+      const lowerKey = key.toLowerCase();
+      // Exclude non-numeric fields
+      if (nonGroupableFields.includes(lowerKey)) return false;
+      if (lowerKey === 'cp_temp7' || lowerKey === 'narration') return false;
+      
+      const value = firstSale[key];
+      // Include if it's a number or a numeric string
+      if (typeof value === 'number') return true;
+      if (typeof value === 'string') {
+        const numValue = parseFloat(value);
+        return !isNaN(numValue) && isFinite(numValue) && value.trim() !== '';
+      }
+      return false;
+    });
+
+    const valueFields = [
+      ...numericFields.map(key => ({
+        value: key,
+        label: `${key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim()} (Sum)`,
+        aggregation: 'sum'
+      })),
+      ...numericFields.map(key => ({
+        value: `avg_${key}`,
+        label: `${key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim()} (Average)`,
+        aggregation: 'average'
+      })),
+      { value: 'transactions', label: 'Number of Transactions', aggregation: 'count' },
+      { value: 'unique_customers', label: 'Number of Unique Customers', aggregation: 'count' },
+      { value: 'unique_items', label: 'Number of Unique Items', aggregation: 'count' },
+      { value: 'unique_orders', label: 'Number of Unique Orders', aggregation: 'count' }
+    ].sort((a, b) => a.label.localeCompare(b.label));
+
+    return { groupByFields, valueFields };
+  }, [salesData]);
 
 
   const handleSubmit = (e) => {
@@ -8575,27 +9311,34 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
     let aggregation = 'sum';
     let dateGrouping = 'month';
     
-    if (valueField === 'transactions' || valueField === 'unique_customers' || valueField === 'unique_items' || valueField === 'unique_orders') {
+    // Find the value field config to get aggregation type
+    const valueFieldConfig = availableFields.valueFields.find(f => f.value === valueField);
+    if (valueFieldConfig) {
+      aggregation = valueFieldConfig.aggregation || 'sum';
+    } else if (valueField === 'transactions' || valueField === 'unique_customers' || valueField === 'unique_items' || valueField === 'unique_orders') {
       aggregation = 'count';
-    } else if (valueField === 'avg_amount' || valueField === 'avg_quantity' || valueField === 'avg_profit') {
+    } else if (valueField.startsWith('avg_')) {
       aggregation = 'average';
     }
     
     // Map valueField to internal field names
     let mappedValueField = valueField;
-    if (valueField === 'avg_amount') mappedValueField = 'amount';
-    else if (valueField === 'avg_quantity') mappedValueField = 'quantity';
-    else if (valueField === 'avg_profit') mappedValueField = 'profit';
+    if (valueField.startsWith('avg_')) {
+      mappedValueField = valueField.replace('avg_', '');
+    }
     
     // Set date grouping based on groupBy
-    if (groupBy === 'date') {
-      dateGrouping = 'month'; // Default to month
+    if (groupBy === 'date' || groupBy === 'date_day' || groupBy === 'date_week' || groupBy === 'date_month' || groupBy === 'date_year') {
+      if (groupBy === 'date_day') dateGrouping = 'day';
+      else if (groupBy === 'date_week') dateGrouping = 'week';
+      else if (groupBy === 'date_year') dateGrouping = 'year';
+      else dateGrouping = 'month'; // Default for 'date'
     }
 
     const cardConfig = {
       title: cardTitle.trim(),
-      groupBy,
-      dateGrouping: groupBy === 'date' ? dateGrouping : undefined,
+      groupBy: groupBy.startsWith('date_') ? 'date' : groupBy,
+      dateGrouping: (groupBy === 'date' || groupBy.startsWith('date_')) ? dateGrouping : undefined,
       aggregation,
       valueField: mappedValueField,
       chartType,
@@ -8759,13 +9502,9 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
                 e.target.style.boxShadow = 'none';
               }}
             >
-              <option value="category">Stock Group</option>
-              <option value="region">Region</option>
-              <option value="country">Country</option>
-              <option value="salesperson">Salesperson</option>
-              <option value="customer">Customer</option>
-              <option value="item">Item</option>
-              <option value="date">Date (Monthly)</option>
+              {availableFields.groupByFields.map(field => (
+                <option key={field.value} value={field.value}>{field.label}</option>
+              ))}
             </select>
             <span className="material-icons" style={{ 
               position: 'absolute',
@@ -8820,15 +9559,9 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
                 e.target.style.boxShadow = 'none';
               }}
             >
-              <option value="amount">Total Amount</option>
-              <option value="quantity">Total Quantity</option>
-              <option value="profit">Total Profit</option>
-              <option value="transactions">Number of Transactions</option>
-              <option value="unique_customers">Number of Customers</option>
-              <option value="unique_items">Number of Items</option>
-              <option value="avg_amount">Average Amount</option>
-              <option value="avg_quantity">Average Quantity</option>
-              <option value="avg_profit">Average Profit</option>
+              {availableFields.valueFields.map(field => (
+                <option key={field.value} value={field.value}>{field.label}</option>
+              ))}
             </select>
             <span className="material-icons" style={{ 
               position: 'absolute',
@@ -9050,100 +9783,114 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
 
   const valuePrefix = card.valueField === 'amount' || card.valueField === 'profit' || card.valueField === 'tax_amount' || card.valueField === 'order_value' || card.valueField === 'avg_order_value' || card.valueField === 'avg_amount' || card.valueField === 'avg_profit' || card.valueField === 'profit_per_quantity' ? '₹' : '';
 
-  return (
-    <div
-      style={{
-        background: 'white',
-        borderRadius: '12px',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-        padding: '20px',
-        position: 'relative',
-        display: 'flex',
-        flexDirection: 'column',
-        maxHeight: '600px',
-        overflow: 'hidden'
-      }}
-    >
-      {/* Chart Type Selector - Fixed Header */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: '16px',
-        flexShrink: 0,
-        gap: '12px'
-      }}>
-        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b', flex: 1 }}>
-          {card.title}
-        </h3>
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '8px'
-        }}>
-          <select
-            value={chartType}
-            onChange={(e) => onChartTypeChange(e.target.value)}
-            style={{
-              padding: '6px 12px',
-              border: '1px solid #d1d5db',
-              borderRadius: '6px',
-              fontSize: '12px',
-              background: 'white',
-              color: '#374151',
-              cursor: 'pointer'
-            }}
-          >
-            <option value="bar">Bar</option>
-            <option value="pie">Pie</option>
-            <option value="treemap">Tree Map</option>
-            <option value="line">Line</option>
-          </select>
-          <button
-            type="button"
-            onClick={onDelete}
-            style={{
-              background: '#fee2e2',
-              border: 'none',
-              borderRadius: '6px',
-              width: '32px',
-              height: '32px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              color: '#dc2626',
-              transition: 'all 0.2s',
-              flexShrink: 0
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = '#fecaca';
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = '#fee2e2';
-            }}
-            title="Delete custom card"
-          >
-            <span className="material-icons" style={{ fontSize: '18px' }}>delete</span>
-          </button>
-        </div>
-      </div>
+  // Raw data button style (matching other cards)
+  const rawDataIconButtonStyle = {
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    color: '#1e40af',
+    padding: '4px',
+    borderRadius: '50%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'background 0.2s ease, color 0.2s ease'
+  };
 
-      {/* Chart Rendering - Scrollable Content */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        overflowX: 'hidden',
-        minHeight: 0,
-        maxHeight: '500px'
-      }}>
-        {cardData.length > 0 ? (
+  const handleRawDataButtonMouseEnter = (event) => {
+    event.currentTarget.style.background = '#e0e7ff';
+    event.currentTarget.style.color = '#1e3a8a';
+  };
+
+  const handleRawDataButtonMouseLeave = (event) => {
+    event.currentTarget.style.background = 'transparent';
+    event.currentTarget.style.color = '#1e40af';
+  };
+
+  // Custom header matching other cards layout
+  const customHeader = (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button
+          type="button"
+          onClick={() => openTransactionRawData(`Raw Data - ${card.title}`, () => true)}
+          style={rawDataIconButtonStyle}
+          onMouseEnter={handleRawDataButtonMouseEnter}
+          onMouseLeave={handleRawDataButtonMouseLeave}
+          title="View raw data"
+        >
+          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+        </button>
+        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+          {card.title} (Custom Card)
+        </h3>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <select
+          value={chartType}
+          onChange={(e) => onChartTypeChange(e.target.value)}
+          style={{
+            padding: '6px 12px',
+            border: '1px solid #d1d5db',
+            borderRadius: '6px',
+            fontSize: '12px',
+            background: 'white',
+            color: '#374151'
+          }}
+        >
+          <option value="bar">Bar</option>
+          <option value="pie">Pie</option>
+          <option value="treemap">Tree Map</option>
+          <option value="line">Line</option>
+        </select>
+        <button
+          type="button"
+          onClick={onDelete}
+          style={{
+            background: '#fee2e2',
+            border: 'none',
+            borderRadius: '6px',
+            width: '32px',
+            height: '32px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            color: '#dc2626',
+            transition: 'all 0.2s',
+            flexShrink: 0
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = '#fecaca';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = '#fee2e2';
+          }}
+          title="Delete custom card"
+        >
+          <span className="material-icons" style={{ fontSize: '18px' }}>delete</span>
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '500px',
+      overflow: 'hidden'
+    }}>
+      {cardData.length > 0 ? (
         <>
           {chartType === 'bar' && (
             <BarChart
               data={cardData}
-              customHeader={null}
+              customHeader={customHeader}
               valuePrefix={valuePrefix}
               rowAction={{
                 icon: 'table_view',
@@ -9155,7 +9902,7 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
           {chartType === 'pie' && (
             <PieChart
               data={cardData}
-              customHeader={null}
+              customHeader={customHeader}
               valuePrefix={valuePrefix}
               rowAction={{
                 icon: 'table_view',
@@ -9167,7 +9914,7 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
           {chartType === 'treemap' && (
             <TreeMap
               data={cardData}
-              customHeader={null}
+              customHeader={customHeader}
               valuePrefix={valuePrefix}
               rowAction={{
                 icon: 'table_view',
@@ -9179,7 +9926,7 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
           {chartType === 'line' && (
             <LineChart
               data={cardData}
-              customHeader={null}
+              customHeader={customHeader}
               valuePrefix={valuePrefix}
               rowAction={{
                 icon: 'table_view',
@@ -9189,12 +9936,23 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
             />
           )}
         </>
-        ) : (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#64748b' }}>
-            No data available for this card configuration.
-          </div>
-        )}
-      </div>
+      ) : (
+        <div style={{
+          background: 'white',
+          borderRadius: '12px',
+          border: '1px solid #e2e8f0',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          padding: '40px',
+          textAlign: 'center',
+          color: '#64748b',
+          height: '500px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          No data available for this card configuration.
+        </div>
+      )}
     </div>
   );
 });
