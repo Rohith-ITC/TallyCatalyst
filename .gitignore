@@ -26,4 +26,4 @@ yarn-error.log*
 client_secret_*.json
 
 # Postman collections
-CustomerPortal.postman_collection.json
+CustomerPortal.postman_collection*.json
