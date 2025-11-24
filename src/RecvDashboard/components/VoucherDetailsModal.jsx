@@ -68,7 +68,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
           alignItems: 'center',
           justifyContent: 'center',
           padding: '32px',
-          zIndex: 10000
+          zIndex: 15000
         }}
         onClick={onClose}
       >
@@ -116,7 +116,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
           alignItems: 'center',
           justifyContent: 'center',
           padding: '32px',
-          zIndex: 10000
+          zIndex: 15000
         }}
         onClick={onClose}
       >
@@ -156,6 +156,13 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
   const ledgerName = ledgerEntries.length > 0 && ledgerEntries[0].LEDGERNAME 
     ? ledgerEntries[0].LEDGERNAME 
     : '';
+  
+  // Debug: Log narration data
+  console.log('🔍 VoucherDetailsModal - Narration check:', {
+    hasNARRATION: !!voucher.NARRATION,
+    NARRATION: voucher.NARRATION,
+    voucherKeys: Object.keys(voucher)
+  });
 
   return (
     <div
@@ -171,7 +178,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
         alignItems: 'center',
         justifyContent: 'center',
         padding: '32px',
-        zIndex: 10000
+        zIndex: 15000
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
@@ -272,6 +279,28 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                 <div style={{ fontSize: 16, fontWeight: 600, color: '#1e293b' }}>{ledgerName}</div>
               </div>
             )}
+            {voucher.NARRATION && (
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="material-icons" style={{ fontSize: 16, color: '#64748b' }}>description</span>
+                  Narration
+                </div>
+                <div style={{ 
+                  fontSize: 14, 
+                  fontWeight: 500, 
+                  color: '#1e293b',
+                  padding: '12px 16px',
+                  background: '#f8fafc',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  lineHeight: '1.6',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word'
+                }}>
+                  {voucher.NARRATION}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Ledger Entries */}
@@ -342,6 +371,39 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                               <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(inv.AMOUNT || inv.VALUE || 0)}</div>
                             </div>
                           ))}
+                          {/* Tax Summary Rows (CGST, SGST, ROUND OFF) */}
+                          {(entry.CGST || entry.SGST || entry.ROUNDOFF !== undefined) && (
+                            <>
+                              <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '8px', paddingTop: '8px' }}></div>
+                              {entry.CGST && (
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 12, padding: '6px 0', fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
+                                  <div>CGST</div>
+                                  <div></div>
+                                  <div></div>
+                                  <div></div>
+                                  <div style={{ textAlign: 'right' }}>{formatCurrencyAmount(entry.CGST)}</div>
+                                </div>
+                              )}
+                              {entry.SGST && (
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 12, padding: '6px 0', fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
+                                  <div>SGST</div>
+                                  <div></div>
+                                  <div></div>
+                                  <div></div>
+                                  <div style={{ textAlign: 'right' }}>{formatCurrencyAmount(entry.SGST)}</div>
+                                </div>
+                              )}
+                              {entry.ROUNDOFF !== undefined && (
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 12, padding: '6px 0', fontSize: 13, color: '#1e293b', fontWeight: 600 }}>
+                                  <div>ROUND OFF</div>
+                                  <div></div>
+                                  <div></div>
+                                  <div></div>
+                                  <div style={{ textAlign: 'right' }}>{formatCurrencyAmount(entry.ROUNDOFF)}</div>
+                                </div>
+                              )}
+                            </>
+                          )}
                         </div>
                       )}
                     </div>

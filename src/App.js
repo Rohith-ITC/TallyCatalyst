@@ -131,7 +131,7 @@ function App() {
   };
   
   return (
-    <Router basename={process.env.REACT_APP_HOMEPAGE}>
+    <Router basename={process.env.REACT_APP_HOMEPAGE || ''}>
       <Routes>
         <Route path="/" element={<Login onLogin={handleLogin} />} />
         <Route path="/signup" element={<SignUp />} />

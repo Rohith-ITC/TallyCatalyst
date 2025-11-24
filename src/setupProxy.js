@@ -1,13 +1,16 @@
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 // Use dev API URL in development, otherwise production URL
-// In development mode, hardcode the URL regardless of .env values
+// Read from .env file, with fallback for backward compatibility
 const DEFAULT_TARGET =
   process.env.NODE_ENV === 'development'
-    ? 'https://itcatalystindia.com/Development/CustomerPortal_API'
-    : process.env.REACT_APP_PRODUCTION_API_URL;
+    ? (process.env.REACT_APP_DEV_API_URL || 'http://localhost:3001')
+    : (process.env.REACT_APP_PRODUCTION_API_URL || process.env.REACT_APP_STAGING_API_URL || 'http://localhost:3001');
 
 module.exports = function setupProxy(app) {
+  // Log the proxy target for debugging
+  console.log('🔧 Proxy configured to target:', DEFAULT_TARGET);
+  
   // Only proxy /api requests, ignore webpack hot-update files and other assets
   app.use(
     '/api',
@@ -15,9 +18,22 @@ module.exports = function setupProxy(app) {
       target: DEFAULT_TARGET,
       changeOrigin: true,
       secure: false, // Allow self-signed certificates in development
-      logLevel: 'warn', // Only log warnings and errors, not info
+      logLevel: 'debug', // Enable debug logging to see what's happening
       timeout: 300000,
       proxyTimeout: 300000,
+      // Add CORS headers to response
+      onProxyRes: (proxyRes, req, res) => {
+        // Add CORS headers if not already present
+        if (!proxyRes.headers['access-control-allow-origin']) {
+          proxyRes.headers['access-control-allow-origin'] = '*';
+        }
+        if (!proxyRes.headers['access-control-allow-methods']) {
+          proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+        }
+        if (!proxyRes.headers['access-control-allow-headers']) {
+          proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, x-tallyloc-id, x-company, x-guid';
+        }
+      },
       // Filter out non-API requests
       filter: (pathname, req) => {
         return pathname.startsWith('/api');

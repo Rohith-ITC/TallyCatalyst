@@ -9,6 +9,7 @@ import LedgerOutstandingsModal from './components/LedgerOutstandingsModal';
 import ReceivablesTable from './components/ReceivablesTable';
 import './ReceivablesPage.css';
 import { getApiUrl } from '../config';
+import { getCompanyConfigValue, clearCompanyConfigCache } from '../utils/companyConfigUtils';
 import {
   escapeForXML,
   cleanAndEscapeForXML,
@@ -222,8 +223,8 @@ const ReceivablesPage = ({ company, onBack }) => {
   const [ledgerOutstandingsError, setLedgerOutstandingsError] = useState(null);
   const [showLedgerOutstandings, setShowLedgerOutstandings] = useState(false);
   const [selectedLedgerOutstanding, setSelectedLedgerOutstanding] = useState(null);
-  const [salespersonFormulaInput, setSalespersonFormulaInput] = useState('');
   const [salespersonFormula, setSalespersonFormula] = useState('');
+  const [configFormula, setConfigFormula] = useState(null); // Formula from company configuration
   const [currencyScale, setCurrencyScale] = useState('auto'); // 'auto', 'crore', 'lakh', 'thousand', 'full'
   const [showSettings, setShowSettings] = useState(false);
   const [agingBucketsConfig, setAgingBucketsConfig] = useState([...DEFAULT_AGING_BUCKETS]);
@@ -306,6 +307,36 @@ const ReceivablesPage = ({ company, onBack }) => {
       setLoading(false);
     }
   }, [company, salespersonFormula]);
+
+  // Fetch company configuration for sales person formula
+  useEffect(() => {
+    const loadCompanyConfig = async () => {
+      if (!company || !company.tallyloc_id || !company.guid) {
+        setConfigFormula(null);
+        return;
+      }
+
+      try {
+        const formula = await getCompanyConfigValue('recvdash_salesprsn', company.tallyloc_id, company.guid);
+        setConfigFormula(formula);
+        console.log('✅ Receivables Dashboard - Loaded sales person formula from config:', formula);
+        
+        // Use config formula directly
+        setSalespersonFormula(formula || '');
+      } catch (error) {
+        console.error('Error loading company config for receivables:', error);
+        setConfigFormula(null);
+        setSalespersonFormula('');
+      }
+    };
+
+    loadCompanyConfig();
+    // Clear cache when company changes
+    if (company && company.tallyloc_id && company.guid) {
+      clearCompanyConfigCache(company.tallyloc_id, company.guid);
+    }
+  }, [company?.tallyloc_id, company?.guid]);
+
 
   useEffect(() => {
     fetchReceivables();
@@ -560,19 +591,21 @@ const ReceivablesPage = ({ company, onBack }) => {
 					</PART>
 					<LINE NAME="CP_Vouchers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
 						<XMLTAG>"VOUCHERS"</XMLTAG>
-						<LEFTFIELDS>CP_Temp1, CP_Temp2, CP_Temp3, CP_Temp4, CP_Temp5, CP_Temp6</LEFTFIELDS>
+						<LEFTFIELDS>CP_Temp1, CP_Temp2, CP_Temp3, CP_Temp4, CP_Temp5, CP_Temp6, CP_Temp7</LEFTFIELDS>
 						<LOCAL>Field : CP_Temp1 : Set as :$MASTERID</LOCAL>
 						<LOCAL>Field : CP_Temp2 : Set as :$DATE</LOCAL>
 						<LOCAL>Field : CP_Temp3 : Set as :$VOUCHERTYPENAME</LOCAL>
 						<LOCAL>Field : CP_Temp4 : Set as :$VOUCHERNUMBER</LOCAL>
 						<LOCAL>Field : CP_Temp5 : Set as : $$IfDr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
 						<LOCAL>Field : CP_Temp6 : Set as : $$IfCr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
+						<LOCAL>Field : CP_Temp7 : Set as : $NARRATION</LOCAL>
 						<LOCAL>Field : CP_Temp1  : XMLTag : "MASTERID"</LOCAL>
 						<LOCAL>Field : CP_Temp2  : XMLTag : "DATE"</LOCAL>
 						<LOCAL>Field : CP_Temp3  : XMLTag : "VOUCHERTYPE"</LOCAL>
 						<LOCAL>Field : CP_Temp4  : XMLTag : "VOUCHERNUMBER"</LOCAL>
 						<LOCAL>Field : CP_Temp5  : XMLTag : "DEBITAMT"</LOCAL>
 						<LOCAL>Field : CP_Temp6  : XMLTag : "CREDITAMT"</LOCAL>
+						<LOCAL>Field : CP_Temp7  : XMLTag : "NARRATION"</LOCAL>
 						<Explode>CP_Ledgers : Yes</Explode>
 					</LINE>
 					<PART NAME="CP_Ledgers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
@@ -1411,54 +1444,6 @@ const ReceivablesPage = ({ company, onBack }) => {
                     <option value="thousand">Thousand</option>
                     <option value="full">Full</option>
                   </select>
-                </div>
-
-                {/* Salesperson Formula Section */}
-                <div style={{ marginBottom: '32px' }}>
-                  <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '600', color: '#374151' }}>Salesperson Formula</h3>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <input
-                      type="text"
-                      value={salespersonFormulaInput}
-                      onChange={(e) => setSalespersonFormulaInput(e.target.value)}
-                      placeholder="Enter TDL formula (e.g., $$VCHBILLITCSalesPerson)"
-                      style={{
-                        padding: '8px 12px',
-                        fontSize: '14px',
-                        fontWeight: '400',
-                        border: '1px solid #d1d5db',
-                        borderRadius: '6px',
-                        backgroundColor: '#fff',
-                        color: '#374151',
-                        fontFamily: 'system-ui, -apple-system, sans-serif',
-                        flex: 1,
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setSalespersonFormula(salespersonFormulaInput.trim())}
-                      disabled={salespersonFormulaInput.trim() === salespersonFormula.trim()}
-                      style={{
-                        padding: '8px 16px',
-                        fontSize: '14px',
-                        fontWeight: '500',
-                        border: '1px solid #3b82f6',
-                        borderRadius: '6px',
-                        backgroundColor: salespersonFormulaInput.trim() === salespersonFormula.trim() ? '#e5e7eb' : '#3b82f6',
-                        color: salespersonFormulaInput.trim() === salespersonFormula.trim() ? '#9ca3af' : '#fff',
-                        cursor: salespersonFormulaInput.trim() === salespersonFormula.trim() ? 'not-allowed' : 'pointer',
-                        transition: 'all 0.2s',
-                        fontFamily: 'system-ui, -apple-system, sans-serif',
-                      }}
-                    >
-                      Apply
-                    </button>
-                  </div>
-                  {salespersonFormula && (
-                    <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: '#6b7280' }}>
-                      Current formula: <code style={{ backgroundColor: '#f3f4f6', padding: '2px 6px', borderRadius: '4px' }}>{salespersonFormula}</code>
-                    </p>
-                  )}
                 </div>
 
                 {/* Ageing Buckets Section */}
