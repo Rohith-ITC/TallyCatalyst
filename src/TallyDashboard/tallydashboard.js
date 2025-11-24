@@ -9,6 +9,8 @@ import PlaceOrder_ECommerce from './PlaceOrder_ECommerce';
 import SalesDashboard from './salesdashboard';
 import ReceivablesDashboard from '../RecvDashboard';
 import VoucherAuthorization from '../vchauth/vchauth';
+import ReceiptListScreenWrapper from './ReceiptListScreenWrapper';
+import CompanyOrdersScreenWrapper from './CompanyOrdersScreenWrapper';
 import TallyConfig from '../admindashboard/tallyconfig';
 import AccessControl from '../access-control/AccessControl';
 import ModulesManagement from '../access-control/ModulesManagement';
@@ -2718,6 +2720,16 @@ function TallyDashboard() {
           {activeSidebar === 'receivables_dashboard' && (
             <div style={{ margin: '-20px', padding: '0' }}>
               <ReceivablesDashboard company={currentReceivablesCompany} />
+            </div>
+          )}
+          {activeSidebar === 'receipt_find_party' && (
+            <div style={{ margin: '-20px', padding: '0' }}>
+              <ReceiptListScreenWrapper />
+            </div>
+          )}
+          {activeSidebar === 'company_orders' && (
+            <div style={{ margin: '-20px', padding: '0' }}>
+              <CompanyOrdersScreenWrapper />
             </div>
           )}
           {activeSidebar === 'voucher_authorization' && <VoucherAuthorization />}
