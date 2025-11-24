@@ -29,6 +29,22 @@ export const MODULE_SEQUENCE = [
       permissions     : {}
     },
     {
+      key             : 'receipt_find_party',
+      id              : 'receipt_find_party',
+      label           : 'Receipt Find Party',
+      icon            : 'search',
+      alwaysVisible   : true,
+      permissions     : {}
+    },
+    {
+      key             : 'company_orders',
+      id              : 'company_orders',
+      label           : 'Company Orders',
+      icon            : 'shopping_bag',
+      alwaysVisible   : true,
+      permissions     : {}
+    },
+    {
       key               : 'place_order',
       id                : 'order',
       label             : 'Place Order',
