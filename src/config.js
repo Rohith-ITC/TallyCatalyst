@@ -1,8 +1,22 @@
 // Environment-based API Configuration
 const getBaseUrl = () => {
+  // Override URLs when in development mode (regardless of .env values)
+  if (process.env.NODE_ENV === 'development') {
+    const devUrl = 'https://itcatalystindia.com/Development/CustomerPortal_API';
+    // If dev URL contains localhost and we're accessing from a different host (mobile/remote),
+    // use empty string to use relative paths (which will go through the proxy)
+    if (devUrl && typeof window !== 'undefined') {
+      const currentHost = window.location.hostname;
+      // If accessing from a different host (not localhost/127.0.0.1), use relative paths
+      if (devUrl.includes('localhost') && currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
+        return ''; // Use relative paths to go through proxy
+      }
+    }
+    return devUrl;
+  }
+
+  // For non-development environments, use .env values
   switch (process.env.NODE_ENV) {
-    case 'development':
-      return process.env.REACT_APP_DEV_API_URL;
     case 'staging':
       return process.env.REACT_APP_STAGING_API_URL;
     case 'production':
@@ -12,9 +26,11 @@ const getBaseUrl = () => {
   }
 };
 
-// API Configuration
+// API Configuration - BASE_URL is computed dynamically to handle mobile access
 export const API_CONFIG = {
-  BASE_URL: getBaseUrl(),
+  get BASE_URL() {
+    return getBaseUrl();
+  },
   ENDPOINTS: {
     // Authentication endpoints
     LOGIN: '/api/login',
@@ -41,12 +57,35 @@ export const API_CONFIG = {
     // Share Access endpoints
     TALLY_LEDGER_SHAREACCESS: '/api/tally/ledger-shareaccess',
     TALLY_LEDGER_SHAREACCESS_ACC: '/api/tally/ledger-shareaccess-acc',
+    
+    // Vendor Authorization endpoints
+    TALLY_LEDGER_LIST: '/api/tally/ledger-list',
+    TALLY_LEDGER_AUTH: '/api/tally/ledger-auth',
+    TALLY_LEDGER_CHECK: '/api/tally/ledger-check',
+    
+    // Subscription endpoints
+    SUBSCRIPTION_STATUS: '/api/subscription/status',
+    SUBSCRIPTION_PLANS: '/api/subscription/plans',
+    SUBSCRIPTION_USER_COUNT: '/api/subscription/user-count',
+    SUBSCRIPTION_CREATE_ORDER: '/api/subscription/create-order',
+    SUBSCRIPTION_VERIFY_PAYMENT: '/api/subscription/verify-payment',
+    SUBSCRIPTION_UPDATE: '/api/subscription/update',
+    SUBSCRIPTION_PAYMENTS: '/api/subscription/payments',
+    SUBSCRIPTION_TRIAL_STATUS: '/api/subscription/trial-status',
+    SUBSCRIPTION_DISMISS_REMINDER: '/api/subscription/dismiss-reminder',
   }
+};
+
+// Razorpay Configuration
+export const RAZORPAY_CONFIG = {
+  KEY_ID: process.env.REACT_APP_RAZORPAY_KEY_ID || '',
+  TRIAL_DAYS: parseInt(process.env.REACT_APP_TRIAL_DAYS || '14', 10),
+  REMINDER_DAYS: parseInt(process.env.REACT_APP_REMINDER_DAYS || '7', 10)
 };
 
 // App Configuration
 export const APP_CONFIG = {
-  APP_NAME: 'TallyCatalyst',
+  APP_NAME: 'DataLynk',
   COMPANY_NAME: 'IT Catalyst Software India Pvt Ltd'
 };
 
@@ -56,32 +95,79 @@ export const isProduction = process.env.NODE_ENV === 'production';
 
 // API URL builder
 export const getApiUrl = (endpoint) => {
-  return `${API_CONFIG.BASE_URL}${endpoint}`;
+  const baseUrl = API_CONFIG.BASE_URL; // This will call the getter dynamically
+  // If BASE_URL is empty, use relative path (will go through proxy in dev)
+  if (!baseUrl) {
+    return endpoint;
+  }
+  return `${baseUrl}${endpoint}`;
 };
 
 // Log configuration in development
-if (isDevelopment) {
-  console.log('API Configuration:', API_CONFIG);
+if (isDevelopment && typeof window !== 'undefined') {
+  console.log('API Configuration:', {
+    BASE_URL: API_CONFIG.BASE_URL,
+    currentHost: window.location.hostname,
+    devApiUrl: process.env.REACT_APP_DEV_API_URL
+  });
 }
 
 // Fallback port for development
 export const DEV_API_PORT = 1235;
 
 // Google Drive Configuration
+// All credentials must be set via environment variables
 export const GOOGLE_DRIVE_CONFIG = {
   CLIENT_ID: process.env.REACT_APP_GOOGLE_CLIENT_ID || '',
   API_KEY: process.env.REACT_APP_GOOGLE_API_KEY || '',
-  SCOPES: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile'
+  CLIENT_SECRET: process.env.REACT_APP_GOOGLE_CLIENT_SECRET || '',
+  SCOPES: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly'
 };
 
-// Check if Google Drive is fully configured
+// Check if all Google Drive credentials are available
 export const isGoogleDriveFullyConfigured = () => {
-  const configured = !!(GOOGLE_DRIVE_CONFIG.CLIENT_ID && GOOGLE_DRIVE_CONFIG.API_KEY);
+  const hasClientId = !!GOOGLE_DRIVE_CONFIG.CLIENT_ID && GOOGLE_DRIVE_CONFIG.CLIENT_ID.length > 0;
+  const hasApiKey = !!GOOGLE_DRIVE_CONFIG.API_KEY && GOOGLE_DRIVE_CONFIG.API_KEY.length > 0;
+  
   return {
-    configured,
-    missing: {
-      clientId: !GOOGLE_DRIVE_CONFIG.CLIENT_ID,
-      apiKey: !GOOGLE_DRIVE_CONFIG.API_KEY
-    }
+    configured: hasClientId && hasApiKey,
+    hasClientId,
+    hasApiKey,
+    missing: []
   };
-}; 
+};
+
+// Log Google Drive configuration status in development
+if (isDevelopment) {
+  const configStatus = isGoogleDriveFullyConfigured();
+  const rawClientId = process.env.REACT_APP_GOOGLE_CLIENT_ID;
+  const rawApiKey = process.env.REACT_APP_GOOGLE_API_KEY;
+  
+  console.log('🔍 Google Drive Configuration Status:', {
+    configured: configStatus.configured,
+    hasClientId: configStatus.hasClientId,
+    hasApiKey: configStatus.hasApiKey,
+    clientId: configStatus.hasClientId ? `${GOOGLE_DRIVE_CONFIG.CLIENT_ID.substring(0, 20)}...` : 'MISSING',
+    apiKey: configStatus.hasApiKey ? 'SET' : 'MISSING',
+    rawEnvClientId: rawClientId ? `${rawClientId.substring(0, 20)}...` : 'NOT IN ENV',
+    rawEnvApiKey: rawApiKey ? 'PRESENT IN ENV' : 'NOT IN ENV',
+    usingDefaultClientId: !rawClientId && configStatus.hasClientId
+  });
+  
+  if (!configStatus.configured) {
+    console.warn('⚠️ Google Drive is not fully configured. Document upload features will be disabled.');
+    if (!rawApiKey) {
+      console.warn('   ⚠️ REACT_APP_GOOGLE_API_KEY not found in environment variables.');
+      console.warn('   💡 Make sure:');
+      console.warn('      1. The variable is in your .env file in the project root');
+      console.warn('      2. The variable name is exactly: REACT_APP_GOOGLE_API_KEY');
+      console.warn('      3. You have RESTARTED the dev server after adding it');
+      console.warn('      4. There are no spaces around the = sign in .env file');
+    }
+    if (!configStatus.hasClientId && !rawClientId) {
+      console.warn('   Missing: REACT_APP_GOOGLE_CLIENT_ID');
+    }
+  } else {
+    console.log('✅ Google Drive is fully configured! Upload buttons should be enabled.');
+  }
+} 
