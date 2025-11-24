@@ -1,3 +1,4 @@
+// Hybrid cache implementation - OPFS with IndexedDB fallback
 import Dexie from 'dexie';
 
 // Date range utility functions
@@ -142,38 +143,84 @@ class DateRangeUtils {
   }
 }
 
-// Shared encryption utilities for both OPFS and IndexedDB backends
+// Shared encryption utilities
 class EncryptionUtils {
-  constructor() {
-    // Use IndexedDB for storing user keys (shared by both backends)
-    this.db = new Dexie('TallyCatalystCache');
-    this.db.version(1).stores({
-      userKeys: '++id, email, salt'
-    });
+  constructor(opfsRoot = null, indexedDB = null) {
+    this.opfsRoot = opfsRoot;
+    this.indexedDB = indexedDB; // Dexie database instance
   }
 
-  // Get or create salt for user email
+  // Get or create salt for user email (stored in OPFS or IndexedDB)
   async getUserSalt(email) {
     if (!email) {
       throw new Error('Email is required for cache encryption');
     }
 
     try {
-      let userKey = await this.db.userKeys.where('email').equals(email).first();
-      
-      if (!userKey) {
-        // Generate a new salt for this user
-        const salt = crypto.getRandomValues(new Uint8Array(16));
-        const saltBase64 = btoa(String.fromCharCode(...salt));
-        
-        userKey = {
-          email: email,
-          salt: saltBase64
-        };
-        await this.db.userKeys.add(userKey);
+      // Try OPFS first if available
+      if (this.opfsRoot) {
+        try {
+          // Read user keys file from OPFS
+          const keysDir = await this.opfsRoot.getDirectoryHandle('keys', { create: true });
+          const sanitizedEmail = email.replace(/[^a-zA-Z0-9_-]/g, '_');
+          const keyFileName = `${sanitizedEmail}.json`;
+          
+          let userKey = null;
+          try {
+            const keyFile = await keysDir.getFileHandle(keyFileName);
+            const file = await keyFile.getFile();
+            const content = await file.text();
+            userKey = JSON.parse(content);
+          } catch (err) {
+            // File doesn't exist, will create it
+          }
+          
+          if (!userKey) {
+            // Generate a new salt for this user
+            const salt = crypto.getRandomValues(new Uint8Array(16));
+            const saltBase64 = btoa(String.fromCharCode(...salt));
+            
+            userKey = {
+              email: email,
+              salt: saltBase64
+            };
+            
+            // Write to OPFS
+            const keyFile = await keysDir.getFileHandle(keyFileName, { create: true });
+            const writable = await keyFile.createWritable();
+            await writable.write(JSON.stringify(userKey));
+            await writable.close();
+          }
+          
+          return userKey.salt;
+        } catch (error) {
+          console.warn('OPFS salt retrieval failed, falling back to IndexedDB:', error);
+          // Fall through to IndexedDB
+        }
       }
-      
-      return userKey.salt;
+
+      // Fall back to IndexedDB if OPFS is not available or failed
+      if (this.indexedDB) {
+        let userKey = await this.indexedDB.userKeys.get(email);
+        
+        if (!userKey) {
+          // Generate a new salt for this user
+          const salt = crypto.getRandomValues(new Uint8Array(16));
+          const saltBase64 = btoa(String.fromCharCode(...salt));
+          
+          userKey = {
+            email: email,
+            salt: saltBase64
+          };
+          
+          // Write to IndexedDB
+          await this.indexedDB.userKeys.put(userKey);
+        }
+        
+        return userKey.salt;
+      }
+
+      throw new Error('Neither OPFS root nor IndexedDB database is available for salt storage');
     } catch (error) {
       console.error('Error getting user salt:', error);
       throw error;
@@ -285,27 +332,114 @@ class OPFSBackend {
     this.encryption = encryptionUtils;
     this.root = null;
     this.initialized = false;
-    // Use IndexedDB for metadata (timestamps, expiry) for fast queries
-    this.metadataDb = new Dexie('TallyCatalystOPFSMetadata');
-    this.metadataDb.version(1).stores({
-      salesMetadata: '++id, cacheKey, timestamp, startDate, endDate, baseKey',
-      dashboardMetadata: '++id, cacheKey, timestamp'
-    });
+    this.metadataCache = new Map(); // In-memory cache for metadata
+  }
+
+  // Load metadata from OPFS
+  async loadMetadata() {
+    try {
+      const metadataDir = await this.root.getDirectoryHandle('metadata', { create: true });
+      const salesFile = await metadataDir.getFileHandle('sales.json', { create: true });
+      const dashboardFile = await metadataDir.getFileHandle('dashboard.json', { create: true });
+      
+      try {
+        const salesContent = await (await salesFile.getFile()).text();
+        if (salesContent) {
+          const salesData = JSON.parse(salesContent);
+          this.metadataCache.set('sales', new Map(salesData));
+        } else {
+          this.metadataCache.set('sales', new Map());
+        }
+      } catch {
+        this.metadataCache.set('sales', new Map());
+      }
+      
+      try {
+        const dashboardContent = await (await dashboardFile.getFile()).text();
+        if (dashboardContent) {
+          const dashboardData = JSON.parse(dashboardContent);
+          this.metadataCache.set('dashboard', new Map(dashboardData));
+        } else {
+          this.metadataCache.set('dashboard', new Map());
+        }
+      } catch {
+        this.metadataCache.set('dashboard', new Map());
+      }
+    } catch (error) {
+      console.error('Error loading metadata:', error);
+      this.metadataCache.set('sales', new Map());
+      this.metadataCache.set('dashboard', new Map());
+    }
+  }
+
+  // Save metadata to OPFS
+  async saveMetadata() {
+    try {
+      const metadataDir = await this.root.getDirectoryHandle('metadata', { create: true });
+      
+      // Save sales metadata
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const salesData = Array.from(salesMap.entries());
+      const salesFile = await metadataDir.getFileHandle('sales.json', { create: true });
+      const salesWritable = await salesFile.createWritable();
+      await salesWritable.write(JSON.stringify(salesData));
+      await salesWritable.close();
+      
+      // Save dashboard metadata
+      const dashboardMap = this.metadataCache.get('dashboard') || new Map();
+      const dashboardData = Array.from(dashboardMap.entries());
+      const dashboardFile = await metadataDir.getFileHandle('dashboard.json', { create: true });
+      const dashboardWritable = await dashboardFile.createWritable();
+      await dashboardWritable.write(JSON.stringify(dashboardData));
+      await dashboardWritable.close();
+    } catch (error) {
+      console.error('Error saving metadata:', error);
+    }
   }
 
   async init() {
     if (this.initialized) return;
     
     try {
-      if ('storage' in navigator && 'getDirectory' in navigator.storage) {
-        this.root = await navigator.storage.getDirectory();
-        this.initialized = true;
-        console.log('✅ OPFS initialized');
-      } else {
-        throw new Error('OPFS not supported');
+      // Check for secure context (HTTPS or localhost)
+      const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      
+      if (!isSecureContext) {
+        throw new Error('OPFS requires secure context (HTTPS or localhost)');
       }
+      
+      // Check for OPFS support
+      if (!('storage' in navigator)) {
+        throw new Error('navigator.storage is not available');
+      }
+      
+      if (!('getDirectory' in navigator.storage)) {
+        throw new Error('navigator.storage.getDirectory is not available');
+      }
+      
+      console.log('🔍 Attempting OPFS initialization...');
+      this.root = await navigator.storage.getDirectory();
+      
+      // Initialize encryption with OPFS root
+      this.encryption.opfsRoot = this.root;
+      
+      // Load metadata
+      await this.loadMetadata();
+      
+      this.initialized = true;
+      console.log('✅ OPFS initialized successfully');
     } catch (error) {
-      console.error('OPFS initialization error:', error);
+      console.error('❌ OPFS initialization error:', error);
+      console.error('Error details:', {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+        isSecureContext: window.isSecureContext,
+        protocol: window.location.protocol,
+        hostname: window.location.hostname,
+        hasStorage: 'storage' in navigator,
+        hasGetDirectory: 'storage' in navigator && 'getDirectory' in navigator.storage
+      });
       throw error;
     }
   }
@@ -343,7 +477,7 @@ class OPFSBackend {
     return `dashboard/${sanitized}.enc`;
   }
 
-  async setSalesData(cacheKey, data, maxAgeDays = 5, startDate = null, endDate = null) {
+  async setSalesData(cacheKey, data, maxAgeDays = null, startDate = null, endDate = null) {
     try {
       await this.init();
       const encrypted = await this.encryption.encryptData(data);
@@ -404,44 +538,52 @@ class OPFSBackend {
         await writable.close();
       }
       
-      // Store metadata in IndexedDB with date range
-      const existing = await this.metadataDb.salesMetadata.where('cacheKey').equals(cacheKey).first();
+      // Store metadata in OPFS
+      const salesMap = this.metadataCache.get('sales') || new Map();
       const metadata = {
         cacheKey,
         timestamp,
         baseKey,
         ...(dateRange ? { startDate: dateRange.startDate, endDate: dateRange.endDate } : {})
       };
+      salesMap.set(cacheKey, metadata);
+      this.metadataCache.set('sales', salesMap);
+      await this.saveMetadata();
       
-      if (existing) {
-        await this.metadataDb.salesMetadata.update(existing.id, metadata);
-      } else {
-        await this.metadataDb.salesMetadata.add(metadata);
-      }
-      
-      // Clean up old entries
-      const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
-      const expired = await this.metadataDb.salesMetadata.where('timestamp').below(expiryTime).toArray();
-      for (const entry of expired) {
-        try {
-          const expiredFilePath = this.getSalesFilePath(entry.cacheKey);
-          const expiredPathParts = expiredFilePath.split('/');
-          const expiredFileName = expiredPathParts.pop();
-          const expiredDirPath = expiredPathParts.join('/');
-          
-          let expiredDir = this.root;
-          if (expiredDirPath) {
-            for (const part of expiredDirPath.split('/')) {
-              if (part) {
-                expiredDir = await expiredDir.getDirectoryHandle(part);
+      // Clean up old entries only if expiry is set (not null/never)
+      if (maxAgeDays !== null && maxAgeDays !== undefined) {
+        const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+        const expiredKeys = [];
+        for (const [key, meta] of salesMap.entries()) {
+          if (meta.timestamp < expiryTime) {
+            expiredKeys.push(key);
+            try {
+              const expiredFilePath = this.getSalesFilePath(key);
+              const expiredPathParts = expiredFilePath.split('/');
+              const expiredFileName = expiredPathParts.pop();
+              const expiredDirPath = expiredPathParts.join('/');
+              
+              let expiredDir = this.root;
+              if (expiredDirPath) {
+                for (const part of expiredDirPath.split('/')) {
+                  if (part) {
+                    expiredDir = await expiredDir.getDirectoryHandle(part);
+                  }
+                }
               }
+              await expiredDir.removeEntry(expiredFileName);
+            } catch (err) {
+              // File might not exist, ignore
             }
           }
-          await expiredDir.removeEntry(expiredFileName);
-        } catch (err) {
-          // File might not exist, ignore
         }
-        await this.metadataDb.salesMetadata.delete(entry.id);
+        for (const key of expiredKeys) {
+          salesMap.delete(key);
+        }
+        if (expiredKeys.length > 0) {
+          this.metadataCache.set('sales', salesMap);
+          await this.saveMetadata();
+        }
       }
       
       console.log(`✅ Cached sales data in OPFS: ${cacheKey}`);
@@ -451,41 +593,46 @@ class OPFSBackend {
     }
   }
 
-  async getSalesData(cacheKey, maxAgeDays = 5) {
+  async getSalesData(cacheKey, maxAgeDays = null) {
     try {
       await this.init();
       
       // Check metadata first
-      const metadata = await this.metadataDb.salesMetadata.where('cacheKey').equals(cacheKey).first();
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const metadata = salesMap.get(cacheKey);
       if (!metadata) {
         return null;
       }
       
-      // Check expiry
-      const age = Date.now() - metadata.timestamp;
-      const maxAge = maxAgeDays * 24 * 60 * 60 * 1000;
-      if (age > maxAge) {
-        // Delete expired file
-        try {
-          const filePath = this.getSalesFilePath(cacheKey);
-          const pathParts = filePath.split('/');
-          const fileName = pathParts.pop();
-          const dirPath = pathParts.join('/');
-          
-          let dir = this.root;
-          if (dirPath) {
-            for (const part of dirPath.split('/')) {
-              if (part) {
-                dir = await dir.getDirectoryHandle(part);
+      // Check expiry only if maxAgeDays is set (not null/never)
+      if (maxAgeDays !== null && maxAgeDays !== undefined) {
+        const age = Date.now() - metadata.timestamp;
+        const maxAge = maxAgeDays * 24 * 60 * 60 * 1000;
+        if (age > maxAge) {
+          // Delete expired file
+          try {
+            const filePath = this.getSalesFilePath(cacheKey);
+            const pathParts = filePath.split('/');
+            const fileName = pathParts.pop();
+            const dirPath = pathParts.join('/');
+            
+            let dir = this.root;
+            if (dirPath) {
+              for (const part of dirPath.split('/')) {
+                if (part) {
+                  dir = await dir.getDirectoryHandle(part);
+                }
               }
             }
+            await dir.removeEntry(fileName);
+          } catch (err) {
+            // File might not exist, ignore
           }
-          await dir.removeEntry(fileName);
-        } catch (err) {
-          // File might not exist, ignore
+          salesMap.delete(cacheKey);
+          this.metadataCache.set('sales', salesMap);
+          await this.saveMetadata();
+          return null;
         }
-        await this.metadataDb.salesMetadata.delete(metadata.id);
-        return null;
       }
       
       // Read encrypted file from OPFS
@@ -516,7 +663,9 @@ class OPFSBackend {
         } catch (err) {
           // Ignore
         }
-        await this.metadataDb.salesMetadata.delete(metadata.id);
+        salesMap.delete(cacheKey);
+        this.metadataCache.set('sales', salesMap);
+        await this.saveMetadata();
         return null;
       }
       
@@ -590,12 +739,10 @@ class OPFSBackend {
       }
       
       // Store metadata
-      const existing = await this.metadataDb.dashboardMetadata.where('cacheKey').equals(cacheKey).first();
-      if (existing) {
-        await this.metadataDb.dashboardMetadata.update(existing.id, { timestamp });
-      } else {
-        await this.metadataDb.dashboardMetadata.add({ cacheKey, timestamp });
-      }
+      const dashboardMap = this.metadataCache.get('dashboard') || new Map();
+      dashboardMap.set(cacheKey, { cacheKey, timestamp });
+      this.metadataCache.set('dashboard', dashboardMap);
+      await this.saveMetadata();
       
       console.log(`✅ Cached dashboard state in OPFS: ${cacheKey}`);
     } catch (error) {
@@ -609,7 +756,8 @@ class OPFSBackend {
       await this.init();
       
       // Check metadata
-      const metadata = await this.metadataDb.dashboardMetadata.where('cacheKey').equals(cacheKey).first();
+      const dashboardMap = this.metadataCache.get('dashboard') || new Map();
+      const metadata = dashboardMap.get(cacheKey);
       if (!metadata) {
         return null;
       }
@@ -642,7 +790,9 @@ class OPFSBackend {
         } catch (err) {
           // Ignore
         }
-        await this.metadataDb.dashboardMetadata.delete(metadata.id);
+        dashboardMap.delete(cacheKey);
+        this.metadataCache.set('dashboard', dashboardMap);
+        await this.saveMetadata();
         return null;
       }
       
@@ -662,16 +812,16 @@ class OPFSBackend {
       const prefix = `${companyInfo.tallyloc_id}_${companyInfo.guid}_`;
       
       // Get all metadata entries matching prefix
-      const allSalesMetadata = await this.metadataDb.salesMetadata.toArray();
-      const allDashboardMetadata = await this.metadataDb.dashboardMetadata.toArray();
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const dashboardMap = this.metadataCache.get('dashboard') || new Map();
       
-      const salesToDelete = allSalesMetadata.filter(item => item.cacheKey.startsWith(prefix));
-      const stateToDelete = allDashboardMetadata.filter(item => item.cacheKey.startsWith(prefix));
+      const salesToDelete = Array.from(salesMap.entries()).filter(([key]) => key.startsWith(prefix));
+      const stateToDelete = Array.from(dashboardMap.entries()).filter(([key]) => key.startsWith(prefix));
       
       // Delete files
-      for (const entry of salesToDelete) {
+      for (const [cacheKey] of salesToDelete) {
         try {
-          const filePath = this.getSalesFilePath(entry.cacheKey);
+          const filePath = this.getSalesFilePath(cacheKey);
           const pathParts = filePath.split('/');
           const fileName = pathParts.pop();
           const dirPath = pathParts.join('/');
@@ -688,12 +838,12 @@ class OPFSBackend {
         } catch (err) {
           // File might not exist, ignore
         }
-        await this.metadataDb.salesMetadata.delete(entry.id);
+        salesMap.delete(cacheKey);
       }
       
-      for (const entry of stateToDelete) {
+      for (const [cacheKey] of stateToDelete) {
         try {
-          const filePath = this.getDashboardFilePath(entry.cacheKey);
+          const filePath = this.getDashboardFilePath(cacheKey);
           const pathParts = filePath.split('/');
           const fileName = pathParts.pop();
           const dirPath = pathParts.join('/');
@@ -710,7 +860,13 @@ class OPFSBackend {
         } catch (err) {
           // File might not exist, ignore
         }
-        await this.metadataDb.dashboardMetadata.delete(entry.id);
+        dashboardMap.delete(cacheKey);
+      }
+      
+      if (salesToDelete.length > 0 || stateToDelete.length > 0) {
+        this.metadataCache.set('sales', salesMap);
+        this.metadataCache.set('dashboard', dashboardMap);
+        await this.saveMetadata();
       }
       
       console.log(`🧹 Cleared OPFS cache for company: ${companyInfo.company}`);
@@ -720,18 +876,20 @@ class OPFSBackend {
   }
 
   // Find cached date ranges for a base key that overlap with request range
-  async findCachedDateRanges(baseKey, requestStartDate, requestEndDate, maxAgeDays = 5) {
+  async findCachedDateRanges(baseKey, requestStartDate, requestEndDate, maxAgeDays = null) {
     try {
       await this.init();
-      const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
       
       // Get all metadata entries with matching base key
-      const allMetadata = await this.metadataDb.salesMetadata
-        .where('baseKey').equals(baseKey)
-        .toArray();
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const allMetadata = Array.from(salesMap.values()).filter(meta => meta.baseKey === baseKey);
       
-      // Filter by expiry time
-      const validMetadata = allMetadata.filter(entry => entry.timestamp >= expiryTime);
+      // Filter by expiry time only if maxAgeDays is set (not null/never)
+      let validMetadata = allMetadata;
+      if (maxAgeDays !== null && maxAgeDays !== undefined) {
+        const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+        validMetadata = allMetadata.filter(entry => entry.timestamp >= expiryTime);
+      }
       
       if (validMetadata.length === 0) {
         return [];
@@ -791,21 +949,188 @@ class OPFSBackend {
       return [];
     }
   }
+
+  // List all cache entries for viewing
+  async listAllCacheEntries() {
+    try {
+      await this.init();
+      
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const dashboardMap = this.metadataCache.get('dashboard') || new Map();
+      
+      const salesEntries = Array.from(salesMap.entries()).map(([cacheKey, metadata]) => ({
+        type: 'sales',
+        cacheKey,
+        timestamp: metadata.timestamp,
+        date: new Date(metadata.timestamp).toLocaleString(),
+        startDate: metadata.startDate || null,
+        endDate: metadata.endDate || null,
+        baseKey: metadata.baseKey || null,
+        age: Date.now() - metadata.timestamp,
+        ageDays: Math.floor((Date.now() - metadata.timestamp) / (24 * 60 * 60 * 1000))
+      }));
+
+      const dashboardEntries = Array.from(dashboardMap.entries()).map(([cacheKey, metadata]) => ({
+        type: 'dashboard',
+        cacheKey,
+        timestamp: metadata.timestamp,
+        date: new Date(metadata.timestamp).toLocaleString(),
+        startDate: null,
+        endDate: null,
+        baseKey: null,
+        age: Date.now() - metadata.timestamp,
+        ageDays: Math.floor((Date.now() - metadata.timestamp) / (24 * 60 * 60 * 1000))
+      }));
+
+      // Get file sizes
+      const entriesWithSizes = await Promise.all([
+        ...salesEntries.map(async (entry) => {
+          try {
+            const filePath = this.getSalesFilePath(entry.cacheKey);
+            const pathParts = filePath.split('/');
+            const fileName = pathParts.pop();
+            const dirPath = pathParts.join('/');
+            
+            let dir = this.root;
+            if (dirPath) {
+              for (const part of dirPath.split('/')) {
+                if (part) {
+                  dir = await dir.getDirectoryHandle(part);
+                }
+              }
+            }
+            
+            const fileHandle = await dir.getFileHandle(fileName);
+            const file = await fileHandle.getFile();
+            return {
+              ...entry,
+              size: file.size,
+              sizeKB: Math.round(file.size / 1024),
+              sizeMB: (file.size / (1024 * 1024)).toFixed(2)
+            };
+          } catch (err) {
+            return { ...entry, size: 0, sizeKB: 0, sizeMB: '0.00' };
+          }
+        }),
+        ...dashboardEntries.map(async (entry) => {
+          try {
+            const filePath = this.getDashboardFilePath(entry.cacheKey);
+            const pathParts = filePath.split('/');
+            const fileName = pathParts.pop();
+            const dirPath = pathParts.join('/');
+            
+            let dir = this.root;
+            if (dirPath) {
+              for (const part of dirPath.split('/')) {
+                if (part) {
+                  dir = await dir.getDirectoryHandle(part);
+                }
+              }
+            }
+            
+            const fileHandle = await dir.getFileHandle(fileName);
+            const file = await fileHandle.getFile();
+            return {
+              ...entry,
+              size: file.size,
+              sizeKB: Math.round(file.size / 1024),
+              sizeMB: (file.size / (1024 * 1024)).toFixed(2)
+            };
+          } catch (err) {
+            return { ...entry, size: 0, sizeKB: 0, sizeMB: '0.00' };
+          }
+        })
+      ]);
+
+      // Calculate totals
+      const totalSize = entriesWithSizes.reduce((sum, entry) => sum + (entry.size || 0), 0);
+      const totalEntries = entriesWithSizes.length;
+
+      return {
+        entries: entriesWithSizes.sort((a, b) => b.timestamp - a.timestamp),
+        totalEntries,
+        totalSize,
+        totalSizeKB: Math.round(totalSize / 1024),
+        totalSizeMB: (totalSize / (1024 * 1024)).toFixed(2),
+        salesCount: salesEntries.length,
+        dashboardCount: dashboardEntries.length
+      };
+    } catch (error) {
+      console.error('Error listing cache entries:', error);
+      return {
+        entries: [],
+        totalEntries: 0,
+        totalSize: 0,
+        totalSizeKB: 0,
+        totalSizeMB: '0.00',
+        salesCount: 0,
+        dashboardCount: 0
+      };
+    }
+  }
 }
 
-// IndexedDB Backend - stores encrypted data in IndexedDB
+// IndexedDB Backend - stores encrypted data in IndexedDB using Dexie
 class IndexedDBBackend {
   constructor(encryptionUtils) {
     this.encryption = encryptionUtils;
-    this.db = new Dexie('TallyCatalystCache');
-    this.db.version(1).stores({
-      salesData: '++id, cacheKey, timestamp, encryptedData, startDate, endDate, baseKey',
-      dashboardState: '++id, cacheKey, timestamp, encryptedData'
-    });
+    this.db = null;
+    this.initialized = false;
+  }
+
+  // Initialize Dexie database
+  async init() {
+    if (this.initialized) return;
+
+    try {
+      // Create Dexie database
+      this.db = new Dexie('TallyCatalystCache');
+      
+      // Define schema
+      this.db.version(1).stores({
+        salesData: 'cacheKey, timestamp, baseKey, startDate, endDate',
+        dashboardState: 'cacheKey, timestamp',
+        userKeys: 'email'
+      });
+
+      // Open database
+      await this.db.open();
+      
+      // Initialize encryption with IndexedDB reference
+      this.encryption.indexedDB = this.db;
+      
+      this.initialized = true;
+      console.log('✅ IndexedDB backend initialized successfully');
+    } catch (error) {
+      console.error('❌ IndexedDB initialization error:', error);
+      throw error;
+    }
+  }
+
+  // Sanitize cache key (for consistency with OPFS)
+  sanitizeFilename(key) {
+    return key.replace(/[^a-zA-Z0-9_-]/g, '_');
+  }
+
+  // Extract base key (without date range) from cache key
+  extractBaseKey(cacheKey) {
+    // Cache key format: baseKey_startDate_endDate
+    // Remove the last two parts (startDate and endDate)
+    const parts = cacheKey.split('_');
+    if (parts.length >= 2) {
+      const endDate = parts[parts.length - 1];
+      const startDate = parts[parts.length - 2];
+      // Check if they look like dates
+      if (/^\d{4}-\d{2}-\d{2}$/.test(startDate) && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+        return parts.slice(0, -2).join('_');
+      }
+    }
+    return cacheKey;
   }
 
   async setSalesData(cacheKey, data, maxAgeDays = 5, startDate = null, endDate = null) {
     try {
+      await this.init();
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
       
@@ -817,62 +1142,59 @@ class IndexedDBBackend {
         dateRange = DateRangeUtils.parseDateRangeFromCacheKey(cacheKey);
       }
       
-      // Extract base key
+      // Extract base key (without date range)
       const baseKey = this.extractBaseKey(cacheKey);
       
-      // Check if entry exists
-      const existing = await this.db.salesData.where('cacheKey').equals(cacheKey).first();
-      
-      const entryData = {
+      // Store encrypted data in IndexedDB
+      await this.db.salesData.put({
         cacheKey,
         encryptedData: encrypted,
-        timestamp: timestamp,
+        timestamp,
         baseKey,
-        ...(dateRange ? { startDate: dateRange.startDate, endDate: dateRange.endDate } : {})
-      };
+        startDate: dateRange ? dateRange.startDate : null,
+        endDate: dateRange ? dateRange.endDate : null
+      });
       
-      if (existing) {
-        await this.db.salesData.update(existing.id, entryData);
-      } else {
-        await this.db.salesData.add(entryData);
-      }
-
-      // Clean up old entries (older than maxAgeDays)
+      // Clean up old entries
       const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
       await this.db.salesData.where('timestamp').below(expiryTime).delete();
       
       console.log(`✅ Cached sales data in IndexedDB: ${cacheKey}`);
     } catch (error) {
       console.error('Error storing sales data in IndexedDB:', error);
-      // Don't throw - allow app to continue even if cache fails
+      throw error;
     }
   }
 
-  async getSalesData(cacheKey, maxAgeDays = 5) {
+  async getSalesData(cacheKey, maxAgeDays = null) {
     try {
-      const entry = await this.db.salesData.where('cacheKey').equals(cacheKey).first();
+      await this.init();
       
+      // Get entry from IndexedDB
+      const entry = await this.db.salesData.get(cacheKey);
       if (!entry) {
         return null;
       }
-
-      // Check expiry
-      const age = Date.now() - entry.timestamp;
-      const maxAge = maxAgeDays * 24 * 60 * 60 * 1000;
       
-      if (age > maxAge) {
-        await this.db.salesData.delete(entry.id);
-        return null;
+      // Check expiry only if maxAgeDays is set (not null/never)
+      if (maxAgeDays !== null && maxAgeDays !== undefined) {
+        const age = Date.now() - entry.timestamp;
+        const maxAge = maxAgeDays * 24 * 60 * 60 * 1000;
+        if (age > maxAge) {
+          // Delete expired entry
+          await this.db.salesData.delete(cacheKey);
+          return null;
+        }
       }
-
-      // Decrypt and return
+      
+      // Decrypt
       const decrypted = await this.encryption.decryptData(entry.encryptedData);
       if (!decrypted) {
-        // Decryption failed (likely wrong user), delete entry
-        await this.db.salesData.delete(entry.id);
+        // Decryption failed, delete entry
+        await this.db.salesData.delete(cacheKey);
         return null;
       }
-
+      
       // Add date range to returned data
       if (entry.startDate && entry.endDate) {
         decrypted._cachedDateRange = {
@@ -880,7 +1202,7 @@ class IndexedDBBackend {
           endDate: entry.endDate
         };
       }
-
+      
       console.log(`📋 Retrieved cached sales data from IndexedDB: ${cacheKey}`);
       return decrypted;
     } catch (error) {
@@ -891,42 +1213,42 @@ class IndexedDBBackend {
 
   async setDashboardState(cacheKey, state) {
     try {
+      await this.init();
       const encrypted = await this.encryption.encryptData(state);
       const timestamp = Date.now();
       
-      const existing = await this.db.dashboardState.where('cacheKey').equals(cacheKey).first();
-      
-      if (existing) {
-        await this.db.dashboardState.update(existing.id, {
-          encryptedData: encrypted,
-          timestamp: timestamp
-        });
-      } else {
-        await this.db.dashboardState.add({
-          cacheKey,
-          encryptedData: encrypted,
-          timestamp: timestamp
-        });
-      }
+      // Store encrypted data in IndexedDB
+      await this.db.dashboardState.put({
+        cacheKey,
+        encryptedData: encrypted,
+        timestamp
+      });
       
       console.log(`✅ Cached dashboard state in IndexedDB: ${cacheKey}`);
     } catch (error) {
       console.error('Error storing dashboard state in IndexedDB:', error);
-      // Don't throw - allow app to continue
+      throw error;
     }
   }
 
   async getDashboardState(cacheKey) {
     try {
-      const entry = await this.db.dashboardState.where('cacheKey').equals(cacheKey).first();
-      if (!entry) return null;
-
-      const decrypted = await this.encryption.decryptData(entry.encryptedData);
-      if (!decrypted) {
-        await this.db.dashboardState.delete(entry.id);
+      await this.init();
+      
+      // Get entry from IndexedDB
+      const entry = await this.db.dashboardState.get(cacheKey);
+      if (!entry) {
         return null;
       }
-
+      
+      // Decrypt
+      const decrypted = await this.encryption.decryptData(entry.encryptedData);
+      if (!decrypted) {
+        // Decryption failed, delete entry
+        await this.db.dashboardState.delete(cacheKey);
+        return null;
+      }
+      
       return decrypted;
     } catch (error) {
       console.error('Error retrieving dashboard state from IndexedDB:', error);
@@ -934,31 +1256,43 @@ class IndexedDBBackend {
     }
   }
 
-  // Extract base key (without date range) from cache key
-  extractBaseKey(cacheKey) {
-    const parts = cacheKey.split('_');
-    if (parts.length >= 2) {
-      const endDate = parts[parts.length - 1];
-      const startDate = parts[parts.length - 2];
-      if (/^\d{4}-\d{2}-\d{2}$/.test(startDate) && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-        return parts.slice(0, -2).join('_');
-      }
+  async clearCompanyCache(companyInfo) {
+    try {
+      await this.init();
+      const prefix = `${companyInfo.tallyloc_id}_${companyInfo.guid}_`;
+      
+      // Delete sales data matching prefix
+      const salesEntries = await this.db.salesData.where('cacheKey').startsWith(prefix).toArray();
+      const salesKeys = salesEntries.map(e => e.cacheKey);
+      await this.db.salesData.bulkDelete(salesKeys);
+      
+      // Delete dashboard state matching prefix
+      const dashboardEntries = await this.db.dashboardState.where('cacheKey').startsWith(prefix).toArray();
+      const dashboardKeys = dashboardEntries.map(e => e.cacheKey);
+      await this.db.dashboardState.bulkDelete(dashboardKeys);
+      
+      console.log(`🧹 Cleared IndexedDB cache for company: ${companyInfo.company}`);
+    } catch (error) {
+      console.error('Error clearing company cache in IndexedDB:', error);
     }
-    return cacheKey;
   }
 
   // Find cached date ranges for a base key that overlap with request range
-  async findCachedDateRanges(baseKey, requestStartDate, requestEndDate, maxAgeDays = 5) {
+  async findCachedDateRanges(baseKey, requestStartDate, requestEndDate, maxAgeDays = null) {
     try {
-      const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+      await this.init();
       
       // Get all entries with matching base key
       const allEntries = await this.db.salesData
         .where('baseKey').equals(baseKey)
         .toArray();
       
-      // Filter by expiry time
-      const validEntries = allEntries.filter(entry => entry.timestamp >= expiryTime);
+      // Filter by expiry time only if maxAgeDays is set (not null/never)
+      let validEntries = allEntries;
+      if (maxAgeDays !== null && maxAgeDays !== undefined) {
+        const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+        validEntries = allEntries.filter(entry => entry.timestamp >= expiryTime);
+      }
       
       if (validEntries.length === 0) {
         return [];
@@ -977,13 +1311,18 @@ class IndexedDBBackend {
         
         // Check if this cached range overlaps with request
         if (DateRangeUtils.dateRangesOverlap(requestRange, cachedRange)) {
-          // Decrypt the data
-          const decrypted = await this.encryption.decryptData(entry.encryptedData);
-          if (decrypted) {
-            cachedRanges.push({
-              ...cachedRange,
-              data: decrypted
-            });
+          try {
+            // Decrypt the data
+            const decrypted = await this.encryption.decryptData(entry.encryptedData);
+            if (decrypted) {
+              cachedRanges.push({
+                ...cachedRange,
+                data: decrypted
+              });
+            }
+          } catch (err) {
+            // Decryption failed, skip
+            console.warn(`Failed to decrypt cached entry for ${entry.cacheKey}:`, err);
           }
         }
       }
@@ -995,70 +1334,182 @@ class IndexedDBBackend {
     }
   }
 
-  async clearCompanyCache(companyInfo) {
+  // List all cache entries for viewing
+  async listAllCacheEntries() {
     try {
-      const prefix = `${companyInfo.tallyloc_id}_${companyInfo.guid}_`;
-      const allSalesData = await this.db.salesData.toArray();
-      const allDashboardState = await this.db.dashboardState.toArray();
+      await this.init();
       
-      const salesToDelete = allSalesData.filter(item => item.cacheKey.startsWith(prefix));
-      const stateToDelete = allDashboardState.filter(item => item.cacheKey.startsWith(prefix));
+      const salesEntries = await this.db.salesData.toArray();
+      const dashboardEntries = await this.db.dashboardState.toArray();
       
-      await Promise.all([
-        ...salesToDelete.map(item => this.db.salesData.delete(item.id)),
-        ...stateToDelete.map(item => this.db.dashboardState.delete(item.id))
-      ]);
+      const salesList = salesEntries.map(entry => ({
+        type: 'sales',
+        cacheKey: entry.cacheKey,
+        timestamp: entry.timestamp,
+        date: new Date(entry.timestamp).toLocaleString(),
+        startDate: entry.startDate || null,
+        endDate: entry.endDate || null,
+        baseKey: entry.baseKey || null,
+        age: Date.now() - entry.timestamp,
+        ageDays: Math.floor((Date.now() - entry.timestamp) / (24 * 60 * 60 * 1000)),
+        size: new Blob([entry.encryptedData]).size,
+        sizeKB: Math.round(new Blob([entry.encryptedData]).size / 1024),
+        sizeMB: (new Blob([entry.encryptedData]).size / (1024 * 1024)).toFixed(2)
+      }));
+
+      const dashboardList = dashboardEntries.map(entry => ({
+        type: 'dashboard',
+        cacheKey: entry.cacheKey,
+        timestamp: entry.timestamp,
+        date: new Date(entry.timestamp).toLocaleString(),
+        startDate: null,
+        endDate: null,
+        baseKey: null,
+        age: Date.now() - entry.timestamp,
+        ageDays: Math.floor((Date.now() - entry.timestamp) / (24 * 60 * 60 * 1000)),
+        size: new Blob([entry.encryptedData]).size,
+        sizeKB: Math.round(new Blob([entry.encryptedData]).size / 1024),
+        sizeMB: (new Blob([entry.encryptedData]).size / (1024 * 1024)).toFixed(2)
+      }));
+
+      const allEntries = [...salesList, ...dashboardList];
       
-      console.log(`🧹 Cleared IndexedDB cache for company: ${companyInfo.company}`);
+      // Calculate totals
+      const totalSize = allEntries.reduce((sum, entry) => sum + entry.size, 0);
+      const totalEntries = allEntries.length;
+
+      return {
+        entries: allEntries.sort((a, b) => b.timestamp - a.timestamp),
+        totalEntries,
+        totalSize,
+        totalSizeKB: Math.round(totalSize / 1024),
+        totalSizeMB: (totalSize / (1024 * 1024)).toFixed(2),
+        salesCount: salesList.length,
+        dashboardCount: dashboardList.length
+      };
     } catch (error) {
-      console.error('Error clearing company cache in IndexedDB:', error);
+      console.error('Error listing cache entries:', error);
+      return {
+        entries: [],
+        totalEntries: 0,
+        totalSize: 0,
+        totalSizeKB: 0,
+        totalSizeMB: '0.00',
+        salesCount: 0,
+        dashboardCount: 0
+      };
     }
   }
 }
 
-// Hybrid Cache - automatically uses OPFS or IndexedDB based on browser support
+// Hybrid Cache - uses OPFS with IndexedDB fallback
 class HybridCache {
   constructor() {
-    this.encryption = new EncryptionUtils();
+    this.encryption = null;
     this.backend = null;
     this.backendType = null;
     this.initialized = false;
   }
 
+  // Get cache expiry period in days (null = never expire)
+  getCacheExpiryDays() {
+    try {
+      const stored = localStorage.getItem('cacheExpiryDays');
+      if (stored === null || stored === 'null' || stored === 'never') {
+        return null; // Never expire
+      }
+      const days = parseInt(stored, 10);
+      return isNaN(days) || days < 0 ? null : days;
+    } catch (error) {
+      return null; // Default to never expire
+    }
+  }
+
+  // Set cache expiry period in days (null = never expire)
+  setCacheExpiryDays(days) {
+    try {
+      if (days === null || days === 'never' || days === '') {
+        localStorage.setItem('cacheExpiryDays', 'never');
+      } else {
+        const daysNum = parseInt(days, 10);
+        if (!isNaN(daysNum) && daysNum >= 0) {
+          localStorage.setItem('cacheExpiryDays', daysNum.toString());
+        }
+      }
+    } catch (error) {
+      console.error('Error setting cache expiry:', error);
+    }
+  }
+
   async init() {
     if (this.initialized) return;
     
-    // Detect browser support
-    const supportsOPFS = 'storage' in navigator && 'getDirectory' in navigator.storage;
+    // Detect browser support with detailed logging
+    const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const hasStorage = 'storage' in navigator;
+    const hasGetDirectory = hasStorage && 'getDirectory' in navigator.storage;
+    const supportsOPFS = isSecureContext && hasStorage && hasGetDirectory;
     
+    console.log('🔍 Storage Detection:', {
+      isSecureContext,
+      protocol: window.location.protocol,
+      hostname: window.location.hostname,
+      hasStorage,
+      hasGetDirectory,
+      supportsOPFS,
+      userAgent: navigator.userAgent
+    });
+    
+    // Try OPFS first if supported
     if (supportsOPFS) {
       try {
+        console.log('🚀 Initializing OPFS backend...');
+        // Initialize OPFS root first
+        const opfsRoot = await navigator.storage.getDirectory();
+        this.encryption = new EncryptionUtils(opfsRoot);
         this.backend = new OPFSBackend(this.encryption);
         await this.backend.init();
         this.backendType = 'OPFS';
-        console.log('✅ Using OPFS backend for cache storage');
+        console.log('✅ OPFS backend initialized successfully');
+        this.initialized = true;
+        return;
       } catch (error) {
         console.warn('⚠️ OPFS initialization failed, falling back to IndexedDB:', error);
-        this.backend = new IndexedDBBackend(this.encryption);
-        this.backendType = 'IndexedDB';
-        console.log('✅ Using IndexedDB backend for cache storage (OPFS fallback)');
+        // Fall through to IndexedDB
       }
-    } else {
+    }
+    
+    // Fall back to IndexedDB
+    try {
+      console.log('🚀 Initializing IndexedDB backend...');
+      this.encryption = new EncryptionUtils(null); // No OPFS root
       this.backend = new IndexedDBBackend(this.encryption);
+      await this.backend.init();
       this.backendType = 'IndexedDB';
-      console.log('✅ Using IndexedDB backend for cache storage (OPFS not supported)');
+      console.log('✅ IndexedDB backend initialized successfully');
+    } catch (error) {
+      console.error('❌ IndexedDB initialization failed:', error);
+      throw new Error('Failed to initialize both OPFS and IndexedDB backends');
     }
     
     this.initialized = true;
   }
 
-  async setSalesData(cacheKey, data, maxAgeDays = 5, startDate = null, endDate = null) {
+  async setSalesData(cacheKey, data, maxAgeDays = null, startDate = null, endDate = null) {
     await this.init();
+    // Use configured expiry if not provided
+    if (maxAgeDays === null || maxAgeDays === undefined) {
+      maxAgeDays = this.getCacheExpiryDays();
+    }
     return await this.backend.setSalesData(cacheKey, data, maxAgeDays, startDate, endDate);
   }
 
-  async getSalesData(cacheKey, maxAgeDays = 5) {
+  async getSalesData(cacheKey, maxAgeDays = null) {
     await this.init();
+    // Use configured expiry if not provided
+    if (maxAgeDays === null || maxAgeDays === undefined) {
+      maxAgeDays = this.getCacheExpiryDays();
+    }
     return await this.backend.getSalesData(cacheKey, maxAgeDays);
   }
 
@@ -1079,33 +1530,37 @@ class HybridCache {
 
   async getCacheStats() {
     await this.init();
-    // Return which backend is being used
+    const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const hasStorage = 'storage' in navigator;
+    const hasGetDirectory = hasStorage && 'getDirectory' in navigator.storage;
+    const supportsOPFS = isSecureContext && hasStorage && hasGetDirectory;
+    
     return {
       backend: this.backendType,
-      supportsOPFS: 'storage' in navigator && 'getDirectory' in navigator.storage
+      supportsOPFS,
+      isUsingOPFS: this.backendType === 'OPFS',
+      isUsingIndexedDB: this.backendType === 'IndexedDB'
     };
+  }
+
+  // List all cache entries
+  async listAllCacheEntries() {
+    await this.init();
+    return await this.backend.listAllCacheEntries();
   }
 
   // Extract base key (without date range) from cache key
   extractBaseKey(cacheKey) {
-    if (this.backend && typeof this.backend.extractBaseKey === 'function') {
-      return this.backend.extractBaseKey(cacheKey);
-    }
-    // Fallback implementation
-    const parts = cacheKey.split('_');
-    if (parts.length >= 2) {
-      const endDate = parts[parts.length - 1];
-      const startDate = parts[parts.length - 2];
-      if (/^\d{4}-\d{2}-\d{2}$/.test(startDate) && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-        return parts.slice(0, -2).join('_');
-      }
-    }
-    return cacheKey;
+    return this.backend.extractBaseKey(cacheKey);
   }
 
   // Find cached date ranges that overlap with request range
-  async findCachedDateRanges(baseKey, requestStartDate, requestEndDate, maxAgeDays = 5) {
+  async findCachedDateRanges(baseKey, requestStartDate, requestEndDate, maxAgeDays = null) {
     await this.init();
+    // Use configured expiry if not provided
+    if (maxAgeDays === null || maxAgeDays === undefined) {
+      maxAgeDays = this.getCacheExpiryDays();
+    }
     return await this.backend.findCachedDateRanges(baseKey, requestStartDate, requestEndDate, maxAgeDays);
   }
 }

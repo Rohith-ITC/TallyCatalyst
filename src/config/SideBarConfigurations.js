@@ -138,6 +138,14 @@ export const MODULE_SEQUENCE = [
 
     },
     {
+      key               : 'cache_management',
+      id                : 'cache_management',
+      label             : 'Cache Management',
+      icon              : 'storage',
+      alwaysVisible     : true,
+      permissions       : {}
+    },
+    {
       key               : 'master_management',
       id                : 'master_management',
       label             : 'Master Management',
