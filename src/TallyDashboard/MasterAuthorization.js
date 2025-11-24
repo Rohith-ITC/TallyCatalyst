@@ -72,11 +72,15 @@ function MasterAuthorization({ onMasterSelect }) {
   // Removed saving state - no loading indicators needed
   
   // Filter masters based on search term
-  const filteredMasters = masters.filter(master =>
-    master.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    master.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    master.company?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredMasters = masters.filter(master => {
+    const name = master.basicInfo?.name || master.name || '';
+    const email = (master.contacts && master.contacts.length > 0 ? master.contacts[0].email : null) || master.email || '';
+    const company = master.company || '';
+    const searchLower = searchTerm.toLowerCase();
+    return name.toLowerCase().includes(searchLower) ||
+           email.toLowerCase().includes(searchLower) ||
+           company.toLowerCase().includes(searchLower);
+  });
   
   const loadMasters = useCallback(async () => {
     setLoading(true);
@@ -144,22 +148,84 @@ function MasterAuthorization({ onMasterSelect }) {
             if (submission.tallyloc_id === tallylocId && 
                 submission.guid === guid &&
                 submission.status === 'pending') {
-              masters.push({
-                ...submission,
+              // Transform submission to match the new structure
+              const transformedSubmission = {
                 id: submission.id,
-                name: submission.name,
-                email: submission.email,
-                panNumber: submission.panNumber,
-                gstNumber: submission.gstNumber,
-                address: submission.address,
-                contactPerson: submission.contactPerson,
-                phone: submission.phone,
-                mobile: submission.mobile,
-                panDocumentLink: submission.panDocumentLink || '',
-                gstDocumentLink: submission.gstDocumentLink || '',
+                company: companyName,
                 status: 'pending',
+                createdDate: submission.createdDate || new Date().toISOString().split('T')[0],
+                authorizationDate: null,
+                notes: '',
+                basicInfo: {
+                  name: submission.name || '',
+                  alias: submission.alias || '',
+                  group: submission.group || '',
+                  narration: submission.narration || '',
+                  description: submission.description || '',
+                  maintainBalancesBillByBill: submission.maintainBalancesBillByBill || false,
+                  defaultCreditPeriod: submission.defaultCreditPeriod || '',
+                  checkCreditDaysDuringVoucher: submission.checkCreditDaysDuringVoucher || false,
+                  specifyCreditLimit: submission.specifyCreditLimit || false,
+                  creditLimitAmount: submission.creditLimitAmount || '',
+                  overrideCreditLimitPostDated: submission.overrideCreditLimitPostDated || false,
+                  inventoryValuesAffected: submission.inventoryValuesAffected || false,
+                  priceLevelApplicable: submission.priceLevelApplicable || false,
+                  priceLevel: submission.priceLevel || ''
+                },
+                addresses: submission.addresses && Array.isArray(submission.addresses) && submission.addresses.length > 0
+                  ? submission.addresses
+                  : submission.address ? [{
+                      addressName: '',
+                      address: (submission.address || '').replace(/\|/g, '\n'),
+                      country: submission.country || 'India',
+                      state: submission.state || '',
+                      pincode: submission.pincode || '',
+                      priorStateName: '',
+                      phoneNumber: '',
+                      countryISDCode: '+91',
+                      mobileNumber: '',
+                      contactPerson: '',
+                      placeOfSupply: '',
+                      gstRegistrationType: 'Regular',
+                      applicableFrom: '',
+                      mailingName: ''
+                    }] : [],
+                contacts: submission.contacts && Array.isArray(submission.contacts) && submission.contacts.length > 0
+                  ? submission.contacts
+                  : (submission.contactPerson || submission.email || submission.phone || submission.mobile) ? [{
+                      contactPerson: submission.contactPerson || '',
+                      email: submission.email || '',
+                      phone: submission.phone || '',
+                      mobile: submission.mobile || '',
+                      countryISDCode: submission.countryISDCode || '+91',
+                      isDefaultWhatsappNum: false
+                    }] : [],
+                bankDetails: submission.bankDetails && Array.isArray(submission.bankDetails) && submission.bankDetails.length > 0
+                  ? submission.bankDetails
+                  : (submission.accountNumber || submission.ifscCode || submission.bankName) ? [{
+                      accountNumber: submission.accountNumber || '',
+                      ifscCode: submission.ifscCode || '',
+                      bankName: submission.bankName || '',
+                      swiftCode: '',
+                      paymentFavouring: submission.paymentFavouring || '',
+                      bankId: '',
+                      defaultTransactionType: 'Inter Bank Transfer',
+                      setAsDefault: false,
+                      branch: '',
+                      accountType: ''
+                    }] : [],
+                statutory: {
+                  taxType: submission.tax_type || (submission.gstNumber ? 'GST' : (submission.panNumber ? 'PAN' : '')),
+                  gstNumber: submission.gstNumber || '',
+                  gstType: submission.gstType || '',
+                  panNumber: submission.panNumber || '',
+                  gstDocumentLink: submission.gstDocumentLink || '',
+                  panDocumentLink: submission.panDocumentLink || ''
+                },
+                emailCC: submission.emailCC || '',
                 isSubmission: true // Flag to identify localStorage submissions
-              });
+              };
+              masters.push(transformedSubmission);
             }
           });
         }
@@ -182,35 +248,136 @@ function MasterAuthorization({ onMasterSelect }) {
         });
       }
 
-      // Transform API data to our master format
-      const transformedMasters = Array.isArray(masters) ? masters.map((master, index) => ({
-        id: master.id || master.ledger_id || master.ledgerId || index + 1,
-        name: master.name || master.ledger_name || master.ledgerName || 'Unknown Master',
-        email: master.email || master.emailid || master.email_id || master.emailId || '',
-        company: companyName,
-        contactPerson: master.contactPerson || master.contact_person || master.contactperson || '',
-        phone: master.phone || master.phoneNo || master.phoneno || master.phone_no || master.phoneNumber || '',
-        mobile: master.mobile || master.mobileNo || master.mobileno || master.mobile_no || master.mobileNumber || '',
-        address: master.address || master.address1 || master.address_1 || '',
-        state: master.stateName || master.state || master.state_name || '',
-        pincode: master.pincode || master.pin_code || master.pinCode || '',
-        country: master.countryName || master.country || master.country_name || 'India',
-        gstNumber: master.gstinNo || master.gstin_no || master.gstinno || master.gstNumber || '',
-        gstType: master.gstType || master.gst_type || master.gsttype || '',
-        panNumber: master.panNo || master.pan_no || master.panno || master.panNumber || '',
-        favouringName: master.favouringName || master.favouring_name || master.favouringname || '',
-        status: master.status || master.authorizationStatus || 'pending', // Use actual status from API
-        createdDate: master.createdAt || master.created_at || master.date_created || master.createdDate || new Date().toISOString().split('T')[0],
-        authorizationDate: null,
-        notes: '',
-        bankDetails: {
-          accountNumber: master.accountNo || master.account_no || master.accountno || master.accountNumber || '',
-          bankName: master.bankName || master.bank_name || '',
-          ifscCode: master.ifscCode || master.ifsc_code || master.ifsccode || '',
-          branch: master.branch || master.branch_name || '',
-          accountType: master.accountType || master.account_type || master.accounttype || ''
-        }
-      })) : [];
+      // Transform API data to our master format - capturing all fields from MasterForm
+      const transformedMasters = Array.isArray(masters) ? masters.map((master, index) => {
+        // Basic Information
+        const basicInfo = {
+          name: master.name || master.ledger_name || master.ledgerName || 'Unknown Master',
+          alias: master.alias || master.alias_name || '',
+          group: master.group || master.groupName || master.group_name || '',
+          narration: master.narration || '',
+          description: master.description || '',
+          maintainBalancesBillByBill: master.maintainBalancesBillByBill || false,
+          defaultCreditPeriod: master.defaultCreditPeriod || '',
+          checkCreditDaysDuringVoucher: master.checkCreditDaysDuringVoucher || false,
+          specifyCreditLimit: master.specifyCreditLimit || false,
+          creditLimitAmount: master.creditLimitAmount || '',
+          overrideCreditLimitPostDated: master.overrideCreditLimitPostDated || false,
+          inventoryValuesAffected: master.inventoryValuesAffected || false,
+          priceLevelApplicable: master.priceLevelApplicable || false,
+          priceLevel: master.priceLevel || master.priceLevelName || ''
+        };
+
+        // Address Information (supporting multiple addresses)
+        const addresses = master.addresses && Array.isArray(master.addresses) && master.addresses.length > 0
+          ? master.addresses.map(addr => ({
+              addressName: addr.addressName || addr.address_name || '',
+              address: (addr.address || addr.addresses || '').replace(/\|/g, '\n'),
+              country: addr.country || addr.countryName || addr.country_name || 'India',
+              state: addr.state || addr.stateName || addr.state_name || '',
+              pincode: addr.pincode || addr.pin_code || addr.pinCode || '',
+              priorStateName: addr.priorStateName || addr.prior_state_name || '',
+              phoneNumber: addr.phoneNumber || addr.phone_number || '',
+              countryISDCode: addr.countryISDCode || addr.country_isd_code || '+91',
+              mobileNumber: addr.mobileNumber || addr.mobile_number || '',
+              contactPerson: addr.contactPerson || addr.contact_person || '',
+              placeOfSupply: addr.placeOfSupply || addr.place_of_supply || '',
+              gstRegistrationType: addr.gstRegistrationType || addr.gst_registration_type || 'Regular',
+              applicableFrom: addr.applicableFrom || addr.applicable_from || '',
+              mailingName: addr.mailingName || addr.mailing_name || ''
+            }))
+          : (master.address || master.address1 || master.address_1) ? [{
+              addressName: '',
+              address: (master.address || master.address1 || master.address_1 || '').replace(/\|/g, '\n'),
+              country: master.countryName || master.country || master.country_name || 'India',
+              state: master.stateName || master.state || master.state_name || '',
+              pincode: master.pincode || master.pin_code || master.pinCode || '',
+              priorStateName: '',
+              phoneNumber: '',
+              countryISDCode: '+91',
+              mobileNumber: '',
+              contactPerson: '',
+              placeOfSupply: '',
+              gstRegistrationType: 'Regular',
+              applicableFrom: '',
+              mailingName: ''
+            }] : [];
+
+        // Contact Details (supporting multiple contacts)
+        const contacts = master.contacts && Array.isArray(master.contacts) && master.contacts.length > 0
+          ? master.contacts.map(contact => ({
+              contactPerson: contact.contactPerson || contact.contact_person || contact.name || '',
+              email: contact.email || contact.emailId || contact.email_id || '',
+              phone: contact.phone || contact.phoneNumber || contact.phone_number || '',
+              mobile: contact.mobile || contact.mobileNumber || contact.mobile_number || '',
+              countryISDCode: contact.countryISDCode || contact.country_isd_code || '+91',
+              isDefaultWhatsappNum: contact.isDefaultWhatsappNum || contact.is_default_whatsapp_num || false
+            }))
+          : (master.contactPerson || master.email || master.phone || master.mobile) ? [{
+              contactPerson: master.contactPerson || master.contact_person || master.contactperson || '',
+              email: master.email || master.emailid || master.email_id || master.emailId || '',
+              phone: master.phone || master.phoneNo || master.phoneno || master.phone_no || master.phoneNumber || '',
+              mobile: master.mobile || master.mobileNo || master.mobileno || master.mobile_no || master.mobileNumber || '',
+              countryISDCode: master.countryISDCode || '+91',
+              isDefaultWhatsappNum: false
+            }] : [];
+
+        // Bank Details (supporting multiple bank details)
+        const bankDetails = master.bankDetails && Array.isArray(master.bankDetails) && master.bankDetails.length > 0
+          ? master.bankDetails.map(bank => ({
+              accountNumber: bank.accountNumber || bank.account_no || bank.accountnumber || '',
+              ifscCode: bank.ifscCode || bank.ifsc_code || bank.ifsccode || '',
+              bankName: bank.bankName || bank.bank_name || '',
+              swiftCode: bank.swiftCode || bank.swift_code || '',
+              paymentFavouring: bank.paymentFavouring || bank.payment_favouring || bank.favouringName || bank.favouring_name || '',
+              bankId: bank.bankId || bank.bank_id || '',
+              defaultTransactionType: bank.defaultTransactionType || bank.default_transaction_type || 'Inter Bank Transfer',
+              setAsDefault: bank.setAsDefault || bank.set_as_default || false,
+              branch: bank.branch || bank.branch_name || '',
+              accountType: bank.accountType || bank.account_type || bank.accounttype || ''
+            }))
+          : (master.accountNo || master.ifscCode || master.bankName) ? [{
+              accountNumber: master.accountNo || master.account_no || master.accountno || master.accountNumber || '',
+              ifscCode: master.ifscCode || master.ifsc_code || master.ifsccode || '',
+              bankName: master.bankName || master.bank_name || '',
+              swiftCode: '',
+              paymentFavouring: master.favouringName || master.favouring_name || master.favouringname || '',
+              bankId: '',
+              defaultTransactionType: 'Inter Bank Transfer',
+              setAsDefault: false,
+              branch: master.branch || master.branch_name || '',
+              accountType: master.accountType || master.account_type || master.accounttype || ''
+            }] : [];
+
+        // Statutory Information
+        const statutory = {
+          taxType: master.tax_type || (master.gstinNo || master.gstin_no || master.gstinno) ? 'GST' : (master.panNo || master.pan_no || master.panno) ? 'PAN' : '',
+          gstNumber: master.gstinNo || master.gstin_no || master.gstinno || master.gstNumber || '',
+          gstType: master.gstType || master.gst_type || master.gsttype || '',
+          panNumber: master.panNo || master.pan_no || master.panno || master.panNumber || '',
+          gstDocumentLink: master.gstDocumentLink || master.gst_document_link || '',
+          panDocumentLink: master.panDocumentLink || master.pan_document_link || ''
+        };
+
+        // Email CC
+        const emailCC = master.emailCC || master.email_cc || '';
+
+        return {
+          id: master.id || master.ledger_id || master.ledgerId || index + 1,
+          company: companyName,
+          status: master.status || master.authorizationStatus || 'pending',
+          createdDate: master.createdAt || master.created_at || master.date_created || master.createdDate || new Date().toISOString().split('T')[0],
+          authorizationDate: null,
+          notes: '',
+          // All sections
+          basicInfo,
+          addresses,
+          contacts,
+          bankDetails,
+          statutory,
+          emailCC
+        };
+      }) : [];
 
       // Debug: Log transformed master data
       if (transformedMasters.length > 0) {
@@ -295,9 +462,11 @@ function MasterAuthorization({ onMasterSelect }) {
     if (!selectedMaster) return;
     
     // Add confirmation for reject action
+    const masterName = selectedMaster.basicInfo?.name || selectedMaster.name || 'Unknown';
+    
     if (action === 'rejected') {
       const confirmReject = window.confirm(
-        `Are you sure you want to reject master "${selectedMaster.name}"?\n\n` +
+        `Are you sure you want to reject master "${masterName}"?\n\n` +
         `This action cannot be undone. The master will be marked as rejected and removed from pending approvals.`
       );
       if (!confirmReject) {
@@ -308,7 +477,7 @@ function MasterAuthorization({ onMasterSelect }) {
     // Add confirmation for approve action
     if (action === 'approved') {
       const confirmApprove = window.confirm(
-        `Are you sure you want to approve master "${selectedMaster.name}"?\n\n` +
+        `Are you sure you want to approve master "${masterName}"?\n\n` +
         `This will authorize the master and allow them to proceed with transactions.`
       );
       if (!confirmApprove) {
@@ -326,8 +495,9 @@ function MasterAuthorization({ onMasterSelect }) {
         throw new Error('Missing required session data (tallyloc_id, company, or guid)');
       }
 
+      const masterName = selectedMaster.basicInfo?.name || selectedMaster.name || 'Unknown';
       console.log('Updating master authorization:', {
-        master: selectedMaster.name,
+        master: masterName,
         action: action,
         notes: authorizationNotes
       });
@@ -365,7 +535,7 @@ function MasterAuthorization({ onMasterSelect }) {
           tallyloc_id: parseInt(tallylocId),
           company: companyName,
           guid: guid,
-          name: selectedMaster.name
+          name: selectedMaster.basicInfo?.name || selectedMaster.name || ''
         })
       });
 
@@ -376,8 +546,9 @@ function MasterAuthorization({ onMasterSelect }) {
           console.error('API Error Response:', errorData);
           
           // Provide specific error messages
+          const masterName = selectedMaster.basicInfo?.name || selectedMaster.name || 'Unknown';
           if (errorData.message === 'Failed to authorize ledger') {
-            errorMessage = `Failed to authorize master "${selectedMaster.name}". Please try again or contact support.`;
+            errorMessage = `Failed to authorize master "${masterName}". Please try again or contact support.`;
           } else {
             errorMessage = errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`;
           }
@@ -415,7 +586,7 @@ function MasterAuthorization({ onMasterSelect }) {
       setMasters(prev => [...prev]);
       
       // Show success message
-      alert(`Master ${action === 'approved' ? 'approved' : 'rejected'} successfully!\n\nMaster: ${selectedMaster.name}\nStatus: ${action.toUpperCase()}`);
+      alert(`Master ${action === 'approved' ? 'approved' : 'rejected'} successfully!\n\nMaster: ${masterName}\nStatus: ${action.toUpperCase()}`);
       
       // Trigger global refresh to update master lists
       window.dispatchEvent(new CustomEvent('globalRefresh'));
@@ -481,7 +652,8 @@ function MasterAuthorization({ onMasterSelect }) {
         throw new Error('Missing required session data');
       }
 
-      console.log('Creating master in Tally before authorization:', masterData);
+      const masterName = masterData.basicInfo?.name || masterData.name || 'Unknown';
+      console.log('Creating master in Tally before authorization:', masterName);
 
       // Check if master already exists in Tally
       const checkResponse = await fetch(getApiUrl('/api/tally/ledger-check'), {
@@ -495,40 +667,45 @@ function MasterAuthorization({ onMasterSelect }) {
           company: companyName,
           guid: guid,
           type: 'name',
-          value: masterData.name.trim()
+          value: (masterData.basicInfo?.name || masterData.name || '').trim()
         })
       });
 
       if (checkResponse.ok) {
         const checkResult = await checkResponse.json();
         if (checkResult.exists === true) {
-          console.log('Master already exists in Tally, skipping creation:', masterData.name);
+          console.log('Master already exists in Tally, skipping creation:', masterName);
           return { success: true, message: 'Master already exists', existing: true };
         }
       }
 
       // Master doesn't exist, proceed with creation
       // Prepare the master data for API according to the ledger-create structure
+      // Use the new structure with basicInfo, addresses, contacts, bankDetails, statutory
+      const firstAddress = masterData.addresses && masterData.addresses.length > 0 ? masterData.addresses[0] : {};
+      const firstContact = masterData.contacts && masterData.contacts.length > 0 ? masterData.contacts[0] : {};
+      const firstBank = masterData.bankDetails && masterData.bankDetails.length > 0 ? masterData.bankDetails[0] : {};
+      
       const apiData = {
         tallyloc_id: parseInt(tallylocId),
         company: companyName,
         guid: guid,
         ledgerData: {
-          name: masterData.name.trim(),
-          address: (masterData.address || '').replace(/\n/g, '|'), // Convert line breaks to pipe characters
-          pincode: masterData.pincode || '',
-          stateName: masterData.state || '',
-          countryName: masterData.country || 'India',
-          contactPerson: masterData.contactPerson || '',
-          phoneNo: masterData.phone || '',
-          mobileNo: masterData.mobile || '',
-          email: masterData.email || '',
-          emailCC: '',
-          panNo: masterData.panNumber || '',
-          gstinNo: masterData.gstNumber || '',
-          bankName: masterData.bankDetails?.bankName || '',
-          accountNo: masterData.bankDetails?.accountNumber || '',
-          ifscCode: masterData.bankDetails?.ifscCode || ''
+          name: (masterData.basicInfo?.name || masterData.name || '').trim(),
+          address: (firstAddress.address || masterData.address || '').replace(/\n/g, '|'), // Convert line breaks to pipe characters
+          pincode: firstAddress.pincode || masterData.pincode || '',
+          stateName: firstAddress.state || masterData.state || '',
+          countryName: firstAddress.country || masterData.country || 'India',
+          contactPerson: firstContact.contactPerson || masterData.contactPerson || '',
+          phoneNo: firstContact.phone || masterData.phone || '',
+          mobileNo: firstContact.mobile || masterData.mobile || '',
+          email: firstContact.email || masterData.email || '',
+          emailCC: masterData.emailCC || '',
+          panNo: masterData.statutory?.panNumber || masterData.panNumber || '',
+          gstinNo: masterData.statutory?.gstNumber || masterData.gstNumber || '',
+          bankName: firstBank.bankName || masterData.bankDetails?.bankName || '',
+          accountNo: firstBank.accountNumber || masterData.bankDetails?.accountNumber || '',
+          ifscCode: firstBank.ifscCode || masterData.bankDetails?.ifscCode || ''
         }
       };
 
@@ -1028,7 +1205,7 @@ function MasterAuthorization({ onMasterSelect }) {
                         gap: '8px'
                       }}>
                         <span className="material-icons" style={{ fontSize: '20px', color: '#3b82f6' }}>business</span>
-                        {master.name}
+                        {master.basicInfo?.name || master.name || 'Unknown'}
                       </h3>
                       <p style={{
                         fontSize: '14px',
@@ -1036,7 +1213,7 @@ function MasterAuthorization({ onMasterSelect }) {
                         margin: '0 0 8px 0',
                         fontWeight: '500'
                       }}>
-                        {master.email}
+                        {master.contacts && master.contacts.length > 0 ? master.contacts[0].email : (master.email || 'N/A')}
                       </p>
                     </div>
                     <div style={{
@@ -1078,14 +1255,37 @@ function MasterAuthorization({ onMasterSelect }) {
                     fontSize: '13px',
                     color: '#6b7280'
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span className="material-icons" style={{ fontSize: '16px' }}>person</span>
-                      <span>{master.contactPerson}</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span className="material-icons" style={{ fontSize: '16px' }}>phone</span>
-                      <span>{master.phone}</span>
-                    </div>
+                    {master.contacts && master.contacts.length > 0 ? (
+                      <>
+                        {master.contacts[0].contactPerson && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="material-icons" style={{ fontSize: '16px' }}>person</span>
+                            <span>{master.contacts[0].contactPerson}</span>
+                          </div>
+                        )}
+                        {master.contacts[0].phone && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="material-icons" style={{ fontSize: '16px' }}>phone</span>
+                            <span>{master.contacts[0].phone}</span>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {master.contactPerson && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="material-icons" style={{ fontSize: '16px' }}>person</span>
+                            <span>{master.contactPerson}</span>
+                          </div>
+                        )}
+                        {master.phone && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span className="material-icons" style={{ fontSize: '16px' }}>phone</span>
+                            <span>{master.phone}</span>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
               ))
@@ -1119,14 +1319,14 @@ function MasterAuthorization({ onMasterSelect }) {
                   }}>
                     Master Details
                   </h2>
-                  <p style={{
-                    fontSize: '14px',
-                    color: '#6b7280',
-                    margin: 0,
-                    fontWeight: '500'
-                  }}>
-                    {selectedMaster.name}
-                  </p>
+                      <p style={{
+                        fontSize: '14px',
+                        color: '#6b7280',
+                        margin: 0,
+                        fontWeight: '500'
+                      }}>
+                        {selectedMaster.basicInfo?.name || selectedMaster.name || 'Unknown'}
+                      </p>
                 </div>
               </div>
               <button
@@ -1159,10 +1359,11 @@ function MasterAuthorization({ onMasterSelect }) {
             
             <div className="master-authorization-details-content">
             
-            {/* Basic Information */}
+            {/* Basic Information Section */}
             <div className="master-authorization-section" style={{ 
               background: '#f8fafc',
-              border: '1px solid #e5e7eb'
+              border: '1px solid #e5e7eb',
+              marginBottom: '16px'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                 <span className="material-icons" style={{ fontSize: '20px', color: '#3b82f6' }}>info</span>
@@ -1176,262 +1377,481 @@ function MasterAuthorization({ onMasterSelect }) {
                 </h3>
               </div>
               <div style={{ display: 'grid', gap: '16px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Company Name</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.company}</div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Master Name</label>
+                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.basicInfo?.name || selectedMaster.name || 'N/A'}</div>
                   </div>
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Contact Person</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.contactPerson}</div>
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Email</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.email}</div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Alias</label>
+                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.basicInfo?.alias || 'N/A'}</div>
                   </div>
                   <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Phone</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.phone}</div>
+                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Group</label>
+                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.basicInfo?.group || 'N/A'}</div>
                   </div>
                 </div>
-                <div>
-                  <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Address</label>
-                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.address}</div>
-                </div>
+                {(selectedMaster.basicInfo?.narration || selectedMaster.basicInfo?.description) && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                    {selectedMaster.basicInfo?.narration && (
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Narration</label>
+                        <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', whiteSpace: 'pre-wrap' }}>{selectedMaster.basicInfo.narration}</div>
+                      </div>
+                    )}
+                    {selectedMaster.basicInfo?.description && (
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Description</label>
+                        <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', whiteSpace: 'pre-wrap' }}>{selectedMaster.basicInfo.description}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {(selectedMaster.basicInfo?.maintainBalancesBillByBill || selectedMaster.basicInfo?.specifyCreditLimit || selectedMaster.basicInfo?.inventoryValuesAffected || selectedMaster.basicInfo?.priceLevelApplicable) && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '8px' }}>
+                    {selectedMaster.basicInfo?.maintainBalancesBillByBill && (
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Maintain Balances Bill-by-Bill</label>
+                        <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>Yes</div>
+                        {selectedMaster.basicInfo?.defaultCreditPeriod && (
+                          <div style={{ marginTop: '8px' }}>
+                            <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Default Credit Period</label>
+                            <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.basicInfo.defaultCreditPeriod}</div>
+                          </div>
+                        )}
+                        {selectedMaster.basicInfo?.checkCreditDaysDuringVoucher && (
+                          <div style={{ marginTop: '8px', fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>✓ Check for credit days during voucher entry</div>
+                        )}
+                      </div>
+                    )}
+                    {selectedMaster.basicInfo?.specifyCreditLimit && (
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Credit Limit</label>
+                        {selectedMaster.basicInfo?.creditLimitAmount && (
+                          <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>₹{selectedMaster.basicInfo.creditLimitAmount}</div>
+                        )}
+                        {selectedMaster.basicInfo?.overrideCreditLimitPostDated && (
+                          <div style={{ marginTop: '8px', fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>✓ Override credit limit using post-dated transactions</div>
+                        )}
+                      </div>
+                    )}
+                    {selectedMaster.basicInfo?.inventoryValuesAffected && (
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Inventory Values Affected</label>
+                        <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>Yes</div>
+                      </div>
+                    )}
+                    {selectedMaster.basicInfo?.priceLevelApplicable && selectedMaster.basicInfo?.priceLevel && (
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Price Level</label>
+                        <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.basicInfo.priceLevel}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
-            
-            {/* Business Information */}
-            <div className="master-authorization-section" style={{ 
-              background: '#f0fdf4',
-              border: '1px solid #bbf7d0'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                <span className="material-icons" style={{ fontSize: '20px', color: '#10b981' }}>business_center</span>
-                <h3 style={{
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  color: '#1f2937',
-                  margin: 0
-                }}>
-                  Business Information
-                </h3>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div>
-                  <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>GST Number</label>
-                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedMaster.gstNumber}</div>
-                  {selectedMaster.gstDocumentLink && (
-                    <button
-                      onClick={() => window.open(selectedMaster.gstDocumentLink, '_blank')}
-                      style={{
-                        marginTop: '8px',
-                        padding: '6px 12px',
-                        background: 'linear-gradient(135deg, #10b981, #059669)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(16, 185, 129, 0.3)'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.transform = 'translateY(-1px)';
-                        e.target.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.4)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.transform = 'translateY(0)';
-                        e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.3)';
-                      }}
-                    >
-                      <span className="material-icons" style={{ fontSize: '14px' }}>visibility</span>
-                      View GST Document
-                    </button>
-                  )}
-                </div>
-                <div>
-                  <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>PAN Number</label>
-                  <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedMaster.panNumber}</div>
-                  {selectedMaster.panDocumentLink && (
-                    <button
-                      onClick={() => window.open(selectedMaster.panDocumentLink, '_blank')}
-                      style={{
-                        marginTop: '8px',
-                        padding: '6px 12px',
-                        background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        fontSize: '12px',
-                        fontWeight: '600',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '4px',
-                        transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.transform = 'translateY(-1px)';
-                        e.target.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.4)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.transform = 'translateY(0)';
-                        e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.3)';
-                      }}
-                    >
-                      <span className="material-icons" style={{ fontSize: '14px' }}>visibility</span>
-                      View PAN Document
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-            
-            {/* Documents Section */}
-            {(selectedMaster.panDocumentLink || selectedMaster.gstDocumentLink) && (
+
+            {/* Address Section */}
+            {selectedMaster.addresses && selectedMaster.addresses.length > 0 && (
               <div className="master-authorization-section" style={{ 
-                background: '#fef7ff',
-                border: '1px solid #e9d5ff'
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                marginBottom: '16px'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                  <span className="material-icons" style={{ fontSize: '20px', color: '#8b5cf6' }}>description</span>
+                  <span className="material-icons" style={{ fontSize: '20px', color: '#10b981' }}>location_on</span>
                   <h3 style={{
                     fontSize: '16px',
                     fontWeight: '600',
                     color: '#1f2937',
                     margin: 0
                   }}>
-                    Uploaded Documents
+                    Address Details
                   </h3>
                 </div>
-                <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                  {selectedMaster.panDocumentLink && (
-                    <button
-                      onClick={() => window.open(selectedMaster.panDocumentLink, '_blank')}
-                      style={{
-                        padding: '12px 16px',
-                        background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)',
-                        minWidth: '180px'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.transform = 'translateY(-2px)';
-                        e.target.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.4)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.transform = 'translateY(0)';
-                        e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.3)';
-                      }}
-                    >
-                      <span className="material-icons" style={{ fontSize: '18px' }}>description</span>
-                      View PAN Document
-                    </button>
-                  )}
-                  {selectedMaster.gstDocumentLink && (
-                    <button
-                      onClick={() => window.open(selectedMaster.gstDocumentLink, '_blank')}
-                      style={{
-                        padding: '12px 16px',
-                        background: 'linear-gradient(135deg, #10b981, #059669)',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        fontSize: '14px',
-                        fontWeight: '600',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        transition: 'all 0.2s ease',
-                        boxShadow: '0 2px 4px rgba(16, 185, 129, 0.3)',
-                        minWidth: '180px'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.transform = 'translateY(-2px)';
-                        e.target.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.4)';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.transform = 'translateY(0)';
-                        e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.3)';
-                      }}
-                    >
-                      <span className="material-icons" style={{ fontSize: '18px' }}>description</span>
-                      View GST Document
-                    </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {selectedMaster.addresses.map((addr, index) => (
+                    <div key={index} style={{
+                      padding: '16px',
+                      background: 'white',
+                      borderRadius: '8px',
+                      border: '1px solid #d1fae5'
+                    }}>
+                      <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px' }}>
+                        {addr.addressName ? `Address ${index + 1} - ${addr.addressName}` : `Address ${index + 1}`}
+                      </h4>
+                      <div style={{ display: 'grid', gap: '12px' }}>
+                        {addr.address && (
+                          <div>
+                            <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Address</label>
+                            <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', whiteSpace: 'pre-wrap' }}>{addr.address}</div>
+                          </div>
+                        )}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                          {addr.country && (
+                            <div>
+                              <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Country</label>
+                              <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{addr.country}</div>
+                            </div>
+                          )}
+                          {addr.state && (
+                            <div>
+                              <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>State</label>
+                              <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{addr.state}</div>
+                            </div>
+                          )}
+                          {addr.pincode && (
+                            <div>
+                              <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Pincode</label>
+                              <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{addr.pincode}</div>
+                            </div>
+                          )}
+                        </div>
+                        {(addr.priorStateName || addr.placeOfSupply || addr.gstRegistrationType) && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                            {addr.priorStateName && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Prior State</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{addr.priorStateName}</div>
+                              </div>
+                            )}
+                            {addr.placeOfSupply && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Place of Supply</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{addr.placeOfSupply}</div>
+                              </div>
+                            )}
+                            {addr.gstRegistrationType && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>GST Registration Type</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{addr.gstRegistrationType}</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {(addr.phoneNumber || addr.mobileNumber || addr.contactPerson) && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                            {addr.phoneNumber && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Phone</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{addr.countryISDCode} {addr.phoneNumber}</div>
+                              </div>
+                            )}
+                            {addr.mobileNumber && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Mobile</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{addr.countryISDCode} {addr.mobileNumber}</div>
+                              </div>
+                            )}
+                            {addr.contactPerson && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Contact Person</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{addr.contactPerson}</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {(addr.mailingName || addr.applicableFrom) && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            {addr.mailingName && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Mailing Name</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{addr.mailingName}</div>
+                              </div>
+                            )}
+                            {addr.applicableFrom && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Applicable From</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{addr.applicableFrom}</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Contact Details Section */}
+            {selectedMaster.contacts && selectedMaster.contacts.length > 0 && (
+              <div className="master-authorization-section" style={{ 
+                background: '#fef3c7',
+                border: '1px solid #fde68a',
+                marginBottom: '16px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                  <span className="material-icons" style={{ fontSize: '20px', color: '#f59e0b' }}>contact_phone</span>
+                  <h3 style={{
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#1f2937',
+                    margin: 0
+                  }}>
+                    Contact Details
+                  </h3>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {selectedMaster.contacts.map((contact, index) => (
+                    <div key={index} style={{
+                      padding: '16px',
+                      background: 'white',
+                      borderRadius: '8px',
+                      border: '1px solid #fde68a'
+                    }}>
+                      <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px' }}>
+                        {index === 0 ? 'Primary Contact' : `Contact ${index + 1}`}
+                      </h4>
+                      <div style={{ display: 'grid', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                          {contact.contactPerson && (
+                            <div>
+                              <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Contact Person</label>
+                              <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{contact.contactPerson}</div>
+                            </div>
+                          )}
+                          {contact.email && (
+                            <div>
+                              <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Email</label>
+                              <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{contact.email}</div>
+                            </div>
+                          )}
+                        </div>
+                        {(contact.phone || contact.mobile) && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                            {contact.phone && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Phone</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{contact.countryISDCode} {contact.phone}</div>
+                              </div>
+                            )}
+                            {contact.mobile && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Mobile</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{contact.countryISDCode} {contact.mobile}</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {contact.isDefaultWhatsappNum && (
+                          <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>
+                            ✓ Set as Default WhatsApp Number
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {selectedMaster.emailCC && (
+                    <div style={{
+                      padding: '16px',
+                      background: 'white',
+                      borderRadius: '8px',
+                      border: '1px solid #fde68a'
+                    }}>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Email CC</label>
+                      <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.emailCC}</div>
+                    </div>
                   )}
                 </div>
-                <div style={{ 
-                  marginTop: '12px', 
-                  padding: '8px 12px', 
-                  background: '#f0f9ff', 
-                  borderRadius: '6px', 
-                  border: '1px solid #bae6fd',
-                  fontSize: '12px',
-                  color: '#0369a1'
-                }}>
-                  <span className="material-icons" style={{ fontSize: '14px', verticalAlign: 'middle', marginRight: '4px' }}>info</span>
-                  Documents will open in a new tab for review
+              </div>
+            )}
+
+            {/* Statutory Information Section */}
+            {selectedMaster.statutory && (selectedMaster.statutory.gstNumber || selectedMaster.statutory.panNumber) && (
+              <div className="master-authorization-section" style={{ 
+                background: '#f0fdf4',
+                border: '1px solid #bbf7d0',
+                marginBottom: '16px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                  <span className="material-icons" style={{ fontSize: '20px', color: '#10b981' }}>description</span>
+                  <h3 style={{
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#1f2937',
+                    margin: 0
+                  }}>
+                    Statutory Information
+                  </h3>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  {selectedMaster.statutory.gstNumber && (
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>GST Number</label>
+                      <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedMaster.statutory.gstNumber}</div>
+                      {selectedMaster.statutory.gstType && (
+                        <div style={{ marginTop: '4px', fontSize: '12px', color: '#6b7280' }}>Type: {selectedMaster.statutory.gstType}</div>
+                      )}
+                      {selectedMaster.statutory.gstDocumentLink && (
+                        <button
+                          onClick={() => window.open(selectedMaster.statutory.gstDocumentLink, '_blank')}
+                          style={{
+                            marginTop: '8px',
+                            padding: '6px 12px',
+                            background: 'linear-gradient(135deg, #10b981, #059669)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            transition: 'all 0.2s ease',
+                            boxShadow: '0 2px 4px rgba(16, 185, 129, 0.3)'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.transform = 'translateY(-1px)';
+                            e.target.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.4)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.transform = 'translateY(0)';
+                            e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.3)';
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: '14px' }}>visibility</span>
+                          View GST Document
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {selectedMaster.statutory.panNumber && (
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>PAN Number</label>
+                      <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedMaster.statutory.panNumber}</div>
+                      {selectedMaster.statutory.panDocumentLink && (
+                        <button
+                          onClick={() => window.open(selectedMaster.statutory.panDocumentLink, '_blank')}
+                          style={{
+                            marginTop: '8px',
+                            padding: '6px 12px',
+                            background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            transition: 'all 0.2s ease',
+                            boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.transform = 'translateY(-1px)';
+                            e.target.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.4)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.transform = 'translateY(0)';
+                            e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.3)';
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: '14px' }}>visibility</span>
+                          View PAN Document
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
             
-            {/* Bank Details */}
-            <div className="master-authorization-section" style={{ 
-              background: '#fef3c7',
-              border: '1px solid #fde68a'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                <span className="material-icons" style={{ fontSize: '20px', color: '#f59e0b' }}>account_balance</span>
-                <h3 style={{
-                  fontSize: '16px',
-                  fontWeight: '600',
-                  color: '#1f2937',
-                  margin: 0
-                }}>
-                  Bank Details
-                </h3>
-              </div>
-              <div style={{ display: 'grid', gap: '16px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Account Number</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedMaster.bankDetails.accountNumber}</div>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Bank Name</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.bankDetails.bankName}</div>
-                  </div>
+            {/* Bank Details Section */}
+            {selectedMaster.bankDetails && selectedMaster.bankDetails.length > 0 && (
+              <div className="master-authorization-section" style={{ 
+                background: '#fef3c7',
+                border: '1px solid #fde68a',
+                marginBottom: '16px'
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+                  <span className="material-icons" style={{ fontSize: '20px', color: '#f59e0b' }}>account_balance</span>
+                  <h3 style={{
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    color: '#1f2937',
+                    margin: 0
+                  }}>
+                    Bank Details
+                  </h3>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>IFSC Code</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{selectedMaster.bankDetails.ifscCode}</div>
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Branch</label>
-                    <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.bankDetails.branch}</div>
-                  </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  {selectedMaster.bankDetails.map((bank, index) => (
+                    <div key={index} style={{
+                      padding: '16px',
+                      background: 'white',
+                      borderRadius: '8px',
+                      border: '1px solid #fde68a'
+                    }}>
+                      <h4 style={{ fontSize: '14px', fontWeight: '600', color: '#374151', marginBottom: '12px' }}>
+                        Bank Details {index + 1} {bank.setAsDefault && <span style={{ fontSize: '12px', color: '#10b981', fontWeight: '500' }}>(Default)</span>}
+                      </h4>
+                      <div style={{ display: 'grid', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                          {bank.accountNumber && (
+                            <div>
+                              <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Account Number</label>
+                              <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{bank.accountNumber}</div>
+                            </div>
+                          )}
+                          {bank.bankName && (
+                            <div>
+                              <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Bank Name</label>
+                              <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{bank.bankName}</div>
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                          {bank.ifscCode && (
+                            <div>
+                              <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>IFSC Code</label>
+                              <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{bank.ifscCode}</div>
+                            </div>
+                          )}
+                          {bank.branch && (
+                            <div>
+                              <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Branch</label>
+                              <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{bank.branch}</div>
+                            </div>
+                          )}
+                        </div>
+                        {(bank.swiftCode || bank.paymentFavouring || bank.defaultTransactionType) && (
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                            {bank.swiftCode && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Swift Code</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', fontFamily: 'monospace' }}>{bank.swiftCode}</div>
+                              </div>
+                            )}
+                            {bank.paymentFavouring && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Payment Favouring</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{bank.paymentFavouring}</div>
+                              </div>
+                            )}
+                            {bank.defaultTransactionType && (
+                              <div>
+                                <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Transaction Type</label>
+                                <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{bank.defaultTransactionType}</div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {bank.accountType && (
+                          <div>
+                            <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Account Type</label>
+                            <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{bank.accountType}</div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            </div>
+            )}
             
             {/* Approve Master Button */}
             <div style={{ 
