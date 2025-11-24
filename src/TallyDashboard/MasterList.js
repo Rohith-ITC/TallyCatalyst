@@ -1093,32 +1093,152 @@ const MasterList = () => {
                 backgroundColor: baseBackgroundColor,
                 cursor: 'pointer'
               }}
-              onClick={() => {
-                // Transform master data to MasterForm format
-                // Map all possible field variations
-                const formData = {
-                  name: master.NAME || master.name || '',
-                  emailid: master.EMAIL || master.email || master.emailid || '',
-                  panno: master.PANNO || master.panno || master.panNumber || master.pan_no || '',
-                  gstinno: master.GSTNO || master.gstno || master.gstNumber || master.gstin_no || master.gstinNo || '',
-                  address1: (master.ADDRESS || master.address || master.address1 || '').replace(/\|/g, '\n'), // Convert pipe to line breaks
-                  contactperson: master.contactPerson || master.CONTACTPERSON || master.contact_person || '',
-                  phoneno: master.phone || master.PHONE || master.phoneNo || master.phone_no || '',
-                  mobileno: master.mobile || master.MOBILE || master.mobileNo || master.mobile_no || '',
-                  accountno: master.accountNumber || master.ACCOUNTNO || master.accountNo || master.account_no || master.bankDetails?.accountNumber || '',
-                  ifsccode: master.ifscCode || master.IFSCCODE || master.ifsc_code || master.bankDetails?.ifscCode || '',
-                  bankname: master.bankName || master.BANKNAME || master.bank_name || master.bankDetails?.bankName || '',
-                  country: master.country || master.COUNTRY || master.countryName || 'India',
-                  state: master.state || master.STATE || master.stateName || '',
-                  pincode: master.pincode || master.PINCODE || master.pin_code || '',
-                  tax_type: (master.GSTNO || master.gstno || master.gstNumber) ? 'GST' : ((master.PANNO || master.panno || master.panNumber) ? 'PAN' : ''),
-                  gsttype: master.gstType || master.GSTTYPE || master.gst_type || '',
-                  panDocumentLink: master.panDocumentLink || master.pan_document_link || '',
-                  gstDocumentLink: master.gstDocumentLink || master.gst_document_link || ''
-                };
-                console.log('📝 Opening master form for:', master.NAME, 'Form data:', formData);
-                setSelectedMaster({ ...master, formData });
-                setShowMasterForm(true);
+              onClick={async () => {
+                // Fetch full master details from API
+                const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid');
+                if (!selectedCompanyGuid) {
+                  alert('No company selected');
+                  return;
+                }
+
+                let companies = [];
+                try {
+                  companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+                } catch (e) {
+                  console.error('Error parsing allConnections:', e);
+                }
+
+                const currentCompany = companies.find(c => c.guid === selectedCompanyGuid);
+                if (!currentCompany) {
+                  alert('Company not found');
+                  return;
+                }
+
+                const { tallyloc_id, company, guid } = currentCompany;
+                const masterName = master.NAME || master.name || '';
+
+                try {
+                  // Fetch full master details from ledgerlist-w-addrs API
+                  const token = sessionStorage.getItem('token');
+                  if (!token) {
+                    throw new Error('No authentication token found');
+                  }
+
+                  const data = await apiPost(`/api/tally/ledgerlist-w-addrs?ts=${Date.now()}`, {
+                    tallyloc_id,
+                    company,
+                    guid
+                  });
+
+                  // Find the specific master in the response
+                  let fullMasterData = null;
+                  if (data && data.ledgers && Array.isArray(data.ledgers)) {
+                    fullMasterData = data.ledgers.find(
+                      m => (m.NAME || m.name || '').toLowerCase().trim() === masterName.toLowerCase().trim()
+                    );
+                  }
+
+                  // Use full master data if found, otherwise use the master from list
+                  const masterToUse = fullMasterData || master;
+
+                  // Transform master data to MasterForm format
+                  // MasterForm expects: name, panNumber, gstNumber, addresses (array), contacts (array), bankDetails (array)
+                  const formData = {
+                    name: masterToUse.NAME || masterToUse.name || '',
+                    alias: masterToUse.ALIAS || masterToUse.alias || '',
+                    panNumber: masterToUse.PANNO || masterToUse.panno || masterToUse.panNumber || masterToUse.pan_no || '',
+                    gstNumber: masterToUse.GSTNO || masterToUse.gstno || masterToUse.gstNumber || masterToUse.gstin_no || masterToUse.gstinNo || '',
+                    
+                    // Addresses - convert to array format
+                    addresses: masterToUse.ADDRESSLIST && Array.isArray(masterToUse.ADDRESSLIST) && masterToUse.ADDRESSLIST.length > 0
+                      ? masterToUse.ADDRESSLIST.map(addr => ({
+                          address: (addr.ADDRESS || addr.address || '').replace(/\|/g, '\n'),
+                          country: addr.COUNTRY || addr.country || 'India',
+                          state: addr.STATE || addr.state || addr.STATENAME || addr.stateName || '',
+                          pincode: addr.PINCODE || addr.pincode || addr.pin_code || '',
+                          priorStateName: addr.PRIORSTATENAME || addr.priorStateName || '',
+                          addressName: addr.ADDRESSNAME || addr.addressName || '',
+                          phoneNumber: addr.PHONENUMBER || addr.phoneNumber || '',
+                          countryISDCode: addr.COUNTRYISDCODE || addr.countryISDCode || '+91',
+                          mobileNumber: addr.MOBILENUMBER || addr.mobileNumber || '',
+                          contactPerson: addr.CONTACTPERSON || addr.contactPerson || '',
+                          placeOfSupply: addr.PLACEOFSUPPLY || addr.placeOfSupply || '',
+                          gstRegistrationType: addr.GSTREGISTRATIONTYPE || addr.gstRegistrationType || 'Regular',
+                          applicableFrom: addr.APPLICABLEFROM || addr.applicableFrom || '',
+                          mailingName: addr.MAILINGNAME || addr.mailingName || ''
+                        }))
+                      : (masterToUse.ADDRESS || masterToUse.address || masterToUse.address1)
+                        ? [{
+                            address: (masterToUse.ADDRESS || masterToUse.address || masterToUse.address1 || '').replace(/\|/g, '\n'),
+                            country: masterToUse.COUNTRY || masterToUse.country || masterToUse.countryName || 'India',
+                            state: masterToUse.STATE || masterToUse.state || masterToUse.STATENAME || masterToUse.stateName || '',
+                            pincode: masterToUse.PINCODE || masterToUse.pincode || masterToUse.pin_code || ''
+                          }]
+                        : [{ address: '', country: 'India', state: '', pincode: '' }],
+
+                    // Contacts - convert to array format
+                    contacts: masterToUse.CONTACTLIST && Array.isArray(masterToUse.CONTACTLIST) && masterToUse.CONTACTLIST.length > 0
+                      ? masterToUse.CONTACTLIST.map(contact => ({
+                          contactPerson: contact.NAME || contact.CONTACTPERSON || contact.contactPerson || '',
+                          email: contact.EMAIL || contact.email || '',
+                          phone: contact.PHONENUMBER || contact.phone || contact.phoneNumber || '',
+                          mobile: contact.MOBILENUMBER || contact.mobile || contact.mobileNumber || '',
+                          countryISDCode: contact.COUNTRYISDCODE || contact.countryISDCode || '+91',
+                          isDefaultWhatsappNum: contact.ISDEFAULTWHATSAPPNUM === 'Yes' || contact.isDefaultWhatsappNum === true
+                        }))
+                      : (masterToUse.CONTACTPERSON || masterToUse.contactPerson || masterToUse.EMAIL || masterToUse.email || masterToUse.PHONE || masterToUse.phone || masterToUse.MOBILE || masterToUse.mobile)
+                        ? [{
+                            contactPerson: masterToUse.CONTACTPERSON || masterToUse.contactPerson || '',
+                            email: masterToUse.EMAIL || masterToUse.email || masterToUse.emailid || '',
+                            phone: masterToUse.PHONE || masterToUse.phone || masterToUse.phoneNo || masterToUse.phone_no || '',
+                            mobile: masterToUse.MOBILE || masterToUse.mobile || masterToUse.mobileNo || masterToUse.mobile_no || '',
+                            countryISDCode: '+91',
+                            isDefaultWhatsappNum: false
+                          }]
+                        : [{ contactPerson: '', email: '', phone: '', mobile: '', countryISDCode: '+91', isDefaultWhatsappNum: false }],
+
+                    // Bank Details - convert to array format
+                    bankDetails: masterToUse.PAYMENTDETAILSLIST && Array.isArray(masterToUse.PAYMENTDETAILSLIST) && masterToUse.PAYMENTDETAILSLIST.length > 0
+                      ? masterToUse.PAYMENTDETAILSLIST.map(bank => ({
+                          accountNumber: bank.ACCOUNTNUMBER || bank.accountNumber || bank.accountNo || bank.account_no || '',
+                          ifscCode: bank.IFSCODE || bank.ifscCode || bank.ifsc_code || '',
+                          bankName: bank.BANKNAME || bank.bankName || bank.bank_name || '',
+                          swiftCode: bank.SWIFTCODE || bank.swiftCode || '',
+                          paymentFavouring: bank.PAYMENTFAVOURING || bank.paymentFavouring || '',
+                          bankId: bank.BANKID || bank.bankId || '',
+                          defaultTransactionType: bank.DEFAULTTRANSACTIONTYPE || bank.defaultTransactionType || 'Inter Bank Transfer',
+                          setAsDefault: bank.SETASDEFAULT === 'Yes' || bank.setAsDefault === true
+                        }))
+                      : (masterToUse.ACCOUNTNO || masterToUse.accountNumber || masterToUse.accountNo || masterToUse.account_no || masterToUse.IFSCCODE || masterToUse.ifscCode || masterToUse.ifsc_code || masterToUse.BANKNAME || masterToUse.bankName || masterToUse.bank_name)
+                        ? [{
+                            accountNumber: masterToUse.ACCOUNTNO || masterToUse.accountNumber || masterToUse.accountNo || masterToUse.account_no || '',
+                            ifscCode: masterToUse.IFSCCODE || masterToUse.ifscCode || masterToUse.ifsc_code || '',
+                            bankName: masterToUse.BANKNAME || masterToUse.bankName || masterToUse.bank_name || '',
+                            swiftCode: '',
+                            paymentFavouring: '',
+                            bankId: '',
+                            defaultTransactionType: 'Inter Bank Transfer',
+                            setAsDefault: false
+                          }]
+                        : [{ accountNumber: '', ifscCode: '', bankName: '', swiftCode: '', paymentFavouring: '', bankId: '', defaultTransactionType: 'Inter Bank Transfer', setAsDefault: false }],
+
+                    // Additional fields
+                    gstRegistrationType: masterToUse.GSTREGISTRATIONTYPE || masterToUse.gstRegistrationType || 'Regular',
+                    email: masterToUse.EMAIL || masterToUse.email || masterToUse.emailid || '',
+                    emailCC: masterToUse.EMAILCC || masterToUse.emailCC || masterToUse.email_cc || '',
+                    group: masterToUse.PARENT || masterToUse.parent || masterToUse.group || '',
+                    maintainBalancesBillByBill: masterToUse.ISBILLWISEON === 'Yes' || masterToUse.isBillWiseOn === true || masterToUse.maintainBalancesBillByBill === true,
+                    panDocumentLink: masterToUse.panDocumentLink || masterToUse.pan_document_link || '',
+                    gstDocumentLink: masterToUse.gstDocumentLink || masterToUse.gst_document_link || ''
+                  };
+
+                  console.log('📝 Opening master form for:', masterName, 'Full master data:', masterToUse, 'Form data:', formData);
+                  setSelectedMaster({ ...masterToUse, formData });
+                  setShowMasterForm(true);
+                } catch (error) {
+                  console.error('Error fetching master details:', error);
+                  alert('Failed to load master details. Please try again.');
+                }
               }}
               onMouseEnter={(e) => e.target.style.backgroundColor = '#f3f4f6'}
               onMouseLeave={(e) => e.target.style.backgroundColor = baseBackgroundColor}
@@ -1215,7 +1335,7 @@ const MasterList = () => {
   if (showMasterForm && selectedMaster) {
     return (
       <MasterForm
-        initialData={selectedMaster.formData}
+        initialData={selectedMaster.formData || selectedMaster}
         isEditing={true}
         onSuccess={handleFormSuccess}
         onCancel={handleFormCancel}
