@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { getApiUrl, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 
 // Master Constants
@@ -83,13 +84,19 @@ const SearchableDropdown = ({
   onChange, 
   placeholder = "Type to search...", 
   style = {},
-  error = false 
+  error = false,
+  noResultsMessage = "No states found",
+  id = null,
+  zIndexOffset = 0
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [filteredOptions, setFilteredOptions] = useState(options);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const dropdownRef = useRef(null);
   const inputRef = useRef(null);
+  const dropdownListRef = useRef(null);
+  const uniqueId = id || `searchable-dropdown-${Math.random().toString(36).substr(2, 9)}`;
 
   // Filter options based on search term with smart prioritization
   useEffect(() => {
@@ -156,6 +163,18 @@ const SearchableDropdown = ({
     }
   }, [searchTerm, options]);
 
+  // Function to update dropdown position
+  const updateDropdownPosition = () => {
+    if (inputRef.current) {
+      const rect = inputRef.current.getBoundingClientRect();
+      setDropdownPosition({
+        top: rect.bottom + 2,  // Fixed positioning uses viewport coordinates, no scroll offset needed
+        left: rect.left,        // Fixed positioning uses viewport coordinates, no scroll offset needed
+        width: rect.width
+      });
+    }
+  };
+
   // Set search term when value changes externally
   useEffect(() => {
     if (value && !isOpen) {
@@ -163,21 +182,49 @@ const SearchableDropdown = ({
     }
   }, [value, isOpen]);
 
+  // Update dropdown position when it opens or window resizes
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      updateDropdownPosition();
+      
+      const handleResize = () => {
+        updateDropdownPosition();
+      };
+      
+      const handleScroll = () => {
+        updateDropdownPosition();
+      };
+      
+      window.addEventListener('resize', handleResize);
+      window.addEventListener('scroll', handleScroll, true);
+      
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('scroll', handleScroll, true);
+      };
+    }
+  }, [isOpen]);
+
   // Handle click outside to close dropdown
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+      const isClickInsideInput = dropdownRef.current && dropdownRef.current.contains(event.target);
+      const isClickInsideDropdown = dropdownListRef.current && dropdownListRef.current.contains(event.target);
+      
+      if (!isClickInsideInput && !isClickInsideDropdown) {
         setIsOpen(false);
         // Reset search term to current value when closing
         setSearchTerm(value || '');
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [value]);
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [value, isOpen]);
 
   const handleInputChange = (e) => {
     const newSearchTerm = e.target.value;
@@ -208,8 +255,21 @@ const SearchableDropdown = ({
 
   const handleInputFocus = () => {
     // Show dropdown on focus with all options
+    updateDropdownPosition();
     setIsOpen(true);
     // Keep current value in search term if it exists, otherwise clear it
+    if (!value) {
+      setSearchTerm('');
+    }
+  };
+
+  const handleInputClick = () => {
+    // Ensure dropdown opens on click
+    updateDropdownPosition();
+    if (!isOpen) {
+      setIsOpen(true);
+    }
+    // Reset search term to show all options when clicking
     if (!value) {
       setSearchTerm('');
     }
@@ -226,7 +286,7 @@ const SearchableDropdown = ({
   };
 
   return (
-    <div ref={dropdownRef} style={{ position: 'relative', width: '100%', zIndex: 1 }}>
+    <div ref={dropdownRef} style={{ position: 'relative', width: '100%', zIndex: isOpen ? 10000 + zIndexOffset : 1 }}>
       <div style={{ position: 'relative', width: '100%' }}>
         <input
           ref={inputRef}
@@ -234,6 +294,7 @@ const SearchableDropdown = ({
           value={searchTerm}
           onChange={handleInputChange}
           onFocus={handleInputFocus}
+          onClick={handleInputClick}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           style={{
@@ -252,7 +313,8 @@ const SearchableDropdown = ({
           spellCheck="false"
           data-lpignore="true"
           data-form-type="other"
-          name="state-search"
+          name={uniqueId}
+          id={uniqueId}
           role="combobox"
           aria-expanded={isOpen}
           aria-haspopup="listbox"
@@ -277,18 +339,19 @@ const SearchableDropdown = ({
         </span>
       </div>
       
-      {isOpen && (
+      {isOpen && inputRef.current && createPortal(
         <div 
+          ref={dropdownListRef}
           style={{
           position: 'fixed',
-          top: inputRef.current ? inputRef.current.getBoundingClientRect().bottom + window.scrollY : '100%',
-          left: inputRef.current ? inputRef.current.getBoundingClientRect().left + window.scrollX : 0,
-          width: inputRef.current ? inputRef.current.getBoundingClientRect().width : '100%',
+          top: dropdownPosition.top !== undefined ? dropdownPosition.top : (inputRef.current.getBoundingClientRect().bottom + 2),
+          left: dropdownPosition.left !== undefined ? dropdownPosition.left : inputRef.current.getBoundingClientRect().left,
+          width: dropdownPosition.width !== undefined ? dropdownPosition.width : inputRef.current.getBoundingClientRect().width,
           backgroundColor: '#fff',
           border: '2px solid #3b82f6',
           borderRadius: '8px',
           boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-          zIndex: 99999,
+          zIndex: 99999 + zIndexOffset,
           maxHeight: '200px',
           overflowY: 'auto',
           minHeight: '50px',
@@ -348,10 +411,11 @@ const SearchableDropdown = ({
               fontStyle: 'italic',
               fontFamily: 'system-ui, -apple-system, sans-serif'
             }}>
-              No states found
+              {noResultsMessage}
             </div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -376,8 +440,10 @@ const validatePincode = (pincode) => {
 };
 
 const validateIFSC = (ifsc) => {
+  if (!ifsc) return false;
+  const trimmedIfsc = ifsc.trim();
   const ifscRegex = /^[A-Z]{4}0[A-Z0-9]{6}$/;
-  return ifscRegex.test(ifsc);
+  return ifscRegex.test(trimmedIfsc);
 };
 
 const validateEmail = (email) => {
@@ -554,6 +620,8 @@ const MasterForm = ({
   const [touchedFields, setTouchedFields] = useState({});
   const [successMessage, setSuccessMessage] = useState(null);
   const [googleDriveMessage, setGoogleDriveMessage] = useState(null);
+  const [showValidationModal, setShowValidationModal] = useState(false);
+  const [validationErrors, setValidationErrors] = useState([]);
   const [isUploadingDocument, setIsUploadingDocument] = useState({ pan: false, gst: false });
   const [groups, setGroups] = useState([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
@@ -758,6 +826,7 @@ const MasterForm = ({
     console.log('MasterForm: Checking duplicate for', field, ':', value);
 
     try {
+      // Set checking state for the field being checked
       setDuplicateCheck(prev => ({
         ...prev,
         [field]: { isChecking: true, isDuplicate: false, message: '' }
@@ -783,12 +852,13 @@ const MasterForm = ({
       }
 
       // Map field names to API expected values
-      // Note: alias uses 'name' type because backend treats name and alias as one
+      // Note: Both name and alias use type: "name" in the API, but we check them separately
+      // with their respective values (name value for name check, alias value for alias check)
       const fieldMapping = {
         'gstinno': 'gstin',
         'panno': 'pan', 
         'name': 'name',
-        'alias': 'name' // Use 'name' type for alias since backend treats them as one
+        'alias': 'name' // Use 'name' type for alias, but check with alias value separately
       };
       
       const apiType = fieldMapping[field];
@@ -858,18 +928,16 @@ const MasterForm = ({
       const isDuplicate = (result.exists === true && result.status === 'approved') || result.canProceed === false;
       
       // Update duplicate check state based on result
-      setDuplicateCheck(prev => {
-        const newState = {
-          ...prev,
-          [field]: {
-            isChecking: false,
-            isDuplicate: isDuplicate,
-            message: isDuplicate ? 
-              (result.message || `${field} already exists and is approved`) : ''
-          }
-        };
-        return newState;
-      });
+      // Note: We check name and alias separately, each using type: "name" with their respective values
+      setDuplicateCheck(prev => ({
+        ...prev,
+        [field]: {
+          isChecking: false,
+          isDuplicate: isDuplicate,
+          message: isDuplicate ? 
+            (result.message || `${field} already exists and is approved`) : ''
+        }
+      }));
 
       return result;
     } catch (err) {
@@ -1157,7 +1225,7 @@ const MasterForm = ({
   const addAddress = () => {
     setFormData(prev => ({
       ...prev,
-      addresses: [...prev.addresses, { address: '', country: 'India', state: '', pincode: '' }]
+      addresses: [...prev.addresses, { address: '', country: 'India', state: '', pincode: '', priorStateName: '', addressName: '', phoneNumber: '', countryISDCode: '+91', mobileNumber: '', contactPerson: '', placeOfSupply: '', gstRegistrationType: 'Regular', applicableFrom: '', mailingName: '' }]
     }));
   };
 
@@ -1209,7 +1277,7 @@ const MasterForm = ({
   const addBankDetail = () => {
     setFormData(prev => ({
       ...prev,
-      bankDetails: [...prev.bankDetails, { accountNumber: '', ifscCode: '', bankName: '' }]
+      bankDetails: [...prev.bankDetails, { accountNumber: '', ifscCode: '', bankName: '', swiftCode: '', paymentFavouring: '', bankId: '', defaultTransactionType: 'Inter Bank Transfer', setAsDefault: false }]
     }));
   };
 
@@ -1356,7 +1424,7 @@ const MasterForm = ({
     // Optional validation for bank details (only if provided)
     if (formData.bankDetails && Array.isArray(formData.bankDetails)) {
       formData.bankDetails.forEach((bank, index) => {
-        if (bank.ifscCode && !validateIFSC(bank.ifscCode)) {
+        if (bank.ifscCode && bank.ifscCode.trim() && !validateIFSC(bank.ifscCode.trim())) {
           newErrors[`bank_${index}_ifscCode`] = 'Invalid IFSC format';
         }
       });
@@ -1366,6 +1434,155 @@ const MasterForm = ({
     const isValid = Object.keys(newErrors).length === 0;
     console.log('MasterForm: Form validation result:', { isValid, errors: newErrors });
     return isValid;
+  };
+
+  // Comprehensive validation function that checks all fields before submission
+  const validateAllFields = () => {
+    const allErrors = [];
+    
+    // Basic required fields
+    if (!formData.name || !formData.name.trim()) {
+      allErrors.push('Master Name is required');
+    }
+    
+    if (!formData.group || !formData.group.trim()) {
+      allErrors.push('Group is required');
+    }
+    
+    // Name and alias validation
+    if (formData.name.trim() && formData.alias.trim() && 
+        formData.name.trim().toLowerCase() === formData.alias.trim().toLowerCase()) {
+      allErrors.push('Master Name and Alias cannot be the same');
+    }
+    
+    // PAN validation
+    if (formData.tax_type === 'PAN' && formData.panno.trim()) {
+      if (!validatePAN(formData.panno)) {
+        allErrors.push('Invalid PAN format. Format should be: ABCDE1234F');
+      }
+    }
+    
+    // GST validation
+    if (formData.tax_type === 'GST' && formData.gstinno.trim()) {
+      if (formData.gstinno.length !== 15) {
+        allErrors.push('GST Number must be exactly 15 characters');
+      } else if (!validateGST(formData.gstinno)) {
+        allErrors.push('Invalid GST format. Format should be: 12ABCDE1234F1Z5');
+      }
+      
+      // Check GSTIN and PAN match
+      if (formData.panno.trim() && formData.gstinno.trim()) {
+        const panInGstin = formData.gstinno.substring(2, 12);
+        if (panInGstin !== formData.panno) {
+          allErrors.push('PAN in GSTIN does not match the provided PAN number');
+        }
+      }
+      
+      // Check GSTIN state code matches address state
+      if (formData.gstinno.trim() && formData.addresses && formData.addresses.length > 0) {
+        const gstinStateCode = parseInt(formData.gstinno.substring(0, 2));
+        const stateCodeMap = {
+          29: 'Karnataka', 7: 'Delhi', 9: 'Uttar Pradesh', 10: 'Bihar',
+          12: 'Gujarat', 13: 'Goa', 14: 'Maharashtra', 18: 'Chhattisgarh',
+          19: 'Jharkhand', 20: 'Odisha', 21: 'West Bengal', 22: 'Andaman and Nicobar Islands',
+          23: 'Assam', 24: 'Meghalaya', 25: 'Manipur', 26: 'Mizoram',
+          27: 'Nagaland', 28: 'Tripura', 30: 'Kerala', 31: 'Lakshadweep',
+          32: 'Tamil Nadu', 33: 'Puducherry', 34: 'Andhra Pradesh', 35: 'Telangana'
+        };
+        const expectedState = stateCodeMap[gstinStateCode];
+        const formState = formData.addresses[0].state || '';
+        if (expectedState && formState && formState.toLowerCase() !== expectedState.toLowerCase()) {
+          allErrors.push(`GSTIN state code (${expectedState}) does not match the address state (${formState})`);
+        }
+      }
+    }
+    
+    // Mobile number validation
+    if (formData.contacts && formData.contacts.length > 0) {
+      formData.contacts.forEach((contact, index) => {
+        if (contact.mobile && !validateMobile(contact.mobile)) {
+          allErrors.push(`Contact ${index + 1}: Invalid mobile number format (should be 10 digits starting with 6-9)`);
+        }
+        if (contact.email && !validateEmail(contact.email)) {
+          allErrors.push(`Contact ${index + 1}: Invalid email format`);
+        }
+      });
+    }
+    
+    // Address validation
+    if (formData.addresses && formData.addresses.length > 0) {
+      formData.addresses.forEach((addr, index) => {
+        if (addr.pincode && !validatePincode(addr.pincode)) {
+          allErrors.push(`Address ${index + 1}: Invalid pincode format (should be 6 digits)`);
+        }
+        if (!addr.address || !addr.address.trim()) {
+          allErrors.push(`Address ${index + 1}: Address is required`);
+        }
+        if (!addr.state || !addr.state.trim()) {
+          allErrors.push(`Address ${index + 1}: State is required`);
+        }
+      });
+    }
+    
+    // Bank details validation
+    if (formData.bankDetails && formData.bankDetails.length > 0) {
+      formData.bankDetails.forEach((bank, index) => {
+        if (bank.ifscCode && bank.ifscCode.trim() && !validateIFSC(bank.ifscCode.trim())) {
+          allErrors.push(`Bank ${index + 1}: Invalid IFSC code format`);
+        }
+        if (bank.accountNumber && bank.accountNumber.trim() && bank.accountNumber.length < 9) {
+          allErrors.push(`Bank ${index + 1}: Account number must be at least 9 digits`);
+        }
+      });
+    }
+    
+    // MSME details validation
+    if (formData.msmeDetails && formData.msmeDetails.length > 0) {
+      formData.msmeDetails.forEach((msme, index) => {
+        if (msme.fromDate && !/^\d{8}$/.test(msme.fromDate)) {
+          allErrors.push(`MSME Detail ${index + 1}: Invalid date format (should be YYYYMMDD)`);
+        }
+        if (!msme.enterpriseType) {
+          allErrors.push(`MSME Detail ${index + 1}: Enterprise type is required`);
+        }
+        if (!msme.msmeActivityType) {
+          allErrors.push(`MSME Detail ${index + 1}: MSME activity type is required`);
+        }
+      });
+    }
+    
+    // GST Registration details validation
+    if (formData.gstRegDetails && formData.gstRegDetails.length > 0) {
+      formData.gstRegDetails.forEach((gst, index) => {
+        if (gst.applicableFrom && !/^\d{8}$/.test(gst.applicableFrom)) {
+          allErrors.push(`GST Registration ${index + 1}: Invalid date format (should be YYYYMMDD)`);
+        }
+        if (!gst.gstRegistrationType) {
+          allErrors.push(`GST Registration ${index + 1}: GST registration type is required`);
+        }
+        if (!gst.placeOfSupply) {
+          allErrors.push(`GST Registration ${index + 1}: Place of supply is required`);
+        }
+      });
+    }
+    
+    // Duplicate check errors
+    if (!isApprovalMode && !isEditing) {
+      if (duplicateCheck.name.isDuplicate) {
+        allErrors.push(duplicateCheck.name.message || 'Master name already exists');
+      }
+      if (duplicateCheck.alias.isDuplicate) {
+        allErrors.push(duplicateCheck.alias.message || 'Alias already exists');
+      }
+      if (duplicateCheck.panno.isDuplicate) {
+        allErrors.push(duplicateCheck.panno.message || 'PAN number already exists');
+      }
+      if (duplicateCheck.gstinno.isDuplicate) {
+        allErrors.push(duplicateCheck.gstinno.message || 'GST number already exists');
+      }
+    }
+    
+    return allErrors;
   };
 
   const resetForm = (keepSuccessMessage = false) => {
@@ -1701,6 +1918,7 @@ const MasterForm = ({
       }
 
       // Prepare the master data for API according to the ledger-create API structure
+      console.log('MasterForm: Preparing master data...');
       const trimmedName = masterData.name.trim();
       const alias = masterData.alias || '';
       
@@ -1709,11 +1927,23 @@ const MasterForm = ({
         ? masterData.addresses[0]
         : { address: masterData.address1 || '', pincode: masterData.pincode || '', state: masterData.state || '', country: masterData.country || 'India' };
       
+      console.log('MasterForm: First address:', firstAddress);
+      
+      // If first address doesn't have a state, try to get it from the second address (if available)
+      let effectiveState = firstAddress.state || '';
+      if (!effectiveState && masterData.addresses && masterData.addresses.length > 1) {
+        effectiveState = masterData.addresses[1].state || '';
+        console.log('MasterForm: Using state from second address:', effectiveState);
+      }
+      
+      console.log('MasterForm: Effective state:', effectiveState);
+      
       // Get first contact for primary fields
       const firstContact = masterData.contacts && masterData.contacts.length > 0
         ? masterData.contacts[0]
         : { contactPerson: masterData.contactperson || '', email: masterData.emailid || '', phone: masterData.phoneno || '', mobile: masterData.mobileno || '' };
       
+      console.log('MasterForm: Building address and language data...');
       // Build address string with pipe separator
       const addressString = firstAddress.address ? firstAddress.address.replace(/\n/g, '|') : '';
       const addressArray = addressString ? addressString.split('|').filter(addr => addr.trim()) : [];
@@ -1723,72 +1953,82 @@ const MasterForm = ({
       if (alias && alias.trim() && alias.trim().toLowerCase() !== trimmedName.toLowerCase()) {
         languageNames.push(alias.trim());
       }
+      console.log('MasterForm: Language names:', languageNames);
       
-      // Build contactDetails array
+      // Build contactDetails array (include ALL contacts, not excluding first)
       const contactDetails = masterData.contacts && Array.isArray(masterData.contacts) && masterData.contacts.length > 0
-        ? masterData.contacts.map((contact, index) => ({
-            name: contact.contactPerson || '',
-            phoneNumber: contact.mobile || contact.phone || '',
-            countryISDCode: contact.countryISDCode || '+91',
-            isDefaultWhatsappNum: index === 0 ? 'Yes' : 'No'
-          }))
-        : firstContact.mobile || firstContact.phone
-          ? [{
-              name: firstContact.contactPerson || '',
-              phoneNumber: firstContact.mobile || firstContact.phone || '',
-              countryISDCode: '+91',
-              isDefaultWhatsappNum: 'Yes'
-            }]
-          : [];
+        ? masterData.contacts
+            .filter(contact => contact.contactPerson && contact.contactPerson.trim())
+            .map((contact, index) => ({
+              name: contact.contactPerson || '',
+              phoneNumber: contact.mobile || contact.phone || '',
+              countryISDCode: contact.countryISDCode || '+91',
+              isDefaultWhatsappNum: contact.isDefaultWhatsappNum ? 'Yes' : 'No'
+            }))
+        : [];
       
-      // Build paymentDetails array from bankDetails
+      // Build paymentDetails array from ALL bankDetails (including first bank)
+      // First bank gets transactionName: "Primary", subsequent banks get "Secondary", "Secondary2", etc.
+      // Bank IDs are assigned based on bankId field if available, otherwise sequential
       const paymentDetails = masterData.bankDetails && Array.isArray(masterData.bankDetails) && masterData.bankDetails.length > 0
-        ? masterData.bankDetails.map((bank, index) => ({
-            ifscCode: bank.ifscCode || '',
-            swiftCode: bank.swiftCode || '',
-            accountNumber: bank.accountNumber || '',
-            paymentFavouring: bank.paymentFavouring || bank.bankName || trimmedName,
-            transactionName: index === 0 ? 'Primary' : `Secondary${index > 1 ? index : ''}`,
-            bankId: bank.bankId || '',
-            setAsDefault: index === 0 ? 'Yes' : 'No',
-            defaultTransactionType: bank.defaultTransactionType || 'Inter Bank Transfer'
-          }))
-        : masterData.accountno || masterData.ifsccode
-          ? [{
-              ifscCode: masterData.ifsccode || '',
-              swiftCode: masterData.swiftCode || '',
-              accountNumber: masterData.accountno || '',
-              paymentFavouring: masterData.bankname || trimmedName,
-              transactionName: 'Primary',
-              bankId: masterData.bankId || '',
-              setAsDefault: 'Yes',
-              defaultTransactionType: 'Inter Bank Transfer'
-            }]
-          : [];
-      
-      // Build msmeDetails array
-      const msmeDetails = masterData.msmeUdyamRegistrationNumber && masterData.msmeTypeOfEnterprise
-        ? [{
-            fromDate: masterData.msmeFromDate || new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-            enterpriseType: masterData.msmeTypeOfEnterprise,
-            udyamRegNumber: masterData.msmeUdyamRegistrationNumber,
-            msmeActivityType: masterData.msmeActivityType || 'Unknown'
-          }]
+        ? masterData.bankDetails
+            .filter(bank => (bank.ifscCode && bank.ifscCode.trim()) || (bank.accountNumber && bank.accountNumber.trim()))
+            .map((bank, index) => ({
+              ifscCode: bank.ifscCode || '',
+              swiftCode: bank.swiftCode || '',
+              accountNumber: bank.accountNumber || '',
+              paymentFavouring: bank.paymentFavouring || bank.bankName || trimmedName,
+              transactionName: index === 0 ? 'Primary' : (index === 1 ? 'Secondary' : `Secondary${index}`),
+              bankId: bank.bankId || (index + 1).toString(), // Use bankId from form if available, otherwise sequential
+              setAsDefault: bank.setAsDefault === true || bank.setAsDefault === 'Yes' ? 'Yes' : 'No',
+              defaultTransactionType: bank.defaultTransactionType || 'Inter Bank Transfer'
+            }))
         : [];
       
-      // Build gstRegDetails array
-      const gstRegDetails = masterData.gstinno
-        ? [{
-            applicableFrom: masterData.gstApplicableFrom || new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-            gstRegistrationType: masterData.gstRegistrationType || 'Regular',
-            placeOfSupply: firstAddress.state || '',
-            gstin: masterData.gstinno
-          }]
-        : [];
+      // Build msmeDetails array (support both array and single value formats)
+      const msmeDetails = [];
+      if (masterData.msmeDetails && Array.isArray(masterData.msmeDetails) && masterData.msmeDetails.length > 0) {
+        // If form data has msmeDetails as array, use it directly
+        msmeDetails.push(...masterData.msmeDetails.map(msme => ({
+          fromDate: msme.fromDate || new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+          enterpriseType: msme.enterpriseType || '',
+          udyamRegNumber: msme.udyamRegNumber || '',
+          msmeActivityType: msme.msmeActivityType || 'Unknown'
+        })));
+      } else if (masterData.msmeUdyamRegistrationNumber && masterData.msmeTypeOfEnterprise) {
+        // Backward compatibility: single value format
+        msmeDetails.push({
+          fromDate: masterData.msmeFromDate || new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+          enterpriseType: masterData.msmeTypeOfEnterprise,
+          udyamRegNumber: masterData.msmeUdyamRegistrationNumber,
+          msmeActivityType: masterData.msmeActivityType || 'Unknown'
+        });
+      }
       
-      // Build mailingDetailsList array
-      const mailingDetailsList = masterData.addresses && Array.isArray(masterData.addresses) && masterData.addresses.length > 0
-        ? masterData.addresses.map((addr, index) => {
+      // Build gstRegDetails array (support both array and single value formats)
+      // For placeOfSupply, use effectiveState (from first address or fallback to second address)
+      const gstRegDetails = [];
+      if (masterData.gstRegDetails && Array.isArray(masterData.gstRegDetails) && masterData.gstRegDetails.length > 0) {
+        // If form data has gstRegDetails as array, use it directly
+        gstRegDetails.push(...masterData.gstRegDetails.map(gst => ({
+          applicableFrom: gst.applicableFrom || new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+          gstRegistrationType: gst.gstRegistrationType || 'Regular',
+          placeOfSupply: gst.placeOfSupply || effectiveState || firstAddress.state || '',
+          gstin: gst.gstin || ''
+        })));
+      } else if (masterData.gstinno) {
+        // Backward compatibility: single value format
+        gstRegDetails.push({
+          applicableFrom: masterData.gstApplicableFrom || new Date().toISOString().slice(0, 10).replace(/-/g, ''),
+          gstRegistrationType: masterData.gstRegistrationType || 'Regular',
+          placeOfSupply: effectiveState || firstAddress.state || '',
+          gstin: masterData.gstinno
+        });
+      }
+      
+      // Build mailingDetailsList array (exclude first address as it's already in primary fields)
+      const mailingDetailsList = masterData.addresses && Array.isArray(masterData.addresses) && masterData.addresses.length > 1
+        ? masterData.addresses.slice(1).map((addr, index) => {
             const addrLines = addr.address ? addr.address.replace(/\n/g, '|').split('|').filter(line => line.trim()) : [];
             return {
               addresses: addrLines.length > 0 ? addrLines : [''],
@@ -1799,23 +2039,14 @@ const MasterForm = ({
               country: addr.country || 'India'
             };
           })
-        : addressArray.length > 0
-          ? [{
-              addresses: addressArray,
-              applicableFrom: new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-              pincode: firstAddress.pincode || '',
-              mailingName: trimmedName,
-              state: firstAddress.state || '',
-              country: firstAddress.country || 'India'
-            }]
-          : [];
+        : [];
       
-      // Build multiAddressList array
-      const multiAddressList = masterData.addresses && Array.isArray(masterData.addresses) && masterData.addresses.length > 0
-        ? masterData.addresses.map((addr, index) => {
+      // Build multiAddressList array (exclude first address as it's already in primary fields)
+      const multiAddressList = masterData.addresses && Array.isArray(masterData.addresses) && masterData.addresses.length > 1
+        ? masterData.addresses.slice(1).map((addr, index) => {
             const addrLines = addr.address ? addr.address.replace(/\n/g, '|').split('|').filter(line => line.trim()) : [];
             return {
-              addressName: addr.addressName || String.fromCharCode(65 + index), // A, B, C, etc.
+              addressName: addr.addressName || String.fromCharCode(66 + index), // B, C, D, etc. (starting from B since A is the first address)
               addresses: addrLines.length > 0 ? addrLines : [''],
               priorStateName: addr.priorStateName || addr.state || '',
               pincode: addr.pincode || '',
@@ -1829,22 +2060,7 @@ const MasterForm = ({
               placeOfSupply: addr.placeOfSupply || addr.state || ''
             };
           })
-        : addressArray.length > 0
-          ? [{
-              addressName: 'A',
-              addresses: addressArray,
-              priorStateName: firstAddress.state || '',
-              pincode: firstAddress.pincode || '',
-              phoneNumber: firstContact.phone || '',
-              countryISDCode: '+91',
-              countryName: firstAddress.country || 'India',
-              gstRegistrationType: masterData.gstRegistrationType || 'Regular',
-              mobileNumber: firstContact.mobile || '',
-              contactPerson: firstContact.contactPerson || '',
-              state: firstAddress.state || '',
-              placeOfSupply: firstAddress.state || ''
-            }]
-          : [];
+        : [];
       
       // Build doclist from document links
       const documents = [];
@@ -1854,29 +2070,37 @@ const MasterForm = ({
         documents.push(...masterData.documents);
       }
       
-      const apiData = {
+      let apiData = {
         tallyloc_id: parseInt(tallylocId),
         company: company,
         guid: guid,
         ledgerData: {
           name: trimmedName,
           languageNames: languageNames,
-          group: masterData.group || '',
+          group: (masterData.group || '').toLowerCase(),
           isBillWiseOn: masterData.maintainBalancesBillByBill ? 'Yes' : 'No',
-          billCreditPeriod: masterData.defaultCreditPeriod || '',
+          billCreditPeriod: masterData.defaultCreditPeriod 
+            ? (masterData.defaultCreditPeriod.toString().toLowerCase().includes('days') 
+                ? masterData.defaultCreditPeriod 
+                : `${masterData.defaultCreditPeriod} Days`)
+            : '',
           isCreditDaysChkOn: masterData.checkCreditDaysDuringVoucher ? 'Yes' : 'No',
-          creditLimit: masterData.creditLimitAmount || '',
+          creditLimit: masterData.creditLimitAmount 
+            ? (isNaN(parseFloat(masterData.creditLimitAmount)) 
+                ? masterData.creditLimitAmount 
+                : parseFloat(masterData.creditLimitAmount).toFixed(2))
+            : '',
           overrideCreditLimit: masterData.overrideCreditLimitPostDated ? 'Yes' : 'No',
           affectsStock: masterData.inventoryValuesAffected ? 'Yes' : 'No',
-          isCostCentresOn: 'No', // Default value, can be updated if form has this field
+          isCostCentresOn: masterData.isCostCentresOn ? 'Yes' : 'No',
           isTdsApplicable: masterData.isTDSDeductable ? 'Yes' : 'No',
           tdsDeducteeType: masterData.deducteeType || '',
           natureOfPayment: masterData.natureOfPayment || '',
           address: addressString,
           addresses: addressArray,
           pincode: firstAddress.pincode || '',
-          priorStateName: firstAddress.state || '',
-          stateName: firstAddress.state || '',
+          priorStateName: effectiveState || firstAddress.state || '',
+          stateName: effectiveState || firstAddress.state || '',
           countryOfResidence: firstAddress.country || 'India',
           mailingName: masterData.mailingName || trimmedName,
           contactPerson: firstContact.contactPerson || '',
@@ -1892,7 +2116,7 @@ const MasterForm = ({
           narration: masterData.narration || '',
           description: masterData.description || '',
           contactDetails: contactDetails,
-          doclist: documents.length > 0 ? { documents: documents } : undefined,
+          doclist: { documents: documents },
           paymentDetails: paymentDetails,
           msmeDetails: msmeDetails,
           gstRegDetails: gstRegDetails,
@@ -1901,15 +2125,87 @@ const MasterForm = ({
         }
       };
       
-      // Remove undefined doclist if empty
-      if (!apiData.ledgerData.doclist || !apiData.ledgerData.doclist.documents || apiData.ledgerData.doclist.documents.length === 0) {
+      console.log('MasterForm: Cleaning API data...');
+      // Remove doclist if documents array is empty (backend may not accept empty doclist)
+      if (apiData.ledgerData.doclist && (!apiData.ledgerData.doclist.documents || apiData.ledgerData.doclist.documents.length === 0)) {
         delete apiData.ledgerData.doclist;
       }
-
+      
+      // Remove undefined values from nested objects (but keep empty strings and arrays)
+      const removeUndefined = (obj) => {
+        if (Array.isArray(obj)) {
+          return obj.map(removeUndefined);
+        } else if (obj !== null && typeof obj === 'object') {
+          const cleaned = {};
+          for (const key in obj) {
+            if (obj[key] !== undefined) {
+              cleaned[key] = removeUndefined(obj[key]);
+            }
+          }
+          return cleaned;
+        }
+        return obj;
+      };
+      
+      // Clean undefined values from the payload (but keep empty strings, null, and empty arrays)
+      apiData = removeUndefined(apiData);
+      
+      // Remove paymentDetails if they're empty or if all banks have empty account numbers and IFSC codes
+      if (apiData.ledgerData.paymentDetails && Array.isArray(apiData.ledgerData.paymentDetails)) {
+        const validPaymentDetails = apiData.ledgerData.paymentDetails.filter(payment => {
+          // Keep payment details that have at least IFSC code or account number
+          return (payment.ifscCode && payment.ifscCode.trim()) || (payment.accountNumber && payment.accountNumber.trim());
+        });
+        if (validPaymentDetails.length === 0) {
+          delete apiData.ledgerData.paymentDetails;
+        } else {
+          apiData.ledgerData.paymentDetails = validPaymentDetails;
+        }
+      }
+      
+      // Remove empty arrays that might cause API issues
+      const removeEmptyArrays = (obj) => {
+        if (Array.isArray(obj)) {
+          return obj.length > 0 ? obj.map(removeEmptyArrays) : undefined;
+        } else if (obj !== null && typeof obj === 'object') {
+          const cleaned = {};
+          for (const key in obj) {
+            const value = removeEmptyArrays(obj[key]);
+            if (value !== undefined) {
+              cleaned[key] = value;
+            }
+          }
+          return Object.keys(cleaned).length > 0 ? cleaned : undefined;
+        }
+        return obj;
+      };
+      
+      // Clean empty arrays from nested structures (but keep them in top-level if they have data)
+      if (apiData.ledgerData.contactDetails && Array.isArray(apiData.ledgerData.contactDetails) && apiData.ledgerData.contactDetails.length === 0) {
+        delete apiData.ledgerData.contactDetails;
+      }
+      if (apiData.ledgerData.msmeDetails && Array.isArray(apiData.ledgerData.msmeDetails) && apiData.ledgerData.msmeDetails.length === 0) {
+        delete apiData.ledgerData.msmeDetails;
+      }
+      if (apiData.ledgerData.gstRegDetails && Array.isArray(apiData.ledgerData.gstRegDetails) && apiData.ledgerData.gstRegDetails.length === 0) {
+        delete apiData.ledgerData.gstRegDetails;
+      }
+      if (apiData.ledgerData.mailingDetailsList && Array.isArray(apiData.ledgerData.mailingDetailsList) && apiData.ledgerData.mailingDetailsList.length === 0) {
+        delete apiData.ledgerData.mailingDetailsList;
+      }
+      if (apiData.ledgerData.multiAddressList && Array.isArray(apiData.ledgerData.multiAddressList) && apiData.ledgerData.multiAddressList.length === 0) {
+        delete apiData.ledgerData.multiAddressList;
+      }
+      
+      console.log('MasterForm: API data cleaned, proceeding to validation...');
 
       // Validate required fields before API call
-      if (!apiData.ledgerData.name) {
+      if (!apiData.ledgerData.name || !apiData.ledgerData.name.trim()) {
         throw new Error('Master Name is mandatory');
+      }
+      
+      if (!apiData.ledgerData.group || !apiData.ledgerData.group.trim()) {
+        throw new Error('Group is mandatory');
       }
 
       // Additional validation for data quality
@@ -1935,13 +2231,52 @@ const MasterForm = ({
           if (!gstRegex.test(apiData.ledgerData.gstinNo)) {
             throw new Error(`Invalid GST format: ${apiData.ledgerData.gstinNo}. Correct format: 12ABCDE1234F1Z5`);
           }
+          
+          // Extract state code from GSTIN (first 2 digits)
+          const gstinStateCode = parseInt(apiData.ledgerData.gstinNo.substring(0, 2));
+          
+          // State code to state name mapping (common Indian states)
+          const stateCodeMap = {
+            1: 'Jammu and Kashmir', 2: 'Himachal Pradesh', 3: 'Punjab', 4: 'Chandigarh',
+            5: 'Uttarakhand', 6: 'Haryana', 7: 'Delhi', 8: 'Rajasthan', 9: 'Uttar Pradesh',
+            10: 'Bihar', 11: 'Sikkim', 12: 'Gujarat', 13: 'Goa', 14: 'Maharashtra',
+            15: 'Dadra and Nagar Haveli', 16: 'Daman and Diu', 17: 'Madhya Pradesh',
+            18: 'Chhattisgarh', 19: 'Jharkhand', 20: 'Odisha', 21: 'West Bengal',
+            22: 'Andaman and Nicobar Islands', 23: 'Assam', 24: 'Meghalaya',
+            25: 'Manipur', 26: 'Mizoram', 27: 'Nagaland', 28: 'Tripura',
+            29: 'Karnataka', 30: 'Kerala', 31: 'Lakshadweep', 32: 'Tamil Nadu',
+            33: 'Puducherry', 34: 'Andhra Pradesh', 35: 'Telangana', 36: 'Ladakh'
+          };
+          
+          // Check if GSTIN state code matches the state provided in the form
+          const formState = apiData.ledgerData.stateName || apiData.ledgerData.priorStateName || '';
+          if (formState) {
+            const expectedStateName = stateCodeMap[gstinStateCode];
+            if (expectedStateName && formState.toLowerCase() !== expectedStateName.toLowerCase()) {
+              throw new Error(`GSTIN state code mismatch: GSTIN "${apiData.ledgerData.gstinNo}" has state code "${gstinStateCode}" (${expectedStateName}), but the form state is "${formState}". The GSTIN state code must match the state provided in the address.`);
+            }
+          }
+          
+          // If PAN is also provided, verify that GSTIN contains the PAN
+          if (apiData.ledgerData.panNo && apiData.ledgerData.panNo.length > 0) {
+            // GSTIN format: 2 digits (state) + 10 chars (PAN) + 1 char (entity) + Z + 1 char (check digit)
+            // PAN is at positions 2-11 (0-indexed: 2-12)
+            const panInGstin = apiData.ledgerData.gstinNo.substring(2, 12);
+            if (panInGstin !== apiData.ledgerData.panNo) {
+              throw new Error(`GSTIN and PAN mismatch: GSTIN "${apiData.ledgerData.gstinNo}" contains PAN "${panInGstin}" but provided PAN is "${apiData.ledgerData.panNo}". The PAN in GSTIN must match the provided PAN.`);
+            }
+          }
         }
 
 
       // Check if ledger already exists before creating (skip in approval mode and edit mode)
+      // Make this non-blocking - if it fails, allow submission to proceed (API will handle duplicate detection)
       if (!isApprovalMode && !isEditing) {
         try {
-          const duplicateCheckResponse = await fetch(getApiUrl('/api/tally/ledger-check'), {
+          console.log('MasterForm: Calling duplicate check API...');
+          
+          // Add timeout to duplicate check (5 seconds) to prevent blocking on slow networks
+          const duplicateCheckPromise = fetch(getApiUrl('/api/tally/ledger-check'), {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -1955,9 +2290,16 @@ const MasterForm = ({
               value: apiData.ledgerData.name
             })
           });
+          
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Duplicate check timeout')), 5000)
+          );
+          
+          const duplicateCheckResponse = await Promise.race([duplicateCheckPromise, timeoutPromise]);
 
           if (duplicateCheckResponse.ok) {
             const duplicateResult = await duplicateCheckResponse.json();
+            console.log('MasterForm: Duplicate check result:', duplicateResult);
             
             // Check if duplicate exists and cannot proceed
             // Only treat as duplicate if the existing ledger is approved/authorized
@@ -1967,15 +2309,126 @@ const MasterForm = ({
               const errorMessage = `Ledger with name "${apiData.ledgerData.name}" already exists and is approved. Please use a different name.`;
               throw new Error(errorMessage);
             }
+            
+            // Log if ledger exists in any state (even if not approved)
+            if (duplicateResult.exists === true) {
+              console.warn(`MasterForm: Ledger "${apiData.ledgerData.name}" exists with status: ${duplicateResult.status || 'unknown'}. canProceed: ${duplicateResult.canProceed}`);
+              // Note: The API might still reject if the name exists in any state, even if canProceed is true
+            }
+            
+            console.log('MasterForm: No duplicate found, proceeding...');
           } else {
-            const errorData = await duplicateCheckResponse.json().catch(() => ({}));
-            // Don't proceed if duplicate check fails
-            throw new Error('Failed to verify if ledger already exists. Please try again.');
+            // Log the error but don't block submission - let the API handle duplicate detection
+            console.warn('MasterForm: Duplicate check API returned error, but proceeding with submission. API will handle duplicate detection.');
           }
         } catch (duplicateError) {
-          throw duplicateError; // Re-throw the error to stop creation
+          // If duplicate check fails (network error, timeout, etc.), log it but don't block submission
+          // The API will handle duplicate detection on its end
+          console.warn('MasterForm: Duplicate check error (non-blocking):', duplicateError.message);
+          console.warn('MasterForm: Proceeding with submission. API will handle duplicate detection.');
+          // Don't throw - allow submission to proceed
         }
+      } else {
+        console.log('MasterForm: Skipping duplicate check (approval/edit mode)');
       }
+
+      // Filter payload to only include required fields
+      const requiredLedgerDataFields = [
+        'name', 'languageNames', 'group', 'isBillWiseOn', 'billCreditPeriod',
+        'isCreditDaysChkOn', 'creditLimit', 'overrideCreditLimit', 'affectsStock',
+        'isCostCentresOn', 'isTdsApplicable', 'tdsDeducteeType', 'natureOfPayment',
+        'address', 'addresses', 'pincode', 'priorStateName', 'stateName',
+        'countryOfResidence', 'mailingName', 'contactPerson', 'phoneNo',
+        'countryISDCode', 'mobileNo', 'email', 'emailCC', 'panNo', 'nameOnPan',
+        'gstinNo', 'priceLevel', 'narration', 'description', 'contactDetails',
+        'doclist', 'paymentDetails', 'msmeDetails', 'gstRegDetails',
+        'mailingDetailsList', 'multiAddressList'
+      ];
+      
+      // Define required fields for nested objects
+      const requiredContactDetailsFields = ['name', 'phoneNumber', 'countryISDCode', 'isDefaultWhatsappNum'];
+      const requiredPaymentDetailsFields = ['ifscCode', 'swiftCode', 'accountNumber', 'paymentFavouring', 'transactionName', 'bankId', 'setAsDefault', 'defaultTransactionType'];
+      const requiredMsmeDetailsFields = ['fromDate', 'enterpriseType', 'udyamRegNumber', 'msmeActivityType'];
+      const requiredGstRegDetailsFields = ['applicableFrom', 'gstRegistrationType', 'placeOfSupply', 'gstin'];
+      const requiredMailingDetailsFields = ['addresses', 'applicableFrom', 'pincode', 'mailingName', 'state', 'country'];
+      const requiredMultiAddressFields = ['addressName', 'addresses', 'priorStateName', 'pincode', 'phoneNumber', 'countryISDCode', 'countryName', 'gstRegistrationType', 'mobileNumber', 'contactPerson', 'state', 'placeOfSupply'];
+      
+      // Filter nested arrays to only include required fields
+      const filterNestedArray = (array, requiredFields) => {
+        if (!Array.isArray(array)) return array;
+        return array.map(item => {
+          if (typeof item !== 'object' || item === null) return item;
+          const filtered = {};
+          requiredFields.forEach(field => {
+            if (item.hasOwnProperty(field)) {
+              filtered[field] = item[field];
+            }
+          });
+          return filtered;
+        });
+      };
+      
+      // Filter ledgerData to only include required fields
+      const filteredLedgerData = {};
+      requiredLedgerDataFields.forEach(field => {
+        if (apiData.ledgerData.hasOwnProperty(field)) {
+          let value = apiData.ledgerData[field];
+          
+          // Filter nested arrays
+          if (field === 'contactDetails') {
+            value = filterNestedArray(value, requiredContactDetailsFields);
+          } else if (field === 'paymentDetails') {
+            value = filterNestedArray(value, requiredPaymentDetailsFields);
+          } else if (field === 'msmeDetails') {
+            value = filterNestedArray(value, requiredMsmeDetailsFields);
+          } else if (field === 'gstRegDetails') {
+            value = filterNestedArray(value, requiredGstRegDetailsFields);
+          } else if (field === 'mailingDetailsList') {
+            value = filterNestedArray(value, requiredMailingDetailsFields);
+          } else if (field === 'multiAddressList') {
+            value = filterNestedArray(value, requiredMultiAddressFields);
+          } else if (field === 'doclist') {
+            // Ensure doclist has the correct structure { documents: [...] }
+            if (value && typeof value === 'object' && value.documents) {
+              // Keep the structure as is
+              value = { documents: value.documents };
+            } else if (Array.isArray(value)) {
+              // If it's an array, wrap it in the documents structure
+              value = { documents: value };
+            }
+          }
+          
+          filteredLedgerData[field] = value;
+        }
+      });
+      
+      // Build final payload with only required top-level fields
+      const finalPayload = {
+        tallyloc_id: apiData.tallyloc_id,
+        company: apiData.company,
+        guid: apiData.guid,
+        ledgerData: filteredLedgerData
+      };
+      
+      // Final cleanup: Remove doclist if documents array is empty (after filtering)
+      if (finalPayload.ledgerData.doclist && 
+          (!finalPayload.ledgerData.doclist.documents || 
+           finalPayload.ledgerData.doclist.documents.length === 0)) {
+        delete finalPayload.ledgerData.doclist;
+      }
+      
+      // Log the payload being sent
+      console.log('MasterForm: About to send API request...');
+      console.log('MasterForm: API URL:', getApiUrl('/api/tally/ledger-create'));
+      console.log('MasterForm: Sending API payload:', JSON.stringify(finalPayload, null, 2));
+      console.log('MasterForm: Payload keys in ledgerData:', Object.keys(finalPayload.ledgerData));
+      
+      // IMPORTANT NOTE:
+      // If the master is created successfully but doesn't appear in ledger-list:
+      // - The ledger-create API might be creating the master in Tally but NOT in the authorization/pending table
+      // - ledger-check can find it (queries Tally directly) but ledger-list can't (queries authorization table)
+      // - The backend API needs to ensure ledger-create also creates an entry in the authorization/pending table
+      // - OR ledger-list needs to query both Tally and the authorization table
 
       const response = await fetch(getApiUrl('/api/tally/ledger-create'), {
         method: 'POST',
@@ -1983,32 +2436,128 @@ const MasterForm = ({
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(apiData)
+        body: JSON.stringify(finalPayload)
       });
 
-      if (!response.ok) {
-        let errorMessage = 'Failed to create master';
+      // Try to parse JSON, but handle cases where response might not be JSON
+      let result;
+      try {
+        const responseText = await response.text();
+        console.log('MasterForm: API response status:', response.status);
+        console.log('MasterForm: API response text (raw):', responseText);
+        
         try {
-          const errorData = await response.json();
-          console.error('API Error Response:', errorData);
-          errorMessage = errorData.message || errorData.error || `HTTP ${response.status}: ${response.statusText}`;
+          result = JSON.parse(responseText);
+          console.log('MasterForm: API response data:', result);
+          console.log('MasterForm: Full API response object:', JSON.stringify(result, null, 2));
+          
+          // Log all possible error fields for debugging
+          if (!result.success || response.status >= 400) {
+            console.error('MasterForm: Error response detected. Checking for error details...');
+            console.error('MasterForm: Response keys:', Object.keys(result));
+            
+            // Check for nested error objects
+            if (result.data) {
+              console.error('MasterForm: Response data object:', result.data);
+              console.error('MasterForm: Response data keys:', Object.keys(result.data));
+            }
+            
+            // Check for error array
+            if (result.error && Array.isArray(result.error)) {
+              console.error('MasterForm: Error array:', result.error);
+            }
+            
+            // Check for validation errors
+            if (result.validationErrors) {
+              console.error('MasterForm: Validation errors:', result.validationErrors);
+            }
+            
+            // Check for field-specific errors
+            if (result.fieldErrors) {
+              console.error('MasterForm: Field errors:', result.fieldErrors);
+            }
+          }
         } catch (parseError) {
-          console.error('Failed to parse error response:', parseError);
-          errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          console.error('MasterForm: Failed to parse JSON response:', parseError);
+          console.error('MasterForm: Response text:', responseText);
+          throw new Error(`Invalid API response format. Status: ${response.status}. Response: ${responseText.substring(0, 200)}`);
         }
-        throw new Error(errorMessage);
+      } catch (textError) {
+        console.error('MasterForm: Failed to read response text:', textError);
+        throw new Error(`Failed to read API response. Status: ${response.status}`);
       }
 
-      const result = await response.json();
-      console.log('MasterForm: Master creation API response:', result);
+      // IMPORTANT: Check what the API actually returned
+      // The master might be created in Tally but not in the authorization table
+      console.log('🔍 MasterForm: Checking API response for creation status...');
+      console.log('🔍 MasterForm: result.success:', result.success);
+      console.log('🔍 MasterForm: result.created:', result.created);
+      console.log('🔍 MasterForm: result.ledgerName:', result.ledgerName);
+      console.log('🔍 MasterForm: result.status:', result.status);
+      console.log('🔍 MasterForm: result.authorizationStatus:', result.authorizationStatus);
+      console.log('🔍 MasterForm: HTTP status:', response.status);
+      console.log('🔍 MasterForm: response.ok:', response.ok);
       
-      // Check if the API response indicates success
-      if (result.success === false) {
-        let errorMessage = result.message || 'Failed to create ledger';
+      // Check if the API response indicates success (even if HTTP status is 200)
+      if (result.success === false || !response.ok) {
+        let errorMessage = 'Failed to create ledger';
+        
+        // Try to get error message from various possible fields
+        if (result.message) {
+          errorMessage = result.message;
+        } else if (result.error) {
+          errorMessage = result.error;
+        } else if (result.errorMessage) {
+          errorMessage = result.errorMessage;
+        } else if (result.error_msg) {
+          errorMessage = result.error_msg;
+        } else if (result.errorMsg) {
+          errorMessage = result.errorMsg;
+        } else if (!response.ok) {
+          errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        }
+        
+        // Check for nested error objects
+        if (result.data && result.data.error) {
+          errorMessage = result.data.error;
+        }
+        if (result.data && result.data.message) {
+          errorMessage = result.data.message;
+        }
         
         // Check if it's a duplicate name issue
         if (result.ledgerName && result.created === 0) {
-          errorMessage += `\n\nPossible causes:\n• Ledger with name "${result.ledgerName}" already exists\n• Invalid data format\n• Server-side validation failed`;
+          errorMessage += `\n\nPossible causes:\n• Ledger with name "${result.ledgerName}" already exists (even in pending/unauthorized state)\n• Invalid data format or field validation failed\n• Server-side validation failed\n• The API may reject duplicate names regardless of approval status`;
+          
+          // Check for common validation issues
+          if (apiData.ledgerData.gstinNo && apiData.ledgerData.panNo) {
+            // Verify GSTIN contains PAN
+            const panInGstin = apiData.ledgerData.gstinNo.substring(2, 12);
+            if (panInGstin !== apiData.ledgerData.panNo) {
+              errorMessage += `\n• GSTIN and PAN mismatch: GSTIN contains "${panInGstin}" but PAN is "${apiData.ledgerData.panNo}"`;
+            }
+          }
+          
+          // Check for GSTIN state code mismatch
+          if (apiData.ledgerData.gstinNo && apiData.ledgerData.gstinNo.length >= 2) {
+            const gstinStateCode = parseInt(apiData.ledgerData.gstinNo.substring(0, 2));
+            const stateCodeMap = {
+              1: 'Jammu and Kashmir', 2: 'Himachal Pradesh', 3: 'Punjab', 4: 'Chandigarh',
+              5: 'Uttarakhand', 6: 'Haryana', 7: 'Delhi', 8: 'Rajasthan', 9: 'Uttar Pradesh',
+              10: 'Bihar', 11: 'Sikkim', 12: 'Gujarat', 13: 'Goa', 14: 'Maharashtra',
+              15: 'Dadra and Nagar Haveli', 16: 'Daman and Diu', 17: 'Madhya Pradesh',
+              18: 'Chhattisgarh', 19: 'Jharkhand', 20: 'Odisha', 21: 'West Bengal',
+              22: 'Andaman and Nicobar Islands', 23: 'Assam', 24: 'Meghalaya',
+              25: 'Manipur', 26: 'Mizoram', 27: 'Nagaland', 28: 'Tripura',
+              29: 'Karnataka', 30: 'Kerala', 31: 'Lakshadweep', 32: 'Tamil Nadu',
+              33: 'Puducherry', 34: 'Andhra Pradesh', 35: 'Telangana', 36: 'Ladakh'
+            };
+            const gstinStateName = stateCodeMap[gstinStateCode];
+            const formState = apiData.ledgerData.stateName || apiData.ledgerData.priorStateName || '';
+            if (gstinStateName && formState && formState.toLowerCase() !== gstinStateName.toLowerCase()) {
+              errorMessage += `\n• GSTIN state code mismatch: GSTIN has state code "${gstinStateCode}" (${gstinStateName}), but form state is "${formState}"`;
+            }
+          }
           
           // If the ledger name is truncated, suggest a different name
           if (result.ledgerName.length < apiData.ledgerData.name.length) {
@@ -2018,17 +2567,142 @@ const MasterForm = ({
           // Suggest a unique name
           const timestamp = new Date().getTime().toString().slice(-4);
           const uniqueName = `${apiData.ledgerData.name}_${timestamp}`;
-          errorMessage += `\n\nTry using a unique name like: "${uniqueName}"`;
+          errorMessage += `\n\nTry using a completely different name like: "${uniqueName}" or "TestLedger_${timestamp}"`;
           
           // Also suggest checking existing ledgers
-          errorMessage += `\n\nOr check the master list to see if "${result.ledgerName}" already exists.`;
+          errorMessage += `\n\nOr check the master list to see if "${result.ledgerName}" already exists in any state (pending, approved, or unauthorized).`;
+          
+          // Add note about trying with minimal data
+          errorMessage += `\n\nIf the issue persists with a new name, try creating with only the name field to isolate the problem.`;
+          
+          // Add troubleshooting tips
+          errorMessage += `\n\nTroubleshooting tips:\n• Verify GSTIN format and state code match the address state\n• Check that PAN matches the PAN in GSTIN (positions 3-12)\n• Ensure all required fields are filled correctly\n• Check the payload structure in console logs - all fields are formatted correctly\n• Check server logs for detailed validation errors\n• Contact backend team if issue persists - API response doesn't include detailed error information`;
+          
+          // Log specific field values that might help debug
+          console.error('MasterForm: Debugging info - GSTIN:', apiData.ledgerData.gstinNo, 'PAN:', apiData.ledgerData.panNo, 'State:', apiData.ledgerData.stateName);
+          if (apiData.ledgerData.gstinNo && apiData.ledgerData.panNo) {
+            const panInGstin = apiData.ledgerData.gstinNo.substring(2, 12);
+            console.error('MasterForm: PAN in GSTIN:', panInGstin, 'Matches provided PAN:', panInGstin === apiData.ledgerData.panNo);
+          }
+          if (apiData.ledgerData.gstinNo && apiData.ledgerData.gstinNo.length >= 2) {
+            const gstinStateCode = parseInt(apiData.ledgerData.gstinNo.substring(0, 2));
+            console.error('MasterForm: GSTIN state code:', gstinStateCode, 'Form state:', apiData.ledgerData.stateName);
+          }
         }
         
+        // Add additional error details if available
+        if (result.errors && Array.isArray(result.errors) && result.errors.length > 0) {
+          errorMessage += `\n\nValidation Errors:\n${result.errors.map(err => `• ${err}`).join('\n')}`;
+        }
+        
+        // Check for specific error fields
+        if (result.fieldErrors && typeof result.fieldErrors === 'object') {
+          const fieldErrors = Object.entries(result.fieldErrors)
+            .map(([field, error]) => `• ${field}: ${error}`)
+            .join('\n');
+          if (fieldErrors) {
+            errorMessage += `\n\nField Errors:\n${fieldErrors}`;
+          }
+        }
+        
+        // Check for validationErrors array
+        if (result.validationErrors && Array.isArray(result.validationErrors)) {
+          errorMessage += `\n\nValidation Errors:\n${result.validationErrors.map(err => `• ${err}`).join('\n')}`;
+        }
+        
+        // Check for errorDetails
+        if (result.errorDetails) {
+          if (typeof result.errorDetails === 'string') {
+            errorMessage += `\n\nError Details: ${result.errorDetails}`;
+          } else if (typeof result.errorDetails === 'object') {
+            errorMessage += `\n\nError Details:\n${JSON.stringify(result.errorDetails, null, 2)}`;
+          }
+        }
+        
+        // Check for error array (common in some APIs)
+        if (result.error && Array.isArray(result.error)) {
+          const errorList = result.error.map(err => typeof err === 'string' ? err : JSON.stringify(err)).join('\n');
+          errorMessage += `\n\nErrors:\n${errorList}`;
+        } else if (result.error && typeof result.error === 'string') {
+          errorMessage += `\n\nError: ${result.error}`;
+        }
+        
+        // Check for data.error (nested error)
+        if (result.data && result.data.error) {
+          if (typeof result.data.error === 'string') {
+            errorMessage += `\n\nData Error: ${result.data.error}`;
+          } else if (typeof result.data.error === 'object') {
+            errorMessage += `\n\nData Error:\n${JSON.stringify(result.data.error, null, 2)}`;
+          }
+        }
+        
+        // Check for any other error-related fields
+        const errorFields = ['errorMessage', 'error_msg', 'errorMsg', 'err', 'failureReason', 'reason'];
+        for (const field of errorFields) {
+          if (result[field]) {
+            errorMessage += `\n\n${field}: ${typeof result[field] === 'string' ? result[field] : JSON.stringify(result[field])}`;
+          }
+        }
+        
+        // Log all result properties to help debug
+        console.error('API Error Response - All properties:', Object.keys(result));
+        console.error('API Error Response - Full object:', result);
+        console.error('API Error Response - Stringified:', JSON.stringify(result, null, 2));
+        
+        // Log the request payload for debugging
+        console.error('API Request Payload:', JSON.stringify(apiData, null, 2));
+        
+        // Log specific fields that might help identify the issue
+        if (result.data) {
+          console.error('API Error Response - Data object:', result.data);
+          console.error('API Error Response - Data keys:', Object.keys(result.data));
+        }
+        
+        // If there's a status field, include it
+        if (result.status !== undefined) {
+          errorMessage += `\n\nStatus: ${result.status}`;
+          // Status 1 often indicates failure in this API
+          if (result.status === 1) {
+            errorMessage += ' (Error status)';
+          }
+        }
+        
+        // If there's a created field, include it
+        if (result.created !== undefined) {
+          errorMessage += `\nCreated: ${result.created}`;
+        }
+        
+        // If there's an errors count field
+        if (result.errors !== undefined && typeof result.errors === 'number') {
+          errorMessage += `\nErrors count: ${result.errors}`;
+        }
         
         throw new Error(errorMessage);
       }
       
       console.log('MasterForm: Master created successfully');
+      console.log('MasterForm: Full API response:', JSON.stringify(result, null, 2));
+      console.log('MasterForm: Response keys:', result ? Object.keys(result) : 'No result');
+      
+      // Check if the response indicates the master was actually created
+      if (result) {
+        console.log('MasterForm: Created status:', result.created);
+        console.log('MasterForm: Success status:', result.success);
+        console.log('MasterForm: Ledger name in response:', result.ledgerName);
+        console.log('MasterForm: Status in response:', result.status);
+        console.log('MasterForm: Authorization status:', result.authorizationStatus);
+        
+        // Warn if created is 0 or false
+        if (result.created === 0 || result.created === false) {
+          console.warn('⚠️ MasterForm: API returned created: 0/false - master may not have been created in database');
+        }
+        
+        // Warn if success is false
+        if (result.success === false) {
+          console.warn('⚠️ MasterForm: API returned success: false - check error messages');
+        }
+      }
+      
       return result;
     } catch (err) {
       console.error('Error creating master:', err);
@@ -2039,10 +2713,60 @@ const MasterForm = ({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    e.stopPropagation();
     console.log('MasterForm: Form submitted');
+    console.log('MasterForm: Form data:', formData);
 
-    if (!validateForm()) {
-      console.log('MasterForm: Form validation failed');
+    // Clear previous errors
+    setSubmitError(null);
+    setValidationErrors([]);
+    setShowValidationModal(false);
+
+    // First, run comprehensive validation
+    const validationErrorsList = validateAllFields();
+    
+    if (validationErrorsList.length > 0) {
+      setValidationErrors(validationErrorsList);
+      setShowValidationModal(true);
+      console.log('MasterForm: Validation errors found:', validationErrorsList);
+      return; // Stop here, don't proceed to API call
+    }
+
+    // Then run the existing validateForm (for field-level errors)
+    const isValid = validateForm();
+    console.log('MasterForm: Validation result:', isValid);
+    console.log('MasterForm: Validation errors:', errors);
+    
+    if (!isValid) {
+      console.log('MasterForm: Form validation failed - errors:', errors);
+      // Convert field errors to list format
+      const fieldErrors = Object.entries(errors)
+        .filter(([key, value]) => value)
+        .map(([key, value]) => `${key}: ${value}`);
+      
+      if (fieldErrors.length > 0) {
+        setValidationErrors(fieldErrors);
+        setShowValidationModal(true);
+      }
+      
+      // Scroll to first error after a short delay to allow state to update
+      setTimeout(() => {
+        const firstErrorKey = Object.keys(errors)[0];
+        if (firstErrorKey) {
+          // Try to find the error element
+          const errorElement = document.querySelector(`[name="${firstErrorKey}"], [id="${firstErrorKey}"], input[data-field="${firstErrorKey}"]`);
+          if (errorElement) {
+            errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            errorElement.focus();
+          } else {
+            // Try to find by error message
+            const errorMessage = document.querySelector(`[data-error="${firstErrorKey}"]`);
+            if (errorMessage) {
+              errorMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+          }
+        }
+      }, 100);
       return;
     }
 
@@ -2079,6 +2803,18 @@ const MasterForm = ({
         // Save master name before resetting form
         const createdMasterName = formData.name;
         
+        // Log the API response to see what data is returned
+        console.log('MasterForm: API creation response:', result);
+        console.log('MasterForm: Response keys:', result ? Object.keys(result) : 'No result');
+        
+        // Check if the API response includes the created master data
+        if (result && (result.ledgerData || result.data || result.master)) {
+          console.log('MasterForm: API response includes master data');
+          // The master data might be in result.ledgerData, result.data, or result.master
+          const masterData = result.ledgerData || result.data || result.master;
+          console.log('MasterForm: Extracted master data:', masterData);
+        }
+        
         // Reset form (but keep success message for now)
         resetForm(true);
         
@@ -2087,7 +2823,15 @@ const MasterForm = ({
         setSuccessMessage(`Master created, sent for authorization\n\nMaster: ${createdMasterName}`);
         
         // Trigger global refresh to update master lists
+        // Add a small delay to allow backend to process the new master
         window.dispatchEvent(new CustomEvent('globalRefresh'));
+        
+        // Also trigger a delayed refresh to ensure the master appears in the list
+        // This gives the backend time to make the master available in ledger-list
+        setTimeout(() => {
+          console.log('MasterForm: Delayed refresh triggered to ensure new master appears');
+          window.dispatchEvent(new CustomEvent('globalRefresh'));
+        }, 1000);
         
         // Call success callback
         onSuccess?.();
@@ -2617,6 +3361,7 @@ const MasterForm = ({
                       value={formData.group}
                       onChange={(value) => updateField('group', value)}
                       placeholder={loadingGroups ? "Loading groups..." : "Search or select group"}
+                      noResultsMessage="No groups found"
                       style={{
                         ...inputStyles,
                         border: `1px solid ${errors.group ? '#ef4444' : '#d1d5db'}`,
@@ -3047,12 +3792,13 @@ const MasterForm = ({
               )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 {formData.addresses.map((addr, index) => (
-                  <div key={index} style={{ 
+                  <div key={`address-${index}`} style={{ 
                     padding: '20px', 
                     backgroundColor: '#f9fafb', 
                     borderRadius: '8px', 
                     border: '1px solid #e5e7eb',
-                    position: 'relative'
+                    position: 'relative',
+                    overflow: 'visible'
                   }}>
                     {formData.addresses.length > 1 && (
                       <button
@@ -3104,6 +3850,35 @@ const MasterForm = ({
                       gap: '24px',
                       alignItems: 'start'
                     }}>
+                      {/* Address type */}
+                      <div>
+                        <label style={{ 
+                          display: 'block', 
+                          fontSize: '14px', 
+                          fontWeight: '500', 
+                          color: '#374151', 
+                          marginBottom: '6px',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>
+                          Address type
+                        </label>
+                        <input
+                          type="text"
+                          value={addr.addressName || ''}
+                          onChange={(e) => updateAddressField(index, 'addressName', e.target.value)}
+                          disabled={!fieldStates.hasAddress}
+                          style={{
+                            ...inputStyles,
+                            border: `1px solid ${errors[`address_${index}_addressName`] ? '#ef4444' : '#d1d5db'}`,
+                            opacity: !fieldStates.hasAddress ? 0.6 : 1,
+                            cursor: !fieldStates.hasAddress ? 'not-allowed' : 'text',
+                            backgroundColor: !fieldStates.hasAddress ? '#f3f4f6' : '#fff'
+                          }}
+                          placeholder="Enter address type (e.g., A, B, C, Office, Home)"
+                        />
+                        {errors[`address_${index}_addressName`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`address_${index}_addressName`]}</p>}
+                      </div>
+
                       {/* Address */}
                       <div style={{ gridColumn: 'span 2' }}>
                         <label style={{ 
@@ -3146,12 +3921,16 @@ const MasterForm = ({
                         }}>
                           {MASTER_CONSTANTS.FORM_LABELS.COUNTRY}
                         </label>
-                        <div style={{ opacity: !fieldStates.hasAddress ? 0.6 : 1, pointerEvents: !fieldStates.hasAddress ? 'none' : 'auto' }}>
+                        <div style={{ opacity: !fieldStates.hasAddress ? 0.6 : 1, pointerEvents: !fieldStates.hasAddress ? 'none' : 'auto', position: 'relative', zIndex: 10000 + index }}>
                           <SearchableDropdown
+                            key={`country-dropdown-${index}`}
+                            id={`country-dropdown-${index}`}
                             options={MASTER_CONSTANTS.COUNTRIES}
                             value={addr.country}
                             onChange={(value) => updateAddressField(index, 'country', value)}
                             placeholder="Start typing to search countries..."
+                            noResultsMessage="No countries found"
+                            zIndexOffset={index}
                             style={{
                               ...inputStyles,
                               border: `1px solid ${errors[`address_${index}_country`] ? '#ef4444' : '#d1d5db'}`,
@@ -3175,12 +3954,16 @@ const MasterForm = ({
                         }}>
                           {MASTER_CONSTANTS.FORM_LABELS.STATE}
                         </label>
-                        <div style={{ opacity: !fieldStates.hasAddress ? 0.6 : 1, pointerEvents: !fieldStates.hasAddress ? 'none' : 'auto' }}>
+                        <div style={{ opacity: !fieldStates.hasAddress ? 0.6 : 1, pointerEvents: !fieldStates.hasAddress ? 'none' : 'auto', position: 'relative', zIndex: 10000 + index }}>
                           <SearchableDropdown
+                            key={`state-dropdown-${index}`}
+                            id={`state-dropdown-${index}`}
                             options={MASTER_CONSTANTS.INDIAN_STATES}
                             value={addr.state}
                             onChange={(value) => updateAddressField(index, 'state', value)}
                             placeholder="Start typing to search states..."
+                            noResultsMessage="No states found"
+                            zIndexOffset={index}
                             style={{
                               ...inputStyles,
                               border: `1px solid ${errors[`address_${index}_state`] ? '#ef4444' : '#d1d5db'}`,
@@ -3840,35 +4623,6 @@ const MasterForm = ({
                           placeholder="Enter payment favouring name"
                         />
                         {errors[`bank_${index}_paymentFavouring`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_paymentFavouring`]}</p>}
-                      </div>
-
-                      {/* Bank ID */}
-                      <div>
-                        <label style={{ 
-                          display: 'block', 
-                          fontSize: '14px', 
-                          fontWeight: '500', 
-                          color: '#374151', 
-                          marginBottom: '6px',
-                          fontFamily: 'system-ui, -apple-system, sans-serif'
-                        }}>
-                          Bank ID
-                        </label>
-                        <input
-                          type="text"
-                          value={bank.bankId || ''}
-                          onChange={(e) => updateBankDetailField(index, 'bankId', e.target.value)}
-                          disabled={!fieldStates.hasBankDetails}
-                          style={{
-                            ...inputStyles,
-                            border: `1px solid ${errors[`bank_${index}_bankId`] ? '#ef4444' : '#d1d5db'}`,
-                            opacity: !fieldStates.hasBankDetails ? 0.6 : 1,
-                            cursor: !fieldStates.hasBankDetails ? 'not-allowed' : 'text',
-                            backgroundColor: !fieldStates.hasBankDetails ? '#f3f4f6' : '#fff'
-                          }}
-                          placeholder="Enter bank ID"
-                        />
-                        {errors[`bank_${index}_bankId`] && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors[`bank_${index}_bankId`]}</p>}
                       </div>
 
                       {/* Default Transaction Type */}
@@ -4909,6 +5663,125 @@ const MasterForm = ({
       </form>
         </div>
       </div>
+
+      {/* Validation Error Modal */}
+      {showValidationModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 10000,
+          padding: '20px'
+        }} onClick={() => setShowValidationModal(false)}>
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '8px',
+            padding: '24px',
+            maxWidth: '600px',
+            width: '100%',
+            maxHeight: '80vh',
+            overflow: 'auto',
+            boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+          }} onClick={(e) => e.stopPropagation()}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '20px',
+              borderBottom: '2px solid #ef4444',
+              paddingBottom: '12px'
+            }}>
+              <h2 style={{
+                margin: 0,
+                color: '#ef4444',
+                fontSize: '20px',
+                fontWeight: '600'
+              }}>
+                ⚠️ Validation Errors
+              </h2>
+              <button
+                onClick={() => setShowValidationModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '24px',
+                  cursor: 'pointer',
+                  color: '#666',
+                  padding: '0',
+                  width: '30px',
+                  height: '30px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                ×
+              </button>
+            </div>
+            
+            <div style={{ marginBottom: '20px' }}>
+              <p style={{
+                margin: '0 0 16px 0',
+                color: '#666',
+                fontSize: '14px'
+              }}>
+                Please fix the following errors before creating the master:
+              </p>
+              
+              <ul style={{
+                margin: 0,
+                paddingLeft: '20px',
+                listStyle: 'disc'
+              }}>
+                {validationErrors.map((error, index) => (
+                  <li key={index} style={{
+                    marginBottom: '8px',
+                    color: '#dc2626',
+                    fontSize: '14px',
+                    lineHeight: '1.5'
+                  }}>
+                    {error}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            
+            <div style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              gap: '12px',
+              marginTop: '24px',
+              paddingTop: '16px',
+              borderTop: '1px solid #e5e7eb'
+            }}>
+              <button
+                onClick={() => setShowValidationModal(false)}
+                style={{
+                  padding: '10px 24px',
+                  backgroundColor: '#ef4444',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  transition: 'background-color 0.2s'
+                }}
+                onMouseOver={(e) => e.target.style.backgroundColor = '#dc2626'}
+                onMouseOut={(e) => e.target.style.backgroundColor = '#ef4444'}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
