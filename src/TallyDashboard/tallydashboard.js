@@ -9,6 +9,8 @@ import PlaceOrder_ECommerce from './PlaceOrder_ECommerce';
 import SalesDashboard from './salesdashboard';
 import ReceivablesDashboard from '../RecvDashboard';
 import VoucherAuthorization from '../vchauth/vchauth';
+import ReceiptListScreenWrapper from './ReceiptListScreenWrapper';
+import CompanyOrdersScreenWrapper from './CompanyOrdersScreenWrapper';
 import TallyConfig from '../admindashboard/tallyconfig';
 import AccessControl from '../access-control/AccessControl';
 import ModulesManagement from '../access-control/ModulesManagement';
@@ -18,6 +20,7 @@ import ShareAccess from '../TallyDashboard/ShareAccess';
 import MasterForm from './MasterForm';
 import MasterAuthorization from './MasterAuthorization';
 import MasterList from './MasterList';
+import CacheManagement from './CacheManagement';
 import { 
   MODULE_SEQUENCE, 
   hasModuleAccess, 
@@ -2719,7 +2722,18 @@ function TallyDashboard() {
               <ReceivablesDashboard company={currentReceivablesCompany} />
             </div>
           )}
+          {activeSidebar === 'receipt_find_party' && (
+            <div style={{ margin: '-20px', padding: '0' }}>
+              <ReceiptListScreenWrapper />
+            </div>
+          )}
+          {activeSidebar === 'company_orders' && (
+            <div style={{ margin: '-20px', padding: '0' }}>
+              <CompanyOrdersScreenWrapper />
+            </div>
+          )}
           {activeSidebar === 'voucher_authorization' && <VoucherAuthorization />}
+          {activeSidebar === 'cache_management' && <CacheManagement />}
           {activeSidebar === 'master_form' && <MasterForm key="master-form" />}
           {activeSidebar === 'master_authorization' && <MasterAuthorization />}
           {activeSidebar === 'master_list' && <MasterList />}

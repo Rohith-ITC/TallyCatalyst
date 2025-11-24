@@ -20,11 +20,12 @@ import {
 } from '../../RecvDashboard/utils/helpers';
 import { getApiUrl } from '../../config';
 import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/companyConfigUtils';
+import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
 
 const SalesDashboard = () => {
   const RAW_DATA_PAGE_SIZE = 20;
 
-  const getInitialCachedState = () => {
+  const getInitialCachedState = async () => {
     try {
       const connections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
       const selectedGuid = sessionStorage.getItem('selectedCompanyGuid');
@@ -32,18 +33,16 @@ const SalesDashboard = () => {
       const company = connections.find(c => c.guid === selectedGuid);
       if (!company || !company.tallyloc_id || !company.guid) return null;
       const cacheKey = `sales-dashboard_${company.tallyloc_id}_${company.guid}`;
-      const cached = sessionStorage.getItem(cacheKey);
-      return cached ? JSON.parse(cached) : null;
+      return await hybridCache.getDashboardState(cacheKey);
     } catch (err) {
       console.warn('⚠️ Unable to read cached sales dashboard state:', err);
       return null;
     }
   };
 
-  const initialCachedState = getInitialCachedState();
 
   // API data state
-  const [sales, setSales] = useState(() => initialCachedState?.sales || []);
+  const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [noCompanySelected, setNoCompanySelected] = useState(false);
@@ -54,15 +53,15 @@ const SalesDashboard = () => {
   const [loadingStartTime, setLoadingStartTime] = useState(null);
 
   // Form state
-  const [fromDate, setFromDate] = useState(() => initialCachedState?.fromDate || '');
-  const [toDate, setToDate] = useState(() => initialCachedState?.toDate || '');
-  const [dateRange, setDateRange] = useState(() => ({ start: initialCachedState?.fromDate || '', end: initialCachedState?.toDate || '' }));
-  const [selectedCustomer, setSelectedCustomer] = useState(() => initialCachedState?.filters?.customer ?? 'all');
-  const [selectedItem, setSelectedItem] = useState(() => initialCachedState?.filters?.item ?? 'all');
-  const [selectedStockGroup, setSelectedStockGroup] = useState(() => initialCachedState?.filters?.stockGroup ?? 'all');
-  const [selectedRegion, setSelectedRegion] = useState(() => initialCachedState?.filters?.region ?? 'all');
-  const [selectedCountry, setSelectedCountry] = useState(() => initialCachedState?.filters?.country ?? 'all');
-  const [selectedPeriod, setSelectedPeriod] = useState(() => initialCachedState?.filters?.period ?? null); // Format: "YYYY-MM"
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [selectedCustomer, setSelectedCustomer] = useState('all');
+  const [selectedItem, setSelectedItem] = useState('all');
+  const [selectedStockGroup, setSelectedStockGroup] = useState('all');
+  const [selectedRegion, setSelectedRegion] = useState('all');
+  const [selectedCountry, setSelectedCountry] = useState('all');
+  const [selectedPeriod, setSelectedPeriod] = useState(null); // Format: "YYYY-MM"
   const [selectedLedgerGroup, setSelectedLedgerGroup] = useState('all');
   const [categoryChartType, setCategoryChartType] = useState('bar');
   const [ledgerGroupChartType, setLedgerGroupChartType] = useState('bar');
@@ -86,8 +85,7 @@ const SalesDashboard = () => {
   const [salespersonFormula, setSalespersonFormula] = useState(''); // Formula from company configuration
   const requestTimestampRef = useRef(Date.now());
 
-  // Cache for API responses
-  const [apiCache, setApiCache] = useState(new Map());
+  // Note: apiCache removed - using hybridCache (OPFS-only) instead
   const [shouldAutoLoad, setShouldAutoLoad] = useState(false);
   const loadSalesRef = useRef(null);
   const [rawDataModal, setRawDataModal] = useState({ open: false, title: '', rows: [], columns: [] });
@@ -240,11 +238,11 @@ const SalesDashboard = () => {
     setSelectedPeriod(filters.period ?? null);
   }, [setFromDate, setToDate, setDateRange, setSales, setSelectedCustomer, setSelectedItem, setSelectedStockGroup, setSelectedRegion, setSelectedCountry, setSelectedPeriod]);
 
-  const persistDashboardCache = (companyInfo, payload) => {
+  const persistDashboardCache = async (companyInfo, payload) => {
     const cacheKey = getDashboardCacheKey(companyInfo);
     if (!cacheKey) return;
     try {
-      sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+      await hybridCache.setDashboardState(cacheKey, payload);
     } catch (err) {
       console.warn('⚠️ Failed to persist sales dashboard cache:', err);
     }
@@ -264,7 +262,7 @@ const SalesDashboard = () => {
     };
   }, []);
 
-  const initializeDashboard = useCallback((options = { triggerFetch: true }) => {
+  const initializeDashboard = useCallback(async (options = { triggerFetch: true }) => {
     try {
       const companyInfo = getCompanyInfo();
       setNoCompanySelected(false);
@@ -272,16 +270,11 @@ const SalesDashboard = () => {
 
       const cacheKey = getDashboardCacheKey(companyInfo);
       if (cacheKey) {
-        const cachedState = sessionStorage.getItem(cacheKey);
+        const cachedState = await getInitialCachedState();
         if (cachedState) {
-          try {
-            const parsed = JSON.parse(cachedState);
-            applyCachedDashboardState(parsed);
-            setShouldAutoLoad(false);
-            return;
-          } catch (err) {
-            console.warn('⚠️ Failed to parse cached sales dashboard state:', err);
-          }
+          applyCachedDashboardState(cachedState);
+          setShouldAutoLoad(false);
+          return;
         }
       }
 
@@ -368,25 +361,87 @@ const SalesDashboard = () => {
     const companyInfo = getCompanyInfo();
     // Include salesperson formula in cache key so cache invalidates when formula changes
     const formulaHash = salespersonFormula ? btoa(salespersonFormula).substring(0, 10) : 'noformula';
-    const cacheKey = `${companyInfo.tallyloc_id}_${companyInfo.guid}_${requestTimestampRef.current}_${formulaHash}_${startDate}_${endDate}`;
+    const baseKey = `${companyInfo.tallyloc_id}_${companyInfo.guid}_${requestTimestampRef.current}_${formulaHash}`;
+    const cacheKey = `${baseKey}_${startDate}_${endDate}`;
     
-    // Check cache first
-    if (apiCache.has(cacheKey)) {
-      const cachedData = apiCache.get(cacheKey);
-      const cacheDate = new Date(cachedData.timestamp);
-      const now = new Date();
-      const daysDiff = (now - cacheDate) / (1000 * 60 * 60 * 24);
-      
-      if (daysDiff < 5) {
-        console.log(`📋 Using cached data for ${startDate} to ${endDate}`);
-        return cachedData.data;
-      } else {
-        console.log(`⏰ Cache expired for ${startDate} to ${endDate}, fetching fresh data`);
+    // First, check for exact cache match
+    try {
+      const cachedData = await hybridCache.getSalesData(cacheKey); // Uses configured expiry
+      if (cachedData) {
+        console.log(`📋 Using exact cached data for ${startDate} to ${endDate}`);
+        return cachedData;
       }
-    } else {
-      console.log(`🆕 No cache found for ${startDate} to ${endDate}, fetching fresh data`);
+    } catch (error) {
+      console.warn('Cache read error:', error);
     }
+    
+    // Check for overlapping cached date ranges
+    try {
+      const cachedRanges = await hybridCache.findCachedDateRanges(baseKey, startDate, endDate);
+      
+      if (cachedRanges.length > 0) {
+        console.log(`🔍 Found ${cachedRanges.length} overlapping cached date range(s)`);
+        
+        // Calculate gaps (missing date ranges)
+        const requestRange = { startDate, endDate };
+        const { cached, gaps } = DateRangeUtils.splitDateRangeIntoGaps(requestRange, cachedRanges);
+        
+        if (gaps.length === 0) {
+          // All data is cached, merge and return
+          console.log(`✅ All data is cached, merging ${cached.length} cached range(s)`);
+          return mergeCachedData(cached);
+        }
+        
+        // Some data is missing, fetch only gaps
+        console.log(`📊 Partial cache: ${cached.length} cached range(s), ${gaps.length} gap(s) to fetch`);
+        
+        // Fetch missing date ranges
+        const fetchedData = [];
+        for (const gap of gaps) {
+          console.log(`🔄 Fetching gap: ${gap.startDate} to ${gap.endDate}`);
+          const gapData = await fetchSalesDataFromAPI(companyInfo, gap.startDate, gap.endDate);
+          if (gapData) {
+            fetchedData.push({
+              startDate: gap.startDate,
+              endDate: gap.endDate,
+              data: gapData
+            });
+          }
+        }
+        
+        // Merge cached and fetched data
+        const allRanges = [...cached, ...fetchedData];
+        const merged = mergeCachedData(allRanges);
+        
+        // Cache the newly fetched gaps
+        for (const fetched of fetchedData) {
+          const gapCacheKey = `${baseKey}_${fetched.startDate}_${fetched.endDate}`;
+          hybridCache.setSalesData(gapCacheKey, fetched.data, null, fetched.startDate, fetched.endDate).catch(err => {
+            console.warn('Cache write error (non-critical):', err);
+          });
+        }
+        
+        return merged;
+      }
+    } catch (error) {
+      console.warn('Error checking for overlapping cache:', error);
+    }
+    
+    console.log(`🆕 No cache found for ${startDate} to ${endDate}, fetching fresh data`);
+    
+    // Fetch from API
+    const data = await fetchSalesDataFromAPI(companyInfo, startDate, endDate);
+    
+    // Cache the response - non-blocking (uses configured expiry)
+    hybridCache.setSalesData(cacheKey, data, null, startDate, endDate).catch(err => {
+      console.warn('Cache write error (non-critical):', err);
+    });
 
+    return data;
+  };
+
+  // Helper function to fetch data from API
+  const fetchSalesDataFromAPI = async (companyInfo, startDate, endDate) => {
     try {
       const payload = {
         tallyloc_id: companyInfo.tallyloc_id,
@@ -449,17 +504,46 @@ const SalesDashboard = () => {
         });
       }
       
-      // Cache the response
-      setApiCache(prev => new Map(prev).set(cacheKey, {
-        data: data,
-        timestamp: new Date().toISOString()
-      }));
-
       return data;
     } catch (error) {
-      console.error('Error fetching sales data:', error);
+      console.error('Error fetching sales data from API:', error);
       throw error;
     }
+  };
+
+  // Helper function to merge cached data from multiple date ranges
+  const mergeCachedData = (ranges) => {
+    if (ranges.length === 0) {
+      return { vouchers: [] };
+    }
+    
+    // Combine all vouchers
+    const allVouchers = [];
+    const voucherIds = new Set(); // To track duplicates
+    
+    for (const range of ranges) {
+      if (range.data?.vouchers && Array.isArray(range.data.vouchers)) {
+        for (const voucher of range.data.vouchers) {
+          // Try to identify unique vouchers (use voucher number or ID if available)
+          const voucherId = voucher.voucher_number || voucher.voucherNumber || voucher.id || 
+                           `${voucher.cp_date || voucher.date}_${voucher.customer}_${voucher.amount}`;
+          
+          if (!voucherIds.has(voucherId)) {
+            voucherIds.add(voucherId);
+            allVouchers.push(voucher);
+          }
+        }
+      }
+    }
+    
+    // Return merged data structure
+    return {
+      vouchers: allVouchers,
+      ...(ranges[0].data ? Object.keys(ranges[0].data).filter(k => k !== 'vouchers').reduce((acc, key) => {
+        acc[key] = ranges[0].data[key];
+        return acc;
+      }, {}) : {})
+    };
   };
 
   // Fetch company configuration for sales person formula
@@ -511,7 +595,7 @@ const SalesDashboard = () => {
         new: salespersonFormula
       });
       // Clear cache to force fresh fetch with new formula
-      setApiCache(new Map());
+      // Note: Cache will be invalidated by requestTimestampRef update
       // Refresh data if date range is already set
       if (dateRange.start && dateRange.end) {
         initializeDashboard({ triggerFetch: true });
@@ -643,7 +727,7 @@ const SalesDashboard = () => {
 
     if (invalidateCache) {
       requestTimestampRef.current = Date.now();
-    setApiCache(new Map());
+      // Note: Cache invalidation happens via cacheKey change (requestTimestampRef)
     }
 
     setLoading(true);
