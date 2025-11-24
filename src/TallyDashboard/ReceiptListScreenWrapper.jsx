@@ -1,5 +1,5 @@
 import React from 'react';
-import ReceiptListScreen from './ReceiptListScreen';
+import ReceiptListScreen from './ReceiptListScreen.tsx';
 
 // Wrapper component that reads company from sessionStorage and passes to TypeScript screen
 const ReceiptListScreenWrapper = () => {
