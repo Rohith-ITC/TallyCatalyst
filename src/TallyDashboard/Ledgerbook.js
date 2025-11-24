@@ -147,9 +147,24 @@ function Ledgerbook() {
 
     if (table === 'Ledger Vouchers') {
       voucherData = row?.originalRow || row;
-    } else if (table === 'Bill wise O/s' && row?.isVoucherEntry) {
-      voucherData = row.originalVoucher || row;
-      parentBillRow = row.originalRow || row.billRowSnapshot || null;
+    } else if (table === 'Bill wise O/s') {
+      if (row?.isVoucherEntry) {
+        // Clicked on a voucher entry row
+        voucherData = row.originalVoucher || row;
+        parentBillRow = row.originalRow || row.billRowSnapshot || null;
+      } else if (row?.VOUCHERS && Array.isArray(row.VOUCHERS) && row.VOUCHERS.length > 0) {
+        // Clicked on a bill row - use the first voucher
+        voucherData = row.VOUCHERS[0];
+        parentBillRow = row;
+      } else {
+        // Bill row without vouchers - try to use row data directly if it has voucher fields
+        if (row.MASTERID || row.VCHNO || row.VOUCHERNUMBER) {
+          voucherData = row;
+          parentBillRow = null;
+        } else {
+          return; // No voucher data available
+        }
+      }
     } else {
       return;
     }
@@ -2133,7 +2148,8 @@ function Ledgerbook() {
                           const baseVoucherRow = row?.originalRow || row;
                           const isLedgerVoucherRow = table === 'Ledger Vouchers' && (baseVoucherRow?.VCHNO || baseVoucherRow?.VOUCHERNUMBER);
                           const isBillwiseVoucherRow = table === 'Bill wise O/s' && row?.isVoucherEntry && (row.originalVoucher || row);
-                          const isVoucherRow = Boolean(isLedgerVoucherRow || isBillwiseVoucherRow);
+                          const isBillwiseBillRow = table === 'Bill wise O/s' && !row?.isVoucherEntry && (row?.VOUCHERS?.length > 0 || row?.MASTERID || row?.VCHNO || row?.VOUCHERNUMBER);
+                          const isVoucherRow = Boolean(isLedgerVoucherRow || isBillwiseVoucherRow || isBillwiseBillRow);
                           return (
                           <tr
                             key={index}
@@ -2937,6 +2953,28 @@ function Ledgerbook() {
               <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Particulars</div>
                 <div style={{ fontSize: 16, fontWeight: 600, color: '#1e293b' }}>{viewingVoucher.particulars || viewingVoucher.PARTICULARS}</div>
+              </div>
+            )}
+            {(viewingVoucher?.NARRATION || viewingVoucher?.narration || viewingVoucher?.Narration || viewingVoucher?.CP_Temp7 || viewingVoucher?.cp_temp7) && (
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span className="material-icons" style={{ fontSize: 16, color: '#64748b' }}>description</span>
+                  Narration
+                </div>
+                <div style={{ 
+                  fontSize: 14, 
+                  fontWeight: 500, 
+                  color: '#1e293b',
+                  padding: '12px 16px',
+                  background: '#f8fafc',
+                  borderRadius: '8px',
+                  border: '1px solid #e2e8f0',
+                  lineHeight: '1.6',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word'
+                }}>
+                  {viewingVoucher?.NARRATION || viewingVoucher?.narration || viewingVoucher?.Narration || viewingVoucher?.CP_Temp7 || viewingVoucher?.cp_temp7}
+                </div>
               </div>
             )}
             {(viewingVoucher?.openingBalances || viewingVoucher?.pendingBalances || viewingVoucher?.dueOn || viewingVoucher?.overdueDays !== undefined) && (
