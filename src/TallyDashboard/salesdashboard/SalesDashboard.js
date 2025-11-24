@@ -85,7 +85,7 @@ const SalesDashboard = () => {
   const [salespersonFormula, setSalespersonFormula] = useState(''); // Formula from company configuration
   const requestTimestampRef = useRef(Date.now());
 
-  // Note: apiCache removed - using hybridCache (OPFS/IndexedDB) instead
+  // Note: apiCache removed - using hybridCache (OPFS-only) instead
   const [shouldAutoLoad, setShouldAutoLoad] = useState(false);
   const loadSalesRef = useRef(null);
   const [rawDataModal, setRawDataModal] = useState({ open: false, title: '', rows: [], columns: [] });
@@ -366,7 +366,7 @@ const SalesDashboard = () => {
     
     // First, check for exact cache match
     try {
-      const cachedData = await hybridCache.getSalesData(cacheKey, 5); // 5 days expiry
+      const cachedData = await hybridCache.getSalesData(cacheKey); // Uses configured expiry
       if (cachedData) {
         console.log(`📋 Using exact cached data for ${startDate} to ${endDate}`);
         return cachedData;
@@ -377,7 +377,7 @@ const SalesDashboard = () => {
     
     // Check for overlapping cached date ranges
     try {
-      const cachedRanges = await hybridCache.findCachedDateRanges(baseKey, startDate, endDate, 5);
+      const cachedRanges = await hybridCache.findCachedDateRanges(baseKey, startDate, endDate);
       
       if (cachedRanges.length > 0) {
         console.log(`🔍 Found ${cachedRanges.length} overlapping cached date range(s)`);
@@ -416,7 +416,7 @@ const SalesDashboard = () => {
         // Cache the newly fetched gaps
         for (const fetched of fetchedData) {
           const gapCacheKey = `${baseKey}_${fetched.startDate}_${fetched.endDate}`;
-          hybridCache.setSalesData(gapCacheKey, fetched.data, 5, fetched.startDate, fetched.endDate).catch(err => {
+          hybridCache.setSalesData(gapCacheKey, fetched.data, null, fetched.startDate, fetched.endDate).catch(err => {
             console.warn('Cache write error (non-critical):', err);
           });
         }
@@ -432,8 +432,8 @@ const SalesDashboard = () => {
     // Fetch from API
     const data = await fetchSalesDataFromAPI(companyInfo, startDate, endDate);
     
-    // Cache the response - non-blocking
-    hybridCache.setSalesData(cacheKey, data, 5, startDate, endDate).catch(err => {
+    // Cache the response - non-blocking (uses configured expiry)
+    hybridCache.setSalesData(cacheKey, data, null, startDate, endDate).catch(err => {
       console.warn('Cache write error (non-critical):', err);
     });
 

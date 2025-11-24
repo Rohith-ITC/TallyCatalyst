@@ -18,6 +18,7 @@ import ShareAccess from '../TallyDashboard/ShareAccess';
 import MasterForm from './MasterForm';
 import MasterAuthorization from './MasterAuthorization';
 import MasterList from './MasterList';
+import CacheManagement from './CacheManagement';
 import { 
   MODULE_SEQUENCE, 
   hasModuleAccess, 
@@ -2720,6 +2721,7 @@ function TallyDashboard() {
             </div>
           )}
           {activeSidebar === 'voucher_authorization' && <VoucherAuthorization />}
+          {activeSidebar === 'cache_management' && <CacheManagement />}
           {activeSidebar === 'master_form' && <MasterForm key="master-form" />}
           {activeSidebar === 'master_authorization' && <MasterAuthorization />}
           {activeSidebar === 'master_list' && <MasterList />}
