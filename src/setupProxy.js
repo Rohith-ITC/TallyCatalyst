@@ -4,8 +4,8 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 // Read from .env file, with fallback for backward compatibility
 const DEFAULT_TARGET =
   process.env.NODE_ENV === 'development'
-    ? (process.env.REACT_APP_DEV_API_URL || 'http://localhost:3001')
-    : (process.env.REACT_APP_PRODUCTION_API_URL || process.env.REACT_APP_STAGING_API_URL || 'http://localhost:3001');
+    ? (process.env.REACT_APP_DEV_API_URL || 'https://itcatalystindia.com/Development/CustomerPortal_API')
+    : (process.env.REACT_APP_PRODUCTION_API_URL || process.env.REACT_APP_STAGING_API_URL || 'https://itcatalystindia.com/Development/CustomerPortal_API');
 
 module.exports = function setupProxy(app) {
   // Log the proxy target for debugging
