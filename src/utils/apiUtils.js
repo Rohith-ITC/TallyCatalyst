@@ -51,8 +51,15 @@ export const apiFetch = async (endpoint, options = {}) => {
     headers.Authorization = `Bearer ${token}`;
   }
 
+  const apiUrl = getApiUrl(endpoint);
+  
+  // Debug: Log full API URL in development
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🌐 API URL:', apiUrl);
+  }
+  
   try {
-    const response = await fetch(getApiUrl(endpoint), {
+    const response = await fetch(apiUrl, {
       ...options,
       headers,
     });

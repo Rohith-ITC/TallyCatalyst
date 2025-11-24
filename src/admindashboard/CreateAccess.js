@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiGet, apiPost, apiPut } from '../utils/apiUtils';
+import { checkUserLimit, checkSubscriptionStatus } from '../utils/subscriptionUtils';
+import { useNavigate } from 'react-router-dom';
+import PurchaseUsersModal from './components/PurchaseUsersModal';
 
 function CreateAccess() {
+  const navigate = useNavigate();
   const [connections, setConnections] = useState([]);
   const [internalUsers, setInternalUsers] = useState([]);
   const [roles, setRoles] = useState([]);
@@ -48,6 +52,9 @@ function CreateAccess() {
   const [tableError, setTableError] = useState('');
   const [validationAttempted, setValidationAttempted] = useState(false);
   const [userSearchTerm, setUserSearchTerm] = useState('');
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
+  const [subscriptionInfo, setSubscriptionInfo] = useState({ total_user_limit: 0 });
+  const [userCountInfo, setUserCountInfo] = useState({ count: 0 });
   const token = sessionStorage.getItem('token');
   
   // Routes state
@@ -587,6 +594,50 @@ function CreateAccess() {
     };
   }, []);
 
+  // Fetch subscription info for user limit display
+  useEffect(() => {
+    const fetchSubscriptionInfo = async () => {
+      try {
+        const [subResult, countResult] = await Promise.allSettled([
+          checkSubscriptionStatus(),
+          apiGet('/api/subscription/user-count')
+        ]);
+        
+        const subData = subResult.status === 'fulfilled' ? subResult.value : null;
+        const countData = countResult.status === 'fulfilled' ? countResult.value : null;
+        
+        // Set subscription info (checkSubscriptionStatus returns the subscription object directly)
+        if (subData) {
+          setSubscriptionInfo(subData);
+        } else {
+          // Keep existing or set default values if API fails
+          setSubscriptionInfo(prev => prev || { total_user_limit: 0 });
+        }
+        
+        // Set user count info
+        if (countData) {
+          setUserCountInfo(countData);
+        } else {
+          // Use internalUsers length as fallback if API fails
+          setUserCountInfo({ count: internalUsers.length || 0 });
+        }
+      } catch (error) {
+        console.error('Error fetching subscription info:', error);
+        // Keep existing values or set fallback
+        setSubscriptionInfo(prev => prev || { total_user_limit: 0 });
+        setUserCountInfo({ count: internalUsers.length || 0 });
+      }
+    };
+    fetchSubscriptionInfo();
+  }, []);
+
+  // Update user count when internalUsers changes (as fallback if API doesn't update)
+  useEffect(() => {
+    if (internalUsers.length > 0 && (!userCountInfo || userCountInfo.count === 0)) {
+      setUserCountInfo(prev => ({ count: internalUsers.length || prev?.count || 0 }));
+    }
+  }, [internalUsers.length]);
+
   // Handle form input
   const handleInput = e => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -785,6 +836,20 @@ function CreateAccess() {
       return;
     }
     
+    // Check subscription limit before creating user
+    try {
+      const limitCheck = await checkUserLimit();
+      if (!limitCheck.canCreate) {
+        // Show purchase modal instead of error message
+        setShowPurchaseModal(true);
+        setFormLoading(false);
+        return;
+      }
+    } catch (error) {
+      console.error('Error checking subscription limit:', error);
+      // Continue with creation if check fails (graceful degradation)
+    }
+    
     try {
       // Prepare companies array with required structure
       const companies = form.companyGuids.map(guid => {
@@ -825,6 +890,18 @@ function CreateAccess() {
           setFormSuccess(successMessage);
           setForm({ roleId: '', companyGuids: [], userName: '', email: '', mobile: '', isExternalUser: false });
           setValidationAttempted(false);
+          
+          // Refresh subscription info to update user count badge
+          try {
+            const [subData, countData] = await Promise.all([
+              checkSubscriptionStatus(),
+              apiGet('/api/subscription/user-count')
+            ]);
+            setSubscriptionInfo(subData);
+            setUserCountInfo(countData);
+          } catch (error) {
+            console.error('Error refreshing subscription info:', error);
+          }
           
           // Refresh internal users list after successful creation
           fetchInternalUsers();
@@ -948,7 +1025,7 @@ function CreateAccess() {
             response = await fetch(url, {
               method: 'GET',
         headers: {
-                'User-Agent': 'TallyCatalyst/1.0 (Contact: support@tallycatalyst.com)',
+                'User-Agent': 'DataLynk/1.0 (Contact: support@datalynk.com)',
                 'Accept': 'application/json',
                 'Accept-Language': 'en-US,en;q=0.9'
               },
@@ -1412,7 +1489,7 @@ function CreateAccess() {
     setRoutesLoading(true);
     try {
       // API CODE: Using real API or localStorage
-        // Fallback to localStorage (SQLite simulation)
+      // Fallback to localStorage (SQLite simulation)
         const storedRoutes = JSON.parse(localStorage.getItem('routes') || '[]');
         const storedAssignments = JSON.parse(localStorage.getItem('route_assignments') || '[]');
         
@@ -2260,10 +2337,114 @@ function CreateAccess() {
           }}>
             <span className="material-icons" style={{ fontSize: 28, color: '#fff' }}>person_add</span>
           </div>
-          <div>
-            <h3 style={{ color: '#1e293b', fontWeight: 800, margin: 0, fontSize: 24, letterSpacing: '-0.5px' }}>User Access Form</h3>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ color: '#1e293b', fontWeight: 800, margin: 0, fontSize: 24, letterSpacing: '-0.5px', marginBottom: 4 }}>User Access Form</h3>
             <div style={{ color: '#64748b', fontSize: 14, marginTop: 4, fontWeight: 500 }}>Create new user access and assign permissions</div>
           </div>
+          {/* Show Subscribe button if no subscription, otherwise show user count badge */}
+          {(!subscriptionInfo || !subscriptionInfo.planId || !subscriptionInfo.total_user_limit || subscriptionInfo.total_user_limit === 0) ? (
+            <button
+              onClick={() => navigate('/admin-dashboard?view=subscription')}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 20px',
+                background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 20,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap',
+                marginLeft: 'auto',
+                fontSize: 14,
+                fontWeight: 600,
+                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
+              }}
+              title="Subscribe to unlock user management features"
+            >
+              <span className="material-icons" style={{ fontSize: 18 }}>subscriptions</span>
+              <span>Subscribe</span>
+            </button>
+          ) : subscriptionInfo && userCountInfo && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '6px 14px',
+                background: (userCountInfo?.count || 0) >= (subscriptionInfo?.total_user_limit || 0) 
+                  ? '#fef2f2' 
+                  : (userCountInfo?.count || 0) >= ((subscriptionInfo?.total_user_limit || 0) * 0.8) 
+                    ? '#fef3c7' 
+                    : '#f0fdf4',
+                border: `1px solid ${
+                  (userCountInfo?.count || 0) >= (subscriptionInfo?.total_user_limit || 0) 
+                    ? '#fecaca' 
+                    : (userCountInfo?.count || 0) >= ((subscriptionInfo?.total_user_limit || 0) * 0.8) 
+                      ? '#fde68a' 
+                      : '#86efac'
+                }`,
+                borderRadius: 20,
+                cursor: (userCountInfo?.count || 0) >= (subscriptionInfo?.total_user_limit || 0) ? 'pointer' : 'default',
+                transition: 'all 0.2s',
+                whiteSpace: 'nowrap',
+                marginLeft: 'auto'
+              }}
+              onClick={() => {
+                if ((userCountInfo?.count || 0) >= (subscriptionInfo?.total_user_limit || 0)) {
+                  setShowPurchaseModal(true);
+                } else {
+                  navigate('/admin-dashboard?view=subscription');
+                }
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = 'none';
+              }}
+              title={(userCountInfo?.count || 0) >= (subscriptionInfo?.total_user_limit || 0) 
+                ? 'User limit reached. Click to purchase more users.' 
+                : 'Click to manage subscription'}
+            >
+              <span className="material-icons" style={{ 
+                fontSize: 18, 
+                color: (userCountInfo?.count || 0) >= (subscriptionInfo?.total_user_limit || 0) 
+                  ? '#dc2626' 
+                  : (userCountInfo?.count || 0) >= ((subscriptionInfo?.total_user_limit || 0) * 0.8) 
+                    ? '#d97706' 
+                    : '#16a34a'
+              }}>
+                {(userCountInfo?.count || 0) >= (subscriptionInfo?.total_user_limit || 0) ? 'warning' : 'people'}
+              </span>
+              <span style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: (userCountInfo?.count || 0) >= (subscriptionInfo?.total_user_limit || 0) 
+                  ? '#dc2626' 
+                  : (userCountInfo?.count || 0) >= ((subscriptionInfo?.total_user_limit || 0) * 0.8) 
+                    ? '#d97706' 
+                    : '#16a34a'
+              }}>
+                {userCountInfo?.count || internalUsers.length || 0} / {subscriptionInfo?.total_user_limit} users
+              </span>
+              {(userCountInfo?.count || 0) >= (subscriptionInfo?.total_user_limit || 0) && subscriptionInfo?.total_user_limit > 0 && (
+                <span className="material-icons" style={{ fontSize: 16, color: '#dc2626' }}>add_circle</span>
+              )}
+            </div>
+          )}
         </div>
         
         <form onSubmit={handleCreateAccess}>
@@ -5329,7 +5510,7 @@ function CreateAccess() {
                   backdropFilter: 'blur(10px)'
                 }}>
                   <span className="material-icons" style={{ color: '#fff', fontSize: 28 }}>route</span>
-              </div>
+                </div>
                 <div>
                   <div style={{ fontWeight: 700, color: '#fff', fontSize: 22, marginBottom: 2 }}>Create Route</div>
                   <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>Add a new route with customers</div>
@@ -5380,18 +5561,18 @@ function CreateAccess() {
                   Route Name <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <div style={{ position: 'relative' }}>
-                <input 
-                  type="text"
-                  value={routeName} 
-                  onChange={(e) => setRouteName(e.target.value)} 
-                  placeholder="Enter route name"
-                  style={{ 
+                  <input 
+                    type="text"
+                    value={routeName} 
+                    onChange={(e) => setRouteName(e.target.value)} 
+                    placeholder="Enter route name"
+                    style={{ 
                       padding: '14px 16px 14px 48px', 
                       borderRadius: 12, 
                       border: '2px solid #e2e8f0', 
-                    width: '100%', 
-                    fontSize: 15, 
-                    background: '#fff',
+                      width: '100%', 
+                      fontSize: 15, 
+                      background: '#fff',
                       boxSizing: 'border-box',
                       transition: 'all 0.2s',
                       boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
@@ -5455,7 +5636,7 @@ function CreateAccess() {
                   onBlur={(e) => {
                     e.target.style.borderColor = '#e2e8f0';
                     e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-                  }} 
+                  }}
                 />
               </div>
 
@@ -6217,18 +6398,18 @@ function CreateAccess() {
                   Route Name <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <div style={{ position: 'relative' }}>
-                <input 
-                  type="text"
-                  value={editRouteName} 
-                  onChange={(e) => setEditRouteName(e.target.value)} 
-                  placeholder="Enter route name"
-                  style={{ 
+                  <input 
+                    type="text"
+                    value={editRouteName} 
+                    onChange={(e) => setEditRouteName(e.target.value)} 
+                    placeholder="Enter route name"
+                    style={{ 
                       padding: '14px 16px 14px 48px', 
                       borderRadius: 12, 
                       border: '2px solid #e2e8f0', 
-                    width: '100%', 
-                    fontSize: 15, 
-                    background: '#fff',
+                      width: '100%', 
+                      fontSize: 15, 
+                      background: '#fff',
                       boxSizing: 'border-box',
                       transition: 'all 0.2s',
                       boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
@@ -6292,7 +6473,7 @@ function CreateAccess() {
                   onBlur={(e) => {
                     e.target.style.borderColor = '#e2e8f0';
                     e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-                  }} 
+                  }}
                 />
               </div>
 
@@ -7030,7 +7211,7 @@ function CreateAccess() {
                   backdropFilter: 'blur(10px)'
                 }}>
                   <span className="material-icons" style={{ color: '#fff', fontSize: 28 }}>assignment</span>
-              </div>
+                </div>
                 <div>
                   <div style={{ fontWeight: 700, color: '#fff', fontSize: 22, marginBottom: 2 }}>Assign Route</div>
                   <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>Assign a route to {assigningUser.name}</div>
@@ -7108,20 +7289,20 @@ function CreateAccess() {
                   Select Route <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <div style={{ position: 'relative' }}>
-                <select
-                  value={selectedRouteForAssign?.id || ''}
-                  onChange={(e) => {
-                    const route = routes.find(r => r.id === e.target.value);
-                    setSelectedRouteForAssign(route || null);
-                  }}
-                  style={{
+                  <select
+                    value={selectedRouteForAssign?.id || ''}
+                    onChange={(e) => {
+                      const route = routes.find(r => r.id === e.target.value);
+                      setSelectedRouteForAssign(route || null);
+                    }}
+                    style={{
                       padding: '14px 16px 14px 48px',
                       borderRadius: 12,
                       border: '2px solid #e2e8f0',
-                    width: '100%',
-                    fontSize: 15,
-                    background: '#fff',
-                    cursor: 'pointer',
+                      width: '100%',
+                      fontSize: 15,
+                      background: '#fff',
+                      cursor: 'pointer',
                       boxSizing: 'border-box',
                       transition: 'all 0.2s',
                       boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
@@ -7134,15 +7315,15 @@ function CreateAccess() {
                     onBlur={(e) => {
                       e.target.style.borderColor = '#e2e8f0';
                       e.target.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)';
-                  }}
-                >
-                  <option value="">Select a route</option>
-                  {routes.map(route => (
-                    <option key={route.id} value={route.id}>
-                      {route.name} ({route.customerCount || 0} customers)
-                    </option>
-                  ))}
-                </select>
+                    }}
+                  >
+                    <option value="">Select a route</option>
+                    {routes.map(route => (
+                      <option key={route.id} value={route.id}>
+                        {route.name} ({route.customerCount || 0} customers)
+                      </option>
+                    ))}
+                  </select>
                   <span className="material-icons" style={{ 
                     position: 'absolute', 
                     left: 16, 
@@ -7179,18 +7360,18 @@ function CreateAccess() {
                   Salesperson Email <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <div style={{ position: 'relative' }}>
-                <input 
-                  type="email"
-                  value={salespersonEmail} 
-                  onChange={(e) => setSalespersonEmail(e.target.value)} 
-                  placeholder="Enter salesperson email"
-                  style={{ 
+                  <input 
+                    type="email"
+                    value={salespersonEmail} 
+                    onChange={(e) => setSalespersonEmail(e.target.value)} 
+                    placeholder="Enter salesperson email"
+                    style={{ 
                       padding: '14px 16px 14px 48px', 
                       borderRadius: 12, 
                       border: '2px solid #e2e8f0', 
-                    width: '100%', 
-                    fontSize: 15, 
-                    background: '#fff',
+                      width: '100%', 
+                      fontSize: 15, 
+                      background: '#fff',
                       boxSizing: 'border-box',
                       transition: 'all 0.2s',
                       boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
@@ -7432,7 +7613,7 @@ function CreateAccess() {
                   backdropFilter: 'blur(10px)'
                 }}>
                   <span className="material-icons" style={{ color: '#fff', fontSize: 28 }}>settings</span>
-              </div>
+                </div>
                 <div>
                   <div style={{ fontWeight: 700, color: '#fff', fontSize: 22, marginBottom: 2 }}>Route Actions</div>
                   <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>Manage routes for {routeActionsUser.name}</div>
@@ -7752,6 +7933,33 @@ function CreateAccess() {
           </div>
         </div>
       )}
+
+      {/* Purchase Users Modal */}
+      <PurchaseUsersModal
+        isOpen={showPurchaseModal}
+        onClose={() => setShowPurchaseModal(false)}
+        onSuccess={async () => {
+          // Refresh subscription info
+          try {
+            const [subData, countData] = await Promise.all([
+              checkSubscriptionStatus(),
+              apiGet('/api/subscription/user-count')
+            ]);
+            setSubscriptionInfo(subData);
+            setUserCountInfo(countData);
+          } catch (error) {
+            console.error('Error refreshing subscription info:', error);
+          }
+          
+          setShowPurchaseModal(false);
+          setFormSuccess('User limit increased successfully! You can now create more users.');
+          setFormError('');
+          // Clear form to allow fresh user creation
+          setTimeout(() => {
+            setFormSuccess('');
+          }, 5000);
+        }}
+      />
     </div>
   );
 }
