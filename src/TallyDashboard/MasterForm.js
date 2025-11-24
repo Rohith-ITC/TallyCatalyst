@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { getApiUrl, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
+import { getGoogleTokenFromConfigs } from '../utils/googleDriveUtils';
 
 // Master Constants
 const MASTER_CONSTANTS = {
@@ -1023,27 +1024,49 @@ const MasterForm = ({
   }, []);
 
   // Function to authenticate with Google using new GIS library
-  const authenticateGoogle = () => {
-    return new Promise((resolve, reject) => {
+  const authenticateGoogle = async () => {
+    try {
+      // Check if credentials are configured
+      if (!GOOGLE_DRIVE_CONFIG.CLIENT_ID || !GOOGLE_DRIVE_CONFIG.API_KEY) {
+        throw new Error('Google API credentials not configured. Please add REACT_APP_GOOGLE_CLIENT_ID and REACT_APP_GOOGLE_API_KEY to your .env file.');
+      }
+
+      // If we already have a token in state, use it
+      if (googleAccessToken) {
+        console.log('✅ Using existing Google token from state');
+        return googleAccessToken;
+      }
+
+      // Try to get token from backend configs first (from Tally connections)
       try {
-        // Check if credentials are configured
-        if (!GOOGLE_DRIVE_CONFIG.CLIENT_ID || !GOOGLE_DRIVE_CONFIG.API_KEY) {
-          reject(new Error('Google API credentials not configured. Please add REACT_APP_GOOGLE_CLIENT_ID and REACT_APP_GOOGLE_API_KEY to your .env file.'));
-          return;
+        const tallylocId = sessionStorage.getItem('tallyloc_id');
+        const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+        
+        if (tallylocId && selectedCompanyGuid) {
+          console.log('🔄 Attempting to get Google token from backend configs...');
+          const storedToken = await getGoogleTokenFromConfigs(tallylocId, selectedCompanyGuid);
+          
+          if (storedToken) {
+            console.log('✅ Found Google token in backend configs, using it');
+            setGoogleAccessToken(storedToken);
+            return storedToken;
+          } else {
+            console.log('⚠️ No Google token found in backend configs, will prompt for authentication');
+          }
+        } else {
+          console.log('⚠️ Missing company info, will prompt for authentication');
         }
+      } catch (configError) {
+        console.warn('⚠️ Error fetching token from configs, will prompt for authentication:', configError);
+      }
 
-        // Check if Google Identity Services is loaded
-        if (!window.google || !window.google.accounts) {
-          reject(new Error('Google Identity Services not loaded yet. Please wait and try again.'));
-          return;
-        }
+      // Check if Google Identity Services is loaded
+      if (!window.google || !window.google.accounts) {
+        throw new Error('Google Identity Services not loaded yet. Please wait and try again.');
+      }
 
-        // If we already have a token, use it
-        if (googleAccessToken) {
-          resolve(googleAccessToken);
-          return;
-        }
-
+      // No stored token found, prompt user for authentication
+      return new Promise((resolve, reject) => {
         // Create OAuth2 token client
         const tokenClient = window.google.accounts.oauth2.initTokenClient({
           client_id: GOOGLE_DRIVE_CONFIG.CLIENT_ID,
@@ -1083,7 +1106,7 @@ const MasterForm = ({
             }
             
             if (response.access_token) {
-              console.log('Access token obtained successfully');
+              console.log('✅ Access token obtained successfully from user authentication');
               setGoogleAccessToken(response.access_token);
               resolve(response.access_token);
             } else {
@@ -1093,14 +1116,14 @@ const MasterForm = ({
           },
         });
 
-        console.log('Requesting access token...');
+        console.log('📱 Requesting access token from user (no stored token found)...');
         // Request access token
         tokenClient.requestAccessToken();
-      } catch (error) {
-        console.error('Google authentication failed:', error);
-        reject(error);
-      }
-    });
+      });
+    } catch (error) {
+      console.error('Google authentication failed:', error);
+      throw error;
+    }
   };
 
   // Function to open Google Drive Picker
