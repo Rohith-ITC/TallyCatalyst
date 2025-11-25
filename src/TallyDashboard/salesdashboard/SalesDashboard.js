@@ -64,6 +64,15 @@ const SalesDashboard = () => {
   const [selectedCountry, setSelectedCountry] = useState(() => initialCachedState?.filters?.country ?? 'all');
   const [selectedPeriod, setSelectedPeriod] = useState(() => initialCachedState?.filters?.period ?? null); // Format: "YYYY-MM"
   const [selectedLedgerGroup, setSelectedLedgerGroup] = useState('all');
+  // Generic filter state for custom card fields that aren't explicitly mapped
+  const [genericFilters, setGenericFilters] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem('customCardGenericFilters');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
   const [categoryChartType, setCategoryChartType] = useState('bar');
   const [ledgerGroupChartType, setLedgerGroupChartType] = useState('bar');
   const [regionChartType, setRegionChartType] = useState('bar');
@@ -111,6 +120,7 @@ const SalesDashboard = () => {
   // Custom cards state
   const [customCards, setCustomCards] = useState([]);
   const [showCustomCardModal, setShowCustomCardModal] = useState(false);
+  const [editingCardId, setEditingCardId] = useState(null);
   const [customCardChartTypes, setCustomCardChartTypes] = useState({});
   const customCardsSectionRef = useRef(null);
 
@@ -540,10 +550,12 @@ const SalesDashboard = () => {
       selectedCustomer,
       selectedItem,
       selectedPeriod,
-      selectedSalesperson
+      selectedSalesperson,
+      enabledSalespersonsSize: enabledSalespersons.size,
+      salespersonsInitialized: salespersonsInitializedRef.current
     });
     
-    const filtered = sales.filter((sale) => {
+    let filtered = sales.filter((sale) => {
       const dateMatch =
         (!dateRange.start || sale.date >= dateRange.start) &&
         (!dateRange.end || sale.date <= dateRange.end);
@@ -560,18 +572,105 @@ const SalesDashboard = () => {
       // Filter by selected salesperson if one is selected
       const salespersonMatch = !selectedSalesperson || (sale.salesperson || 'Unassigned') === selectedSalesperson;
       
-      return dateMatch && customerMatch && itemMatch && stockGroupMatch && ledgerGroupMatch && regionMatch && countryMatch && periodMatch && salespersonMatch;
+      // Apply generic filters from custom cards
+      let genericFiltersMatch = true;
+      if (genericFilters && Object.keys(genericFilters).length > 0) {
+        for (const [filterKey, filterValue] of Object.entries(genericFilters)) {
+          if (filterValue && filterValue !== 'all' && filterValue !== '') {
+            // Extract cardId and fieldName from filterKey (format: "cardId_fieldName")
+            const [cardId, ...fieldParts] = filterKey.split('_');
+            const fieldName = fieldParts.join('_'); // Rejoin in case fieldName contains underscores
+            
+            // Find the card to get its groupBy field
+            const card = customCards.find(c => c.id === cardId);
+            if (card && card.groupBy === fieldName) {
+              // Use getFieldValue helper to get the field value (case-insensitive)
+              const saleFieldValue = sale[fieldName] || 
+                                    sale[fieldName.toLowerCase()] ||
+                                    sale[fieldName.toUpperCase()] ||
+                                    (Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase()) ? sale[Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase())] : null);
+              
+              // Handle special cases
+              if (fieldName === 'date' && card.dateGrouping) {
+                const saleDate = sale.cp_date || sale.date;
+                const date = new Date(saleDate);
+                let groupKey = '';
+                if (card.dateGrouping === 'day') {
+                  groupKey = saleDate;
+                } else if (card.dateGrouping === 'week') {
+                  const weekStart = new Date(date);
+                  weekStart.setDate(date.getDate() - date.getDay());
+                  groupKey = `${weekStart.getFullYear()}-W${Math.ceil((weekStart.getDate() + 6) / 7)}`;
+                } else if (card.dateGrouping === 'month') {
+                  groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                } else if (card.dateGrouping === 'year') {
+                  groupKey = String(date.getFullYear());
+                }
+                if (groupKey !== filterValue) {
+                  genericFiltersMatch = false;
+                  break;
+                }
+              } else if (fieldName === 'profit_margin') {
+                const amount = parseFloat(sale.amount || 0);
+                const profit = parseFloat(sale.profit || 0);
+                const margin = amount > 0 ? ((profit / amount) * 100).toFixed(0) : '0';
+                if (`${margin}%` !== filterValue) {
+                  genericFiltersMatch = false;
+                  break;
+                }
+              } else if (fieldName === 'order_value') {
+                const value = parseFloat(sale.amount || 0);
+                let range = '';
+                if (value < 1000) range = '< ₹1K';
+                else if (value < 5000) range = '₹1K - ₹5K';
+                else if (value < 10000) range = '₹5K - ₹10K';
+                else if (value < 50000) range = '₹10K - ₹50K';
+                else range = '> ₹50K';
+                if (range !== filterValue) {
+                  genericFiltersMatch = false;
+                  break;
+                }
+              } else {
+                // Generic field matching
+                if (saleFieldValue !== filterValue) {
+                  genericFiltersMatch = false;
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      return dateMatch && customerMatch && itemMatch && stockGroupMatch && ledgerGroupMatch && regionMatch && countryMatch && periodMatch && salespersonMatch && genericFiltersMatch;
     });
+    
+    // Apply enabledSalespersons filter (from configure salespersons)
+    // If size === 0 and initialization hasn't happened yet, show all (for initial load)
+    // If size === 0 after initialization, none are selected (show nothing)
+    // If size > 0, only show selected salespersons
+    if (enabledSalespersons.size > 0) {
+      filtered = filtered.filter((sale) => {
+        const salespersonName = sale.salesperson || 'Unassigned';
+        return enabledSalespersons.has(salespersonName);
+      });
+    } else if (enabledSalespersons.size === 0 && salespersonsInitializedRef.current) {
+      // None selected after initialization - show nothing
+      filtered = [];
+    }
+    // If size === 0 and not initialized yet, show all (filtered = filtered, no change)
     
     console.log('✅ Filtered sales result:', {
       originalCount: sales.length,
       filteredCount: filtered.length,
       selectedSalesperson,
+      enabledSalespersonsSize: enabledSalespersons.size,
+      salespersonsInitialized: salespersonsInitializedRef.current,
       sampleRecord: filtered[0]
     });
     
     return filtered;
-  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedLedgerGroup, selectedRegion, selectedCountry, selectedPeriod, selectedSalesperson]);
+  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedLedgerGroup, selectedRegion, selectedCountry, selectedPeriod, selectedSalesperson, enabledSalespersons, genericFilters, customCards]);
 
   // Filter sales data specifically for Total Orders (with issales filter)
   const filteredSalesForOrders = useMemo(() => {
@@ -581,10 +680,12 @@ const SalesDashboard = () => {
       selectedCustomer,
       selectedItem,
       selectedPeriod,
-      selectedSalesperson
+      selectedSalesperson,
+      enabledSalespersonsSize: enabledSalespersons.size,
+      salespersonsInitialized: salespersonsInitializedRef.current
     });
     
-    const filtered = sales.filter((sale) => {
+    let filtered = sales.filter((sale) => {
       const dateMatch =
         (!dateRange.start || sale.date >= dateRange.start) &&
         (!dateRange.end || sale.date <= dateRange.end);
@@ -609,15 +710,32 @@ const SalesDashboard = () => {
       return dateMatch && customerMatch && itemMatch && stockGroupMatch && ledgerGroupMatch && regionMatch && countryMatch && periodMatch && isSalesMatch && salespersonMatch;
     });
     
+    // Apply enabledSalespersons filter (from configure salespersons)
+    // If size === 0 and initialization hasn't happened yet, show all (for initial load)
+    // If size === 0 after initialization, none are selected (show nothing)
+    // If size > 0, only show selected salespersons
+    if (enabledSalespersons.size > 0) {
+      filtered = filtered.filter((sale) => {
+        const salespersonName = sale.salesperson || 'Unassigned';
+        return enabledSalespersons.has(salespersonName);
+      });
+    } else if (enabledSalespersons.size === 0 && salespersonsInitializedRef.current) {
+      // None selected after initialization - show nothing
+      filtered = [];
+    }
+    // If size === 0 and not initialized yet, show all (filtered = filtered, no change)
+    
     console.log('✅ Filtered sales for orders result:', {
       originalCount: sales.length,
       filteredCount: filtered.length,
       selectedSalesperson,
+      enabledSalespersonsSize: enabledSalespersons.size,
+      salespersonsInitialized: salespersonsInitializedRef.current,
       sampleRecord: filtered[0]
     });
     
     return filtered;
-  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedLedgerGroup, selectedRegion, selectedCountry, selectedPeriod, selectedSalesperson]);
+  }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedLedgerGroup, selectedRegion, selectedCountry, selectedPeriod, selectedSalesperson, enabledSalespersons]);
 
   // NOTE: This is the ONLY API call made for sales data
   // It fetches ALL data including country, region, customer, items, etc. in ONE call
@@ -1574,7 +1692,8 @@ const SalesDashboard = () => {
     selectedRegion !== 'all' ||
     selectedCountry !== 'all' ||
     selectedPeriod !== null ||
-    selectedSalesperson !== null;
+    selectedSalesperson !== null ||
+    (genericFilters && Object.keys(genericFilters).length > 0 && Object.values(genericFilters).some(v => v !== null && v !== 'all' && v !== ''));
 
   const clearAllFilters = () => {
     // Only clear interactive filters - do NOT touch cache or date range
@@ -1588,6 +1707,14 @@ const SalesDashboard = () => {
     setSelectedCountry('all');
     setSelectedPeriod(null);
     setSelectedSalesperson(null);
+    setGenericFilters({}); // Clear generic filters from custom cards
+    
+    // Clear from sessionStorage
+    try {
+      sessionStorage.removeItem('customCardGenericFilters');
+    } catch (e) {
+      console.warn('Failed to clear generic filters from sessionStorage:', e);
+    }
     
     // Note: Cache and date range are preserved to avoid unnecessary API calls
   };
@@ -1595,6 +1722,20 @@ const SalesDashboard = () => {
   const formatCurrency = (value) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
   // Custom Cards Helper Functions
+  // Helper function to get field value with case-insensitive fallback
+  const getFieldValue = useCallback((item, fieldName) => {
+    if (!item || !fieldName) return null;
+    // Try direct access first
+    if (item[fieldName] !== undefined) return item[fieldName];
+    // Try lowercase
+    if (item[fieldName.toLowerCase()] !== undefined) return item[fieldName.toLowerCase()];
+    // Try uppercase
+    if (item[fieldName.toUpperCase()] !== undefined) return item[fieldName.toUpperCase()];
+    // Try case-insensitive search
+    const matchingKey = Object.keys(item).find(k => k.toLowerCase() === fieldName.toLowerCase());
+    return matchingKey ? item[matchingKey] : null;
+  }, []);
+
   const generateCustomCardData = useCallback((cardConfig, salesData) => {
     if (!salesData || salesData.length === 0) return [];
 
@@ -1653,22 +1794,21 @@ const SalesDashboard = () => {
           groupKey = saleDate;
         }
       } else if (cardConfig.groupBy === 'profit_margin') {
-        const margin = sale.amount > 0 ? ((sale.profit / sale.amount) * 100).toFixed(0) : '0';
+        const amount = parseFloat(getFieldValue(sale, 'amount') || 0);
+        const profit = parseFloat(getFieldValue(sale, 'profit') || 0);
+        const margin = amount > 0 ? ((profit / amount) * 100).toFixed(0) : '0';
         groupKey = `${margin}%`;
       } else if (cardConfig.groupBy === 'order_value') {
         // Group by order value ranges
-        const value = sale.amount;
+        const value = parseFloat(getFieldValue(sale, 'amount') || 0);
         if (value < 1000) groupKey = '< ₹1K';
         else if (value < 5000) groupKey = '₹1K - ₹5K';
         else if (value < 10000) groupKey = '₹5K - ₹10K';
         else if (value < 50000) groupKey = '₹10K - ₹50K';
         else groupKey = '> ₹50K';
       } else {
-        // Generic field access - try direct access, then case-insensitive search
-        const fieldValue = sale[cardConfig.groupBy] || 
-                          sale[cardConfig.groupBy.toLowerCase()] ||
-                          sale[cardConfig.groupBy.toUpperCase()] ||
-                          Object.keys(sale).find(k => k.toLowerCase() === cardConfig.groupBy.toLowerCase()) ? sale[Object.keys(sale).find(k => k.toLowerCase() === cardConfig.groupBy.toLowerCase())] : null;
+        // Generic field access - use helper function for case-insensitive search
+        const fieldValue = getFieldValue(sale, cardConfig.groupBy);
         groupKey = fieldValue || 'Unknown';
       }
 
@@ -1686,25 +1826,47 @@ const SalesDashboard = () => {
       if (cardConfig.aggregation === 'sum') {
         // Handle special calculated fields
         if (cardConfig.valueField === 'tax_amount') {
-          value = items.reduce((sum, item) => sum + ((item.cgst || 0) + (item.sgst || 0)), 0);
+          value = items.reduce((sum, item) => {
+            const cgst = parseFloat(getFieldValue(item, 'cgst') || 0);
+            const sgst = parseFloat(getFieldValue(item, 'sgst') || 0);
+            return sum + cgst + sgst;
+          }, 0);
         } else if (cardConfig.valueField === 'profit_margin') {
-          const totalAmount = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
-          const totalProfit = items.reduce((sum, item) => sum + (parseFloat(item.profit) || 0), 0);
+          const totalAmount = items.reduce((sum, item) => {
+            const amount = parseFloat(getFieldValue(item, 'amount') || 0);
+            return sum + amount;
+          }, 0);
+          const totalProfit = items.reduce((sum, item) => {
+            const profit = parseFloat(getFieldValue(item, 'profit') || 0);
+            return sum + profit;
+          }, 0);
           value = totalAmount > 0 ? (totalProfit / totalAmount) * 100 : 0;
         } else if (cardConfig.valueField === 'order_value') {
-          value = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+          value = items.reduce((sum, item) => {
+            const amount = parseFloat(getFieldValue(item, 'amount') || 0);
+            return sum + amount;
+          }, 0);
         } else if (cardConfig.valueField === 'avg_order_value') {
-          const uniqueOrders = new Set(items.map(item => item.masterid)).size;
-          const totalAmount = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+          const uniqueOrders = new Set(items.map(item => getFieldValue(item, 'masterid')).filter(id => id)).size;
+          const totalAmount = items.reduce((sum, item) => {
+            const amount = parseFloat(getFieldValue(item, 'amount') || 0);
+            return sum + amount;
+          }, 0);
           value = uniqueOrders > 0 ? totalAmount / uniqueOrders : 0;
         } else if (cardConfig.valueField === 'profit_per_quantity') {
-          const totalQuantity = items.reduce((sum, item) => sum + (parseFloat(item.quantity) || 0), 0);
-          const totalProfit = items.reduce((sum, item) => sum + (parseFloat(item.profit) || 0), 0);
+          const totalQuantity = items.reduce((sum, item) => {
+            const quantity = parseFloat(getFieldValue(item, 'quantity') || 0);
+            return sum + quantity;
+          }, 0);
+          const totalProfit = items.reduce((sum, item) => {
+            const profit = parseFloat(getFieldValue(item, 'profit') || 0);
+            return sum + profit;
+          }, 0);
           value = totalQuantity > 0 ? totalProfit / totalQuantity : 0;
         } else {
           // Generic sum for any numeric field
           value = items.reduce((sum, item) => {
-            const fieldValue = item[cardConfig.valueField];
+            const fieldValue = getFieldValue(item, cardConfig.valueField);
             return sum + (parseFloat(fieldValue) || 0);
           }, 0);
         }
@@ -1712,21 +1874,131 @@ const SalesDashboard = () => {
         if (cardConfig.valueField === 'transactions') {
           value = items.length;
         } else if (cardConfig.valueField === 'unique_customers') {
-          value = new Set(items.map(item => item.customer)).size;
+          value = new Set(items.map(item => getFieldValue(item, 'customer')).filter(v => v)).size;
         } else if (cardConfig.valueField === 'unique_items') {
-          value = new Set(items.map(item => item.item)).size;
+          value = new Set(items.map(item => getFieldValue(item, 'item')).filter(v => v)).size;
         } else if (cardConfig.valueField === 'unique_orders') {
-          value = new Set(items.map(item => item.masterid)).size;
+          value = new Set(items.map(item => getFieldValue(item, 'masterid')).filter(v => v)).size;
         } else {
           value = items.length;
         }
       } else if (cardConfig.aggregation === 'average') {
         // Generic average for any numeric field
         const sum = items.reduce((sum, item) => {
-          const fieldValue = item[cardConfig.valueField];
+          const fieldValue = getFieldValue(item, cardConfig.valueField);
           return sum + (parseFloat(fieldValue) || 0);
         }, 0);
-          value = items.length > 0 ? sum / items.length : 0;
+        value = items.length > 0 ? sum / items.length : 0;
+      } else if (cardConfig.aggregation === 'min') {
+        // Minimum value for any numeric field
+        let values = [];
+        
+        // Handle special calculated fields
+        if (cardConfig.valueField === 'tax_amount') {
+          values = items
+            .map(item => {
+              const cgst = parseFloat(getFieldValue(item, 'cgst') || 0);
+              const sgst = parseFloat(getFieldValue(item, 'sgst') || 0);
+              return cgst + sgst;
+            })
+            .filter(v => !isNaN(v) && isFinite(v));
+        } else if (cardConfig.valueField === 'profit_margin') {
+          values = items
+            .map(item => {
+              const amount = parseFloat(getFieldValue(item, 'amount') || 0);
+              const profit = parseFloat(getFieldValue(item, 'profit') || 0);
+              return amount > 0 ? (profit / amount) * 100 : 0;
+            })
+            .filter(v => !isNaN(v) && isFinite(v));
+        } else if (cardConfig.valueField === 'order_value') {
+          values = items
+            .map(item => parseFloat(getFieldValue(item, 'amount') || 0))
+            .filter(v => !isNaN(v) && isFinite(v));
+        } else if (cardConfig.valueField === 'avg_order_value') {
+          // For min/max of avg_order_value, calculate per item (amount for that item)
+          values = items
+            .map(item => parseFloat(getFieldValue(item, 'amount') || 0))
+            .filter(v => !isNaN(v) && isFinite(v));
+        } else if (cardConfig.valueField === 'profit_per_quantity') {
+          values = items
+            .map(item => {
+              const quantity = parseFloat(getFieldValue(item, 'quantity') || 0);
+              const profit = parseFloat(getFieldValue(item, 'profit') || 0);
+              return quantity > 0 ? profit / quantity : 0;
+            })
+            .filter(v => !isNaN(v) && isFinite(v));
+        } else if (cardConfig.valueField === 'transactions' || 
+                   cardConfig.valueField === 'unique_customers' || 
+                   cardConfig.valueField === 'unique_items' || 
+                   cardConfig.valueField === 'unique_orders') {
+          // For count fields, min/max don't make much sense, but return the count
+          value = items.length;
+        } else {
+          // Generic min for any numeric field
+          values = items
+            .map(item => {
+              const fieldValue = getFieldValue(item, cardConfig.valueField);
+              return typeof fieldValue === 'number' ? fieldValue : parseFloat(fieldValue);
+            })
+            .filter(v => !isNaN(v) && isFinite(v));
+        }
+        
+        value = values.length > 0 ? Math.min(...values) : 0;
+      } else if (cardConfig.aggregation === 'max') {
+        // Maximum value for any numeric field
+        let values = [];
+        
+        // Handle special calculated fields
+        if (cardConfig.valueField === 'tax_amount') {
+          values = items
+            .map(item => {
+              const cgst = parseFloat(getFieldValue(item, 'cgst') || 0);
+              const sgst = parseFloat(getFieldValue(item, 'sgst') || 0);
+              return cgst + sgst;
+            })
+            .filter(v => !isNaN(v) && isFinite(v));
+        } else if (cardConfig.valueField === 'profit_margin') {
+          values = items
+            .map(item => {
+              const amount = parseFloat(getFieldValue(item, 'amount') || 0);
+              const profit = parseFloat(getFieldValue(item, 'profit') || 0);
+              return amount > 0 ? (profit / amount) * 100 : 0;
+            })
+            .filter(v => !isNaN(v) && isFinite(v));
+        } else if (cardConfig.valueField === 'order_value') {
+          values = items
+            .map(item => parseFloat(getFieldValue(item, 'amount') || 0))
+            .filter(v => !isNaN(v) && isFinite(v));
+        } else if (cardConfig.valueField === 'avg_order_value') {
+          // For min/max of avg_order_value, calculate per item (amount for that item)
+          values = items
+            .map(item => parseFloat(getFieldValue(item, 'amount') || 0))
+            .filter(v => !isNaN(v) && isFinite(v));
+        } else if (cardConfig.valueField === 'profit_per_quantity') {
+          values = items
+            .map(item => {
+              const quantity = parseFloat(getFieldValue(item, 'quantity') || 0);
+              const profit = parseFloat(getFieldValue(item, 'profit') || 0);
+              return quantity > 0 ? profit / quantity : 0;
+            })
+            .filter(v => !isNaN(v) && isFinite(v));
+        } else if (cardConfig.valueField === 'transactions' || 
+                   cardConfig.valueField === 'unique_customers' || 
+                   cardConfig.valueField === 'unique_items' || 
+                   cardConfig.valueField === 'unique_orders') {
+          // For count fields, min/max don't make much sense, but return the count
+          value = items.length;
+        } else {
+          // Generic max for any numeric field
+          values = items
+            .map(item => {
+              const fieldValue = getFieldValue(item, cardConfig.valueField);
+              return typeof fieldValue === 'number' ? fieldValue : parseFloat(fieldValue);
+            })
+            .filter(v => !isNaN(v) && isFinite(v));
+        }
+        
+        value = values.length > 0 ? Math.max(...values) : 0;
       }
 
       return {
@@ -1775,14 +2047,39 @@ const SalesDashboard = () => {
   }, []);
 
   const handleCreateCustomCard = useCallback((cardConfig) => {
-    const newCard = {
-      id: Date.now().toString(),
-      ...cardConfig
-    };
-    setCustomCards(prev => [...prev, newCard]);
+    if (editingCardId) {
+      // Update existing card
+      setCustomCards(prev => prev.map(card => 
+        card.id === editingCardId 
+          ? { ...card, ...cardConfig }
+          : card
+      ));
+      // Also update the chartType state to match the updated card
+      if (cardConfig.chartType) {
+        setCustomCardChartTypes(prev => ({
+          ...prev,
+          [editingCardId]: cardConfig.chartType
+        }));
+      }
+      setEditingCardId(null);
+    } else {
+      // Create new card
+      const newCard = {
+        id: Date.now().toString(),
+        ...cardConfig
+      };
+      setCustomCards(prev => [...prev, newCard]);
+      // Set the chartType state for the new card
+      if (cardConfig.chartType) {
+        setCustomCardChartTypes(prev => ({
+          ...prev,
+          [newCard.id]: cardConfig.chartType
+        }));
+      }
+    }
     setShowCustomCardModal(false);
     
-    // Scroll to the newly created card after a short delay to ensure DOM is updated
+    // Scroll to the newly created/edited card after a short delay to ensure DOM is updated
     setTimeout(() => {
       if (customCardsSectionRef.current) {
         customCardsSectionRef.current.scrollIntoView({ 
@@ -1797,6 +2094,11 @@ const SalesDashboard = () => {
         });
       }
     }, 100);
+  }, [editingCardId]);
+
+  const handleEditCustomCard = useCallback((cardId) => {
+    setEditingCardId(cardId);
+    setShowCustomCardModal(true);
   }, []);
 
   const handleDeleteCustomCard = useCallback((cardId) => {
@@ -4712,6 +5014,78 @@ const SalesDashboard = () => {
                   </button>
                 </div>
               )}
+
+              {/* Display generic filters from custom cards */}
+              {genericFilters && Object.keys(genericFilters).length > 0 && Object.entries(genericFilters).map(([filterKey, filterValue]) => {
+                if (!filterValue || filterValue === 'all' || filterValue === '') return null;
+                
+                // Extract cardId and fieldName from filterKey (format: "cardId_fieldName")
+                const [cardId, ...fieldParts] = filterKey.split('_');
+                const fieldName = fieldParts.join('_'); // Rejoin in case fieldName contains underscores
+                
+                // Find the card to get its title and groupBy field
+                const card = customCards.find(c => c.id === cardId);
+                if (!card) return null;
+                
+                // Format field name for display
+                const fieldLabel = fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
+                
+                return (
+                  <div
+                    key={filterKey}
+                    style={{
+                      background: '#f0f9ff',
+                      border: '1px solid #7dd3fc',
+                      borderRadius: '16px',
+                      padding: '4px 8px 4px 12px',
+                      fontSize: '12px',
+                      color: '#0c4a6e',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '14px' }}>filter_alt</span>
+                    {card.title}: {fieldLabel} = {filterValue}
+                    <button
+                      onClick={() => {
+                        setGenericFilters(prev => {
+                          const updated = { ...prev };
+                          delete updated[filterKey];
+                          try {
+                            sessionStorage.setItem('customCardGenericFilters', JSON.stringify(updated));
+                          } catch (e) {
+                            console.warn('Failed to update generic filters:', e);
+                          }
+                          return updated;
+                        });
+                      }}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#0c4a6e',
+                        cursor: 'pointer',
+                        padding: '2px',
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = '#7dd3fc';
+                        e.target.style.color = '#0c4a6e';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'none';
+                        e.target.style.color = '#0c4a6e';
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '14px' }}>close</span>
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -8732,7 +9106,24 @@ const SalesDashboard = () => {
                   chartType={customCardChartTypes[customCards[0].id] || customCards[0].chartType || 'bar'}
                   onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [customCards[0].id]: newType }))}
                   onDelete={() => handleDeleteCustomCard(customCards[0].id)}
+                  onEdit={handleEditCustomCard}
                   openTransactionRawData={openTransactionRawData}
+                  setSelectedCustomer={setSelectedCustomer}
+                  setSelectedItem={setSelectedItem}
+                  setSelectedStockGroup={setSelectedStockGroup}
+                  setSelectedRegion={setSelectedRegion}
+                  setSelectedCountry={setSelectedCountry}
+                  setSelectedPeriod={setSelectedPeriod}
+                  setSelectedLedgerGroup={setSelectedLedgerGroup}
+                  selectedCustomer={selectedCustomer}
+                  selectedItem={selectedItem}
+                  selectedStockGroup={selectedStockGroup}
+                  selectedRegion={selectedRegion}
+                  selectedCountry={selectedCountry}
+                  selectedPeriod={selectedPeriod}
+                  selectedLedgerGroup={selectedLedgerGroup}
+                  genericFilters={genericFilters}
+                  setGenericFilters={setGenericFilters}
                 />
               </div>
             )}
@@ -8760,7 +9151,22 @@ const SalesDashboard = () => {
                     chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
                     onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
                     onDelete={() => handleDeleteCustomCard(card.id)}
+                    onEdit={handleEditCustomCard}
                     openTransactionRawData={openTransactionRawData}
+                    setSelectedCustomer={setSelectedCustomer}
+                    setSelectedItem={setSelectedItem}
+                    setSelectedStockGroup={setSelectedStockGroup}
+                    setSelectedRegion={setSelectedRegion}
+                    setSelectedCountry={setSelectedCountry}
+                    setSelectedPeriod={setSelectedPeriod}
+                    setSelectedLedgerGroup={setSelectedLedgerGroup}
+                    selectedCustomer={selectedCustomer}
+                    selectedItem={selectedItem}
+                    selectedStockGroup={selectedStockGroup}
+                    selectedRegion={selectedRegion}
+                    selectedCountry={selectedCountry}
+                    selectedPeriod={selectedPeriod}
+                    selectedLedgerGroup={selectedLedgerGroup}
                   />
                 </div>
               ))}
@@ -9172,9 +9578,11 @@ const SalesDashboard = () => {
       >
         <CustomCardModal
           salesData={sales}
+          editingCard={editingCardId ? customCards.find(card => card.id === editingCardId) : null}
           onClose={() => {
             console.log('🔒 Custom Card Modal closed - no data fetching should occur');
             setShowCustomCardModal(false);
+            setEditingCardId(null);
           }}
           onCreate={handleCreateCustomCard}
         />
@@ -9185,24 +9593,109 @@ const SalesDashboard = () => {
 };
 
 // Custom Card Modal Component
-const CustomCardModal = ({ salesData, onClose, onCreate }) => {
-  const [cardTitle, setCardTitle] = useState('');
-  const [groupBy, setGroupBy] = useState('category');
-  const [chartType, setChartType] = useState('bar');
-  const [valueField, setValueField] = useState('amount');
-  const [topN, setTopN] = useState('');
+const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
+  // Initialize form state from editingCard if provided, otherwise use defaults
+  const [cardTitle, setCardTitle] = useState(editingCard?.title || '');
+  const [selectedFields, setSelectedFields] = useState(() => {
+    // Initialize from editingCard if available
+    if (editingCard) {
+      const fields = new Set();
+      // Add groupBy field
+      if (editingCard.groupBy === 'date') {
+        fields.add('date');
+      } else {
+        fields.add(editingCard.groupBy);
+      }
+      // Add valueField
+      if (editingCard.valueField) {
+        fields.add(editingCard.valueField);
+      }
+      return fields;
+    }
+    return new Set();
+  });
+  const [searchTerm, setSearchTerm] = useState('');
+  const [topN, setTopN] = useState(editingCard?.topN ? String(editingCard.topN) : '');
+  const [fieldAggregations, setFieldAggregations] = useState(() => {
+    // Initialize from editingCard if available
+    if (editingCard) {
+      const aggs = {};
+      if (editingCard.valueField) {
+        aggs[editingCard.valueField] = editingCard.aggregation || 'sum';
+      }
+      return aggs;
+    }
+    return {};
+  });
+  const [dateGroupings, setDateGroupings] = useState(() => {
+    // Initialize from editingCard if available
+    if (editingCard && editingCard.groupBy === 'date' && editingCard.dateGrouping) {
+      return {
+        date: editingCard.dateGrouping
+      };
+    }
+    return {};
+  });
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [fieldBeingConfigured, setFieldBeingConfigured] = useState(null);
+  const [isDateSettingsModal, setIsDateSettingsModal] = useState(false);
+
+  // Update form when editingCard changes
+  useEffect(() => {
+    if (editingCard) {
+      setCardTitle(editingCard.title || '');
+      const fields = new Set();
+      // Add groupBy field
+      if (editingCard.groupBy === 'date') {
+        fields.add('date');
+      } else {
+        fields.add(editingCard.groupBy);
+      }
+      // Add valueField
+      if (editingCard.valueField) {
+        fields.add(editingCard.valueField);
+      }
+      setSelectedFields(fields);
+      
+      // Set aggregation for value field
+      if (editingCard.valueField && editingCard.aggregation) {
+        setFieldAggregations({
+          [editingCard.valueField]: editingCard.aggregation
+        });
+      }
+      
+      // Set date grouping for date field
+      if (editingCard.groupBy === 'date' && editingCard.dateGrouping) {
+        setDateGroupings({
+          date: editingCard.dateGrouping
+        });
+      }
+      setTopN(editingCard.topN ? String(editingCard.topN) : '');
+    } else {
+      // Reset to defaults when not editing
+      setCardTitle('');
+      setSelectedFields(new Set());
+      setTopN('');
+    }
+  }, [editingCard]);
 
   // Extract all available fields from sales data dynamically
   // NOTE: This only processes existing data in memory - NO API calls are made
-  const availableFields = useMemo(() => {
+  const allFields = useMemo(() => {
     // Use existing data only - do not trigger any data fetching
     if (!salesData || !Array.isArray(salesData) || salesData.length === 0) {
-      return { groupByFields: [], valueFields: [] };
+      return [];
     }
 
     // Get all unique keys from the first sale object
+    // Also check all records to ensure we get all possible field names
     const firstSale = salesData[0];
-    const allKeys = Object.keys(firstSale);
+    const allKeysSet = new Set(Object.keys(firstSale));
+    // Check additional records to catch any fields that might not be in the first record
+    salesData.slice(0, Math.min(10, salesData.length)).forEach(sale => {
+      Object.keys(sale).forEach(key => allKeysSet.add(key));
+    });
+    const allKeys = Array.from(allKeysSet);
 
     // Filter out non-groupable fields (dates, IDs, numeric-only fields, etc.) for groupBy
     // Keep fields that can be used for grouping (strings, categories, etc.)
@@ -9210,6 +9703,9 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
     
     // Also filter out fields that are primarily numeric (but allow them if they might have string values)
     const numericOnlyFields = ['amount', 'quantity', 'profit', 'cgst', 'sgst', 'roundoff', 'invvalue', 'billedqty', 'rate', 'addlexpense', 'invtrytotal', 'grosscost'];
+    
+    // Fields that should always be treated as categories, even if they're numeric (like pincode)
+    const alwaysCategoryFields = ['pincode', 'pin', 'pincod', 'postalcode', 'postcode'];
     
     // Group By fields (X-axis) - can be any field except calculated/numeric-only values
     // Check all sales records to see which fields have string/categorical values
@@ -9237,40 +9733,39 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
       });
     });
 
-    const groupByFields = allKeys
+    // Combine all fields into a single list
+    const fields = [];
+    
+    // Add date field (grouping will be configured via settings)
+    fields.push(
+      { value: 'date', label: 'Date', type: 'category' }
+    );
+    
+    // Add category fields (for Axis)
+    allKeys
       .filter(key => {
         const lowerKey = key.toLowerCase();
-        // Exclude non-groupable fields
         if (nonGroupableFields.includes(lowerKey)) return false;
-        // Include if field type is string (categorical) or other (not purely numeric)
         const fieldType = fieldTypes[key];
         if (fieldType === 'string' || fieldType === 'other') return true;
-        // Also include if it's not in numeric-only list (might have string values)
         return !numericOnlyFields.includes(lowerKey);
       })
-      .map(key => ({
-        value: key,
-        label: key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim()
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-
-    // Add special grouping options
-    groupByFields.unshift(
-      { value: 'date', label: 'Date (Monthly)' },
-      { value: 'date_day', label: 'Date (Daily)' },
-      { value: 'date_week', label: 'Date (Weekly)' },
-      { value: 'date_year', label: 'Date (Yearly)' }
-    );
-
-    // Value fields (Y-axis) - numeric fields and calculated values
+      .forEach(key => {
+        fields.push({
+          value: key,
+          label: key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim(),
+          type: 'category'
+        });
+      });
+    
+    // Add value fields (for Values bucket)
     const numericFields = allKeys.filter(key => {
       const lowerKey = key.toLowerCase();
-      // Exclude non-numeric fields
       if (nonGroupableFields.includes(lowerKey)) return false;
+      // Exclude fields that should always be categories (like pincode)
+      if (alwaysCategoryFields.includes(lowerKey)) return false;
       if (lowerKey === 'cp_temp7' || lowerKey === 'narration') return false;
-      
       const value = firstSale[key];
-      // Include if it's a number or a numeric string
       if (typeof value === 'number') return true;
       if (typeof value === 'string') {
         const numValue = parseFloat(value);
@@ -9278,26 +9773,150 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
       }
       return false;
     });
-
-    const valueFields = [
-      ...numericFields.map(key => ({
+    
+    numericFields.forEach(key => {
+      const label = key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim();
+      fields.push({
         value: key,
-        label: `${key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim()} (Sum)`,
-        aggregation: 'sum'
-      })),
-      ...numericFields.map(key => ({
-        value: `avg_${key}`,
-        label: `${key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim()} (Average)`,
-        aggregation: 'average'
-      })),
-      { value: 'transactions', label: 'Number of Transactions', aggregation: 'count' },
-      { value: 'unique_customers', label: 'Number of Unique Customers', aggregation: 'count' },
-      { value: 'unique_items', label: 'Number of Unique Items', aggregation: 'count' },
-      { value: 'unique_orders', label: 'Number of Unique Orders', aggregation: 'count' }
-    ].sort((a, b) => a.label.localeCompare(b.label));
-
-    return { groupByFields, valueFields };
+        label: label,
+        type: 'value',
+        aggregation: 'sum' // Default aggregation
+      });
+    });
+    
+    // Add count fields
+    fields.push(
+      { value: 'transactions', label: 'Number of Transactions', type: 'value', aggregation: 'count' },
+      { value: 'unique_customers', label: 'Number of Unique Customers', type: 'value', aggregation: 'count' },
+      { value: 'unique_items', label: 'Number of Unique Items', type: 'value', aggregation: 'count' },
+      { value: 'unique_orders', label: 'Number of Unique Orders', type: 'value', aggregation: 'count' }
+    );
+    
+    // Deduplicate fields by value (case-insensitive)
+    // If a field appears as both category and value, prefer category for alwaysCategoryFields, otherwise prefer value
+    const fieldsMap = new Map();
+    fields.forEach(field => {
+      const key = field.value.toLowerCase();
+      const existing = fieldsMap.get(key);
+      if (!existing) {
+        fieldsMap.set(key, field);
+      } else {
+        // If field is in alwaysCategoryFields, prefer category type
+        if (alwaysCategoryFields.includes(key)) {
+          if (field.type === 'category') {
+            fieldsMap.set(key, field);
+          }
+          // Otherwise keep existing category
+        } else {
+          // For other fields, if new one is value type, replace (value fields are more versatile)
+          if (field.type === 'value' && existing.type === 'category') {
+            fieldsMap.set(key, field);
+          }
+        }
+      }
+    });
+    
+    // Convert back to array and sort
+    const uniqueFields = Array.from(fieldsMap.values());
+    return uniqueFields.sort((a, b) => a.label.localeCompare(b.label));
   }, [salesData]);
+  
+  // Filter fields based on search term
+  const filteredFields = useMemo(() => {
+    if (!searchTerm.trim()) return allFields;
+    const term = searchTerm.toLowerCase();
+    return allFields.filter(field => 
+      field.label.toLowerCase().includes(term) || 
+      field.value.toLowerCase().includes(term)
+    );
+  }, [allFields, searchTerm]);
+  
+  // Get fields in each bucket
+  const axisFields = useMemo(() => {
+    return Array.from(selectedFields)
+      .map(fieldValue => allFields.find(f => f.value === fieldValue))
+      .filter(field => field && field.type === 'category');
+  }, [selectedFields, allFields]);
+  
+  const valueFields = useMemo(() => {
+    return Array.from(selectedFields)
+      .map(fieldValue => allFields.find(f => f.value === fieldValue))
+      .filter(field => field && field.type === 'value');
+  }, [selectedFields, allFields]);
+  
+  // Handle field checkbox toggle
+  const handleFieldToggle = (fieldValue) => {
+    setSelectedFields(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(fieldValue)) {
+        newSet.delete(fieldValue);
+        // Remove aggregation setting when field is deselected
+        setFieldAggregations(prevAggs => {
+          const newAggs = { ...prevAggs };
+          delete newAggs[fieldValue];
+          return newAggs;
+        });
+        // Remove date grouping setting when date field is deselected
+        if (fieldValue === 'date') {
+          setDateGroupings(prev => {
+            const newGroupings = { ...prev };
+            delete newGroupings[fieldValue];
+            return newGroupings;
+          });
+        }
+      } else {
+        newSet.add(fieldValue);
+        // Set default aggregation for value fields
+        const field = allFields.find(f => f.value === fieldValue);
+        if (field && field.type === 'value') {
+          setFieldAggregations(prevAggs => ({
+            ...prevAggs,
+            [fieldValue]: field.aggregation || 'sum'
+          }));
+        }
+        // Set default date grouping for date fields
+        if (fieldValue === 'date') {
+          setDateGroupings(prev => ({
+            ...prev,
+            [fieldValue]: 'month' // Default to monthly
+          }));
+        }
+      }
+      return newSet;
+    });
+  };
+  
+  // Handle settings icon click for value fields
+  const handleSettingsClick = (field, e) => {
+    e.stopPropagation();
+    setFieldBeingConfigured(field);
+    setIsDateSettingsModal(false);
+    setSettingsModalOpen(true);
+  };
+  
+  // Handle settings icon click for date fields
+  const handleDateSettingsClick = (field, e) => {
+    e.stopPropagation();
+    setFieldBeingConfigured(field);
+    setIsDateSettingsModal(true);
+    setSettingsModalOpen(true);
+  };
+  
+  // Handle aggregation change in settings modal
+  const handleAggregationChange = (fieldValue, aggregation) => {
+    setFieldAggregations(prev => ({
+      ...prev,
+      [fieldValue]: aggregation
+    }));
+  };
+  
+  // Handle date grouping change in settings modal
+  const handleDateGroupingChange = (fieldValue, grouping) => {
+    setDateGroupings(prev => ({
+      ...prev,
+      [fieldValue]: grouping
+    }));
+  };
 
 
   const handleSubmit = (e) => {
@@ -9306,42 +9925,45 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
       alert('Please enter a card title');
       return;
     }
-
-    // Determine aggregation and date grouping based on groupBy and valueField
-    let aggregation = 'sum';
+    
+    if (axisFields.length === 0) {
+      alert('Please select at least one field for Axis (Categories)');
+      return;
+    }
+    
+    if (valueFields.length === 0) {
+      alert('Please select at least one field for Values');
+      return;
+    }
+    
+    // Use the first selected field for each bucket
+    const groupByField = axisFields[0];
+    const valueField = valueFields[0];
+    
+    // Get aggregation from fieldAggregations state
+    const aggregation = fieldAggregations[valueField.value] || valueField.aggregation || 'sum';
     let dateGrouping = 'month';
     
-    // Find the value field config to get aggregation type
-    const valueFieldConfig = availableFields.valueFields.find(f => f.value === valueField);
-    if (valueFieldConfig) {
-      aggregation = valueFieldConfig.aggregation || 'sum';
-    } else if (valueField === 'transactions' || valueField === 'unique_customers' || valueField === 'unique_items' || valueField === 'unique_orders') {
-      aggregation = 'count';
-    } else if (valueField.startsWith('avg_')) {
-      aggregation = 'average';
-    }
-    
     // Map valueField to internal field names
-    let mappedValueField = valueField;
-    if (valueField.startsWith('avg_')) {
-      mappedValueField = valueField.replace('avg_', '');
-    }
+    const mappedValueField = valueField.value;
     
-    // Set date grouping based on groupBy
-    if (groupBy === 'date' || groupBy === 'date_day' || groupBy === 'date_week' || groupBy === 'date_month' || groupBy === 'date_year') {
-      if (groupBy === 'date_day') dateGrouping = 'day';
-      else if (groupBy === 'date_week') dateGrouping = 'week';
-      else if (groupBy === 'date_year') dateGrouping = 'year';
-      else dateGrouping = 'month'; // Default for 'date'
+    // Set date grouping based on groupBy and dateGroupings state
+    const groupByValue = groupByField.value;
+    if (groupByValue === 'date') {
+      // Use configured date grouping from state, or default to month
+      dateGrouping = dateGroupings[groupByValue] || 'month';
     }
 
+    // Normalize date field value to 'date' for groupBy
+    const normalizedGroupBy = (groupByValue === 'date' || groupByValue.startsWith('date_')) ? 'date' : groupByValue;
+    
     const cardConfig = {
       title: cardTitle.trim(),
-      groupBy: groupBy.startsWith('date_') ? 'date' : groupBy,
-      dateGrouping: (groupBy === 'date' || groupBy.startsWith('date_')) ? dateGrouping : undefined,
+      groupBy: normalizedGroupBy,
+      dateGrouping: (normalizedGroupBy === 'date') ? dateGrouping : undefined,
       aggregation,
       valueField: mappedValueField,
-      chartType,
+      chartType: editingCard?.chartType || 'bar', // Keep existing chart type or default to bar
       topN: topN ? parseInt(topN, 10) : undefined
     };
 
@@ -9354,7 +9976,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
         background: 'white',
         borderRadius: '12px',
         width: '90%',
-        maxWidth: '520px',
+        maxWidth: '800px',
         maxHeight: '90vh',
         overflow: 'hidden',
         boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
@@ -9379,7 +10001,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
           color: '#1e293b',
           letterSpacing: '-0.01em'
         }}>
-          Create Custom Card
+          {editingCard ? 'Edit Custom Card' : 'Create Custom Card'}
         </h2>
         <button
           type="button"
@@ -9461,52 +10083,45 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
           />
         </div>
 
-        {/* Group By */}
+        {/* Choose fields to add to report */}
         <div>
           <label style={{
             display: 'block',
             fontSize: '13px',
             fontWeight: '500',
             color: '#475569',
-            marginBottom: '6px',
+            marginBottom: '8px',
             letterSpacing: '0.01em'
           }}>
-            Group By <span style={{ color: '#ef4444' }}>*</span>
+            Choose fields to add to report:
           </label>
-          <div style={{ position: 'relative' }}>
-            <select
-              value={groupBy}
-              onChange={(e) => setGroupBy(e.target.value)}
-              required
+          {/* Search */}
+          <div style={{ marginBottom: '12px', position: 'relative' }}>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search"
               style={{
                 width: '100%',
-                padding: '11px 14px',
-                paddingRight: '36px',
+                padding: '10px 40px 10px 14px',
                 border: '1px solid #e2e8f0',
-                borderRadius: '8px',
+                borderRadius: '6px',
                 fontSize: '14px',
                 outline: 'none',
-                background: '#ffffff',
-                cursor: 'pointer',
                 transition: 'all 0.15s ease',
-                appearance: 'none',
+                background: '#ffffff',
                 color: '#1e293b',
                 boxSizing: 'border-box'
               }}
               onFocus={(e) => {
                 e.target.style.borderColor = '#3b82f6';
-                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
               }}
               onBlur={(e) => {
                 e.target.style.borderColor = '#e2e8f0';
-                e.target.style.boxShadow = 'none';
               }}
-            >
-              {availableFields.groupByFields.map(field => (
-                <option key={field.value} value={field.value}>{field.label}</option>
-              ))}
-            </select>
-            <span className="material-icons" style={{ 
+            />
+            <span className="material-icons" style={{
               position: 'absolute',
               right: '12px',
               top: '50%',
@@ -9514,122 +10129,295 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
               fontSize: '20px',
               color: '#94a3b8',
               pointerEvents: 'none'
-            }}>keyboard_arrow_down</span>
+            }}>search</span>
+          </div>
+          
+          {/* Fields list with checkboxes */}
+          <div style={{
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '12px',
+            maxHeight: '300px',
+            overflowY: 'auto'
+          }}>
+            {filteredFields.length === 0 ? (
+              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+                No fields found
+              </div>
+            ) : (
+              filteredFields.map((field) => (
+                <div
+                  key={field.value}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    padding: '8px',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    transition: 'background 0.15s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f8fafc';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                  }}
+                  onClick={() => handleFieldToggle(field.value)}
+                >
+                  <div style={{
+                    width: '18px',
+                    height: '18px',
+                    border: selectedFields.has(field.value) ? 'none' : '2px solid #cbd5e1',
+                    borderRadius: '4px',
+                    background: selectedFields.has(field.value) ? '#10b981' : 'transparent',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginRight: '10px',
+                    flexShrink: 0
+                  }}>
+                    {selectedFields.has(field.value) && (
+                      <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
+                    )}
+                  </div>
+                  <span style={{
+                    fontSize: '14px',
+                    fontWeight: selectedFields.has(field.value) ? '600' : '400',
+                    color: '#1e293b'
+                  }}>
+                    {field.label}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
-        {/* Show */}
+        {/* Field buckets */}
         <div>
-          <label style={{
-            display: 'block',
+          <div style={{
             fontSize: '13px',
             fontWeight: '500',
             color: '#475569',
-            marginBottom: '6px',
-            letterSpacing: '0.01em'
+            marginBottom: '12px',
+            paddingBottom: '8px',
+            borderBottom: '1px solid #e2e8f0'
           }}>
-            Show <span style={{ color: '#ef4444' }}>*</span>
-          </label>
-          <div style={{ position: 'relative' }}>
-            <select
-              value={valueField}
-              onChange={(e) => setValueField(e.target.value)}
-              required
-              style={{
-                width: '100%',
-                padding: '11px 14px',
-                paddingRight: '36px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                fontSize: '14px',
-                outline: 'none',
-                background: '#ffffff',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                appearance: 'none',
-                color: '#1e293b',
-                boxSizing: 'border-box'
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = '#3b82f6';
-                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = '#e2e8f0';
-                e.target.style.boxShadow = 'none';
-              }}
-            >
-              {availableFields.valueFields.map(field => (
-                <option key={field.value} value={field.value}>{field.label}</option>
-              ))}
-            </select>
-            <span className="material-icons" style={{ 
-              position: 'absolute',
-              right: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              fontSize: '20px',
-              color: '#94a3b8',
-              pointerEvents: 'none'
-            }}>keyboard_arrow_down</span>
+            Selected fields will appear in the buckets below:
           </div>
-        </div>
-
-        {/* Chart Type */}
-        <div>
-          <label style={{
-            display: 'block',
-            fontSize: '13px',
-            fontWeight: '500',
-            color: '#475569',
-            marginBottom: '6px',
-            letterSpacing: '0.01em'
+          
+          {/* Buckets Grid */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: '12px'
           }}>
-            Chart Type <span style={{ color: '#ef4444' }}>*</span>
-          </label>
-          <div style={{ position: 'relative' }}>
-            <select
-              value={chartType}
-              onChange={(e) => setChartType(e.target.value)}
-              required
-              style={{
-                width: '100%',
-                padding: '11px 14px',
-                paddingRight: '36px',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                fontSize: '14px',
-                outline: 'none',
+            {/* Axis (Categories) */}
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '12px',
+              minHeight: '120px'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '8px',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569'
+              }}>
+                <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>view_list</span>
+                Axis (Categories)
+              </div>
+              <div style={{
                 background: '#ffffff',
-                cursor: 'pointer',
-                transition: 'all 0.15s ease',
-                appearance: 'none',
-                color: '#1e293b',
-                boxSizing: 'border-box'
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = '#3b82f6';
-                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = '#e2e8f0';
-                e.target.style.boxShadow = 'none';
-              }}
-            >
-              <option value="bar">Bar</option>
-              <option value="pie">Pie</option>
-              <option value="treemap">Tree Map</option>
-              <option value="line">Line</option>
-            </select>
-            <span className="material-icons" style={{ 
-              position: 'absolute',
-              right: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              fontSize: '20px',
-              color: '#94a3b8',
-              pointerEvents: 'none'
-            }}>keyboard_arrow_down</span>
+                border: '1px dashed #cbd5e1',
+                borderRadius: '6px',
+                padding: '8px',
+                minHeight: '80px'
+              }}>
+                {axisFields.length > 0 && axisFields.map((field) => {
+                  const isDateField = field.value === 'date';
+                  const dateGrouping = isDateField ? (dateGroupings[field.value] || 'month') : null;
+                  const groupingLabels = {
+                    day: 'Daily',
+                    week: 'Weekly',
+                    month: 'Monthly',
+                    year: 'Yearly'
+                  };
+                  
+                  return (
+                    <div
+                      key={field.value}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        background: '#e0e7ff',
+                        color: '#1e40af',
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        margin: '4px',
+                        gap: '6px'
+                      }}
+                    >
+                      <span>
+                        {field.label}
+                        {isDateField && dateGrouping && ` (${groupingLabels[dateGrouping]})`}
+                      </span>
+                      {isDateField && (
+                        <span 
+                          className="material-icons" 
+                          style={{ 
+                            fontSize: '14px', 
+                            cursor: 'pointer',
+                            padding: '2px',
+                            borderRadius: '2px',
+                            transition: 'background 0.2s'
+                          }}
+                          onClick={(e) => handleDateSettingsClick(field, e)}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#c7d2fe';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'transparent';
+                          }}
+                          title="Configure date grouping"
+                        >
+                          settings
+                        </span>
+                      )}
+                      <span 
+                        className="material-icons" 
+                        style={{ 
+                          fontSize: '16px', 
+                          marginLeft: '2px',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '2px',
+                          transition: 'background 0.2s'
+                        }}
+                        onClick={() => handleFieldToggle(field.value)}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#c7d2fe';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                        title="Remove field"
+                      >
+                        close
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Values */}
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '12px',
+              minHeight: '120px'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '8px',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569'
+              }}>
+                <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>functions</span>
+                Values
+              </div>
+              <div style={{
+                background: '#ffffff',
+                border: '1px dashed #cbd5e1',
+                borderRadius: '6px',
+                padding: '8px',
+                minHeight: '80px'
+              }}>
+                {valueFields.length > 0 && valueFields.map((field) => {
+                  const aggregation = fieldAggregations[field.value] || field.aggregation || 'sum';
+                  const aggregationLabels = {
+                    sum: 'Sum',
+                    average: 'Average',
+                    count: 'Count',
+                    min: 'Min',
+                    max: 'Max'
+                  };
+                  return (
+                    <div
+                      key={field.value}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        background: '#e0e7ff',
+                        color: '#1e40af',
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        margin: '4px',
+                        gap: '6px'
+                      }}
+                    >
+                      <span>{field.label} ({aggregationLabels[aggregation]})</span>
+                      <span 
+                        className="material-icons" 
+                        style={{ 
+                          fontSize: '14px', 
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '2px',
+                          transition: 'background 0.2s'
+                        }}
+                        onClick={(e) => handleSettingsClick(field, e)}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#c7d2fe';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                        title="Configure aggregation"
+                      >
+                        settings
+                      </span>
+                      <span 
+                        className="material-icons" 
+                        style={{ 
+                          fontSize: '16px', 
+                          marginLeft: '2px',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '2px',
+                          transition: 'background 0.2s'
+                        }}
+                        onClick={() => handleFieldToggle(field.value)}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#c7d2fe';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                        title="Remove field"
+                      >
+                        close
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -9733,22 +10521,472 @@ const CustomCardModal = ({ salesData, onClose, onCreate }) => {
               e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
             }}
           >
-            Create Card
+            {editingCard ? 'Update Card' : 'Create Card'}
           </button>
         </div>
       </form>
+      
+      {/* Settings Modal (Value Field or Date Field) */}
+      {settingsModalOpen && fieldBeingConfigured && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 2000
+          }}
+          onClick={() => setSettingsModalOpen(false)}
+        >
+          <div
+            style={{
+              background: 'white',
+              borderRadius: '12px',
+              width: '90%',
+              maxWidth: '400px',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+              padding: '24px'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '20px'
+            }}>
+              <h3 style={{
+                margin: 0,
+                fontSize: '16px',
+                fontWeight: '600',
+                color: '#1e293b'
+              }}>
+                {isDateSettingsModal ? 'Date Field Settings' : 'Value Field Settings'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setSettingsModalOpen(false)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#94a3b8',
+                  borderRadius: '6px',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '20px' }}>close</span>
+              </button>
+            </div>
+            
+            <div style={{ marginBottom: '16px' }}>
+              <div style={{
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569',
+                marginBottom: '8px'
+              }}>
+                Field: <span style={{ fontWeight: '600' }}>{fieldBeingConfigured.label}</span>
+              </div>
+              <div style={{
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569',
+                marginBottom: '12px'
+              }}>
+                {isDateSettingsModal ? 'Choose date grouping:' : 'Choose aggregation type:'}
+              </div>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {isDateSettingsModal ? (
+                  // Date grouping options
+                  ['day', 'week', 'month', 'year'].map((groupingType) => {
+                    const currentGrouping = dateGroupings[fieldBeingConfigured.value] || 'month';
+                    const isSelected = currentGrouping === groupingType;
+                    const labels = {
+                      day: 'Daily',
+                      week: 'Weekly',
+                      month: 'Monthly',
+                      year: 'Yearly'
+                    };
+                    
+                    return (
+                      <div
+                        key={groupingType}
+                        onClick={() => {
+                          handleDateGroupingChange(fieldBeingConfigured.value, groupingType);
+                          setSettingsModalOpen(false);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: '12px',
+                          border: `1px solid ${isSelected ? '#3b82f6' : '#e2e8f0'}`,
+                          borderRadius: '8px',
+                          background: isSelected ? '#eff6ff' : '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = '#cbd5e1';
+                            e.currentTarget.style.background = '#f8fafc';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = '#e2e8f0';
+                            e.currentTarget.style.background = '#ffffff';
+                          }
+                        }}
+                      >
+                        <div style={{
+                          width: '18px',
+                          height: '18px',
+                          border: `2px solid ${isSelected ? '#3b82f6' : '#cbd5e1'}`,
+                          borderRadius: '50%',
+                          background: isSelected ? '#3b82f6' : 'transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: '12px',
+                          flexShrink: 0
+                        }}>
+                          {isSelected && (
+                            <div style={{
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              background: 'white'
+                            }} />
+                          )}
+                        </div>
+                        <span style={{
+                          fontSize: '14px',
+                          fontWeight: isSelected ? '600' : '400',
+                          color: '#1e293b'
+                        }}>
+                          {labels[groupingType]}
+                        </span>
+                      </div>
+                    );
+                  })
+                ) : (
+                  // Aggregation options
+                  ['sum', 'average', 'count', 'min', 'max'].map((aggType) => {
+                    const currentAgg = fieldAggregations[fieldBeingConfigured.value] || fieldBeingConfigured.aggregation || 'sum';
+                    const isSelected = currentAgg === aggType;
+                    const labels = {
+                      sum: 'Sum',
+                      average: 'Average',
+                      count: 'Count',
+                      min: 'Min',
+                      max: 'Max'
+                    };
+                    
+                    return (
+                      <div
+                        key={aggType}
+                        onClick={() => {
+                          handleAggregationChange(fieldBeingConfigured.value, aggType);
+                          setSettingsModalOpen(false);
+                        }}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: '12px',
+                          border: `1px solid ${isSelected ? '#3b82f6' : '#e2e8f0'}`,
+                          borderRadius: '8px',
+                          background: isSelected ? '#eff6ff' : '#ffffff',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = '#cbd5e1';
+                            e.currentTarget.style.background = '#f8fafc';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isSelected) {
+                            e.currentTarget.style.borderColor = '#e2e8f0';
+                            e.currentTarget.style.background = '#ffffff';
+                          }
+                        }}
+                      >
+                        <div style={{
+                          width: '18px',
+                          height: '18px',
+                          border: `2px solid ${isSelected ? '#3b82f6' : '#cbd5e1'}`,
+                          borderRadius: '50%',
+                          background: isSelected ? '#3b82f6' : 'transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: '12px',
+                          flexShrink: 0
+                        }}>
+                          {isSelected && (
+                            <div style={{
+                              width: '8px',
+                              height: '8px',
+                              borderRadius: '50%',
+                              background: 'white'
+                            }} />
+                          )}
+                        </div>
+                        <span style={{
+                          fontSize: '14px',
+                          fontWeight: isSelected ? '600' : '400',
+                          color: '#1e293b'
+                        }}>
+                          {labels[aggType]}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
 
 // Custom Card Component
-const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartType, onChartTypeChange, onDelete, openTransactionRawData }) => {
+const CustomCard = React.memo(({ 
+  card, 
+  salesData, 
+  generateCustomCardData, 
+  chartType, 
+  onChartTypeChange, 
+  onDelete,
+  onEdit,
+  openTransactionRawData,
+  setSelectedCustomer,
+  setSelectedItem,
+  setSelectedStockGroup,
+  setSelectedRegion,
+  setSelectedCountry,
+  setSelectedPeriod,
+  setSelectedLedgerGroup,
+  selectedCustomer,
+  selectedItem,
+  selectedStockGroup,
+  selectedRegion,
+  selectedCountry,
+  selectedPeriod,
+  selectedLedgerGroup,
+  genericFilters,
+  setGenericFilters
+}) => {
   const cardData = useMemo(() => generateCustomCardData(card, salesData), [card, salesData, generateCustomCardData]);
+
+  // Map groupBy field to filter setter and current filter value
+  // Memoize filterHandler to recalculate when card.groupBy or filter states change
+  const filterHandler = useMemo(() => {
+    const groupBy = card.groupBy;
+    const groupByLower = groupBy ? groupBy.toLowerCase() : '';
+    
+    console.log('🔄 Recalculating filterHandler for custom card:', {
+      cardId: card.id,
+      cardTitle: card.title,
+      groupBy: card.groupBy,
+      groupByLower,
+      dateGrouping: card.dateGrouping
+    });
+    
+    // Map groupBy to the appropriate filter setter and current value (case-insensitive)
+    if (groupByLower === 'customer') {
+      return {
+        onClick: setSelectedCustomer,
+        onBackClick: () => setSelectedCustomer('all'),
+        showBackButton: selectedCustomer !== 'all',
+        currentValue: selectedCustomer
+      };
+    } else if (groupByLower === 'item') {
+      return {
+        onClick: setSelectedItem,
+        onBackClick: () => setSelectedItem('all'),
+        showBackButton: selectedItem !== 'all',
+        currentValue: selectedItem
+      };
+    } else if (groupByLower === 'category' || groupByLower === 'stockgroup' || groupByLower === 'stock_group') {
+      return {
+        onClick: setSelectedStockGroup,
+        onBackClick: () => setSelectedStockGroup('all'),
+        showBackButton: selectedStockGroup !== 'all',
+        currentValue: selectedStockGroup
+      };
+    } else if (groupByLower === 'region') {
+      return {
+        onClick: setSelectedRegion,
+        onBackClick: () => setSelectedRegion('all'),
+        showBackButton: selectedRegion !== 'all',
+        currentValue: selectedRegion
+      };
+    } else if (groupByLower === 'country') {
+      return {
+        onClick: setSelectedCountry,
+        onBackClick: () => setSelectedCountry('all'),
+        showBackButton: selectedCountry !== 'all',
+        currentValue: selectedCountry
+      };
+    } else if (groupBy === 'date') {
+      // Handle all date groupings (day, week, month, year)
+      // For month grouping, use setSelectedPeriod (format: "YYYY-MM")
+      // For other groupings, we'll need to convert the label to the appropriate format
+      if (card.dateGrouping === 'month') {
+        return {
+          onClick: (label) => {
+            // Label format: "YYYY-MM" (e.g., "2024-01")
+            setSelectedPeriod(label);
+          },
+          onBackClick: () => setSelectedPeriod(null),
+          showBackButton: selectedPeriod !== null,
+          currentValue: selectedPeriod
+        };
+      } else if (card.dateGrouping === 'day') {
+        // For day grouping, convert label (YYYY-MM-DD) to month format (YYYY-MM) for setSelectedPeriod
+        return {
+          onClick: (label) => {
+            // Label format: "YYYY-MM-DD", convert to "YYYY-MM" for period filtering
+            const monthLabel = label.substring(0, 7); // Extract "YYYY-MM" from "YYYY-MM-DD"
+            setSelectedPeriod(monthLabel);
+          },
+          onBackClick: () => setSelectedPeriod(null),
+          showBackButton: selectedPeriod !== null,
+          currentValue: selectedPeriod
+        };
+      } else if (card.dateGrouping === 'week') {
+        // For week grouping, extract year-month from week label
+        return {
+          onClick: (label) => {
+            // Label format: "YYYY-WN", extract year and approximate month
+            const yearMatch = label.match(/^(\d{4})/);
+            if (yearMatch) {
+              const year = yearMatch[1];
+              // Use first month of the year as approximation (could be improved)
+              setSelectedPeriod(`${year}-01`);
+            }
+          },
+          onBackClick: () => setSelectedPeriod(null),
+          showBackButton: selectedPeriod !== null,
+          currentValue: selectedPeriod
+        };
+      } else if (card.dateGrouping === 'year') {
+        // For year grouping, convert to month format
+        return {
+          onClick: (label) => {
+            // Label format: "YYYY", convert to "YYYY-01" for period filtering
+            setSelectedPeriod(`${label}-01`);
+          },
+          onBackClick: () => setSelectedPeriod(null),
+          showBackButton: selectedPeriod !== null,
+          currentValue: selectedPeriod
+        };
+      }
+    } else if (groupByLower === 'ledgergroup' || groupByLower === 'ledger_group') {
+      return {
+        onClick: setSelectedLedgerGroup,
+        onBackClick: () => setSelectedLedgerGroup('all'),
+        showBackButton: selectedLedgerGroup !== 'all',
+        currentValue: selectedLedgerGroup
+      };
+    }
+    
+    // For other groupBy fields, create a generic filter handler
+    // This ensures cross-filtering always works, even for unmapped fields
+    console.log('🔵 Creating generic filter handler for field:', groupBy);
+    
+    // Create a unique key for this card's filter
+    const filterKey = `${card.id}_${groupBy}`;
+    const currentFilter = genericFilters?.[filterKey] || null;
+    
+    return {
+      onClick: (label) => {
+        console.log('🔵 Generic filter click:', { field: groupBy, label, cardId: card.id, filterKey });
+        if (setGenericFilters) {
+          setGenericFilters(prev => {
+            const updated = { ...prev };
+            updated[filterKey] = label;
+            // Persist to sessionStorage
+            try {
+              sessionStorage.setItem('customCardGenericFilters', JSON.stringify(updated));
+            } catch (e) {
+              console.warn('Failed to persist generic filters:', e);
+            }
+            return updated;
+          });
+        }
+      },
+      onBackClick: () => {
+        console.log('🔵 Generic filter back click:', { field: groupBy, cardId: card.id, filterKey });
+        if (setGenericFilters) {
+          setGenericFilters(prev => {
+            const updated = { ...prev };
+            delete updated[filterKey];
+            // Persist to sessionStorage
+            try {
+              sessionStorage.setItem('customCardGenericFilters', JSON.stringify(updated));
+            } catch (e) {
+              console.warn('Failed to persist generic filters:', e);
+            }
+            return updated;
+          });
+        }
+      },
+      showBackButton: currentFilter !== null && currentFilter !== 'all' && currentFilter !== '',
+      currentValue: currentFilter
+    };
+  }, [
+    card.id, // Include card.id to ensure recalculation when card is edited
+    card.groupBy,
+    card.dateGrouping,
+    // Setter functions are stable, but we include them for clarity
+    setSelectedCustomer,
+    setSelectedItem,
+    setSelectedStockGroup,
+    setSelectedRegion,
+    setSelectedCountry,
+    setSelectedPeriod,
+    setSelectedLedgerGroup,
+    setGenericFilters,
+    // Current filter values affect showBackButton and currentValue
+    selectedCustomer,
+    selectedItem,
+    selectedStockGroup,
+    selectedRegion,
+    selectedCountry,
+    selectedPeriod,
+    selectedLedgerGroup,
+    genericFilters // Include genericFilters to recalculate when they change
+  ]);
+
+  // Helper function for case-insensitive field access (local to CustomCard)
+  const getFieldValueLocal = (item, fieldName) => {
+    if (!item || !fieldName) return null;
+    if (item[fieldName] !== undefined) return item[fieldName];
+    if (item[fieldName.toLowerCase()] !== undefined) return item[fieldName.toLowerCase()];
+    if (item[fieldName.toUpperCase()] !== undefined) return item[fieldName.toUpperCase()];
+    const matchingKey = Object.keys(item).find(k => k.toLowerCase() === fieldName.toLowerCase());
+    return matchingKey ? item[matchingKey] : null;
+  };
 
   const getFilterFn = (itemLabel) => {
     return (sale) => {
       if (card.groupBy === 'date') {
-        const saleDate = sale.cp_date || sale.date;
+        const saleDate = getFieldValueLocal(sale, 'cp_date') || getFieldValueLocal(sale, 'date');
         const date = new Date(saleDate);
         let groupKey = '';
         if (card.dateGrouping === 'day') {
@@ -9764,10 +11002,12 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
         }
         return groupKey === itemLabel;
       } else if (card.groupBy === 'profit_margin') {
-        const margin = sale.amount > 0 ? ((sale.profit / sale.amount) * 100).toFixed(0) : '0';
+        const amount = parseFloat(getFieldValueLocal(sale, 'amount') || 0);
+        const profit = parseFloat(getFieldValueLocal(sale, 'profit') || 0);
+        const margin = amount > 0 ? ((profit / amount) * 100).toFixed(0) : '0';
         return `${margin}%` === itemLabel;
       } else if (card.groupBy === 'order_value') {
-        const value = sale.amount;
+        const value = parseFloat(getFieldValueLocal(sale, 'amount') || 0);
         let range = '';
         if (value < 1000) range = '< ₹1K';
         else if (value < 5000) range = '₹1K - ₹5K';
@@ -9776,7 +11016,8 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
         else range = '> ₹50K';
         return range === itemLabel;
       } else {
-        return sale[card.groupBy] === itemLabel;
+        const fieldValue = getFieldValueLocal(sale, card.groupBy);
+        return fieldValue === itemLabel;
       }
     };
   };
@@ -9847,6 +11088,35 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
           <option value="treemap">Tree Map</option>
           <option value="line">Line</option>
         </select>
+        {onEdit && (
+          <button
+            type="button"
+            onClick={() => onEdit(card.id)}
+            style={{
+              background: '#dbeafe',
+              border: 'none',
+              borderRadius: '6px',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: '#1e40af',
+              transition: 'all 0.2s',
+              flexShrink: 0
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#bfdbfe';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = '#dbeafe';
+            }}
+            title="Edit custom card"
+          >
+            <span className="material-icons" style={{ fontSize: '18px' }}>edit</span>
+          </button>
+        )}
         <button
           type="button"
           onClick={onDelete}
@@ -9892,6 +11162,15 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
               data={cardData}
               customHeader={customHeader}
               valuePrefix={valuePrefix}
+              onBarClick={(label) => {
+                console.log('🔵 Custom card bar click:', { cardTitle: card.title, label, groupBy: card.groupBy, hasHandler: !!filterHandler });
+                filterHandler?.onClick?.(label);
+              }}
+              onBackClick={() => {
+                console.log('🔵 Custom card back click:', { cardTitle: card.title, groupBy: card.groupBy });
+                filterHandler?.onBackClick?.();
+              }}
+              showBackButton={filterHandler?.showBackButton || false}
               rowAction={{
                 icon: 'table_view',
                 title: 'View raw data',
@@ -9904,6 +11183,15 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
               data={cardData}
               customHeader={customHeader}
               valuePrefix={valuePrefix}
+              onSliceClick={(label) => {
+                console.log('🔵 Custom card pie click:', { cardTitle: card.title, label, groupBy: card.groupBy, hasHandler: !!filterHandler });
+                filterHandler?.onClick?.(label);
+              }}
+              onBackClick={() => {
+                console.log('🔵 Custom card back click:', { cardTitle: card.title, groupBy: card.groupBy });
+                filterHandler?.onBackClick?.();
+              }}
+              showBackButton={filterHandler?.showBackButton || false}
               rowAction={{
                 icon: 'table_view',
                 title: 'View raw data',
@@ -9916,6 +11204,15 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
               data={cardData}
               customHeader={customHeader}
               valuePrefix={valuePrefix}
+              onBoxClick={(label) => {
+                console.log('🔵 Custom card treemap click:', { cardTitle: card.title, label, groupBy: card.groupBy, hasHandler: !!filterHandler });
+                filterHandler?.onClick?.(label);
+              }}
+              onBackClick={() => {
+                console.log('🔵 Custom card back click:', { cardTitle: card.title, groupBy: card.groupBy });
+                filterHandler?.onBackClick?.();
+              }}
+              showBackButton={filterHandler?.showBackButton || false}
               rowAction={{
                 icon: 'table_view',
                 title: 'View raw data',
@@ -9928,6 +11225,15 @@ const CustomCard = React.memo(({ card, salesData, generateCustomCardData, chartT
               data={cardData}
               customHeader={customHeader}
               valuePrefix={valuePrefix}
+              onPointClick={(label) => {
+                console.log('🔵 Custom card line click:', { cardTitle: card.title, label, groupBy: card.groupBy, hasHandler: !!filterHandler });
+                filterHandler?.onClick?.(label);
+              }}
+              onBackClick={() => {
+                console.log('🔵 Custom card back click:', { cardTitle: card.title, groupBy: card.groupBy });
+                filterHandler?.onBackClick?.();
+              }}
+              showBackButton={filterHandler?.showBackButton || false}
               rowAction={{
                 icon: 'table_view',
                 title: 'View raw data',
