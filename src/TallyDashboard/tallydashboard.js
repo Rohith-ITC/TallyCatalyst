@@ -2179,18 +2179,21 @@ function TallyDashboard() {
           alignItems: 'center', 
           justifyContent: 'center', 
           width: '100%', 
-          margin: '20px 0 32px 0',
-          padding: sidebarOpen ? '0 20px' : '0',
+          margin: sidebarOpen ? '16px 0 20px 0' : '16px 0',
+          padding: sidebarOpen ? '0 0px' : '0',
+          minHeight: sidebarOpen ? 'auto' : '60px',
         }}>
           <img 
             src={TallyLogo} 
-            alt="Tally Logo" 
+            alt="DataLynk Logo" 
             style={{ 
-              width: sidebarOpen ? 180 : 40, 
-              height: sidebarOpen ? 72 : 40, 
+              width: sidebarOpen ? '140px' : '40px', 
+              height: sidebarOpen ? 'auto' : '40px', 
+              maxWidth: '100%',
               objectFit: 'contain', 
               transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               filter: 'drop-shadow(0 2px 8px rgba(255, 255, 255, 0.1))',
+              display: 'block',
             }} 
           />
         </div>
