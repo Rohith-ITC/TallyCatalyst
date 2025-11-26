@@ -661,6 +661,10 @@ function TallyConfig() {
           );
         }
         setFormSuccess(`Configurations saved successfully for ${companyConfig.co_name}`);
+        
+        // Close the modal and return to Tally Connections tab
+        setShowConfigModal(false);
+        setActiveConfigTab(0);
       } else {
         throw new Error(data?.message || 'Failed to save configurations');
       }

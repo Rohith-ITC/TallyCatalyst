@@ -17,6 +17,7 @@ import TallyDashboard from './TallyDashboard/tallydashboard';
 import SubscriptionPlans from './subscription/SubscriptionPlans';
 import VendorInvitationForm from './TallyDashboard/VendorInvitationForm';
 import MasterInvitationForm from './TallyDashboard/MasterInvitationForm';
+import SubscriptionPlans from './subscription/SubscriptionPlans';
 import { APP_CONFIG } from './config';
 
 // Protected Route Component
