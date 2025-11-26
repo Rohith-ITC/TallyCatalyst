@@ -1,9 +1,8 @@
-import React from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
+import Plot from 'react-plotly.js';
 
 const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, showBackButton, rowAction, customHeader }) => {
-  const total = data.reduce((sum, d) => sum + d.value, 0);
-
-  // Generate colors if not provided
+  // Generate colors if not provided (moved before hooks)
   const colors = [
     '#3b82f6', // Blue
     '#10b981', // Green
@@ -27,51 +26,183 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
     '#ca8a04'  // Yellow-600
   ];
 
-  const boxes = data.map((item, index) => ({
-    ...item,
-    color: item.color || colors[index % colors.length],
-    percentage: (item.value / total) * 100,
-  }));
+  // Calculate total (before hooks)
+  const total = useMemo(() => {
+    if (!data || !Array.isArray(data)) return 0;
+    return data.reduce((sum, d) => sum + (d.value || 0), 0);
+  }, [data]);
 
-  // Simple treemap layout algorithm
-  const layoutBoxes = (boxes, width, height) => {
-    const result = [];
-    let currentX = 0;
-    let currentY = 0;
-    let rowHeight = 0;
-    let rowWidth = 0;
+  // Convert data to Plotly format (must be before early returns)
+  const plotlyData = useMemo(() => {
+    if (!data || !Array.isArray(data) || data.length === 0 || total === 0) {
+      return {
+        labels: [],
+        values: [],
+        parents: [],
+        text: [],
+        markerColors: [],
+        hoverText: []
+      };
+    }
 
-    boxes.forEach((box) => {
-      const area = (box.percentage / 100) * width * height;
-      let boxWidth = Math.sqrt(area * (width / height));
-      let boxHeight = area / boxWidth;
+    const labels = [];
+    const values = [];
+    const parents = [];
+    const text = [];
+    const markerColors = [];
+    const hoverText = [];
 
-      if (currentX + boxWidth > width) {
-        currentX = 0;
-        currentY += rowHeight;
-        rowHeight = 0;
-        rowWidth = 0;
+    data.forEach((item, index) => {
+      if (item.value > 0) {
+        labels.push(item.label || `Item ${index}`);
+        values.push(item.value);
+        parents.push(''); // Empty parent means root level
+        markerColors.push(item.color || colors[index % colors.length]);
+        
+        // Text to display inside boxes (name and value)
+        const label = item.label || `Item ${index}`;
+        text.push(`${label}<br>${valuePrefix}${item.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`);
+        
+        // Hover text (without label since it's already shown on the rectangle)
+        const percentage = ((item.value / total) * 100).toFixed(1);
+        hoverText.push(`${valuePrefix}${item.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<br>${percentage}%`);
       }
-
-      result.push({
-        ...box,
-        x: currentX,
-        y: currentY,
-        width: boxWidth,
-        height: boxHeight,
-      });
-
-      currentX += boxWidth;
-      rowWidth += boxWidth;
-      rowHeight = Math.max(rowHeight, boxHeight);
     });
 
-    return result;
+    return {
+      labels,
+      values,
+      parents,
+      text,
+      markerColors,
+      hoverText
+    };
+  }, [data, total, valuePrefix, colors]);
+
+  // Plotly layout configuration
+  const layout = useMemo(() => ({
+    margin: { l: 0, r: 0, t: 0, b: 0 },
+    paper_bgcolor: 'transparent',
+    plot_bgcolor: 'transparent',
+    font: {
+      family: 'system-ui, -apple-system, sans-serif',
+      size: 12,
+      color: '#1e293b'
+    },
+    hovermode: 'closest',
+    showlegend: false
+  }), []);
+
+  // Ref for the plot container (must be before early returns)
+  const plotContainerRef = useRef(null);
+
+  // Add CSS for text outline effect (must be before early returns)
+  useEffect(() => {
+    const styleId = 'treemap-text-outline-style';
+    
+    // Add global style for all Plotly text elements
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+        .js-plotly-plot .textlayer text,
+        .js-plotly-plot .textlayer tspan {
+          stroke: #000000 !important;
+          stroke-width: 0.8px !important;
+          paint-order: stroke fill !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    // Apply styles directly to text elements after Plotly renders
+    const applyTextStyles = () => {
+      if (plotContainerRef.current) {
+        const textElements = plotContainerRef.current.querySelectorAll('.textlayer text, .textlayer tspan');
+        textElements.forEach((el) => {
+          el.style.stroke = '#000000';
+          el.style.strokeWidth = '0.8px';
+          el.style.paintOrder = 'stroke fill';
+        });
+      }
+    };
+
+    // Apply immediately
+    applyTextStyles();
+
+    // Use MutationObserver to apply styles when Plotly updates
+    const observer = new MutationObserver(() => {
+      applyTextStyles();
+    });
+
+    if (plotContainerRef.current) {
+      observer.observe(plotContainerRef.current, {
+        childList: true,
+        subtree: true
+      });
+    }
+
+    // Also use a timeout as a fallback
+    const timeoutId = setTimeout(applyTextStyles, 100);
+    const timeoutId2 = setTimeout(applyTextStyles, 500);
+
+    // Cleanup
+    return () => {
+      observer.disconnect();
+      clearTimeout(timeoutId);
+      clearTimeout(timeoutId2);
+    };
+  }, [plotlyData]); // Re-run when data changes
+
+  // Validate data (after hooks)
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return (
+      <div style={{
+        background: 'white',
+        borderRadius: '12px',
+        padding: '24px',
+        border: '1px solid #e2e8f0',
+        textAlign: 'center',
+        color: '#64748b'
+      }}>
+        No data available
+      </div>
+    );
+  }
+  
+  if (total === 0) {
+    return (
+      <div style={{
+        background: 'white',
+        borderRadius: '12px',
+        padding: '24px',
+        border: '1px solid #e2e8f0',
+        textAlign: 'center',
+        color: '#64748b'
+      }}>
+        No data to display
+      </div>
+    );
+  }
+
+  // Plotly configuration
+  const config = {
+    displayModeBar: false,
+    responsive: true,
+    staticPlot: false
   };
 
-  const containerWidth = 600;
-  const containerHeight = 400;
-  const layoutedBoxes = layoutBoxes(boxes, containerWidth, containerHeight);
+  // Handle click events
+  const handleClick = (event) => {
+    if (onBoxClick && event.points && event.points.length > 0) {
+      const point = event.points[0];
+      const label = point.label;
+      if (label) {
+        console.log('TreeMap click:', label);
+        onBoxClick(label);
+      }
+    }
+  };
 
   return (
     <div style={{
@@ -149,88 +280,61 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
       )}
       <div style={{
         padding: '12px 16px',
-        overflowY: 'auto',
-        flex: 1
+        flex: 1,
+        minHeight: '250px',
+        display: 'flex',
+        flexDirection: 'column',
+        overflowY: 'auto'
       }}>
-        <div style={{
-          position: 'relative',
-          width: '100%',
-          paddingBottom: `${(containerHeight / containerWidth) * 100}%`,
-          minHeight: '250px',
-          marginTop: '0'
-        }}>
-          <svg
-            viewBox={`0 0 ${containerWidth} ${containerHeight}`}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width: '100%',
-              height: '100%'
-            }}
-          >
-            {layoutedBoxes.map((box, index) => (
-              <g
-                key={index}
-                onClick={() => onBoxClick?.(box.label)}
-                style={{ cursor: onBoxClick ? 'pointer' : 'default' }}
-              >
-                <rect
-                  x={box.x}
-                  y={box.y}
-                  width={box.width}
-                  height={box.height}
-                  fill={box.color}
-                  stroke="white"
-                  strokeWidth="2"
-                  style={{
-                    transition: 'opacity 0.2s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (onBoxClick) {
-                      e.target.style.opacity = '0.8';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (onBoxClick) {
-                      e.target.style.opacity = '1';
-                    }
-                  }}
-                />
-                {box.width > 60 && box.height > 40 && (
-                  <>
-                    <text
-                      x={box.x + box.width / 2}
-                      y={box.y + box.height / 2 - 10}
-                      textAnchor="middle"
-                      className="fill-white text-xs font-semibold"
-                      style={{ fontSize: '12px' }}
-                    >
-                      {box.label.length > 15 ? box.label.substring(0, 15) + '...' : box.label}
-                    </text>
-                    <text
-                      x={box.x + box.width / 2}
-                      y={box.y + box.height / 2 + 8}
-                      textAnchor="middle"
-                      className="fill-white text-xs font-bold"
-                      style={{ fontSize: '14px' }}
-                    >
-                      {valuePrefix}{box.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                    </text>
-                    <text
-                      x={box.x + box.width / 2}
-                      y={box.y + box.height / 2 + 24}
-                      textAnchor="middle"
-                      className="fill-white text-xs"
-                      style={{ fontSize: '11px', opacity: 0.9 }}
-                    >
-                      {box.percentage.toFixed(1)}%
-                    </text>
-                  </>
-                )}
-              </g>
-            ))}
-          </svg>
+        <div 
+          ref={plotContainerRef}
+          style={{ 
+            width: '100%', 
+            height: '400px', 
+            position: 'relative',
+            flexShrink: 0
+          }}
+        >
+          <Plot
+            data={[{
+              type: 'treemap',
+              labels: plotlyData.labels,
+              values: plotlyData.values,
+              parents: plotlyData.parents,
+              text: plotlyData.text,
+              textinfo: 'text',
+              textfont: {
+                size: 14,
+                color: '#ffffff',
+                family: 'system-ui, -apple-system, sans-serif'
+              },
+              textposition: 'middle center',
+              hovertemplate: '<b>%{label}</b><br>%{customdata}<extra></extra>',
+              customdata: plotlyData.hoverText,
+              marker: {
+                colors: plotlyData.markerColors,
+                line: {
+                  width: 2,
+                  color: '#ffffff'
+                },
+                pad: {
+                  t: 2,
+                  l: 2,
+                  r: 2,
+                  b: 2
+                }
+              },
+              branchvalues: 'total',
+              pathbar: {
+                visible: false
+              }
+            }]}
+            layout={layout}
+            config={config}
+            style={{ width: '100%', height: '100%' }}
+            onClick={handleClick}
+            useResizeHandler={true}
+          />
         </div>
         {rowAction && (
           <div style={{
@@ -239,7 +343,7 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
             flexDirection: 'column',
             gap: '8px'
           }}>
-            {boxes.map((box, index) => (
+            {data.map((box, index) => (
               <div
                 key={`${box.label}-${index}`}
                 style={{
@@ -253,11 +357,18 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '12px', height: '12px', borderRadius: '2px', background: box.color }} />
+                  <div style={{ 
+                    width: '12px', 
+                    height: '12px', 
+                    borderRadius: '2px', 
+                    background: box.color || colors[index % colors.length] 
+                  }} />
                   <span style={{ fontSize: '12px', fontWeight: '500', color: '#475569' }}>{box.label}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', color: '#9ca3af' }}>{box.percentage.toFixed(1)}%</span>
+                  <span style={{ fontSize: '12px', color: '#9ca3af' }}>
+                    {((box.value / total) * 100).toFixed(1)}%
+                  </span>
                   <span style={{ fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>
                     {valuePrefix}{box.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
