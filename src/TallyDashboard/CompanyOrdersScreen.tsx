@@ -45,9 +45,10 @@ interface ChartValueLabelProps {
   x?: number | string;
   y?: number | string;
   width?: number | string;
-  value?: number | string;
+  value?: any; // Allow any value type from recharts
   formatter: (value: number) => string;
   fill?: string;
+  [key: string]: any; // Allow additional props from recharts
 }
 
 const ChartValueLabel: React.FC<ChartValueLabelProps> = ({
@@ -77,7 +78,8 @@ interface BucketLabelProps {
   x?: number | string;
   width?: number | string;
   y?: number | string;
-  value?: string | number;
+  value?: any; // Allow any value type from recharts
+  [key: string]: any; // Allow additional props from recharts
 }
 
 const BucketLabel: React.FC<BucketLabelProps> = ({x = 0, width = 0, y = 0, value = ''}) => (
@@ -128,6 +130,7 @@ type DeliverySummaryRow = {
   totalPendingQty: number;
   totalAvailableQty: number;
   totalValue: number;
+  totalAllocatedQty: number;
   orders: CompanyOrder[];
 };
 
@@ -149,6 +152,7 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
   const [showBatchSelectionModal, setShowBatchSelectionModal] = useState<boolean>(false);
   const [selectedOrderForBatch, setSelectedOrderForBatch] = useState<CompanyOrder | null>(null);
   const [selectedSummaryKey, setSelectedSummaryKey] = useState<string | null>(null);
+  const [showZeroAvailabilityItems, setShowZeroAvailabilityItems] = useState(false);
   const [successDialogMessage, setSuccessDialogMessage] = useState<string | null>(null);
   const [saveElapsedSeconds, setSaveElapsedSeconds] = useState(0);
   const saveTimerRef = useRef<number | null>(null);
@@ -174,7 +178,7 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
   const [filters, setFilters] = useState({...INITIAL_FILTERS});
   type SortField = 'date' | 'orderNo' | 'stockItem' | 'customer' | 'orderQty' | 'pendingQty' | 'rate' | 'value' | 'dueDate';
   const [sortConfig, setSortConfig] = useState<{field: SortField; direction: 'asc' | 'desc'} | null>(null);
-  const [viewMode, setViewMode] = useState<'summary' | 'detailed'>('detailed');
+  const [viewMode, setViewMode] = useState<'summary' | 'detailed'>('summary');
   const [groupBy, setGroupBy] = useState<'customer' | 'stockItem'>('customer');
   const [ageingBuckets, setAgeingBuckets] = useState<number[]>(() => {
     const saved = localStorage.getItem('companyOrdersAgeingBuckets');
@@ -372,7 +376,17 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
     if (pendingQty <= 0) return;
     
     // Parse closing balances for each batch and subtract allocations from other orders
-    const batchesWithBalances = entries
+    const orderLocation = order.Location?.trim() || '';
+    const orderBatch = order.Batch?.trim() || '';
+    const filteredEntries = entries.filter((entry) => {
+      const entryLocation = entry.godown?.trim() || '';
+      const entryBatch = entry.Batchname?.trim() || '';
+      if (orderLocation && entryLocation !== orderLocation) return false;
+      if (orderBatch && entryBatch !== orderBatch) return false;
+      return true;
+    });
+
+    const batchesWithBalances = filteredEntries
       .map((entry) => {
         const totalBalance = parseNumericValue(entry.CLOSINGBALANCE);
         const allocatedElsewhere = getAllocatedQtyForBatch(
@@ -557,6 +571,18 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
     return total;
   };
 
+  const getOrderDeliveryQty = useCallback((order: CompanyOrder): number => {
+    if (!order) return 0;
+    const showQtyButton = shouldShowQtyButton(order);
+    if (showQtyButton) {
+      return getTotalBatchDeliveryQty(order);
+    }
+    const orderKey = getOrderKey(order);
+    const deliveryQtyStr = deliveryQuantities[orderKey]?.trim() || '';
+    const deliveryQty = deliveryQtyStr ? parseFloat(deliveryQtyStr) : 0;
+    return Number.isNaN(deliveryQty) ? 0 : deliveryQty;
+  }, [deliveryQuantities, getTotalBatchDeliveryQty, shouldShowQtyButton]);
+
   // Calculate Julian day number for a date
   const getJulianDay = (date: Date): number => {
     const year = date.getFullYear();
@@ -648,10 +674,10 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
     let totalAmount = 0;
     const inventoryEntries: string[] = [];
 
-    // Group items by StockItem when batchXmlFormat is 'single'
+    // Group items by StockItem and Rate when batchXmlFormat is 'single'
     if (batchXmlFormat === 'single') {
-      // Group by StockItem
-      const itemsByStockItem = new Map<string, Array<{
+      // Group by StockItem AND Rate (to create separate entries for different rates)
+      const itemsByStockItemAndRate = new Map<string, Array<{
         order: CompanyOrder;
         deliveryQty: number;
         orderNo: string;
@@ -678,10 +704,13 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
         const orderDueDateFormatted = formatDateObjectForTally(dueDateObj);
         const julianDay = getJulianDay(dueDateObj);
 
-        if (!itemsByStockItem.has(stockItem)) {
-          itemsByStockItem.set(stockItem, []);
+        // Create key combining StockItem, Rate, and Discount to group by rate
+        const rateKey = `${stockItem}||${rateForXML}||${discountValue}`;
+
+        if (!itemsByStockItemAndRate.has(rateKey)) {
+          itemsByStockItemAndRate.set(rateKey, []);
         }
-        itemsByStockItem.get(stockItem)!.push({
+        itemsByStockItemAndRate.get(rateKey)!.push({
           order: item.order,
           deliveryQty: item.deliveryQty,
           orderNo: item.orderNo,
@@ -695,8 +724,9 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
         });
       });
 
-      // Process each StockItem group
-      itemsByStockItem.forEach((items, stockItem) => {
+      // Process each StockItem+Rate group (each group gets its own ALLINVENTORYENTRIES.LIST)
+      itemsByStockItemAndRate.forEach((items, rateKey) => {
+        const [stockItem] = rateKey.split('||');
         const escapedStockItem = escapeForXML(stockItem);
         const firstItem = items[0];
         const rateForXML = firstItem.rateForXML;
@@ -704,7 +734,7 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
         const batchEntries = itemBatchBalances[stockItem];
 
         if (showQtyButton && batchEntries && batchEntries.length > 0) {
-          // Collect all batch allocations from all orders for this item
+          // Collect all batch allocations from all orders for this item+rate combination
           const allBatchAllocations: string[] = [];
           let totalDeliveryQty = 0;
           let totalAmountForItem = 0;
@@ -758,7 +788,7 @@ ${allBatchAllocations.join('\n')}
             totalAmount += totalAmountForItem;
           }
         } else {
-          // Non-batch items: group by StockItem and sum quantities
+          // Non-batch items: group by StockItem+Rate and sum quantities
           let totalDeliveryQty = 0;
           let totalAmountForItem = 0;
           const allBatchAllocations: string[] = [];
@@ -1087,6 +1117,14 @@ ${inventoryEntriesStr}
         return;
       }
 
+      console.log('[Delivery] Sending delivery note to Tally', {
+        tallyloc_id: company.tallyloc_id,
+        company: company.company || company.conn_name,
+        customer: selectedCustomer,
+        deliveryDate,
+        ordersCount: Object.keys(ordersByOrderNo).length,
+        xmlPayload: deliveryXml,
+      });
 
       const tallyResponse = await apiService.getReceivablesData(
         company.tallyloc_id,
@@ -1095,6 +1133,7 @@ ${inventoryEntriesStr}
         deliveryXml,
       );
 
+      console.log('[Delivery] Tally response received', tallyResponse);
 
       let tallyError: string | null = null;
       if (typeof tallyResponse === 'string') {
@@ -1220,7 +1259,7 @@ ${inventoryEntriesStr}
         
         setDeliveryQuantities({});
         setBatchDeliveryQuantities({});
-        setShowDeliveryModal(false);
+        closeDeliveryModal();
         setSuccessDialogMessage(successMessage);
         loadOrders().catch((loadErr) => {
           console.error('Failed to refresh orders after delivery post', loadErr);
@@ -1627,6 +1666,38 @@ ${inventoryEntriesStr}
     [deliveryOrdersForSelectedCustomer, batchDeliveryQuantities],
   );
 
+  // Get remaining available qty for a stock item after accounting for all delivery quantities
+  const getRemainingAvailableQty = useCallback((order: CompanyOrder): number => {
+    if (!order.StockItem) return 0;
+    
+    const originalAvailableQty = parseNumericValue(order.AvailableQty);
+    if (originalAvailableQty <= 0) return 0;
+    
+    // Calculate total delivery quantity for this stock item across all orders in delivery modal
+    let totalDeliveryQty = 0;
+    
+    deliveryOrdersForSelectedCustomer.forEach((deliveryOrder) => {
+      if (deliveryOrder.StockItem !== order.StockItem) return;
+      
+      const showQtyButton = shouldShowQtyButton(deliveryOrder);
+      if (showQtyButton) {
+        // For batch items, use batch quantities
+        totalDeliveryQty += getTotalBatchDeliveryQty(deliveryOrder);
+      } else {
+        // For non-batch items, use regular delivery quantities
+        const orderKey = getOrderKey(deliveryOrder);
+        const deliveryQtyStr = deliveryQuantities[orderKey]?.trim() || '';
+        const deliveryQty = parseFloat(deliveryQtyStr);
+        if (!isNaN(deliveryQty) && deliveryQty > 0) {
+          totalDeliveryQty += deliveryQty;
+        }
+      }
+    });
+    
+    const remaining = Math.max(originalAvailableQty - totalDeliveryQty, 0);
+    return remaining;
+  }, [deliveryOrdersForSelectedCustomer, deliveryQuantities, batchDeliveryQuantities, itemBatchBalances, getTotalBatchDeliveryQty, shouldShowQtyButton]);
+
   const deliverySummaryRows = useMemo<DeliverySummaryRow[]>(() => {
     if (!deliveryOrdersForSelectedCustomer.length) return [];
 
@@ -1634,25 +1705,31 @@ ${inventoryEntriesStr}
 
     deliveryOrdersForSelectedCustomer.forEach((order) => {
       const stockItem = order.StockItem || 'Unnamed Item';
-      const rate = order.Rate || '-';
-      const discount = order.Discount || '';
       const unit = extractUnit(order.OrderQty) || extractUnit(order.PendingQty) || '';
-      const key = `${stockItem}||${rate}||${discount}||${unit}`;
+      // Group only by stockItem and unit, not by rate
+      const key = `${stockItem}||${unit}`;
 
       if (!grouped.has(key)) {
+        // Track unique rates for display
+        const uniqueRates = new Set<string>();
+        uniqueRates.add(formatRateWithDiscount(order));
+        
         grouped.set(key, {
           key,
           stockItem,
-          rate,
-          discount,
+          rate: order.Rate || '-',
+          discount: order.Discount || '',
           rateDisplay: formatRateWithDiscount(order),
           unit,
           totalOrderQty: 0,
           totalPendingQty: 0,
           totalAvailableQty: 0,
           totalValue: 0,
+        totalAllocatedQty: 0,
           orders: [],
-        });
+          // Store unique rates set for later use
+          _uniqueRates: uniqueRates,
+        } as DeliverySummaryRow & { _uniqueRates?: Set<string> });
       }
 
       const group = grouped.get(key)!;
@@ -1660,34 +1737,117 @@ ${inventoryEntriesStr}
       const pendingQty = parseNumericValue(order.PendingQty);
       const availableQty = parseNumericValue(order.AvailableQty);
       const value = calculateValue(order);
+    const orderKey = getOrderKey(order);
+    const allocatedQty = getOrderDeliveryQty(order);
 
       group.totalOrderQty += orderQty;
       group.totalPendingQty += pendingQty;
       group.totalAvailableQty += availableQty;
       group.totalValue += value;
+    group.totalAllocatedQty += allocatedQty;
       group.orders.push(order);
+      
+      // Track unique rates
+      const groupWithRates = group as DeliverySummaryRow & { _uniqueRates?: Set<string> };
+      if (groupWithRates._uniqueRates) {
+        groupWithRates._uniqueRates.add(formatRateWithDiscount(order));
+        // Update rateDisplay if multiple rates exist
+        if (groupWithRates._uniqueRates.size > 1) {
+          group.rateDisplay = 'Multiple rates';
+        }
+      }
     });
 
-    return Array.from(grouped.values()).sort((a, b) => {
-      const nameCompare = a.stockItem.localeCompare(b.stockItem);
-      if (nameCompare !== 0) return nameCompare;
-      return a.rate.localeCompare(b.rate);
+    // Clean up the temporary _uniqueRates property before returning
+    const rows = Array.from(grouped.values()).map(row => {
+      const { _uniqueRates, ...cleanRow } = row as DeliverySummaryRow & { _uniqueRates?: Set<string> };
+      return cleanRow;
     });
-  }, [deliveryOrdersForSelectedCustomer, calculateValue, formatRateWithDiscount]);
+
+    return rows.sort((a, b) => {
+      return a.stockItem.localeCompare(b.stockItem);
+    });
+  }, [deliveryOrdersForSelectedCustomer, calculateValue, formatRateWithDiscount, getOrderDeliveryQty]);
+
+  const visibleDeliverySummaryRows = useMemo(() => {
+    if (showZeroAvailabilityItems) {
+      return deliverySummaryRows;
+    }
+    return deliverySummaryRows.filter((row) => row.totalAvailableQty > 0);
+  }, [deliverySummaryRows, showZeroAvailabilityItems]);
 
   useEffect(() => {
-    if (!deliverySummaryRows.length) {
+    if (!visibleDeliverySummaryRows.length) {
       setSelectedSummaryKey(null);
       return;
     }
-    if (!selectedSummaryKey || !deliverySummaryRows.some((row) => row.key === selectedSummaryKey)) {
-      setSelectedSummaryKey(deliverySummaryRows[0].key);
+    if (!selectedSummaryKey || !visibleDeliverySummaryRows.some((row) => row.key === selectedSummaryKey)) {
+      setSelectedSummaryKey(visibleDeliverySummaryRows[0].key);
     }
-  }, [deliverySummaryRows, selectedSummaryKey]);
+  }, [visibleDeliverySummaryRows, selectedSummaryKey]);
 
   const selectedSummaryGroup = useMemo(
-    () => deliverySummaryRows.find((row) => row.key === selectedSummaryKey) || null,
-    [deliverySummaryRows, selectedSummaryKey],
+    () => visibleDeliverySummaryRows.find((row) => row.key === selectedSummaryKey) || null,
+    [visibleDeliverySummaryRows, selectedSummaryKey],
+  );
+
+  const summaryAggregates = useMemo(() => {
+    if (!visibleDeliverySummaryRows.length) {
+      return {
+        orderQty: 0,
+        pendingQty: 0,
+        value: 0,
+        allocatedQty: 0,
+        availableQty: 0,
+        ordersCount: 0,
+        unit: '',
+      };
+    }
+
+    return visibleDeliverySummaryRows.reduce(
+      (acc, row) => ({
+        orderQty: acc.orderQty + row.totalOrderQty,
+        pendingQty: acc.pendingQty + row.totalPendingQty,
+        value: acc.value + row.totalValue,
+        allocatedQty: acc.allocatedQty + row.totalAllocatedQty,
+        availableQty: acc.availableQty + row.totalAvailableQty,
+        ordersCount: acc.ordersCount + row.orders.length,
+        unit: acc.unit || row.unit,
+      }),
+      {
+        orderQty: 0,
+        pendingQty: 0,
+        value: 0,
+        allocatedQty: 0,
+        availableQty: 0,
+        ordersCount: 0,
+        unit: visibleDeliverySummaryRows[0]?.unit || '',
+      },
+    );
+  }, [visibleDeliverySummaryRows]);
+
+  const totalSummaryOrderQty = summaryAggregates.orderQty;
+  const totalSummaryPendingQty = summaryAggregates.pendingQty;
+  const totalSummaryValue = summaryAggregates.value;
+  const totalSummaryAllocatedQty = summaryAggregates.allocatedQty;
+  const totalSummaryAvailableQty = summaryAggregates.availableQty;
+  const totalSummaryOrdersCount = summaryAggregates.ordersCount;
+  const summaryUnit = summaryAggregates.unit;
+
+  const closeDeliveryModal = useCallback(() => {
+    setShowDeliveryModal(false);
+    setSaveError(null);
+    setViewMode('summary');
+    setGroupBy('customer');
+  }, []);
+
+  const handleSummaryRowClick = useCallback(
+    (name: string) => {
+      if (!name || name === '-' || groupBy !== 'customer') return;
+      setSelectedCustomer(name);
+      setShowDeliveryModal(true);
+    },
+    [groupBy],
   );
 
   const selectedGroupOrders = selectedSummaryGroup?.orders ?? [];
@@ -1839,16 +1999,7 @@ ${inventoryEntriesStr}
         const orderQty = parseNumericValue(order.OrderQty);
         const pendingQty = parseNumericValue(getAdjustedPendingQty(order));
         const value = calculateValue(order);
-        const orderKey = getOrderKey(order);
-        const showQtyButton = shouldShowQtyButton(order);
-        let deliveryQty = 0;
-
-        if (showQtyButton) {
-          deliveryQty = getTotalBatchDeliveryQty(order);
-        } else {
-          const deliveryQtyStr = deliveryQuantities[orderKey]?.trim() || '';
-          deliveryQty = deliveryQtyStr ? parseFloat(deliveryQtyStr) : 0;
-        }
+        const deliveryQty = getOrderDeliveryQty(order);
 
         if (!isNaN(deliveryQty) && deliveryQty > 0) {
           totalDeliveryQty += deliveryQty;
@@ -1871,15 +2022,7 @@ ${inventoryEntriesStr}
         unit,
       };
     },
-    [
-      deliveryQuantities,
-      batchDeliveryQuantities,
-      itemBatchBalances,
-      getAdjustedPendingQty,
-      calculateValue,
-      getTotalBatchDeliveryQty,
-      shouldShowQtyButton,
-    ],
+    [getAdjustedPendingQty, calculateValue, getOrderDeliveryQty],
   );
 
   const selectedGroupTotals = useMemo(() => {
@@ -2410,7 +2553,10 @@ ${inventoryEntriesStr}
                   summaryData.outstanding.map((group, index) => {
                     const avgRate = group.orderQty > 0 ? group.value / group.orderQty : 0;
                     return (
-                      <tr key={`summary-${group.key}-${index}`}>
+                      <tr
+                        key={`summary-${group.key}-${index}`}
+                        className={groupBy === 'customer' ? 'summary-clickable-row' : ''}
+                        onClick={() => handleSummaryRowClick(group.name)}>
                         <td>{group.name}</td>
                         <td>{`${group.orderQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
                         <td>{`${group.pendingQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
@@ -2498,7 +2644,10 @@ ${inventoryEntriesStr}
                   summaryData.cleared.map((group, index) => {
                     const avgRate = group.orderQty > 0 ? group.value / group.orderQty : 0;
                     return (
-                      <tr key={`summary-${group.key}-${index}`}>
+                      <tr
+                        key={`summary-${group.key}-${index}`}
+                        className={groupBy === 'customer' ? 'summary-clickable-row' : ''}
+                        onClick={() => handleSummaryRowClick(group.name)}>
                         <td>{group.name}</td>
                         <td>{`${group.orderQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
                         <td>{`${group.pendingQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
@@ -2586,7 +2735,10 @@ ${inventoryEntriesStr}
                   summaryData.negativePending.map((group, index) => {
                     const avgRate = group.orderQty > 0 ? group.value / group.orderQty : 0;
                     return (
-                      <tr key={`summary-${group.key}-${index}`}>
+                      <tr
+                        key={`summary-${group.key}-${index}`}
+                        className={groupBy === 'customer' ? 'summary-clickable-row' : ''}
+                        onClick={() => handleSummaryRowClick(group.name)}>
                         <td>{group.name}</td>
                         <td>{`${group.orderQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
                         <td>{`${group.pendingQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
@@ -2614,21 +2766,23 @@ ${inventoryEntriesStr}
 
       {/* Delivery Modal */}
       {showDeliveryModal && selectedCustomer && selectedCustomer !== 'all' && (
-        <div className="modal-overlay" onClick={() => {
-          setShowDeliveryModal(false);
-          setSaveError(null);
-        }}>
+        <div className="modal-overlay" onClick={closeDeliveryModal}>
           <div className="delivery-modal-overlay-content" onClick={(e) => e.stopPropagation()}>
             <div className="delivery-modal-header">
               <h2>Update Delivery - {selectedCustomer}</h2>
-              <button
-                className="close-modal-button"
-                  onClick={() => {
-                  setShowDeliveryModal(false);
-                  setSaveError(null);
-                }}>
-                ✕
-              </button>
+              <div className="delivery-header-actions">
+                <button
+                  type="button"
+                  className={`zero-availability-toggle ${showZeroAvailabilityItems ? 'active' : ''}`}
+                  onClick={() => setShowZeroAvailabilityItems((prev) => !prev)}>
+                  {showZeroAvailabilityItems ? 'Hide 0 Qty Items' : 'Show 0 Qty Items'}
+                </button>
+                <button
+                  className="close-modal-button"
+                    onClick={closeDeliveryModal}>
+                  ✕
+                </button>
+              </div>
             </div>
             <div className="delivery-modal-body">
               {saveError && (
@@ -2648,25 +2802,31 @@ ${inventoryEntriesStr}
               )}
 
               <div className="delivery-summary-section">
-                {deliverySummaryRows.length === 0 ? (
+              {deliverySummaryRows.length === 0 ? (
                   <div className="delivery-summary-empty">No pending items for this customer.</div>
-                ) : (
+              ) : visibleDeliverySummaryRows.length === 0 ? (
+                <div className="delivery-summary-empty">
+                  All pending items currently have 0 available quantity. Use "Show 0 Qty Items" to view them.
+                </div>
+              ) : (
                   <div className="delivery-summary-table-wrapper">
-                    <table className="delivery-summary-table">
-                      <thead>
-                        <tr>
-                          <th>Item</th>
-                          <th>Orders</th>
-                          <th className="text-right">Order Qty</th>
-                          <th className="text-right">Pending Qty</th>
-                          <th>Rate</th>
-                          <th className="text-right">Value</th>
-                          <th className="text-right">Available Qty</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {deliverySummaryRows.map((row) => {
+                    <div className="delivery-summary-table-content">
+                      <table className="delivery-summary-table">
+                        <thead>
+                          <tr>
+                            <th>Item</th>
+                            <th className="text-right">Orders</th>
+                            <th className="text-right">Order Qty</th>
+                            <th className="text-right">Pending Qty</th>
+                            <th className="text-right">Rate</th>
+                            <th className="text-right">Value</th>
+                            <th className="text-right">Allocated Qty</th>
+                            <th className="text-right">Available Qty</th>
+                            <th></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                        {visibleDeliverySummaryRows.map((row) => {
                           const isSelected = row.key === selectedSummaryKey;
                           
                           return (
@@ -2681,12 +2841,13 @@ ${inventoryEntriesStr}
                                 <td className="text-right">{row.orders.length}</td>
                                 <td className="text-right">{formatQuantityWithUnit(row.totalOrderQty, row.unit)}</td>
                                 <td className="text-right">{formatQuantityWithUnit(row.totalPendingQty, row.unit)}</td>
-                                <td>
+                                <td className="text-right">
                                   {row.rateDisplay.split('\n').map((line, i) => (
                                     <div key={i}>{line}</div>
                                   ))}
                                 </td>
                                 <td className="text-right">₹{row.totalValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td className="text-right">{formatQuantityWithUnit(row.totalAllocatedQty, row.unit)}</td>
                                 <td className="text-right">{formatQuantityWithUnit(row.totalAvailableQty, row.unit)}</td>
                                 <td>
                                   <button
@@ -2703,7 +2864,7 @@ ${inventoryEntriesStr}
                               </tr>
                               {isSelected && selectedGroupOrders.length > 0 && (
                                 <tr>
-                                  <td colSpan={8} style={{ padding: 0, borderTop: 'none' }}>
+                                  <td colSpan={9} style={{ padding: 0, borderTop: 'none' }}>
                                     <div className="delivery-orders-expanded">
                                       <div className="delivery-orders-expanded-header">
                                         <h4>Orders for {row.stockItem}</h4>
@@ -2765,8 +2926,18 @@ ${inventoryEntriesStr}
                                                       <div className="cell-subtext">({overdueDays} days)</div>
                                                     )}
                                                   </td>
-                                                  <td className={parseNumericValue(order.AvailableQty) === 0 ? 'available-qty-zero' : ''}>
-                                                    {order.AvailableQty || '-'}
+                                                  <td className={(() => {
+                                                    const remainingQty = getRemainingAvailableQty(order);
+                                                    return remainingQty === 0 ? 'available-qty-zero' : '';
+                                                  })()}>
+                                                    {(() => {
+                                                      const remainingQty = getRemainingAvailableQty(order);
+                                                      const unit = extractUnit(order.AvailableQty);
+                                                      if (remainingQty <= 0) {
+                                                        return `0${unit ? ' ' + unit : ''}`;
+                                                      }
+                                                      return `${remainingQty.toFixed(2)}${unit ? ' ' + unit : ''}`;
+                                                    })()}
                                                   </td>
                                                   <td>
                                                     {showQtyButton ? (
@@ -2818,7 +2989,23 @@ ${inventoryEntriesStr}
                             </React.Fragment>
                           );
                         })}
-                      </tbody>
+                        </tbody>
+                      </table>
+                    </div>
+                    <table className="delivery-summary-table">
+                      <tfoot className="delivery-summary-totals">
+                        <tr>
+                          <td>Totals</td>
+                          <td className="text-right">{totalSummaryOrdersCount}</td>
+                          <td className="text-right">{formatQuantityWithUnit(totalSummaryOrderQty, summaryUnit)}</td>
+                          <td className="text-right">{formatQuantityWithUnit(totalSummaryPendingQty, summaryUnit)}</td>
+                          <td className="text-right text-emphasis">-</td>
+                          <td className="text-right">₹{totalSummaryValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="text-right">{formatQuantityWithUnit(totalSummaryAllocatedQty, summaryUnit)}</td>
+                          <td className="text-right">{formatQuantityWithUnit(totalSummaryAvailableQty, summaryUnit)}</td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 )}
@@ -2827,7 +3014,7 @@ ${inventoryEntriesStr}
             <div className="delivery-modal-actions">
               <button
                 className="cancel-button"
-                onClick={() => setShowDeliveryModal(false)}
+                onClick={closeDeliveryModal}
                 disabled={saving}>
                 Cancel
               </button>
@@ -2913,21 +3100,22 @@ ${inventoryEntriesStr}
                   );
                 }
                 
-                // Filter batches by Location and Batch if specified in the order
+                // Filter batches by Location and Batch if specified
                 const orderLocation = selectedOrderForBatch.Location?.trim() || '';
                 const orderBatch = selectedOrderForBatch.Batch?.trim() || '';
                 
-                // First filter by Location and Batch if they exist
                 const filteredBatchEntries = batchEntries.filter((entry) => {
-                  // If order has Location, match it with entry.godown
-                  if (orderLocation && entry.godown?.trim() !== orderLocation) {
+                  const entryLocation = entry.godown?.trim() || '';
+                  const entryBatch = entry.Batchname?.trim() || '';
+                  
+                  if (orderLocation && entryLocation !== orderLocation) {
                     return false;
                   }
-                  // If order has Batch, match it with entry.Batchname
-                  if (orderBatch && entry.Batchname?.trim() !== orderBatch) {
+                  
+                  if (orderBatch && entryBatch !== orderBatch) {
                     return false;
                   }
-                  // If both are empty, show all batches
+                  
                   return true;
                 });
                 
