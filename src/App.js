@@ -14,8 +14,6 @@ import UserDashboard from './UserDashboard';
 import AdminDashboard from './admindashboard/Dashboard';
 import ChangePassword from './admindashboard/ChangePassword';
 import TallyDashboard from './TallyDashboard/tallydashboard';
-import SubscriptionPlans from './subscription/SubscriptionPlans';
-import VendorInvitationForm from './TallyDashboard/VendorInvitationForm';
 import MasterInvitationForm from './TallyDashboard/MasterInvitationForm';
 import SubscriptionPlans from './subscription/SubscriptionPlans';
 import { APP_CONFIG } from './config';
