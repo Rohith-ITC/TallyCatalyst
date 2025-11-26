@@ -1,24 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { getApiUrl, API_CONFIG } from '../config';
 import { apiPost } from '../utils/apiUtils';
-import VendorForm from './VendorForm';
+import MasterForm from './MasterForm';
 
-const VendorList = () => {
-  const [vendors, setVendors] = useState([]);
+const MasterList = () => {
+  const [masters, setMasters] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-  const [selectedVendor, setSelectedVendor] = useState(null);
-  const [showVendorForm, setShowVendorForm] = useState(false);
+  const [selectedMaster, setSelectedMaster] = useState(null);
+  const [showMasterForm, setShowMasterForm] = useState(false);
 
-  // Check if a vendor name already exists in the ledger
-  const checkVendorName = async (vendorName, sessionData) => {
+  // Check if a master name already exists in the ledger
+  const checkMasterName = async (masterName, sessionData) => {
     try {
-      console.log('🔍 Checking vendor name:', vendorName);
+      console.log('🔍 Checking master name:', masterName);
       
-      if (!vendorName || vendorName.trim() === '') {
-        throw new Error('Vendor name is required');
+      if (!masterName || masterName.trim() === '') {
+        throw new Error('Master name is required');
       }
 
       const token = sessionStorage.getItem('token');
@@ -37,10 +37,10 @@ const VendorList = () => {
         company: company,
         guid: guid,
         type: 'name',
-        value: vendorName.trim()
+        value: masterName.trim()
       };
 
-      console.log('🔍 Vendor Name Check Data:', checkData);
+      console.log('🔍 Master Name Check Data:', checkData);
 
       const response = await fetch(getApiUrl('/api/tally/ledger-check'), {
         method: 'POST',
@@ -60,17 +60,17 @@ const VendorList = () => {
           errorData = { message: `HTTP ${response.status}: ${response.statusText}` };
         }
         
-        console.error('Vendor Name Check API Error:', {
+        console.error('Master Name Check API Error:', {
           status: response.status,
           statusText: response.statusText,
           errorData: errorData,
           requestData: checkData
         });
-        throw new Error(errorData.message || `Failed to check vendor name: ${response.status} ${response.statusText}`);
+        throw new Error(errorData.message || `Failed to check master name: ${response.status} ${response.statusText}`);
       }
 
       const result = await response.json();
-      console.log('🔍 Vendor Name Check Result:', result);
+      console.log('🔍 Master Name Check Result:', result);
       
       return {
         success: true,
@@ -83,7 +83,7 @@ const VendorList = () => {
       };
 
     } catch (error) {
-      console.error('Error checking vendor name:', error);
+      console.error('Error checking master name:', error);
       return {
         success: false,
         exists: false,
@@ -96,10 +96,10 @@ const VendorList = () => {
     }
   };
   
-  // Invite vendor state
+  // Invite master state
   const [showInviteForm, setShowInviteForm] = useState(false);
-  const [vendorCompany, setVendorCompany] = useState('');
-  const [vendorEmail, setVendorEmail] = useState('');
+  const [masterCompany, setMasterCompany] = useState('');
+  const [masterEmail, setMasterEmail] = useState('');
   const [generatedLink, setGeneratedLink] = useState('');
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [isCheckingDuplicate, setIsCheckingDuplicate] = useState(false);
@@ -107,12 +107,12 @@ const VendorList = () => {
   const [isCheckingRealtime, setIsCheckingRealtime] = useState(false);
   const [realtimeDuplicateStatus, setRealtimeDuplicateStatus] = useState(null); // null, 'checking', 'duplicate', 'available'
 
-  // Fetch vendors from API (using same endpoint as PlaceOrder customer list)
-  const fetchVendors = async () => {
+  // Fetch masters from API (using same endpoint as PlaceOrder customer list)
+  const fetchMasters = async () => {
     const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid');
     
     if (!selectedCompanyGuid) {
-      setVendors([]);
+      setMasters([]);
       setError('No company selected');
       setLoading(false);
       return;
@@ -129,7 +129,7 @@ const VendorList = () => {
     // Find the current company object
     const currentCompany = companies.find(c => c.guid === selectedCompanyGuid);
     if (!currentCompany) {
-      setVendors([]);
+      setMasters([]);
       setError('Company not found');
       setLoading(false);
       return;
@@ -141,7 +141,7 @@ const VendorList = () => {
     // Set loading state and fetch data
     setLoading(true);
     setError(null);
-    setVendors([]); // Clear previous data while loading
+    setMasters([]); // Clear previous data while loading
 
     try {
       const token = sessionStorage.getItem('token');
@@ -149,32 +149,32 @@ const VendorList = () => {
         throw new Error('No authentication token found');
       }
 
-      // Fetch regular vendors from ledgerlist-w-addrs
+      // Fetch regular masters from ledgerlist-w-addrs
       const data = await apiPost(`/api/tally/ledgerlist-w-addrs?ts=${Date.now()}`, {
         tallyloc_id,
         company,
         guid
       });
 
-      let regularVendors = [];
+      let regularMasters = [];
       if (data && data.ledgers && Array.isArray(data.ledgers)) {
-        regularVendors = data.ledgers.map(vendor => ({
-          ...vendor,
-          status: vendor.status || 'approved' // Default to approved for existing vendors
+        regularMasters = data.ledgers.map(master => ({
+          ...master,
+          status: master.status || 'approved' // Default to approved for existing masters
         }));
       } else if (data && data.error) {
-        console.warn('Error fetching regular vendors:', data.error);
+        console.warn('Error fetching regular masters:', data.error);
       }
 
-      // Fetch vendors from ledger-list endpoint (same as VendorAuthorization)
-      // Get session data directly from sessionStorage for localStorage matching (same as VendorAuthorization)
+      // Fetch masters from ledger-list endpoint (same as MasterAuthorization)
+      // Get session data directly from sessionStorage for localStorage matching (same as MasterAuthorization)
       const sessionTallylocId = sessionStorage.getItem('tallyloc_id');
       const sessionCompanyName = sessionStorage.getItem('company');
       const sessionGuid = sessionStorage.getItem('guid');
       
-      let ledgerListVendors = [];
+      let ledgerListMasters = [];
       try {
-        // Use ledger-list endpoint to get vendor list (same as VendorAuthorization)
+        // Use ledger-list endpoint to get master list (same as MasterAuthorization)
         const ledgerListResponse = await fetch(getApiUrl(API_CONFIG.ENDPOINTS.TALLY_LEDGER_LIST), {
           method: 'POST',
           headers: {
@@ -190,21 +190,21 @@ const VendorList = () => {
 
         if (ledgerListResponse.ok) {
           const ledgerListResult = await ledgerListResponse.json();
-          console.log('📊 Ledger-list vendors fetched successfully:', ledgerListResult);
+          console.log('📊 Ledger-list masters fetched successfully:', ledgerListResult);
           
-          // Transform API response to vendor format (same as VendorAuthorization)
-          // Get ALL vendors, not just pending ones
+          // Transform API response to master format (same as MasterAuthorization)
+          // Get ALL masters, not just pending ones
           if (ledgerListResult.data && Array.isArray(ledgerListResult.data)) {
-            ledgerListVendors = ledgerListResult.data;
+            ledgerListMasters = ledgerListResult.data;
           } else if (ledgerListResult.ledgers && Array.isArray(ledgerListResult.ledgers)) {
-            ledgerListVendors = ledgerListResult.ledgers;
+            ledgerListMasters = ledgerListResult.ledgers;
           } else if (Array.isArray(ledgerListResult)) {
-            ledgerListVendors = ledgerListResult;
+            ledgerListMasters = ledgerListResult;
           } else if (ledgerListResult.ledgerData && Array.isArray(ledgerListResult.ledgerData)) {
-            ledgerListVendors = ledgerListResult.ledgerData;
+            ledgerListMasters = ledgerListResult.ledgerData;
           }
 
-          console.log('📊 Total vendors from ledger-list:', ledgerListVendors.length);
+          console.log('📊 Total masters from ledger-list:', ledgerListMasters.length);
         } else {
           const errorData = await ledgerListResponse.json().catch(() => ({}));
           console.warn('Failed to fetch from ledger-list:', ledgerListResponse.status, errorData);
@@ -214,24 +214,24 @@ const VendorList = () => {
         // Don't fail the entire fetch if this fails
       }
 
-      // Load vendor submissions from localStorage (same as VendorAuthorization)
-      // Use sessionStorage values for matching (same as VendorAuthorization)
+      // Load master submissions from localStorage (same as MasterAuthorization)
+      // Use sessionStorage values for matching (same as MasterAuthorization)
       if (sessionTallylocId && sessionGuid) {
         try {
-          const submissions = localStorage.getItem('vendor_submissions');
+          const submissions = localStorage.getItem('master_submissions');
           if (submissions) {
             const submissionList = JSON.parse(submissions);
-            console.log('📝 Vendor submissions from localStorage:', submissionList);
+            console.log('📝 Master submissions from localStorage:', submissionList);
             
-            // Add submissions that match current session (same logic as VendorAuthorization)
+            // Add submissions that match current session (same logic as MasterAuthorization)
             submissionList.forEach(submission => {
-              // Use strict equality matching with sessionStorage values (same as VendorAuthorization)
+              // Use strict equality matching with sessionStorage values (same as MasterAuthorization)
               if (submission.tallyloc_id === sessionTallylocId && 
                   submission.guid === sessionGuid &&
                   submission.status === 'pending') {
-                console.log('📝 Adding submission vendor:', submission.name || submission.company);
-                // Add to ledgerListVendors so it gets included in the merge
-                ledgerListVendors.push({
+                console.log('📝 Adding submission master:', submission.name || submission.company);
+                // Add to ledgerListMasters so it gets included in the merge
+                ledgerListMasters.push({
                   ...submission,
                   name: submission.name || submission.company,
                   NAME: submission.name || submission.company || '',
@@ -246,102 +246,102 @@ const VendorList = () => {
             });
           }
         } catch (err) {
-          console.error('Error loading vendor submissions from localStorage:', err);
+          console.error('Error loading master submissions from localStorage:', err);
         }
       }
 
-      // Transform ledger-list vendors to match vendor format (same as VendorAuthorization)
-      // Include ALL vendors from ledger-list, not just pending ones
-      const transformedLedgerListVendors = ledgerListVendors.map(vendor => {
-        // Get status from vendor data (same as VendorAuthorization)
-        const vendorStatus = vendor.status || vendor.STATUS || vendor.authorizationStatus || 'pending';
+      // Transform ledger-list masters to match master format (same as MasterAuthorization)
+      // Include ALL masters from ledger-list, not just pending ones
+      const transformedLedgerListMasters = ledgerListMasters.map(master => {
+        // Get status from master data (same as MasterAuthorization)
+        const masterStatus = master.status || master.STATUS || master.authorizationStatus || 'pending';
         
         return {
-          ...vendor,
-          NAME: vendor.name || vendor.NAME || vendor.company || vendor.ledger_name || '',
-          EMAIL: vendor.email || vendor.EMAIL || vendor.emailid || vendor.email_id || '',
-          PANNO: vendor.panno || vendor.PANNO || vendor.panNumber || vendor.pan_no || '',
-          GSTNO: vendor.gstno || vendor.GSTNO || vendor.gstNumber || vendor.gstin_no || vendor.gstinNo || '',
-          ADDRESS: vendor.address || vendor.ADDRESS || vendor.address1 || vendor.address_1 || '',
-          status: vendorStatus.toLowerCase() === 'pending' ? 'pending' : 
-                 vendorStatus.toLowerCase() === 'approved' ? 'approved' : 
-                 vendorStatus.toLowerCase() === 'rejected' ? 'rejected' : 'pending'
+          ...master,
+          NAME: master.name || master.NAME || master.company || master.ledger_name || '',
+          EMAIL: master.email || master.EMAIL || master.emailid || master.email_id || '',
+          PANNO: master.panno || master.PANNO || master.panNumber || master.pan_no || '',
+          GSTNO: master.gstno || master.GSTNO || master.gstNumber || master.gstin_no || master.gstinNo || '',
+          ADDRESS: master.address || master.ADDRESS || master.address1 || master.address_1 || '',
+          status: masterStatus.toLowerCase() === 'pending' ? 'pending' : 
+                 masterStatus.toLowerCase() === 'approved' ? 'approved' : 
+                 masterStatus.toLowerCase() === 'rejected' ? 'rejected' : 'pending'
         };
       });
 
-      console.log('📊 Transformed ledger-list vendors:', transformedLedgerListVendors.length);
-      const pendingCount = transformedLedgerListVendors.filter(v => v.status === 'pending').length;
-      console.log('📋 Pending vendors from ledger-list:', pendingCount);
+      console.log('📊 Transformed ledger-list masters:', transformedLedgerListMasters.length);
+      const pendingCount = transformedLedgerListMasters.filter(v => v.status === 'pending').length;
+      console.log('📋 Pending masters from ledger-list:', pendingCount);
 
-      // Merge vendors: combine regular vendors with ledger-list vendors
-      // Use a Map to avoid duplicates based on vendor name
-      const vendorMap = new Map();
+      // Merge masters: combine regular masters with ledger-list masters
+      // Use a Map to avoid duplicates based on master name
+      const masterMap = new Map();
       
-      // Add regular vendors first
-      regularVendors.forEach(vendor => {
-        const key = (vendor.NAME || '').toLowerCase().trim();
+      // Add regular masters first
+      regularMasters.forEach(master => {
+        const key = (master.NAME || '').toLowerCase().trim();
         if (key) {
-          vendorMap.set(key, vendor);
+          masterMap.set(key, master);
         }
       });
       
-      // Add/update with ledger-list vendors (ledger-list status takes precedence for duplicates)
-      transformedLedgerListVendors.forEach(vendor => {
-        const key = (vendor.NAME || '').toLowerCase().trim();
+      // Add/update with ledger-list masters (ledger-list status takes precedence for duplicates)
+      transformedLedgerListMasters.forEach(master => {
+        const key = (master.NAME || '').toLowerCase().trim();
         if (key) {
-          // If vendor already exists, update it with ledger-list data (which has correct status)
-          if (vendorMap.has(key)) {
-            vendorMap.set(key, { ...vendorMap.get(key), ...vendor });
+          // If master already exists, update it with ledger-list data (which has correct status)
+          if (masterMap.has(key)) {
+            masterMap.set(key, { ...masterMap.get(key), ...master });
           } else {
-            vendorMap.set(key, vendor);
+            masterMap.set(key, master);
           }
         }
       });
 
       // Convert map back to array and sort alphabetically by name
-      const allVendors = Array.from(vendorMap.values()).sort((a, b) => {
+      const allMasters = Array.from(masterMap.values()).sort((a, b) => {
         const nameA = (a.NAME || '').toLowerCase().trim();
         const nameB = (b.NAME || '').toLowerCase().trim();
         return nameA.localeCompare(nameB);
       });
 
-      // Debug: Log vendor statuses
-      const statusCounts = allVendors.reduce((acc, vendor) => {
-        const status = vendor.status || 'no-status';
+      // Debug: Log master statuses
+      const statusCounts = allMasters.reduce((acc, master) => {
+        const status = master.status || 'no-status';
         acc[status] = (acc[status] || 0) + 1;
         return acc;
       }, {});
-      console.log('📊 Vendor status breakdown:', statusCounts);
-      console.log('📊 Total vendors:', allVendors.length);
-      console.log('📊 Pending vendors in list:', allVendors.filter(v => (v.status || '').toLowerCase() === 'pending').length);
+      console.log('📊 Master status breakdown:', statusCounts);
+      console.log('📊 Total masters:', allMasters.length);
+      console.log('📊 Pending masters in list:', allMasters.filter(v => (v.status || '').toLowerCase() === 'pending').length);
 
-      setVendors(allVendors);
+      setMasters(allMasters);
       setError(null);
       
-      // Cache the result (excluding pending vendors as they may change)
-      const cacheableVendors = regularVendors;
-      sessionStorage.setItem(cacheKey, JSON.stringify(cacheableVendors));
+      // Cache the result (excluding pending masters as they may change)
+      const cacheableMasters = regularMasters;
+      sessionStorage.setItem(cacheKey, JSON.stringify(cacheableMasters));
       
-      console.log(`✅ Loaded ${allVendors.length} vendors (${regularVendors.length} regular, ${transformedLedgerListVendors.length} from ledger-list, ${pendingCount} pending)`);
+      console.log(`✅ Loaded ${allMasters.length} masters (${regularMasters.length} regular, ${transformedLedgerListMasters.length} from ledger-list, ${pendingCount} pending)`);
     } catch (err) {
-      console.error('Error fetching vendors:', err);
-      setError('Failed to fetch vendors');
-      setVendors([]);
+      console.error('Error fetching masters:', err);
+      setError('Failed to fetch masters');
+      setMasters([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // Load vendors on component mount
+  // Load masters on component mount
   useEffect(() => {
-    fetchVendors();
+    fetchMasters();
   }, []);
 
   // Listen for company changes from top bar
   useEffect(() => {
     const handleCompanyChange = () => {
-      // Company changed from top bar, refresh vendors
-      fetchVendors();
+      // Company changed from top bar, refresh masters
+      fetchMasters();
     };
 
     window.addEventListener('companyChanged', handleCompanyChange);
@@ -352,35 +352,35 @@ const VendorList = () => {
   // Save invitation to localStorage
   const saveInvitation = (invitation) => {
     try {
-      const savedInvitations = localStorage.getItem('vendor_invitations') || '[]';
+      const savedInvitations = localStorage.getItem('master_invitations') || '[]';
       const invitations = JSON.parse(savedInvitations);
       invitations.push(invitation);
-      localStorage.setItem('vendor_invitations', JSON.stringify(invitations));
+      localStorage.setItem('master_invitations', JSON.stringify(invitations));
     } catch (err) {
       console.error('Error saving invitation:', err);
     }
   };
   
-  // Generate unique token for vendor invitation
+  // Generate unique token for master invitation
   const generateInvitationToken = () => {
-    return 'vendor_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    return 'master_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   };
   
-  // Handle invite vendor
-  const handleInviteVendor = async () => {
-    if (!vendorCompany.trim() || !vendorEmail.trim()) {
-      alert('Please enter both vendor name and email');
+  // Handle invite master
+  const handleInviteMaster = async () => {
+    if (!masterCompany.trim() || !masterEmail.trim()) {
+      alert('Please enter both master name and email');
       return;
     }
     
-    if (!validateEmail(vendorEmail)) {
+    if (!validateEmail(masterEmail)) {
       alert('Please enter a valid email address');
       return;
     }
     
     // Check for real-time duplicate status first
     if (realtimeDuplicateStatus === 'duplicate') {
-      setDuplicateError(`Vendor name "${vendorCompany.trim()}" already exists and is approved. Please use a different name.`);
+      setDuplicateError(`Master name "${masterCompany.trim()}" already exists and is approved. Please use a different name.`);
       return;
     }
     
@@ -392,7 +392,7 @@ const VendorList = () => {
     // Get current company data from allConnections
     const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid');
     if (!selectedCompanyGuid) {
-      alert('Please select a company before inviting vendors');
+      alert('Please select a company before inviting masters');
       return;
     }
 
@@ -405,13 +405,13 @@ const VendorList = () => {
 
     const currentCompany = companies.find(c => c.guid === selectedCompanyGuid);
     if (!currentCompany) {
-      alert('Please ensure you are connected to Tally before inviting vendors');
+      alert('Please ensure you are connected to Tally before inviting masters');
       return;
     }
 
     const { tallyloc_id: tallylocId, company, guid } = currentCompany;
     
-    // Check for duplicate vendor name
+    // Check for duplicate master name
     setIsCheckingDuplicate(true);
     setDuplicateError('');
     
@@ -422,23 +422,23 @@ const VendorList = () => {
         guid: guid
       };
       
-      const duplicateCheck = await checkVendorName(vendorCompany.trim(), sessionData);
+      const duplicateCheck = await checkMasterName(masterCompany.trim(), sessionData);
       
       if (duplicateCheck.isDuplicate) {
-        setDuplicateError(`Vendor name "${vendorCompany.trim()}" already exists and is approved. Please use a different name.`);
+        setDuplicateError(`Master name "${masterCompany.trim()}" already exists and is approved. Please use a different name.`);
         setIsCheckingDuplicate(false);
         return;
       }
       
       if (!duplicateCheck.success) {
-        setDuplicateError(`Failed to verify vendor name: ${duplicateCheck.message}`);
+        setDuplicateError(`Failed to verify master name: ${duplicateCheck.message}`);
         setIsCheckingDuplicate(false);
         return;
       }
       
     } catch (error) {
-      console.error('Error checking duplicate vendor name:', error);
-      setDuplicateError(`Error checking vendor name: ${error.message}`);
+      console.error('Error checking duplicate master name:', error);
+      setDuplicateError(`Error checking master name: ${error.message}`);
       setIsCheckingDuplicate(false);
       return;
     }
@@ -451,8 +451,8 @@ const VendorList = () => {
     // Store invitation data with session info
     const invitationData = {
       token,
-      company: vendorCompany.trim(),
-      email: vendorEmail.trim(),
+      company: masterCompany.trim(),
+      email: masterEmail.trim(),
       tallyloc_id: tallylocId,
       company_session: company,
       guid: guid,
@@ -464,8 +464,8 @@ const VendorList = () => {
     
     // Encode invitation data in the URL for cross-device access
     const encodedData = btoa(JSON.stringify({
-      company: vendorCompany.trim(),
-      email: vendorEmail.trim(),
+      company: masterCompany.trim(),
+      email: masterEmail.trim(),
       tallyloc_id: tallylocId,
       company_session: company,
       guid: guid,
@@ -474,14 +474,14 @@ const VendorList = () => {
     
     // Generate the link with encoded data
     const baseUrl = window.location.origin;
-    const link = `${baseUrl}/vendor-form/${token}?data=${encodedData}`;
+    const link = `${baseUrl}/master-form/${token}?data=${encodedData}`;
     
     setGeneratedLink(link);
     setShowLinkModal(true);
     
     // Reset form
-    setVendorCompany('');
-    setVendorEmail('');
+    setMasterCompany('');
+    setMasterEmail('');
     setShowInviteForm(false);
     setDuplicateError('');
   };
@@ -511,10 +511,10 @@ const VendorList = () => {
   // Debounced real-time duplicate check
   const debouncedCheckDuplicate = (() => {
     let timeoutId;
-    return (vendorName) => {
+    return (masterName) => {
       clearTimeout(timeoutId);
       timeoutId = setTimeout(async () => {
-        if (!vendorName || vendorName.trim().length < 3) {
+        if (!masterName || masterName.trim().length < 3) {
           setRealtimeDuplicateStatus(null);
           setIsCheckingRealtime(false);
           return;
@@ -555,7 +555,7 @@ const VendorList = () => {
             guid: guid
           };
 
-          const duplicateCheck = await checkVendorName(vendorName.trim(), sessionData);
+          const duplicateCheck = await checkMasterName(masterName.trim(), sessionData);
           
           if (duplicateCheck.isDuplicate) {
             setRealtimeDuplicateStatus('duplicate');
@@ -574,10 +574,10 @@ const VendorList = () => {
     };
   })();
 
-  // Handle vendor name change and clear duplicate error
-  const handleVendorNameChange = (e) => {
+  // Handle master name change and clear duplicate error
+  const handleMasterNameChange = (e) => {
     const value = e.target.value;
-    setVendorCompany(value);
+    setMasterCompany(value);
     
     // Clear form submission error
     if (duplicateError) {
@@ -591,41 +591,41 @@ const VendorList = () => {
   // Listen for global refresh events
   useEffect(() => {
     const handleGlobalRefresh = () => {
-      fetchVendors();
+      fetchMasters();
     };
 
     window.addEventListener('globalRefresh', handleGlobalRefresh);
     return () => window.removeEventListener('globalRefresh', handleGlobalRefresh);
   }, []);
 
-  // Filter vendors based on search term and status
-  const filteredVendors = vendors.filter(vendor => {
-    const matchesSearch = vendor.NAME?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         vendor.EMAIL?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         vendor.PANNO?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         vendor.GSTNO?.toLowerCase().includes(searchTerm.toLowerCase());
+  // Filter masters based on search term and status
+  const filteredMasters = masters.filter(master => {
+    const matchesSearch = master.NAME?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         master.EMAIL?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         master.PANNO?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         master.GSTNO?.toLowerCase().includes(searchTerm.toLowerCase());
     
-    // Get vendor status (case-insensitive comparison)
-    const vendorStatus = (vendor.status || '').toLowerCase();
+    // Get master status (case-insensitive comparison)
+    const masterStatus = (master.status || '').toLowerCase();
     const matchesStatus = filterStatus === 'all' || 
-                         (filterStatus === 'active' && (vendorStatus === 'approved' || vendorStatus === '')) ||
-                         (filterStatus === 'pending' && vendorStatus === 'pending') ||
-                         (filterStatus === 'rejected' && vendorStatus === 'rejected');
+                         (filterStatus === 'active' && (masterStatus === 'approved' || masterStatus === '')) ||
+                         (filterStatus === 'pending' && masterStatus === 'pending') ||
+                         (filterStatus === 'rejected' && masterStatus === 'rejected');
     
     // Debug logging for pending filter
     if (filterStatus === 'pending') {
-      console.log('🔍 Filtering vendor:', vendor.NAME, 'Status:', vendor.status, 'Matches:', matchesStatus);
+      console.log('🔍 Filtering master:', master.NAME, 'Status:', master.status, 'Matches:', matchesStatus);
     }
     
     return matchesSearch && (filterStatus === 'all' || matchesStatus);
   });
 
 
-  // Render vendor list
-  const renderVendorList = () => (
+  // Render master list
+  const renderMasterList = () => (
     <div style={{ padding: '24px' }}>
       {/* Header with search and filters */}
-      <div className="vendor-header-container" style={{ 
+      <div className="master-header-container" style={{ 
         display: 'flex', 
         justifyContent: 'space-between', 
         alignItems: 'center', 
@@ -641,7 +641,7 @@ const VendorList = () => {
             margin: '0',
             fontFamily: 'system-ui, -apple-system, sans-serif'
           }}>
-            Vendor List
+            Master List
           </h2>
           <p style={{ 
             fontSize: '14px', 
@@ -649,7 +649,7 @@ const VendorList = () => {
             margin: '4px 0 0 0',
             fontFamily: 'system-ui, -apple-system, sans-serif'
           }}>
-            Manage your vendor database and authorizations
+            Manage your master database and authorizations
           </p>
         </div>
         
@@ -674,11 +674,11 @@ const VendorList = () => {
           onMouseLeave={(e) => e.target.style.backgroundColor = '#3b82f6'}
         >
           <span className="material-icons" style={{ fontSize: '18px' }}>person_add</span>
-          {showInviteForm ? 'Hide' : 'Invite'} Vendor
+          {showInviteForm ? 'Hide' : 'Invite'} Master
         </button>
       </div>
       
-      {/* Invite Vendor Form */}
+      {/* Invite Master Form */}
       {showInviteForm && (
         <div style={{
           background: '#fff',
@@ -699,7 +699,7 @@ const VendorList = () => {
             gap: '8px'
           }}>
             <span className="material-icons" style={{ fontSize: '20px', color: '#3b82f6' }}>mail</span>
-            Send Vendor Invitation
+            Send Master Invitation
           </h3>
           
           <div style={{ display: 'flex', gap: '64px', marginBottom: '16px', flexWrap: 'wrap' }}>
@@ -712,13 +712,13 @@ const VendorList = () => {
                 marginBottom: '6px',
                 fontFamily: 'system-ui, -apple-system, sans-serif'
               }}>
-                Vendor Name *
+                Master Name *
               </label>
               <input
                 type="text"
-                value={vendorCompany}
-                onChange={handleVendorNameChange}
-                placeholder="Enter vendor name"
+                value={masterCompany}
+                onChange={handleMasterNameChange}
+                placeholder="Enter master name"
                 style={{
                   width: '100%',
                   padding: '10px 16px',
@@ -733,7 +733,7 @@ const VendorList = () => {
               />
               
               {/* Real-time duplicate status indicator */}
-              {vendorCompany.trim().length >= 3 && (
+              {masterCompany.trim().length >= 3 && (
                 <div style={{ marginTop: '6px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   {isCheckingRealtime ? (
                     <>
@@ -781,8 +781,8 @@ const VendorList = () => {
               </label>
               <input
                 type="email"
-                value={vendorEmail}
-                onChange={(e) => setVendorEmail(e.target.value)}
+                value={masterEmail}
+                onChange={(e) => setMasterEmail(e.target.value)}
                 placeholder="Enter email address"
                 style={{
                   width: '100%',
@@ -822,7 +822,7 @@ const VendorList = () => {
           )}
           
           <button
-            onClick={handleInviteVendor}
+            onClick={handleInviteMaster}
             disabled={isCheckingDuplicate || isCheckingRealtime || realtimeDuplicateStatus === 'duplicate'}
             style={{
               padding: '10px 24px',
@@ -905,7 +905,7 @@ const VendorList = () => {
           <div style={{ position: 'relative' }}>
             <input
               type="text"
-              placeholder="Search vendors by name, email, PAN, or GST..."
+              placeholder="Search masters by name, email, PAN, or GST..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{
@@ -959,14 +959,14 @@ const VendorList = () => {
             marginLeft: 'auto'
           }}
         >
-          <option value="all">All Vendors</option>
+          <option value="all">All Masters</option>
           <option value="active">Active</option>
           <option value="pending">Pending</option>
           <option value="rejected">Rejected</option>
         </select>
       </div>
 
-      {/* Vendor List */}
+      {/* Master List */}
       {loading ? (
         <div style={{ 
           display: 'flex', 
@@ -989,7 +989,7 @@ const VendorList = () => {
             fontSize: '14px',
             fontFamily: 'system-ui, -apple-system, sans-serif'
           }}>
-            Loading vendors...
+            Loading masters...
           </p>
         </div>
       ) : error ? (
@@ -1010,7 +1010,7 @@ const VendorList = () => {
             margin: '0 0 8px 0',
             fontFamily: 'system-ui, -apple-system, sans-serif'
           }}>
-            Error Loading Vendors
+            Error Loading Masters
           </h3>
           <p style={{ 
             color: '#7f1d1d', 
@@ -1021,7 +1021,7 @@ const VendorList = () => {
             {error}
           </p>
           <button
-            onClick={fetchVendors}
+            onClick={fetchMasters}
             style={{
               padding: '8px 16px',
               backgroundColor: '#ef4444',
@@ -1037,7 +1037,7 @@ const VendorList = () => {
             Retry
           </button>
         </div>
-      ) : filteredVendors.length === 0 ? (
+      ) : filteredMasters.length === 0 ? (
         <div style={{
           background: '#f9fafb',
           border: '1px solid #e5e7eb',
@@ -1055,7 +1055,7 @@ const VendorList = () => {
             margin: '0 0 8px 0',
             fontFamily: 'system-ui, -apple-system, sans-serif'
           }}>
-            {searchTerm || filterStatus !== 'all' ? 'No vendors found' : 'No vendors available'}
+            {searchTerm || filterStatus !== 'all' ? 'No masters found' : 'No masters available'}
           </h3>
           <p style={{ 
             color: '#6b7280', 
@@ -1065,7 +1065,7 @@ const VendorList = () => {
           }}>
             {searchTerm || filterStatus !== 'all' 
               ? 'Try adjusting your search criteria or filters' 
-              : 'Get started by adding your first vendor'
+              : 'Get started by adding your first master'
             }
           </p>
         </div>
@@ -1076,16 +1076,16 @@ const VendorList = () => {
           borderRadius: '8px',
           overflow: 'hidden'
         }}>
-          {filteredVendors.map((vendor, index) => {
+          {filteredMasters.map((master, index) => {
             const isEven = index % 2 === 0;
             const baseBackgroundColor = isEven ? '#ffffff' : '#f9fafb';
             
             return (
             <div
-              key={vendor.NAME || index}
+              key={master.NAME || index}
               style={{
                 padding: '20px',
-                borderBottom: index < filteredVendors.length - 1 ? '1px solid #f3f4f6' : 'none',
+                borderBottom: index < filteredMasters.length - 1 ? '1px solid #f3f4f6' : 'none',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
@@ -1093,32 +1093,152 @@ const VendorList = () => {
                 backgroundColor: baseBackgroundColor,
                 cursor: 'pointer'
               }}
-              onClick={() => {
-                // Transform vendor data to VendorForm format
-                // Map all possible field variations
-                const formData = {
-                  name: vendor.NAME || vendor.name || '',
-                  emailid: vendor.EMAIL || vendor.email || vendor.emailid || '',
-                  panno: vendor.PANNO || vendor.panno || vendor.panNumber || vendor.pan_no || '',
-                  gstinno: vendor.GSTNO || vendor.gstno || vendor.gstNumber || vendor.gstin_no || vendor.gstinNo || '',
-                  address1: (vendor.ADDRESS || vendor.address || vendor.address1 || '').replace(/\|/g, '\n'), // Convert pipe to line breaks
-                  contactperson: vendor.contactPerson || vendor.CONTACTPERSON || vendor.contact_person || '',
-                  phoneno: vendor.phone || vendor.PHONE || vendor.phoneNo || vendor.phone_no || '',
-                  mobileno: vendor.mobile || vendor.MOBILE || vendor.mobileNo || vendor.mobile_no || '',
-                  accountno: vendor.accountNumber || vendor.ACCOUNTNO || vendor.accountNo || vendor.account_no || vendor.bankDetails?.accountNumber || '',
-                  ifsccode: vendor.ifscCode || vendor.IFSCCODE || vendor.ifsc_code || vendor.bankDetails?.ifscCode || '',
-                  bankname: vendor.bankName || vendor.BANKNAME || vendor.bank_name || vendor.bankDetails?.bankName || '',
-                  country: vendor.country || vendor.COUNTRY || vendor.countryName || 'India',
-                  state: vendor.state || vendor.STATE || vendor.stateName || '',
-                  pincode: vendor.pincode || vendor.PINCODE || vendor.pin_code || '',
-                  tax_type: (vendor.GSTNO || vendor.gstno || vendor.gstNumber) ? 'GST' : ((vendor.PANNO || vendor.panno || vendor.panNumber) ? 'PAN' : ''),
-                  gsttype: vendor.gstType || vendor.GSTTYPE || vendor.gst_type || '',
-                  panDocumentLink: vendor.panDocumentLink || vendor.pan_document_link || '',
-                  gstDocumentLink: vendor.gstDocumentLink || vendor.gst_document_link || ''
-                };
-                console.log('📝 Opening vendor form for:', vendor.NAME, 'Form data:', formData);
-                setSelectedVendor({ ...vendor, formData });
-                setShowVendorForm(true);
+              onClick={async () => {
+                // Fetch full master details from API
+                const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid');
+                if (!selectedCompanyGuid) {
+                  alert('No company selected');
+                  return;
+                }
+
+                let companies = [];
+                try {
+                  companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+                } catch (e) {
+                  console.error('Error parsing allConnections:', e);
+                }
+
+                const currentCompany = companies.find(c => c.guid === selectedCompanyGuid);
+                if (!currentCompany) {
+                  alert('Company not found');
+                  return;
+                }
+
+                const { tallyloc_id, company, guid } = currentCompany;
+                const masterName = master.NAME || master.name || '';
+
+                try {
+                  // Fetch full master details from ledgerlist-w-addrs API
+                  const token = sessionStorage.getItem('token');
+                  if (!token) {
+                    throw new Error('No authentication token found');
+                  }
+
+                  const data = await apiPost(`/api/tally/ledgerlist-w-addrs?ts=${Date.now()}`, {
+                    tallyloc_id,
+                    company,
+                    guid
+                  });
+
+                  // Find the specific master in the response
+                  let fullMasterData = null;
+                  if (data && data.ledgers && Array.isArray(data.ledgers)) {
+                    fullMasterData = data.ledgers.find(
+                      m => (m.NAME || m.name || '').toLowerCase().trim() === masterName.toLowerCase().trim()
+                    );
+                  }
+
+                  // Use full master data if found, otherwise use the master from list
+                  const masterToUse = fullMasterData || master;
+
+                  // Transform master data to MasterForm format
+                  // MasterForm expects: name, panNumber, gstNumber, addresses (array), contacts (array), bankDetails (array)
+                  const formData = {
+                    name: masterToUse.NAME || masterToUse.name || '',
+                    alias: masterToUse.ALIAS || masterToUse.alias || '',
+                    panNumber: masterToUse.PANNO || masterToUse.panno || masterToUse.panNumber || masterToUse.pan_no || '',
+                    gstNumber: masterToUse.GSTNO || masterToUse.gstno || masterToUse.gstNumber || masterToUse.gstin_no || masterToUse.gstinNo || '',
+                    
+                    // Addresses - convert to array format
+                    addresses: masterToUse.ADDRESSLIST && Array.isArray(masterToUse.ADDRESSLIST) && masterToUse.ADDRESSLIST.length > 0
+                      ? masterToUse.ADDRESSLIST.map(addr => ({
+                          address: (addr.ADDRESS || addr.address || '').replace(/\|/g, '\n'),
+                          country: addr.COUNTRY || addr.country || 'India',
+                          state: addr.STATE || addr.state || addr.STATENAME || addr.stateName || '',
+                          pincode: addr.PINCODE || addr.pincode || addr.pin_code || '',
+                          priorStateName: addr.PRIORSTATENAME || addr.priorStateName || '',
+                          addressName: addr.ADDRESSNAME || addr.addressName || '',
+                          phoneNumber: addr.PHONENUMBER || addr.phoneNumber || '',
+                          countryISDCode: addr.COUNTRYISDCODE || addr.countryISDCode || '+91',
+                          mobileNumber: addr.MOBILENUMBER || addr.mobileNumber || '',
+                          contactPerson: addr.CONTACTPERSON || addr.contactPerson || '',
+                          placeOfSupply: addr.PLACEOFSUPPLY || addr.placeOfSupply || '',
+                          gstRegistrationType: addr.GSTREGISTRATIONTYPE || addr.gstRegistrationType || 'Regular',
+                          applicableFrom: addr.APPLICABLEFROM || addr.applicableFrom || '',
+                          mailingName: addr.MAILINGNAME || addr.mailingName || ''
+                        }))
+                      : (masterToUse.ADDRESS || masterToUse.address || masterToUse.address1)
+                        ? [{
+                            address: (masterToUse.ADDRESS || masterToUse.address || masterToUse.address1 || '').replace(/\|/g, '\n'),
+                            country: masterToUse.COUNTRY || masterToUse.country || masterToUse.countryName || 'India',
+                            state: masterToUse.STATE || masterToUse.state || masterToUse.STATENAME || masterToUse.stateName || '',
+                            pincode: masterToUse.PINCODE || masterToUse.pincode || masterToUse.pin_code || ''
+                          }]
+                        : [{ address: '', country: 'India', state: '', pincode: '' }],
+
+                    // Contacts - convert to array format
+                    contacts: masterToUse.CONTACTLIST && Array.isArray(masterToUse.CONTACTLIST) && masterToUse.CONTACTLIST.length > 0
+                      ? masterToUse.CONTACTLIST.map(contact => ({
+                          contactPerson: contact.NAME || contact.CONTACTPERSON || contact.contactPerson || '',
+                          email: contact.EMAIL || contact.email || '',
+                          phone: contact.PHONENUMBER || contact.phone || contact.phoneNumber || '',
+                          mobile: contact.MOBILENUMBER || contact.mobile || contact.mobileNumber || '',
+                          countryISDCode: contact.COUNTRYISDCODE || contact.countryISDCode || '+91',
+                          isDefaultWhatsappNum: contact.ISDEFAULTWHATSAPPNUM === 'Yes' || contact.isDefaultWhatsappNum === true
+                        }))
+                      : (masterToUse.CONTACTPERSON || masterToUse.contactPerson || masterToUse.EMAIL || masterToUse.email || masterToUse.PHONE || masterToUse.phone || masterToUse.MOBILE || masterToUse.mobile)
+                        ? [{
+                            contactPerson: masterToUse.CONTACTPERSON || masterToUse.contactPerson || '',
+                            email: masterToUse.EMAIL || masterToUse.email || masterToUse.emailid || '',
+                            phone: masterToUse.PHONE || masterToUse.phone || masterToUse.phoneNo || masterToUse.phone_no || '',
+                            mobile: masterToUse.MOBILE || masterToUse.mobile || masterToUse.mobileNo || masterToUse.mobile_no || '',
+                            countryISDCode: '+91',
+                            isDefaultWhatsappNum: false
+                          }]
+                        : [{ contactPerson: '', email: '', phone: '', mobile: '', countryISDCode: '+91', isDefaultWhatsappNum: false }],
+
+                    // Bank Details - convert to array format
+                    bankDetails: masterToUse.PAYMENTDETAILSLIST && Array.isArray(masterToUse.PAYMENTDETAILSLIST) && masterToUse.PAYMENTDETAILSLIST.length > 0
+                      ? masterToUse.PAYMENTDETAILSLIST.map(bank => ({
+                          accountNumber: bank.ACCOUNTNUMBER || bank.accountNumber || bank.accountNo || bank.account_no || '',
+                          ifscCode: bank.IFSCODE || bank.ifscCode || bank.ifsc_code || '',
+                          bankName: bank.BANKNAME || bank.bankName || bank.bank_name || '',
+                          swiftCode: bank.SWIFTCODE || bank.swiftCode || '',
+                          paymentFavouring: bank.PAYMENTFAVOURING || bank.paymentFavouring || '',
+                          bankId: bank.BANKID || bank.bankId || '',
+                          defaultTransactionType: bank.DEFAULTTRANSACTIONTYPE || bank.defaultTransactionType || 'Inter Bank Transfer',
+                          setAsDefault: bank.SETASDEFAULT === 'Yes' || bank.setAsDefault === true
+                        }))
+                      : (masterToUse.ACCOUNTNO || masterToUse.accountNumber || masterToUse.accountNo || masterToUse.account_no || masterToUse.IFSCCODE || masterToUse.ifscCode || masterToUse.ifsc_code || masterToUse.BANKNAME || masterToUse.bankName || masterToUse.bank_name)
+                        ? [{
+                            accountNumber: masterToUse.ACCOUNTNO || masterToUse.accountNumber || masterToUse.accountNo || masterToUse.account_no || '',
+                            ifscCode: masterToUse.IFSCCODE || masterToUse.ifscCode || masterToUse.ifsc_code || '',
+                            bankName: masterToUse.BANKNAME || masterToUse.bankName || masterToUse.bank_name || '',
+                            swiftCode: '',
+                            paymentFavouring: '',
+                            bankId: '',
+                            defaultTransactionType: 'Inter Bank Transfer',
+                            setAsDefault: false
+                          }]
+                        : [{ accountNumber: '', ifscCode: '', bankName: '', swiftCode: '', paymentFavouring: '', bankId: '', defaultTransactionType: 'Inter Bank Transfer', setAsDefault: false }],
+
+                    // Additional fields
+                    gstRegistrationType: masterToUse.GSTREGISTRATIONTYPE || masterToUse.gstRegistrationType || 'Regular',
+                    email: masterToUse.EMAIL || masterToUse.email || masterToUse.emailid || '',
+                    emailCC: masterToUse.EMAILCC || masterToUse.emailCC || masterToUse.email_cc || '',
+                    group: masterToUse.PARENT || masterToUse.parent || masterToUse.group || '',
+                    maintainBalancesBillByBill: masterToUse.ISBILLWISEON === 'Yes' || masterToUse.isBillWiseOn === true || masterToUse.maintainBalancesBillByBill === true,
+                    panDocumentLink: masterToUse.panDocumentLink || masterToUse.pan_document_link || '',
+                    gstDocumentLink: masterToUse.gstDocumentLink || masterToUse.gst_document_link || ''
+                  };
+
+                  console.log('📝 Opening master form for:', masterName, 'Full master data:', masterToUse, 'Form data:', formData);
+                  setSelectedMaster({ ...masterToUse, formData });
+                  setShowMasterForm(true);
+                } catch (error) {
+                  console.error('Error fetching master details:', error);
+                  alert('Failed to load master details. Please try again.');
+                }
               }}
               onMouseEnter={(e) => e.target.style.backgroundColor = '#f3f4f6'}
               onMouseLeave={(e) => e.target.style.backgroundColor = baseBackgroundColor}
@@ -1132,55 +1252,55 @@ const VendorList = () => {
                     margin: '0',
                     fontFamily: 'system-ui, -apple-system, sans-serif'
                   }}>
-                    {vendor.NAME || 'Unnamed Vendor'}
+                    {master.NAME || 'Unnamed Master'}
                   </h3>
-                  {vendor.status && (
+                  {master.status && (
                     <span style={{
                       padding: '4px 8px',
                       borderRadius: '12px',
                       fontSize: '12px',
                       fontWeight: '500',
                       fontFamily: 'system-ui, -apple-system, sans-serif',
-                      backgroundColor: vendor.status === 'approved' ? '#dcfce7' : 
-                                     vendor.status === 'pending' ? '#fef3c7' : '#fecaca',
-                      color: vendor.status === 'approved' ? '#166534' : 
-                             vendor.status === 'pending' ? '#92400e' : '#991b1b'
+                      backgroundColor: master.status === 'approved' ? '#dcfce7' : 
+                                     master.status === 'pending' ? '#fef3c7' : '#fecaca',
+                      color: master.status === 'approved' ? '#166534' : 
+                             master.status === 'pending' ? '#92400e' : '#991b1b'
                     }}>
-                      {vendor.status}
+                      {master.status}
                     </span>
                   )}
                 </div>
                 
                 <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                  {vendor.EMAIL && (
+                  {master.EMAIL && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span className="material-icons" style={{ fontSize: '16px', color: '#6b7280' }}>email</span>
                       <span style={{ fontSize: '14px', color: '#6b7280', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-                        {vendor.EMAIL}
+                        {master.EMAIL}
                       </span>
                     </div>
                   )}
-                  {vendor.PANNO && (
+                  {master.PANNO && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span className="material-icons" style={{ fontSize: '16px', color: '#6b7280' }}>badge</span>
                       <span style={{ fontSize: '14px', color: '#6b7280', fontFamily: 'monospace' }}>
-                        {vendor.PANNO}
+                        {master.PANNO}
                       </span>
                     </div>
                   )}
-                  {vendor.GSTNO && (
+                  {master.GSTNO && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span className="material-icons" style={{ fontSize: '16px', color: '#6b7280' }}>receipt</span>
                       <span style={{ fontSize: '14px', color: '#6b7280', fontFamily: 'monospace' }}>
-                        {vendor.GSTNO}
+                        {master.GSTNO}
                       </span>
                     </div>
                   )}
-                  {vendor.ADDRESS && (
+                  {master.ADDRESS && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span className="material-icons" style={{ fontSize: '16px', color: '#6b7280' }}>location_on</span>
                       <span style={{ fontSize: '14px', color: '#6b7280', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-                        {vendor.ADDRESS}
+                        {master.ADDRESS}
                       </span>
                     </div>
                   )}
@@ -1197,25 +1317,25 @@ const VendorList = () => {
 
   // Handle form success
   const handleFormSuccess = () => {
-    setShowVendorForm(false);
-    setSelectedVendor(null);
-    // Refresh vendor list
-    fetchVendors();
+    setShowMasterForm(false);
+    setSelectedMaster(null);
+    // Refresh master list
+    fetchMasters();
     // Trigger global refresh
     window.dispatchEvent(new CustomEvent('globalRefresh'));
   };
 
   // Handle form cancel
   const handleFormCancel = () => {
-    setShowVendorForm(false);
-    setSelectedVendor(null);
+    setShowMasterForm(false);
+    setSelectedMaster(null);
   };
 
-  // If showing vendor form, render it instead of the list
-  if (showVendorForm && selectedVendor) {
+  // If showing master form, render it instead of the list
+  if (showMasterForm && selectedMaster) {
     return (
-      <VendorForm
-        initialData={selectedVendor.formData}
+      <MasterForm
+        initialData={selectedMaster.formData || selectedMaster}
         isEditing={true}
         onSuccess={handleFormSuccess}
         onCancel={handleFormCancel}
@@ -1238,12 +1358,12 @@ const VendorList = () => {
           100% { transform: rotate(360deg); }
         }
         
-        .vendor-header-container {
+        .master-header-container {
           flex-direction: column;
         }
         
         @media (min-width: 768px) {
-          .vendor-header-container {
+          .master-header-container {
             flex-direction: row;
           }
         }
@@ -1274,7 +1394,7 @@ const VendorList = () => {
       }}>
         {/* Content */}
         <div style={{ minHeight: '500px' }}>
-          {renderVendorList()}
+          {renderMasterList()}
         </div>
       </div>
       
@@ -1318,7 +1438,7 @@ const VendorList = () => {
                 gap: '8px'
               }}>
                 <span className="material-icons" style={{ fontSize: '24px', color: '#10b981' }}>check_circle</span>
-                Vendor Invitation Link Generated!
+                Master Invitation Link Generated!
               </h3>
               <button
                 onClick={() => setShowLinkModal(false)}
@@ -1341,7 +1461,7 @@ const VendorList = () => {
               fontFamily: 'system-ui, -apple-system, sans-serif',
               lineHeight: '1.5'
             }}>
-              Share this link with your vendor to allow them to fill out the vendor registration form.
+              Share this link with your master to allow them to fill out the master registration form.
             </p>
             
             <div style={{
@@ -1415,4 +1535,4 @@ const VendorList = () => {
   );
 };
 
-export default VendorList;
+export default MasterList;
