@@ -16,8 +16,8 @@ import ChangePassword from './admindashboard/ChangePassword';
 import TallyDashboard from './TallyDashboard/tallydashboard';
 import SubscriptionPlans from './subscription/SubscriptionPlans';
 import VendorInvitationForm from './TallyDashboard/VendorInvitationForm';
+import MasterInvitationForm from './TallyDashboard/MasterInvitationForm';
 import { APP_CONFIG } from './config';
-import './utils/apiTest'; // Optional: For browser console testing
 
 // Protected Route Component
 function ProtectedRoute({ children }) {
@@ -138,7 +138,7 @@ function App() {
         <Route path="/" element={<Login onLogin={handleLogin} />} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/vendor-form/:token" element={<VendorInvitationForm />} />
+        <Route path="/master-form/:token" element={<MasterInvitationForm />} />
 
         <Route
           path="/admin-dashboard"
