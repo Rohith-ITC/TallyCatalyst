@@ -893,9 +893,38 @@ function TallyDashboard() {
     const updateMasterDropdownPosition = () => {
       if (masterManagementDropdownOpen && masterButtonRef.current) {
         const rect = masterButtonRef.current.getBoundingClientRect();
+        const dropdownWidth = 220; // minWidth from dropdown style
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        
+        // Estimate dropdown height (each item is ~50px + padding)
+        const itemCount = masterManagementDropdownRef.current?.querySelectorAll('button').length || 2;
+        const estimatedDropdownHeight = (itemCount * 50) + 16; // 16px for padding
+        
+        // Calculate initial top position
+        let topPosition = rect.top;
+        
+        // Check if dropdown would overflow bottom of viewport
+        if (topPosition + estimatedDropdownHeight > viewportHeight) {
+          // Move dropdown up so it fits within viewport
+          topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
+        }
+        
+        // Check if dropdown would overflow to the right
+        const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
+        let leftPosition;
+        
+        if (wouldOverflowRight) {
+          // Position to the left of button
+          leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
+        } else {
+          // Position to the right of button
+          leftPosition = rect.left + rect.width + 8;
+        }
+        
         setMasterDropdownPosition({
-          top: rect.top,
-          left: rect.left + rect.width,
+          top: topPosition,
+          left: leftPosition,
           width: rect.width
         });
       }
@@ -927,9 +956,38 @@ function TallyDashboard() {
     const updateButtonPosition = () => {
       if (masterButtonRef.current) {
         const rect = masterButtonRef.current.getBoundingClientRect();
+        const dropdownWidth = 220;
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        
+        // Calculate dropdown height based on actual item count
+        const itemCount = accessibleSubModules.length;
+        const estimatedDropdownHeight = (itemCount * 50) + 16; // 50px per item + 16px padding
+        
+        // Calculate initial top position
+        let topPosition = rect.top;
+        
+        // Check if dropdown would overflow bottom of viewport
+        if (topPosition + estimatedDropdownHeight > viewportHeight) {
+          // Move dropdown up so it fits within viewport
+          topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
+        }
+        
+        // Check if dropdown would overflow to the right
+        const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
+        let leftPosition;
+        
+        if (wouldOverflowRight) {
+          // Position to the left of button
+          leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
+        } else {
+          // Position to the right of button
+          leftPosition = rect.left + rect.width + 8;
+        }
+        
         setMasterDropdownPosition({
-          top: rect.top,
-          left: rect.left + rect.width,
+          top: topPosition,
+          left: leftPosition,
           width: rect.width
         });
       }
@@ -1046,33 +1104,64 @@ function TallyDashboard() {
         
         {/* Right-side dropdown menu */}
         {sidebarOpen && masterManagementDropdownOpen && accessibleSubModules.length > 0 && (
-          <div style={{
-            position: 'fixed',
-            top: `${masterDropdownPosition.top}px`,
-            left: `${masterDropdownPosition.left + 8}px`,
-            backgroundColor: '#1e3a8a',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
-            borderRadius: '12px',
-            padding: '8px 0',
-            minWidth: '220px',
-            boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
-            zIndex: 10000,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 2,
-          }}
-          onMouseEnter={() => {
-            setMasterManagementDropdownOpen(true);
-            if (masterButtonRef.current) {
-              const rect = masterButtonRef.current.getBoundingClientRect();
-              setMasterDropdownPosition({
-                top: rect.top,
-                left: rect.left + rect.width,
-                width: rect.width
-              });
-            }
-          }}
-          onMouseLeave={() => setMasterManagementDropdownOpen(false)}
+          <div 
+            ref={masterManagementDropdownRef}
+            style={{
+              position: 'fixed',
+              top: `${masterDropdownPosition.top}px`,
+              left: `${masterDropdownPosition.left}px`,
+              backgroundColor: '#1e3a8a',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '12px',
+              padding: '8px 0',
+              minWidth: '220px',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
+              zIndex: 10000,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+            }}
+            onMouseEnter={() => {
+              setMasterManagementDropdownOpen(true);
+              if (masterButtonRef.current) {
+                const rect = masterButtonRef.current.getBoundingClientRect();
+                const dropdownWidth = 220;
+                const viewportWidth = window.innerWidth;
+                const viewportHeight = window.innerHeight;
+                
+                // Calculate dropdown height based on actual item count
+                const itemCount = accessibleSubModules.length;
+                const estimatedDropdownHeight = (itemCount * 50) + 16; // 50px per item + 16px padding
+                
+                // Calculate initial top position
+                let topPosition = rect.top;
+                
+                // Check if dropdown would overflow bottom of viewport
+                if (topPosition + estimatedDropdownHeight > viewportHeight) {
+                  // Move dropdown up so it fits within viewport
+                  topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
+                }
+                
+                // Check if dropdown would overflow to the right
+                const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
+                let leftPosition;
+                
+                if (wouldOverflowRight) {
+                  // Position to the left of button
+                  leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
+                } else {
+                  // Position to the right of button
+                  leftPosition = rect.left + rect.width + 8;
+                }
+                
+                setMasterDropdownPosition({
+                  top: topPosition,
+                  left: leftPosition,
+                  width: rect.width
+                });
+              }
+            }}
+            onMouseLeave={() => setMasterManagementDropdownOpen(false)}
           >
             {accessibleSubModules.map(subModule => {
               const isSubActive = activeSidebar === subModule.id;
@@ -2179,18 +2268,21 @@ function TallyDashboard() {
           alignItems: 'center', 
           justifyContent: 'center', 
           width: '100%', 
-          margin: '20px 0 32px 0',
-          padding: sidebarOpen ? '0 20px' : '0',
+          margin: sidebarOpen ? '16px 0 20px 0' : '16px 0',
+          padding: sidebarOpen ? '0 0px' : '0',
+          minHeight: sidebarOpen ? 'auto' : '60px',
         }}>
           <img 
             src={TallyLogo} 
-            alt="Tally Logo" 
+            alt="DataLynk Logo" 
             style={{ 
-              width: sidebarOpen ? 180 : 40, 
-              height: sidebarOpen ? 72 : 40, 
+              width: sidebarOpen ? '140px' : '40px', 
+              height: sidebarOpen ? 'auto' : '40px', 
+              maxWidth: '100%',
               objectFit: 'contain', 
               transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
               filter: 'drop-shadow(0 2px 8px rgba(255, 255, 255, 0.1))',
+              display: 'block',
             }} 
           />
         </div>
