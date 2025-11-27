@@ -269,7 +269,8 @@ class EncryptionUtils {
       );
 
       const encoder = new TextEncoder();
-      const dataBuffer = encoder.encode(JSON.stringify(data));
+      const jsonString = JSON.stringify(data);
+      const dataBuffer = encoder.encode(jsonString);
       
       const iv = crypto.getRandomValues(new Uint8Array(12));
       const encrypted = await crypto.subtle.encrypt(
@@ -283,12 +284,29 @@ class EncryptionUtils {
       combined.set(iv);
       combined.set(new Uint8Array(encrypted), iv.length);
 
-      // Convert to base64 for storage
-      return btoa(String.fromCharCode(...combined));
+      // Convert to base64 for storage - use chunked approach to avoid stack overflow
+      return this.arrayBufferToBase64(combined.buffer);
     } catch (error) {
       console.error('Encryption error:', error);
       throw error;
     }
+  }
+
+  // Helper function to convert ArrayBuffer to base64 efficiently
+  arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 8192; // Process in 8KB chunks to avoid stack overflow
+    
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
+      // Build binary string in chunks
+      for (let j = 0; j < chunk.length; j++) {
+        binary += String.fromCharCode(chunk[j]);
+      }
+    }
+    
+    return btoa(binary);
   }
 
   // Decrypt data
@@ -303,12 +321,16 @@ class EncryptionUtils {
         ['decrypt']
       );
 
-      // Decode from base64
-      const combined = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+      // Decode from base64 - use chunked approach for large data
+      const binaryString = atob(encryptedBase64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
       
       // Extract IV and encrypted data
-      const iv = combined.slice(0, 12);
-      const encrypted = combined.slice(12);
+      const iv = bytes.slice(0, 12);
+      const encrypted = bytes.slice(12);
 
       const decrypted = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: iv },
@@ -1068,6 +1090,260 @@ class OPFSBackend {
       };
     }
   }
+
+  // Get complete sales data cache key for a company
+  getCompleteSalesDataKey(companyInfo) {
+    return `complete_sales_${companyInfo.tallyloc_id}_${companyInfo.guid}`;
+  }
+
+  // Store complete sales data with metadata
+  async setCompleteSalesData(companyInfo, data, metadata = {}) {
+    try {
+      await this.init();
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const encrypted = await this.encryption.encryptData(data);
+      const timestamp = Date.now();
+      
+      // Extract date range from metadata or data
+      const booksfrom = metadata.booksfrom || null;
+      const lastaltid = metadata.lastaltid || null;
+      
+      // Calculate date range from booksfrom to today if provided
+      let startDate = null;
+      let endDate = null;
+      if (booksfrom) {
+        // booksfrom might be in various formats, normalize to YYYY-MM-DD
+        // First, try to convert if it's in YYYYMMDD format
+        if (/^\d{8}$/.test(booksfrom)) {
+          startDate = `${booksfrom.slice(0, 4)}-${booksfrom.slice(4, 6)}-${booksfrom.slice(6, 8)}`;
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(booksfrom)) {
+          // Already in YYYY-MM-DD format
+          startDate = booksfrom;
+        } else {
+          // Try to parse formats like "1-Apr-24"
+          const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+          try {
+            const parts = booksfrom.split('-');
+            if (parts.length === 3) {
+              const day = parseInt(parts[0], 10);
+              const monthName = parts[1].toLowerCase();
+              const year = parseInt(parts[2], 10);
+              const monthIndex = monthNames.findIndex(m => m === monthName);
+              if (monthIndex !== -1) {
+                const fullYear = year < 50 ? 2000 + year : (year < 100 ? 1900 + year : year);
+                const month = String(monthIndex + 1).padStart(2, '0');
+                const dayStr = String(day).padStart(2, '0');
+                startDate = `${fullYear}-${month}-${dayStr}`;
+              }
+            }
+          } catch (error) {
+            console.warn('Error parsing booksfrom date:', booksfrom, error);
+          }
+        }
+        const today = new Date();
+        endDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      }
+      
+      // Write encrypted data to OPFS
+      const filePath = this.getSalesFilePath(cacheKey);
+      const pathParts = filePath.split('/');
+      const fileName = pathParts.pop();
+      const dirPath = pathParts.join('/');
+      
+      // Create directory if needed
+      let dir = this.root;
+      if (dirPath) {
+        for (const part of dirPath.split('/')) {
+          if (part) {
+            dir = await dir.getDirectoryHandle(part, { create: true });
+          }
+        }
+      }
+      
+      // Write file
+      const fileHandle = await dir.getFileHandle(fileName, { create: true });
+      
+      try {
+        if ('createSyncAccessHandle' in fileHandle) {
+          const syncHandle = await fileHandle.createSyncAccessHandle();
+          try {
+            const encoder = new TextEncoder();
+            const dataToWrite = encoder.encode(encrypted);
+            syncHandle.write(dataToWrite, { at: 0 });
+            syncHandle.truncate(dataToWrite.length);
+          } finally {
+            syncHandle.close();
+          }
+        } else {
+          const writable = await fileHandle.createWritable();
+          await writable.write(encrypted);
+          await writable.close();
+        }
+      } catch (writeError) {
+        const writable = await fileHandle.createWritable();
+        await writable.write(encrypted);
+        await writable.close();
+      }
+      
+      // Store metadata with complete data flag
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const metadataEntry = {
+        cacheKey,
+        timestamp,
+        baseKey: cacheKey,
+        isComplete: true,
+        lastaltid,
+        booksfrom,
+        ...(startDate && endDate ? { startDate, endDate } : {})
+      };
+      salesMap.set(cacheKey, metadataEntry);
+      this.metadataCache.set('sales', salesMap);
+      await this.saveMetadata();
+      
+      console.log(`✅ Cached complete sales data in OPFS: ${cacheKey}, lastaltid: ${lastaltid}`);
+    } catch (error) {
+      console.error('Error storing complete sales data in OPFS:', error);
+      throw error;
+    }
+  }
+
+  // Get complete sales data for a company
+  async getCompleteSalesData(companyInfo) {
+    try {
+      await this.init();
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      
+      // Check metadata first
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const metadata = salesMap.get(cacheKey);
+      if (!metadata || !metadata.isComplete) {
+        return null;
+      }
+      
+      // Read encrypted file from OPFS
+      const filePath = this.getSalesFilePath(cacheKey);
+      const pathParts = filePath.split('/');
+      const fileName = pathParts.pop();
+      const dirPath = pathParts.join('/');
+      
+      let dir = this.root;
+      if (dirPath) {
+        for (const part of dirPath.split('/')) {
+          if (part) {
+            dir = await dir.getDirectoryHandle(part);
+          }
+        }
+      }
+      
+      const fileHandle = await dir.getFileHandle(fileName);
+      const file = await fileHandle.getFile();
+      const encrypted = await file.text();
+      
+      // Decrypt
+      const decrypted = await this.encryption.decryptData(encrypted);
+      if (!decrypted) {
+        console.warn('Failed to decrypt complete sales data');
+        return null;
+      }
+      
+      console.log(`📋 Retrieved complete cached sales data from OPFS: ${cacheKey}`);
+      return {
+        data: decrypted,
+        metadata: {
+          lastaltid: metadata.lastaltid,
+          booksfrom: metadata.booksfrom,
+          timestamp: metadata.timestamp
+        }
+      };
+    } catch (error) {
+      if (error.name === 'NotFoundError') {
+        return null;
+      }
+      console.error('Error retrieving complete sales data from OPFS:', error);
+      return null;
+    }
+  }
+
+  // Get lastaltid for a company
+  async getLastAlterId(companyInfo) {
+    try {
+      await this.init();
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const metadata = salesMap.get(cacheKey);
+      if (metadata && metadata.isComplete) {
+        return metadata.lastaltid || null;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting lastaltid:', error);
+      return null;
+    }
+  }
+
+  // Get raw cache file data as JSON (for viewing)
+  async getCacheFileAsJson(cacheKey) {
+    try {
+      await this.init();
+      
+      // Check metadata first
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const dashboardMap = this.metadataCache.get('dashboard') || new Map();
+      
+      let filePath, dir;
+      
+      if (salesMap.has(cacheKey)) {
+        filePath = this.getSalesFilePath(cacheKey);
+        const pathParts = filePath.split('/');
+        const fileName = pathParts.pop();
+        const dirPath = pathParts.join('/');
+        
+        dir = this.root;
+        if (dirPath) {
+          for (const part of dirPath.split('/')) {
+            if (part) {
+              dir = await dir.getDirectoryHandle(part);
+            }
+          }
+        }
+        
+        const fileHandle = await dir.getFileHandle(fileName);
+        const file = await fileHandle.getFile();
+        const encrypted = await file.text();
+        
+        // Decrypt
+        const decrypted = await this.encryption.decryptData(encrypted);
+        return decrypted;
+      } else if (dashboardMap.has(cacheKey)) {
+        filePath = this.getDashboardFilePath(cacheKey);
+        const pathParts = filePath.split('/');
+        const fileName = pathParts.pop();
+        const dirPath = pathParts.join('/');
+        
+        dir = this.root;
+        if (dirPath) {
+          for (const part of dirPath.split('/')) {
+            if (part) {
+              dir = await dir.getDirectoryHandle(part);
+            }
+          }
+        }
+        
+        const fileHandle = await dir.getFileHandle(fileName);
+        const file = await fileHandle.getFile();
+        const encrypted = await file.text();
+        
+        // Decrypt
+        const decrypted = await this.encryption.decryptData(encrypted);
+        return decrypted;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error getting cache file as JSON:', error);
+      return null;
+    }
+  }
 }
 
 // IndexedDB Backend - stores encrypted data in IndexedDB using Dexie
@@ -1088,7 +1364,7 @@ class IndexedDBBackend {
       
       // Define schema
       this.db.version(1).stores({
-        salesData: 'cacheKey, timestamp, baseKey, startDate, endDate',
+        salesData: 'cacheKey, timestamp, baseKey, startDate, endDate, isComplete, lastaltid',
         dashboardState: 'cacheKey, timestamp',
         userKeys: 'email'
       });
@@ -1400,6 +1676,155 @@ class IndexedDBBackend {
       };
     }
   }
+
+  // Get complete sales data cache key for a company
+  getCompleteSalesDataKey(companyInfo) {
+    return `complete_sales_${companyInfo.tallyloc_id}_${companyInfo.guid}`;
+  }
+
+  // Store complete sales data with metadata
+  async setCompleteSalesData(companyInfo, data, metadata = {}) {
+    try {
+      await this.init();
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const encrypted = await this.encryption.encryptData(data);
+      const timestamp = Date.now();
+      
+      // Extract date range from metadata
+      const booksfrom = metadata.booksfrom || null;
+      const lastaltid = metadata.lastaltid || null;
+      
+      // Calculate date range from booksfrom to today if provided
+      let startDate = null;
+      let endDate = null;
+      if (booksfrom) {
+        // booksfrom might be in various formats, normalize to YYYY-MM-DD
+        // First, try to convert if it's in YYYYMMDD format
+        if (/^\d{8}$/.test(booksfrom)) {
+          startDate = `${booksfrom.slice(0, 4)}-${booksfrom.slice(4, 6)}-${booksfrom.slice(6, 8)}`;
+        } else if (/^\d{4}-\d{2}-\d{2}$/.test(booksfrom)) {
+          // Already in YYYY-MM-DD format
+          startDate = booksfrom;
+        } else {
+          // Try to parse formats like "1-Apr-24"
+          const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+          try {
+            const parts = booksfrom.split('-');
+            if (parts.length === 3) {
+              const day = parseInt(parts[0], 10);
+              const monthName = parts[1].toLowerCase();
+              const year = parseInt(parts[2], 10);
+              const monthIndex = monthNames.findIndex(m => m === monthName);
+              if (monthIndex !== -1) {
+                const fullYear = year < 50 ? 2000 + year : (year < 100 ? 1900 + year : year);
+                const month = String(monthIndex + 1).padStart(2, '0');
+                const dayStr = String(day).padStart(2, '0');
+                startDate = `${fullYear}-${month}-${dayStr}`;
+              }
+            }
+          } catch (error) {
+            console.warn('Error parsing booksfrom date:', booksfrom, error);
+          }
+        }
+        const today = new Date();
+        endDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      }
+      
+      // Store encrypted data in IndexedDB
+      await this.db.salesData.put({
+        cacheKey,
+        encryptedData: encrypted,
+        timestamp,
+        baseKey: cacheKey,
+        isComplete: true,
+        lastaltid,
+        booksfrom,
+        startDate,
+        endDate
+      });
+      
+      console.log(`✅ Cached complete sales data in IndexedDB: ${cacheKey}, lastaltid: ${lastaltid}`);
+    } catch (error) {
+      console.error('Error storing complete sales data in IndexedDB:', error);
+      throw error;
+    }
+  }
+
+  // Get complete sales data for a company
+  async getCompleteSalesData(companyInfo) {
+    try {
+      await this.init();
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      
+      // Get entry from IndexedDB
+      const entry = await this.db.salesData.get(cacheKey);
+      if (!entry || !entry.isComplete) {
+        return null;
+      }
+      
+      // Decrypt
+      const decrypted = await this.encryption.decryptData(entry.encryptedData);
+      if (!decrypted) {
+        console.warn('Failed to decrypt complete sales data');
+        return null;
+      }
+      
+      console.log(`📋 Retrieved complete cached sales data from IndexedDB: ${cacheKey}`);
+      return {
+        data: decrypted,
+        metadata: {
+          lastaltid: entry.lastaltid,
+          booksfrom: entry.booksfrom,
+          timestamp: entry.timestamp
+        }
+      };
+    } catch (error) {
+      console.error('Error retrieving complete sales data from IndexedDB:', error);
+      return null;
+    }
+  }
+
+  // Get lastaltid for a company
+  async getLastAlterId(companyInfo) {
+    try {
+      await this.init();
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const entry = await this.db.salesData.get(cacheKey);
+      if (entry && entry.isComplete) {
+        return entry.lastaltid || null;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting lastaltid:', error);
+      return null;
+    }
+  }
+
+  // Get raw cache file data as JSON (for viewing)
+  async getCacheFileAsJson(cacheKey) {
+    try {
+      await this.init();
+      
+      // Try sales data first
+      const salesEntry = await this.db.salesData.get(cacheKey);
+      if (salesEntry) {
+        const decrypted = await this.encryption.decryptData(salesEntry.encryptedData);
+        return decrypted;
+      }
+      
+      // Try dashboard state
+      const dashboardEntry = await this.db.dashboardState.get(cacheKey);
+      if (dashboardEntry) {
+        const decrypted = await this.encryption.decryptData(dashboardEntry.encryptedData);
+        return decrypted;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error getting cache file as JSON:', error);
+      return null;
+    }
+  }
 }
 
 // Hybrid Cache - uses OPFS with IndexedDB fallback
@@ -1562,6 +1987,30 @@ class HybridCache {
       maxAgeDays = this.getCacheExpiryDays();
     }
     return await this.backend.findCachedDateRanges(baseKey, requestStartDate, requestEndDate, maxAgeDays);
+  }
+
+  // Store complete sales data with metadata
+  async setCompleteSalesData(companyInfo, data, metadata = {}) {
+    await this.init();
+    return await this.backend.setCompleteSalesData(companyInfo, data, metadata);
+  }
+
+  // Get complete sales data for a company
+  async getCompleteSalesData(companyInfo) {
+    await this.init();
+    return await this.backend.getCompleteSalesData(companyInfo);
+  }
+
+  // Get lastaltid for a company
+  async getLastAlterId(companyInfo) {
+    await this.init();
+    return await this.backend.getLastAlterId(companyInfo);
+  }
+
+  // Get raw cache file data as JSON (for viewing)
+  async getCacheFileAsJson(cacheKey) {
+    await this.init();
+    return await this.backend.getCacheFileAsJson(cacheKey);
   }
 }
 
