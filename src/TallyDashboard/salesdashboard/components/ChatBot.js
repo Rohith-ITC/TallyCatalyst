@@ -2560,4 +2560,3 @@ IMPORTANT:
 };
 
 export default ChatBot;
-

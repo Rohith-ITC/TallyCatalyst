@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatCurrency } from '../utils/helpers';
 
-const BillDrilldownModal = ({ data, loading, error, selectedBill, onClose, onRowClick }) => {
+const BillDrilldownModal = ({ data, loading, error, selectedBill, onClose, onRowClick, showInfoCard = true }) => {
   if (loading) {
     return (
       <div className="drilldown-modal-overlay" onClick={onClose}>
@@ -60,7 +60,7 @@ const BillDrilldownModal = ({ data, loading, error, selectedBill, onClose, onRow
           </button>
         </div>
         <div className="drilldown-modal-body">
-          {selectedBill && (
+          {showInfoCard && selectedBill && (
             <div className="drilldown-info">
               <p>
                 <strong>Ledger:</strong> {selectedBill.ledgerName}
@@ -80,6 +80,15 @@ const BillDrilldownModal = ({ data, loading, error, selectedBill, onClose, onRow
                       </p>
                     );
                   }
+                }
+                // Check if customerBalance is passed directly in selectedBill
+                if (selectedBill.customerBalance) {
+                  return (
+                    <p className="customer-balance-display">
+                      <strong>Customer Balance:</strong>{' '}
+                      <span className="balance-amount">{formatCurrency(selectedBill.customerBalance)}</span>
+                    </p>
+                  );
                 }
                 return null;
               })()}
