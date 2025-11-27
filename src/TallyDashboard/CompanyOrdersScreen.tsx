@@ -82,16 +82,23 @@ interface BucketLabelProps {
   [key: string]: any; // Allow additional props from recharts
 }
 
-const BucketLabel: React.FC<BucketLabelProps> = ({x = 0, width = 0, y = 0, value = ''}) => (
-  <text
-    x={Number(x) + Number(width) / 2}
-    y={Number(y) + 16}
-    textAnchor="middle"
-    fill="#475569"
-    className="chart-bucket-label">
-    {value !== undefined && value !== null ? String(value) : ''}
-  </text>
-);
+const BucketLabel: React.FC<BucketLabelProps> = ({x = 0, width = 0, y = 0, value = '', payload}) => {
+  // Position label at bottom of chart area, accounting for margins
+  const chartBottom = 280; // Approximate bottom of chart area (300px height - 20px margin)
+  
+  return (
+    <text
+      x={Number(x) + Number(width) / 2}
+      y={chartBottom}
+      textAnchor="middle"
+      fill="#475569"
+      fontSize={11}
+      fontWeight={500}
+      className="chart-bucket-label">
+      {value !== undefined && value !== null ? String(value) : ''}
+    </text>
+  );
+};
 
 const INITIAL_FILTERS = {
   date: '',
@@ -152,11 +159,15 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
   const [showBatchSelectionModal, setShowBatchSelectionModal] = useState<boolean>(false);
   const [selectedOrderForBatch, setSelectedOrderForBatch] = useState<CompanyOrder | null>(null);
   const [selectedSummaryKey, setSelectedSummaryKey] = useState<string | null>(null);
+  const [tempBatchDeliveryQuantities, setTempBatchDeliveryQuantities] = useState<Record<string, string>>({});
+  const [tempAutoSelectedBatches, setTempAutoSelectedBatches] = useState<Record<string, boolean>>({});
   const [showZeroAvailabilityItems, setShowZeroAvailabilityItems] = useState(false);
   const [successDialogMessage, setSuccessDialogMessage] = useState<string | null>(null);
   const [saveElapsedSeconds, setSaveElapsedSeconds] = useState(0);
   const saveTimerRef = useRef<number | null>(null);
   const [autoSelectedBatches, setAutoSelectedBatches] = useState<Record<string, boolean>>({});
+  const [showFilters, setShowFilters] = useState(false);
+  const [originalGroupBy, setOriginalGroupBy] = useState<'customer' | 'stockItem'>('customer');
   const [sectionVisibility, setSectionVisibility] = useState<{
     outstanding: boolean;
     cleared: boolean;
@@ -176,7 +187,20 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
     negativePending: boolean;
   }>(sectionVisibility);
   const [filters, setFilters] = useState({...INITIAL_FILTERS});
-  type SortField = 'date' | 'orderNo' | 'stockItem' | 'customer' | 'orderQty' | 'pendingQty' | 'rate' | 'value' | 'dueDate';
+  const hasActiveFilters = useMemo(() => {
+    return Boolean(
+      filters.customer ||
+        filters.stockItem ||
+        filters.date ||
+        filters.orderNo ||
+        filters.orderQty ||
+        filters.pendingQty ||
+        filters.rate ||
+        filters.value ||
+        filters.dueDate,
+    );
+  }, [filters]);
+  type SortField = 'date' | 'orderNo' | 'stockItem' | 'customer' | 'orderQty' | 'pendingQty' | 'rate' | 'value' | 'pendingValue' | 'dueDate';
   const [sortConfig, setSortConfig] = useState<{field: SortField; direction: 'asc' | 'desc'} | null>(null);
   const [viewMode, setViewMode] = useState<'summary' | 'detailed'>('summary');
   const [groupBy, setGroupBy] = useState<'customer' | 'stockItem'>('customer');
@@ -190,6 +214,17 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
     return saved === 'separate' ? 'separate' : 'single'; // Default to 'single'
   });
   const [tempBatchXmlFormat, setTempBatchXmlFormat] = useState<'single' | 'separate'>('single');
+  const [allowNegativeStock, setAllowNegativeStock] = useState<boolean>(() => {
+    const saved = localStorage.getItem('companyOrdersAllowNegativeStock');
+    return saved === 'true';
+  });
+  const [tempAllowNegativeStock, setTempAllowNegativeStock] = useState<boolean>(allowNegativeStock);
+  const [allowDeliveryExceedOrder, setAllowDeliveryExceedOrder] = useState<boolean>(() => {
+    const saved = localStorage.getItem('companyOrdersAllowDeliveryExceedOrder');
+    return saved === 'true';
+  });
+  const [tempAllowDeliveryExceedOrder, setTempAllowDeliveryExceedOrder] = useState<boolean>(allowDeliveryExceedOrder);
+  const [configModalTab, setConfigModalTab] = useState<'sections' | 'controls'>('sections');
 
   const handleSort = (field: SortField) => {
     setSortConfig((prev) => {
@@ -290,8 +325,10 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
   useEffect(() => {
     if (viewMode === 'summary' && selectedCustomer && selectedCustomer !== 'all') {
       setGroupBy('stockItem');
+    } else if (viewMode === 'summary' && (!selectedCustomer || selectedCustomer === 'all')) {
+      setGroupBy(originalGroupBy);
     }
-  }, [viewMode, selectedCustomer]);
+  }, [viewMode, selectedCustomer, originalGroupBy]);
 
   // Helper function to get unique key for an order
   const getOrderKey = (order: CompanyOrder): string => {
@@ -329,8 +366,57 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
   };
 
   // Handle batch delivery quantity change
-  const handleBatchDeliveryQtyChange = (orderKey: string, godown: string, batchname: string, value: string) => {
+  const handleBatchDeliveryQtyChange = (orderKey: string, godown: string, batchname: string, value: string, maxQty: number, order: CompanyOrder) => {
     const batchKey = buildBatchKey(orderKey, godown, batchname);
+    
+    // Validate: only allow numeric input
+    if (value && !/^\d*\.?\d*$/.test(value)) {
+      return; // Reject non-numeric input
+    }
+    
+    let numericValue = parseFloat(value);
+    
+    // First check: don't exceed available balance per batch (unless negative stock is allowed)
+    if (!allowNegativeStock && !isNaN(numericValue) && numericValue > maxQty) {
+      numericValue = maxQty;
+      value = maxQty.toString();
+    }
+    
+    // Second check: don't exceed order's pending quantity (unless allowed)
+    if (!allowDeliveryExceedOrder && !isNaN(numericValue) && order.PendingQty) {
+      const pendingQtyMatch = order.PendingQty.match(/(-?\d+(?:\.\d+)?)/);
+      if (pendingQtyMatch) {
+        const orderPendingQty = parseFloat(pendingQtyMatch[1]);
+        
+        // Calculate total delivery qty excluding current batch
+        const batchEntries = order.StockItem ? itemBatchBalances[order.StockItem] : undefined;
+        let totalOtherBatches = 0;
+        if (batchEntries) {
+          batchEntries.forEach((entry) => {
+            const otherBatchKey = buildBatchKey(orderKey, entry.godown || '', entry.Batchname || '');
+            if (otherBatchKey !== batchKey) {
+              const qtyStr = batchDeliveryQuantities[otherBatchKey]?.trim() || '';
+              const qty = parseFloat(qtyStr);
+              if (!isNaN(qty) && qty > 0) {
+                totalOtherBatches += qty;
+              }
+            }
+          });
+        }
+        
+        // Check if total would exceed pending qty
+        const maxAllowedForThisBatch = orderPendingQty - totalOtherBatches;
+        if (maxAllowedForThisBatch < 0) {
+          return; // Already exceeded, don't allow any more
+        }
+        
+        if (numericValue > maxAllowedForThisBatch) {
+          numericValue = maxAllowedForThisBatch;
+          value = Math.max(0, maxAllowedForThisBatch).toFixed(2);
+        }
+      }
+    }
+    
     setAutoSelectedBatches((prev) => {
       if (!prev[batchKey]) return prev;
       const next = {...prev};
@@ -507,6 +593,10 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
       return;
     }
     
+    // Store current state in temp before opening modal
+    setTempBatchDeliveryQuantities({...batchDeliveryQuantities});
+    setTempAutoSelectedBatches({...autoSelectedBatches});
+    
     // Check available quantity - if 0, show message and don't make API call
     const availableQty = parseNumericValue(order.AvailableQty);
     if (availableQty === 0) {
@@ -535,22 +625,53 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
   };
 
   // Close batch selection modal
-  const handleCloseBatchSelection = () => {
-    if (selectedOrderForBatch) {
-      const orderKey = getOrderKey(selectedOrderForBatch);
+  // Clear all batch allocations for current order
+  const handleClearBatchAllocations = () => {
+    if (!selectedOrderForBatch) return;
+    
+    const orderKey = getOrderKey(selectedOrderForBatch);
+    const batchEntries = selectedOrderForBatch.StockItem ? itemBatchBalances[selectedOrderForBatch.StockItem] : undefined;
+    
+    if (batchEntries) {
+      // Clear all batch delivery quantities for this order
+      setBatchDeliveryQuantities((prev) => {
+        const next = {...prev};
+        batchEntries.forEach((entry) => {
+          const batchKey = buildBatchKey(orderKey, entry.godown || '', entry.Batchname || '');
+          delete next[batchKey];
+        });
+        return next;
+      });
+      
+      // Clear all auto-selected batches for this order
       setAutoSelectedBatches((prev) => {
         const next = {...prev};
-        const prefix = `${orderKey}::`;
-        Object.keys(next).forEach((key) => {
-          if (key.startsWith(prefix)) {
-            delete next[key];
-          }
+        batchEntries.forEach((entry) => {
+          const batchKey = buildBatchKey(orderKey, entry.godown || '', entry.Batchname || '');
+          delete next[batchKey];
         });
         return next;
       });
     }
+  };
+  
+  // Save batch selection changes
+  const handleSaveBatchSelection = () => {
+    // Changes are already in the actual state, just close modal
     setShowBatchSelectionModal(false);
     setSelectedOrderForBatch(null);
+    setItemBatchError(null);
+  };
+  
+  // Close batch selection modal without saving (discard changes)
+  const handleCloseBatchSelection = () => {
+    // Restore original state from temp
+    setBatchDeliveryQuantities({...tempBatchDeliveryQuantities});
+    setAutoSelectedBatches({...tempAutoSelectedBatches});
+    
+    setShowBatchSelectionModal(false);
+    setSelectedOrderForBatch(null);
+    setItemBatchError(null);
   };
 
   // Get total delivery qty from batch quantities for an order
@@ -649,6 +770,7 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
   const buildDeliveryNoteXML = (
     ordersByOrderNo: Record<string, Array<{order: CompanyOrder; deliveryQty: number}>>,
     deliveryDateStr: string,
+    companyName: string,
   ): string => {
     const flattenedItems: Array<{order: CompanyOrder; deliveryQty: number; orderNo: string}> = [];
 
@@ -935,6 +1057,9 @@ ${allBatchAllocations.join('\n')}
   <IMPORTDATA>
    <REQUESTDESC>
     <REPORTNAME>Vouchers</REPORTNAME>
+    <STATICVARIABLES>
+     <SVCURRENTCOMPANY>${escapeForXML(companyName)}</SVCURRENTCOMPANY>
+    </STATICVARIABLES>
    </REQUESTDESC>
    <REQUESTDATA>
     <TALLYMESSAGE>
@@ -1003,15 +1128,17 @@ ${inventoryEntriesStr}
       }
       
       const pendingQty = parseNumericValue(order.PendingQty);
-      if (pendingQty <= 0) {
-        validationErrors.push(`Invalid pending quantity for order ${order.OrderNo}, item ${order.StockItem}`);
-        return;
-      }
-      
-      // Validate delivery qty <= pending qty
-      if (deliveryQty > pendingQty) {
-        validationErrors.push(`Delivery quantity (${deliveryQty}) cannot exceed pending quantity (${pendingQty}) for order ${order.OrderNo}, item ${order.StockItem}`);
-        return;
+      if (!allowDeliveryExceedOrder) {
+        if (pendingQty <= 0) {
+          validationErrors.push(`Invalid pending quantity for order ${order.OrderNo}, item ${order.StockItem}`);
+          return;
+        }
+        
+        // Validate delivery qty <= pending qty
+        if (deliveryQty > pendingQty) {
+          validationErrors.push(`Delivery quantity (${deliveryQty}) cannot exceed pending quantity (${pendingQty}) for order ${order.OrderNo}, item ${order.StockItem}`);
+          return;
+        }
       }
       
       const orderNo = order.OrderNo || '';
@@ -1087,14 +1214,14 @@ ${inventoryEntriesStr}
         
         // Validate against pending qty
         const pendingQtyValue = parseQuantity(order.PendingQty);
-        if (pendingQtyValue !== null && deliveryQty > pendingQtyValue) {
+        if (!allowDeliveryExceedOrder && pendingQtyValue !== null && deliveryQty > pendingQtyValue) {
           validationErrorType = 'pending';
           return; // Skip further checks if pending qty validation fails
         }
         
         // Validate against available qty
         const availableQtyValue = parseQuantity(order.AvailableQty);
-        if (availableQtyValue !== null && deliveryQty > availableQtyValue) {
+        if (!allowNegativeStock && availableQtyValue !== null && deliveryQty > availableQtyValue) {
           validationErrorType = 'available';
         }
       });
@@ -1110,7 +1237,8 @@ ${inventoryEntriesStr}
         return;
       }
       
-      const deliveryXml = buildDeliveryNoteXML(ordersByOrderNo, deliveryDate);
+      const companyName = company.company || company.conn_name;
+      const deliveryXml = buildDeliveryNoteXML(ordersByOrderNo, deliveryDate, companyName);
       if (!deliveryXml) {
         setSaveError('No valid delivery lines to save');
         setSaving(false);
@@ -1119,7 +1247,7 @@ ${inventoryEntriesStr}
 
       console.log('[Delivery] Sending delivery note to Tally', {
         tallyloc_id: company.tallyloc_id,
-        company: company.company || company.conn_name,
+        company: companyName,
         customer: selectedCustomer,
         deliveryDate,
         ordersCount: Object.keys(ordersByOrderNo).length,
@@ -1449,21 +1577,32 @@ ${inventoryEntriesStr}
     return orderQty * (rate * (100 - discount)) / 100;
   }, []);
 
+  // Calculate pending value: PendingQty * Rate * (100 - discount) / 100
+  const calculatePendingValue = useCallback((order: CompanyOrder): number => {
+    const pendingQty = parseNumericValue(getAdjustedPendingQty(order));
+    const rate = parseNumericValue(order.Rate);
+    const discount = parseNumericValue(order.Discount);
+    return pendingQty * (rate * (100 - discount)) / 100;
+  }, [getAdjustedPendingQty]);
+
   // Calculate totals for a section
   const calculateSectionTotals = useCallback((orders: CompanyOrder[]) => {
     let totalOrderQty = 0;
     let totalPendingQty = 0;
     let totalValue = 0;
+    let totalPendingValue = 0;
     let unit = '';
 
     orders.forEach((order) => {
       const orderQty = parseNumericValue(order.OrderQty);
       const pendingQty = parseNumericValue(getAdjustedPendingQty(order));
       const value = calculateValue(order);
+      const pendingValue = calculatePendingValue(order);
 
       totalOrderQty += orderQty;
       totalPendingQty += pendingQty;
       totalValue += value;
+      totalPendingValue += pendingValue;
 
       // Extract unit from first order that has one
       if (!unit && order.OrderQty) {
@@ -1475,9 +1614,10 @@ ${inventoryEntriesStr}
       totalOrderQty: totalOrderQty.toFixed(2),
       totalPendingQty: totalPendingQty.toFixed(2),
       totalValue: totalValue.toFixed(2),
+      totalPendingValue: totalPendingValue.toFixed(2),
       unit: unit,
     };
-  }, [getAdjustedPendingQty, calculateValue]);
+  }, [getAdjustedPendingQty, calculateValue, calculatePendingValue]);
 
   // Apply UI filters to orders
   const filteredOrders = useMemo(() => {
@@ -1559,8 +1699,9 @@ ${inventoryEntriesStr}
   }, [orders, filters, calculateValue, calculateOverdueDays]);
 
 
-  const sortedOrders = useMemo(() => {
-    if (!sortConfig) return filteredOrders;
+  // Helper function to sort orders based on sortConfig
+  const applySorting = useCallback((ordersToSort: CompanyOrder[]) => {
+    if (!sortConfig) return ordersToSort;
 
     const getFieldValue = (order: CompanyOrder, field: SortField): number | string => {
       switch (field) {
@@ -1580,6 +1721,8 @@ ${inventoryEntriesStr}
           return parseNumericValue(order.Rate);
         case 'value':
           return calculateValue(order);
+        case 'pendingValue':
+          return calculatePendingValue(order);
         case 'dueDate':
           return order.DueDate ? new Date(order.DueDate).getTime() : 0;
         default:
@@ -1587,7 +1730,7 @@ ${inventoryEntriesStr}
       }
     };
 
-    const sorted = [...filteredOrders].sort((a, b) => {
+    const sorted = [...ordersToSort].sort((a, b) => {
       const valueA = getFieldValue(a, sortConfig.field);
       const valueB = getFieldValue(b, sortConfig.field);
 
@@ -1600,11 +1743,11 @@ ${inventoryEntriesStr}
     });
 
     return sortConfig.direction === 'asc' ? sorted : sorted.reverse();
-  }, [filteredOrders, sortConfig, calculateValue, getAdjustedPendingQty]);
+  }, [sortConfig, calculateValue, getAdjustedPendingQty]);
 
   // Separate orders with negative pending qty
   const ordersWithNegativePending = useMemo(() => {
-    return sortedOrders.filter((order) => {
+    const filtered = filteredOrders.filter((order) => {
       if (!order.PendingQty) return false;
       try {
         const pendingMatch = order.PendingQty.match(/(-?\d+(?:\.\d+)?)/);
@@ -1617,7 +1760,8 @@ ${inventoryEntriesStr}
       }
       return false;
     });
-  }, [sortedOrders]);
+    return applySorting(filtered);
+  }, [filteredOrders, applySorting]);
 
   const deliveryOrdersForSelectedCustomer = useMemo(() => {
     if (!selectedCustomer || selectedCustomer === 'all') return [];
@@ -1843,11 +1987,17 @@ ${inventoryEntriesStr}
 
   const handleSummaryRowClick = useCallback(
     (name: string) => {
-      if (!name || name === '-' || groupBy !== 'customer') return;
-      setSelectedCustomer(name);
-      setShowDeliveryModal(true);
+      if (!name || name === '-') return;
+      if (groupBy === 'customer') {
+        setOriginalGroupBy('customer'); // Store current groupBy before filtering
+        setFilters({...filters, customer: name});
+        setSelectedCustomer(name);
+      } else if (groupBy === 'stockItem') {
+        setOriginalGroupBy('stockItem'); // Store current groupBy before filtering
+        setFilters({...filters, stockItem: name});
+      }
     },
-    [groupBy],
+    [groupBy, filters],
   );
 
   const selectedGroupOrders = selectedSummaryGroup?.orders ?? [];
@@ -1858,7 +2008,7 @@ ${inventoryEntriesStr}
 
   // Orders with zero pending qty (cleared orders)
   const clearedOrders = useMemo(() => {
-    return sortedOrders.filter((order) => {
+    const filtered = filteredOrders.filter((order) => {
       if (!order.PendingQty) return false;
       try {
         const pendingMatch = order.PendingQty.match(/(-?\d+(?:\.\d+)?)/);
@@ -1871,11 +2021,12 @@ ${inventoryEntriesStr}
       }
       return false;
     });
-  }, [sortedOrders]);
+    return applySorting(filtered);
+  }, [filteredOrders, applySorting]);
 
   // Regular orders (positive pending qty only - outstanding orders)
   const regularOrders = useMemo(() => {
-    return sortedOrders.filter((order) => {
+    const filtered = filteredOrders.filter((order) => {
       if (!order.PendingQty) return false; // Exclude orders without pending qty
       try {
         const pendingMatch = order.PendingQty.match(/(-?\d+(?:\.\d+)?)/);
@@ -1888,7 +2039,8 @@ ${inventoryEntriesStr}
       }
       return false;
     });
-  }, [sortedOrders]);
+    return applySorting(filtered);
+  }, [filteredOrders, applySorting]);
 
 
   // Check if we have any orders to display
@@ -1931,14 +2083,15 @@ ${inventoryEntriesStr}
     if (viewMode !== 'summary') return { outstanding: [], cleared: [], negativePending: [] };
 
     const groupOrders = (orders: CompanyOrder[]) => {
-      const grouped = new Map<string, {
-        key: string;
-        name: string;
-        orderQty: number;
-        pendingQty: number;
-        value: number;
-        unit: string;
-      }>();
+    const grouped = new Map<string, {
+      key: string;
+      name: string;
+      orderQty: number;
+      pendingQty: number;
+      value: number;
+      pendingValue: number;
+      unit: string;
+    }>();
 
       orders.forEach((order) => {
         const groupKey = groupBy === 'customer' ? order.Customer || '-' : order.StockItem || '-';
@@ -1951,6 +2104,7 @@ ${inventoryEntriesStr}
             orderQty: 0,
             pendingQty: 0,
             value: 0,
+            pendingValue: 0,
             unit: extractUnit(order.OrderQty),
           });
         }
@@ -1959,13 +2113,53 @@ ${inventoryEntriesStr}
         const orderQty = parseNumericValue(order.OrderQty);
         const pendingQty = parseNumericValue(getAdjustedPendingQty(order));
         const value = calculateValue(order);
+        const pendingValue = calculatePendingValue(order);
 
         group.orderQty += orderQty;
         group.pendingQty += pendingQty;
         group.value += value;
+        group.pendingValue += pendingValue;
       });
 
-      return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name));
+      const groupedArray = Array.from(grouped.values());
+      
+      // Apply sorting if sortConfig is set
+      if (sortConfig) {
+        const getGroupFieldValue = (group: typeof groupedArray[0], field: SortField): number | string => {
+          switch (field) {
+            case 'stockItem':
+            case 'customer':
+              return group.name.toLowerCase();
+            case 'orderQty':
+              return group.orderQty;
+            case 'pendingQty':
+              return group.pendingQty;
+            case 'rate':
+              return group.orderQty > 0 ? group.value / group.orderQty : 0;
+            case 'value':
+              return group.value;
+            case 'pendingValue':
+              return group.pendingValue;
+            default:
+              return group.name.toLowerCase();
+          }
+        };
+        
+        return groupedArray.sort((a, b) => {
+          const valueA = getGroupFieldValue(a, sortConfig.field);
+          const valueB = getGroupFieldValue(b, sortConfig.field);
+          
+          if (typeof valueA === 'number' && typeof valueB === 'number') {
+            const result = valueA - valueB;
+            return sortConfig.direction === 'asc' ? result : -result;
+          }
+          
+          const result = String(valueA).localeCompare(String(valueB), undefined, {sensitivity: 'base'});
+          return sortConfig.direction === 'asc' ? result : -result;
+        });
+      }
+      
+      return groupedArray.sort((a, b) => a.name.localeCompare(b.name));
     };
 
     return {
@@ -1973,7 +2167,7 @@ ${inventoryEntriesStr}
       cleared: groupOrders(clearedOrders),
       negativePending: groupOrders(ordersWithNegativePending),
     };
-  }, [viewMode, groupBy, regularOrders, clearedOrders, ordersWithNegativePending, getAdjustedPendingQty, calculateValue]);
+  }, [viewMode, groupBy, regularOrders, clearedOrders, ordersWithNegativePending, getAdjustedPendingQty, calculateValue, calculatePendingValue, sortConfig]);
 
   const INITIAL_DELIVERY_TOTALS = {
     totalOrderQty: '0.00',
@@ -2206,9 +2400,14 @@ ${inventoryEntriesStr}
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={ageingChartData}
-                margin={{top: 30, right: 20, left: 10, bottom: 30}}>
+                margin={{top: 30, right: 20, left: 10, bottom: 60}}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="bucket" hide />
+                <XAxis 
+                  dataKey="bucket" 
+                  tick={{fill: '#475569', fontSize: 11, fontWeight: 500}}
+                  height={50}
+                  interval={0}
+                />
                 <YAxis
                   yAxisId="left"
                   tickFormatter={(value) => formatLargeNumber(Number(value))}
@@ -2240,6 +2439,7 @@ ${inventoryEntriesStr}
                 <Bar yAxisId="left" dataKey="qty" fill="#6366f1" name="Qty">
                   <LabelList
                     dataKey="qty"
+                    position="top"
                     content={(props) => (
                       <ChartValueLabel {...props} formatter={formatLargeNumber} fill="#312e81" />
                     )}
@@ -2248,11 +2448,11 @@ ${inventoryEntriesStr}
                 <Bar yAxisId="right" dataKey="value" fill="#22c55e" name="Value">
                   <LabelList
                     dataKey="value"
+                    position="top"
                     content={(props) => (
                       <ChartValueLabel {...props} formatter={formatCurrencyShort} fill="#166534" />
                     )}
                   />
-                  <LabelList dataKey="bucket" content={(props) => <BucketLabel {...props} />} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -2297,7 +2497,11 @@ ${inventoryEntriesStr}
               <select
                 className="group-by-select"
                 value={groupBy}
-                onChange={(e) => setGroupBy(e.target.value as 'customer' | 'stockItem')}
+                onChange={(e) => {
+                  const newGroupBy = e.target.value as 'customer' | 'stockItem';
+                  setGroupBy(newGroupBy);
+                  setOriginalGroupBy(newGroupBy); // Update original when manually changed
+                }}
                 title="Group by">
                 <option value="customer">by Customer</option>
                 <option value="stockItem">by StockItem</option>
@@ -2311,6 +2515,9 @@ ${inventoryEntriesStr}
               setTempSectionVisibility(sectionVisibility);
               setTempAgeingBuckets(ageingBuckets);
               setTempBatchXmlFormat(batchXmlFormat);
+              setTempAllowNegativeStock(allowNegativeStock);
+              setTempAllowDeliveryExceedOrder(allowDeliveryExceedOrder);
+              setConfigModalTab('sections');
               setShowConfigModal(true);
             }}
             title="Configure Sections">
@@ -2322,12 +2529,31 @@ ${inventoryEntriesStr}
             disabled={!selectedCustomer || selectedCustomer === 'all' || loading}>
             {!selectedCustomer || selectedCustomer === 'all' ? 'Select Customer' : 'Delivery'}
           </button>
+          <button
+            className={`toggle-button ${showFilters ? 'active' : ''}`}
+            onClick={() => setShowFilters(!showFilters)}
+            title={showFilters ? 'Hide Filters' : 'Show Filters'}>
+            {showFilters ? '🔽 Hide Filters' : '🔼 Show Filters'}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!hasActiveFilters) return;
+              setFilters({...INITIAL_FILTERS});
+              setSelectedCustomer('all');
+            }}
+            className="clear-filters-button"
+            title="Clear all active filters"
+            disabled={!hasActiveFilters}>
+            ✖ Clear Filters
+          </button>
         </div>
         <span className="orders-count">{filteredOrders.length.toLocaleString('en-IN')} records</span>
       </section>
 
-      <section className="filters-section">
-        <div className="filter-row">
+      {showFilters && (
+        <section className="filters-section">
+          <div className="filter-row">
           <div className="filter-group">
             <label htmlFor="filter-date" className="filter-label">Date</label>
             <input
@@ -2457,15 +2683,19 @@ ${inventoryEntriesStr}
               onChange={(e) => setFilters({...filters, dueDate: e.target.value})}
             />
           </div>
-          {(filters.date || filters.orderNo || filters.stockItem || filters.customer || filters.orderQty || filters.pendingQty || filters.rate || filters.value || filters.dueDate) && (
-            <button
-              onClick={() => setFilters({...INITIAL_FILTERS})}
-              className="clear-filters-button">
-              Clear Filters
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => {
+              if (!hasActiveFilters) return;
+              setFilters({...INITIAL_FILTERS});
+            }}
+            className="clear-filters-button"
+            disabled={!hasActiveFilters}>
+            Clear Filters
+          </button>
         </div>
-      </section>
+        </section>
+      )}
 
       <section className="orders-table-wrapper">
         {error && (
@@ -2498,14 +2728,15 @@ ${inventoryEntriesStr}
                 <tr>
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Date', 'date')}</th>}
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Order No', 'orderNo')}</th>}
-                  {viewMode === 'summary' && groupBy === 'stockItem' && <th>Stock Item</th>}
-                  {viewMode === 'summary' && groupBy === 'customer' && <th>Customer</th>}
+                  {viewMode === 'summary' && groupBy === 'stockItem' && <th>{renderSortableHeader('Stock Item', 'stockItem')}</th>}
+                  {viewMode === 'summary' && groupBy === 'customer' && <th>{renderSortableHeader('Customer', 'customer')}</th>}
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Stock Item', 'stockItem')}</th>}
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Customer', 'customer')}</th>}
                   <th>{renderSortableHeader('Order Qty', 'orderQty')}</th>
-                  <th>{renderSortableHeader('Pending Qty', 'pendingQty')}</th>
                   <th>{renderSortableHeader('Rate', 'rate', '(disc%)')}</th>
-                  <th>{renderSortableHeader('Value', 'value')}</th>
+                  <th>{renderSortableHeader('Order Value', 'value')}</th>
+                  <th>{renderSortableHeader('Pending Qty', 'pendingQty')}</th>
+                  <th>{renderSortableHeader('Pending Value', 'pendingValue')}</th>
                   {viewMode === 'detailed' && (
                     <th>{renderSortableHeader('Due Date', 'dueDate', '(overdue)')}</th>
                   )}
@@ -2518,6 +2749,7 @@ ${inventoryEntriesStr}
                     const adjustedPendingQty = getAdjustedPendingQty(order);
                     const overdueDays = calculateOverdueDays(order.DueDate);
                     const value = calculateValue(order);
+                    const pendingValue = calculatePendingValue(order);
                     const rateWithDiscount = formatRateWithDiscount(order);
                     
                     return (
@@ -2533,13 +2765,14 @@ ${inventoryEntriesStr}
                         </td>
                         <td>{order.Customer || '-'}</td>
                         <td>{order.OrderQty || '-'}</td>
-                        <td>{adjustedPendingQty}</td>
                         <td>
                           {rateWithDiscount.split('\n').map((line, i) => (
                             <div key={i}>{line}</div>
                           ))}
                         </td>
                         <td>₹{value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td>{adjustedPendingQty}</td>
+                        <td>₹{pendingValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td>
                           <div>{order.DueDate ? formatDateDisplay(order.DueDate) : '-'}</div>
                           {overdueDays !== null && overdueDays > 0 && (
@@ -2555,13 +2788,14 @@ ${inventoryEntriesStr}
                     return (
                       <tr
                         key={`summary-${group.key}-${index}`}
-                        className={groupBy === 'customer' ? 'summary-clickable-row' : ''}
+                        className="summary-clickable-row"
                         onClick={() => handleSummaryRowClick(group.name)}>
                         <td>{group.name}</td>
                         <td>{`${group.orderQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
-                        <td>{`${group.pendingQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
                         <td>{avgRate > 0 ? avgRate.toFixed(2) : '-'}</td>
                         <td>₹{group.value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td>{`${group.pendingQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
+                        <td>₹{group.pendingValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
                     );
                   })
@@ -2571,9 +2805,10 @@ ${inventoryEntriesStr}
                 <tr className="table-total-row">
                   <td colSpan={viewMode === 'detailed' ? 4 : 1}><strong>Total</strong></td>
                   <td><strong>{`${outstandingTotals.totalOrderQty}${outstandingTotals.unit ? ' ' + outstandingTotals.unit : ''}`}</strong></td>
-                  <td><strong>{`${outstandingTotals.totalPendingQty}${outstandingTotals.unit ? ' ' + outstandingTotals.unit : ''}`}</strong></td>
                   <td>-</td>
                   <td><strong>₹{parseFloat(outstandingTotals.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
+                  <td><strong>{`${outstandingTotals.totalPendingQty}${outstandingTotals.unit ? ' ' + outstandingTotals.unit : ''}`}</strong></td>
+                  <td><strong>₹{parseFloat(outstandingTotals.totalPendingValue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
                   {viewMode === 'detailed' && <td>-</td>}
                 </tr>
               </tfoot>
@@ -2589,14 +2824,15 @@ ${inventoryEntriesStr}
                 <tr>
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Date', 'date')}</th>}
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Order No', 'orderNo')}</th>}
-                  {viewMode === 'summary' && groupBy === 'stockItem' && <th>Stock Item</th>}
-                  {viewMode === 'summary' && groupBy === 'customer' && <th>Customer</th>}
+                  {viewMode === 'summary' && groupBy === 'stockItem' && <th>{renderSortableHeader('Stock Item', 'stockItem')}</th>}
+                  {viewMode === 'summary' && groupBy === 'customer' && <th>{renderSortableHeader('Customer', 'customer')}</th>}
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Stock Item', 'stockItem')}</th>}
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Customer', 'customer')}</th>}
                   <th>{renderSortableHeader('Order Qty', 'orderQty')}</th>
-                  <th>{renderSortableHeader('Pending Qty', 'pendingQty')}</th>
                   <th>{renderSortableHeader('Rate', 'rate', '(disc%)')}</th>
-                  <th>{renderSortableHeader('Value', 'value')}</th>
+                  <th>{renderSortableHeader('Order Value', 'value')}</th>
+                  <th>{renderSortableHeader('Pending Qty', 'pendingQty')}</th>
+                  <th>{renderSortableHeader('Pending Value', 'pendingValue')}</th>
                   {viewMode === 'detailed' && (
                     <th>{renderSortableHeader('Due Date', 'dueDate', '(overdue)')}</th>
                   )}
@@ -2609,6 +2845,7 @@ ${inventoryEntriesStr}
                     const adjustedPendingQty = getAdjustedPendingQty(order);
                     const overdueDays = calculateOverdueDays(order.DueDate);
                     const value = calculateValue(order);
+                    const pendingValue = calculatePendingValue(order);
                     const rateWithDiscount = formatRateWithDiscount(order);
                     
                     return (
@@ -2624,13 +2861,14 @@ ${inventoryEntriesStr}
                         </td>
                         <td>{order.Customer || '-'}</td>
                         <td>{order.OrderQty || '-'}</td>
-                        <td>{adjustedPendingQty}</td>
                         <td>
                           {rateWithDiscount.split('\n').map((line, i) => (
                             <div key={i}>{line}</div>
                           ))}
                         </td>
                         <td>₹{value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td>{adjustedPendingQty}</td>
+                        <td>₹{pendingValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td>
                           <div>{order.DueDate ? formatDateDisplay(order.DueDate) : '-'}</div>
                           {overdueDays !== null && overdueDays > 0 && (
@@ -2646,13 +2884,14 @@ ${inventoryEntriesStr}
                     return (
                       <tr
                         key={`summary-${group.key}-${index}`}
-                        className={groupBy === 'customer' ? 'summary-clickable-row' : ''}
+                        className="summary-clickable-row"
                         onClick={() => handleSummaryRowClick(group.name)}>
                         <td>{group.name}</td>
                         <td>{`${group.orderQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
-                        <td>{`${group.pendingQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
                         <td>{avgRate > 0 ? avgRate.toFixed(2) : '-'}</td>
                         <td>₹{group.value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td>{`${group.pendingQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
+                        <td>₹{group.pendingValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
                     );
                   })
@@ -2662,9 +2901,10 @@ ${inventoryEntriesStr}
                 <tr className="table-total-row">
                   <td colSpan={viewMode === 'detailed' ? 4 : 1}><strong>Total</strong></td>
                   <td><strong>{`${clearedTotals.totalOrderQty}${clearedTotals.unit ? ' ' + clearedTotals.unit : ''}`}</strong></td>
-                  <td><strong>{`${clearedTotals.totalPendingQty}${clearedTotals.unit ? ' ' + clearedTotals.unit : ''}`}</strong></td>
                   <td>-</td>
                   <td><strong>₹{parseFloat(clearedTotals.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
+                  <td><strong>{`${clearedTotals.totalPendingQty}${clearedTotals.unit ? ' ' + clearedTotals.unit : ''}`}</strong></td>
+                  <td><strong>₹{parseFloat(clearedTotals.totalPendingValue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
                   {viewMode === 'detailed' && <td>-</td>}
                 </tr>
               </tfoot>
@@ -2680,14 +2920,15 @@ ${inventoryEntriesStr}
                 <tr>
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Date', 'date')}</th>}
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Order No', 'orderNo')}</th>}
-                  {viewMode === 'summary' && groupBy === 'stockItem' && <th>Stock Item</th>}
-                  {viewMode === 'summary' && groupBy === 'customer' && <th>Customer</th>}
+                  {viewMode === 'summary' && groupBy === 'stockItem' && <th>{renderSortableHeader('Stock Item', 'stockItem')}</th>}
+                  {viewMode === 'summary' && groupBy === 'customer' && <th>{renderSortableHeader('Customer', 'customer')}</th>}
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Stock Item', 'stockItem')}</th>}
                   {viewMode === 'detailed' && <th>{renderSortableHeader('Customer', 'customer')}</th>}
                   <th>{renderSortableHeader('Order Qty', 'orderQty')}</th>
-                  <th>{renderSortableHeader('Pending Qty', 'pendingQty')}</th>
                   <th>{renderSortableHeader('Rate', 'rate', '(disc%)')}</th>
-                  <th>{renderSortableHeader('Value', 'value')}</th>
+                  <th>{renderSortableHeader('Order Value', 'value')}</th>
+                  <th>{renderSortableHeader('Pending Qty', 'pendingQty')}</th>
+                  <th>{renderSortableHeader('Pending Value', 'pendingValue')}</th>
                   {viewMode === 'detailed' && (
                     <th>{renderSortableHeader('Due Date', 'dueDate', '(overdue)')}</th>
                   )}
@@ -2700,6 +2941,7 @@ ${inventoryEntriesStr}
                     const adjustedPendingQty = getAdjustedPendingQty(order);
                     const overdueDays = calculateOverdueDays(order.DueDate);
                     const value = calculateValue(order);
+                    const pendingValue = calculatePendingValue(order);
                     const rateWithDiscount = formatRateWithDiscount(order);
                     
                     return (
@@ -2715,13 +2957,14 @@ ${inventoryEntriesStr}
                         </td>
                         <td>{order.Customer || '-'}</td>
                         <td>{order.OrderQty || '-'}</td>
-                        <td>{adjustedPendingQty}</td>
                         <td>
                           {rateWithDiscount.split('\n').map((line, i) => (
                             <div key={i}>{line}</div>
                           ))}
                         </td>
                         <td>₹{value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td>{adjustedPendingQty}</td>
+                        <td>₹{pendingValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td>
                           <div>{order.DueDate ? formatDateDisplay(order.DueDate) : '-'}</div>
                           {overdueDays !== null && overdueDays > 0 && (
@@ -2737,13 +2980,14 @@ ${inventoryEntriesStr}
                     return (
                       <tr
                         key={`summary-${group.key}-${index}`}
-                        className={groupBy === 'customer' ? 'summary-clickable-row' : ''}
+                        className="summary-clickable-row"
                         onClick={() => handleSummaryRowClick(group.name)}>
                         <td>{group.name}</td>
                         <td>{`${group.orderQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
-                        <td>{`${group.pendingQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
                         <td>{avgRate > 0 ? avgRate.toFixed(2) : '-'}</td>
                         <td>₹{group.value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td>{`${group.pendingQty.toFixed(2)}${group.unit ? ' ' + group.unit : ''}`}</td>
+                        <td>₹{group.pendingValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       </tr>
                     );
                   })
@@ -2753,9 +2997,10 @@ ${inventoryEntriesStr}
                 <tr className="table-total-row">
                   <td colSpan={viewMode === 'detailed' ? 4 : 1}><strong>Total</strong></td>
                   <td><strong>{`${negativePendingTotals.totalOrderQty}${negativePendingTotals.unit ? ' ' + negativePendingTotals.unit : ''}`}</strong></td>
-                  <td><strong>{`${negativePendingTotals.totalPendingQty}${negativePendingTotals.unit ? ' ' + negativePendingTotals.unit : ''}`}</strong></td>
                   <td>-</td>
                   <td><strong>₹{parseFloat(negativePendingTotals.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
+                  <td><strong>{`${negativePendingTotals.totalPendingQty}${negativePendingTotals.unit ? ' ' + negativePendingTotals.unit : ''}`}</strong></td>
+                  <td><strong>₹{parseFloat(negativePendingTotals.totalPendingValue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
                   {viewMode === 'detailed' && <td>-</td>}
                 </tr>
               </tfoot>
@@ -2774,7 +3019,8 @@ ${inventoryEntriesStr}
                 <button
                   type="button"
                   className={`zero-availability-toggle ${showZeroAvailabilityItems ? 'active' : ''}`}
-                  onClick={() => setShowZeroAvailabilityItems((prev) => !prev)}>
+                  onClick={() => setShowZeroAvailabilityItems((prev) => !prev)}
+                  title={showZeroAvailabilityItems ? 'Click to hide 0 balance items' : 'Click to show 0 balance items'}>
                   {showZeroAvailabilityItems ? 'Hide 0 Qty Items' : 'Show 0 Qty Items'}
                 </button>
                 <button
@@ -2817,9 +3063,9 @@ ${inventoryEntriesStr}
                             <th>Item</th>
                             <th className="text-right">Orders</th>
                             <th className="text-right">Order Qty</th>
-                            <th className="text-right">Pending Qty</th>
                             <th className="text-right">Rate</th>
-                            <th className="text-right">Value</th>
+                            <th className="text-right">Order Value</th>
+                            <th className="text-right">Pending Qty</th>
                             <th className="text-right">Allocated Qty</th>
                             <th className="text-right">Available Qty</th>
                             <th></th>
@@ -2840,13 +3086,13 @@ ${inventoryEntriesStr}
                                 </td>
                                 <td className="text-right">{row.orders.length}</td>
                                 <td className="text-right">{formatQuantityWithUnit(row.totalOrderQty, row.unit)}</td>
-                                <td className="text-right">{formatQuantityWithUnit(row.totalPendingQty, row.unit)}</td>
                                 <td className="text-right">
                                   {row.rateDisplay.split('\n').map((line, i) => (
                                     <div key={i}>{line}</div>
                                   ))}
                                 </td>
                                 <td className="text-right">₹{row.totalValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                <td className="text-right">{formatQuantityWithUnit(row.totalPendingQty, row.unit)}</td>
                                 <td className="text-right">{formatQuantityWithUnit(row.totalAllocatedQty, row.unit)}</td>
                                 <td className="text-right">{formatQuantityWithUnit(row.totalAvailableQty, row.unit)}</td>
                                 <td>
@@ -2875,14 +3121,13 @@ ${inventoryEntriesStr}
                                             <tr>
                                               <th>Order Date</th>
                                               <th>Order No</th>
-                                              <th>Stock Item</th>
                                               <th>Order Qty</th>
-                                              <th>Pending Qty</th>
                                               <th>
                                                 <div>Rate</div>
                                                 <div className="cell-subtext">(disc%)</div>
                                               </th>
-                                              <th>Value</th>
+                                              <th>Order Value</th>
+                                              <th>Pending Qty</th>
                                               <th>
                                                 <div>Due Date</div>
                                                 <div className="cell-subtext">(overdue)</div>
@@ -2904,22 +3149,19 @@ ${inventoryEntriesStr}
                                               return (
                                                 <tr key={`${orderKey}-${index}`}>
                                                   <td>{order.Date ? formatDateDisplay(order.Date) : '-'}</td>
-                                                  <td>
-                                                    <div>{order.OrderNo || '-'}</div>
-                                                    {order.Batch && <div className="cell-subtext">Batch: {order.Batch}</div>}
-                                                  </td>
-                                                  <td>
-                                                    <div>{order.StockItem || '-'}</div>
-                                                    {order.Location && <div className="cell-subtext">Location: {order.Location}</div>}
-                                                  </td>
+                                              <td>
+                                                <div>{order.OrderNo || '-'}</div>
+                                                {order.Batch && <div className="cell-subtext">Batch: {order.Batch}</div>}
+                                                {order.Location && <div className="cell-subtext">Location: {order.Location}</div>}
+                                              </td>
                                                   <td>{order.OrderQty || '-'}</td>
-                                                  <td>{adjustedPendingQty}</td>
                                                   <td>
                                                     {rateWithDiscount.split('\n').map((line, i) => (
                                                       <div key={i}>{line}</div>
                                                     ))}
                                                   </td>
                                                   <td>₹{value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                  <td>{adjustedPendingQty}</td>
                                                   <td>
                                                     <div>{order.DueDate ? formatDateDisplay(order.DueDate) : '-'}</div>
                                                     {overdueDays !== null && overdueDays > 0 && (
@@ -2968,18 +3210,20 @@ ${inventoryEntriesStr}
                                               );
                                             })}
                                           </tbody>
-                                          <tfoot>
-                                            <tr className="delivery-modal-total-row">
-                                              <td colSpan={3}><strong>Total</strong></td>
-                                              <td><strong>{`${selectedGroupTotals.totalOrderQty}${selectedGroupTotals.unit ? ' ' + selectedGroupTotals.unit : ''}`}</strong></td>
-                                              <td><strong>{`${selectedGroupTotals.totalPendingQty}${selectedGroupTotals.unit ? ' ' + selectedGroupTotals.unit : ''}`}</strong></td>
-                                              <td>-</td>
-                                              <td><strong>₹{Number(selectedGroupTotals.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
-                                              <td>-</td>
-                                              <td>-</td>
-                                              <td><strong>{`${selectedGroupTotals.totalDeliveryQty}${selectedGroupTotals.unit ? ' ' + selectedGroupTotals.unit : ''}`}</strong></td>
-                                            </tr>
-                                          </tfoot>
+                                          {selectedGroupOrders.length > 1 && (
+                                            <tfoot>
+                                              <tr className="delivery-modal-total-row">
+                                                <td colSpan={3}><strong>Total</strong></td>
+                                                <td><strong>{`${selectedGroupTotals.totalOrderQty}${selectedGroupTotals.unit ? ' ' + selectedGroupTotals.unit : ''}`}</strong></td>
+                                                <td>-</td>
+                                                <td><strong>₹{Number(selectedGroupTotals.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
+                                                <td><strong>{`${selectedGroupTotals.totalPendingQty}${selectedGroupTotals.unit ? ' ' + selectedGroupTotals.unit : ''}`}</strong></td>
+                                                <td>-</td>
+                                                <td>-</td>
+                                                <td><strong>{`${selectedGroupTotals.totalDeliveryQty}${selectedGroupTotals.unit ? ' ' + selectedGroupTotals.unit : ''}`}</strong></td>
+                                              </tr>
+                                            </tfoot>
+                                          )}
                                         </table>
                                       </div>
                                     </div>
@@ -2998,9 +3242,9 @@ ${inventoryEntriesStr}
                           <td>Totals</td>
                           <td className="text-right">{totalSummaryOrdersCount}</td>
                           <td className="text-right">{formatQuantityWithUnit(totalSummaryOrderQty, summaryUnit)}</td>
-                          <td className="text-right">{formatQuantityWithUnit(totalSummaryPendingQty, summaryUnit)}</td>
                           <td className="text-right text-emphasis">-</td>
                           <td className="text-right">₹{totalSummaryValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                          <td className="text-right">{formatQuantityWithUnit(totalSummaryPendingQty, summaryUnit)}</td>
                           <td className="text-right">{formatQuantityWithUnit(totalSummaryAllocatedQty, summaryUnit)}</td>
                           <td className="text-right">{formatQuantityWithUnit(totalSummaryAvailableQty, summaryUnit)}</td>
                           <td></td>
@@ -3048,21 +3292,42 @@ ${inventoryEntriesStr}
         <div className="modal-overlay" onClick={handleCloseBatchSelection}>
           <div className="batch-selection-modal" onClick={(e) => e.stopPropagation()}>
             <div className="batch-selection-modal-header">
-              <h2>Select Batch Quantities</h2>
-              <button
-                className="close-modal-button"
-                onClick={handleCloseBatchSelection}
-                disabled={saving}
-              >
-                ✕
-              </button>
+              <div className="batch-header-content">
+                <h2>Select Batch Quantities</h2>
+                <div className="batch-order-info-compact">
+                  <span><strong>Order:</strong> {selectedOrderForBatch.OrderNo || '-'}</span>
+                  <span className="separator">|</span>
+                  <span><strong>Item:</strong> {selectedOrderForBatch.StockItem || '-'}</span>
+                  <span className="separator">|</span>
+                  <span><strong>Pending:</strong> {selectedOrderForBatch.PendingQty || '-'}</span>
+                </div>
+              </div>
+              <div className="batch-header-actions">
+                <button
+                  className="clear-batch-button"
+                  onClick={handleClearBatchAllocations}
+                  disabled={saving}
+                  title="Clear all batch allocations"
+                >
+                  Clear
+                </button>
+                <button
+                  className="save-batch-button"
+                  onClick={handleSaveBatchSelection}
+                  disabled={saving}
+                >
+                  Save
+                </button>
+                <button
+                  className="close-modal-button"
+                  onClick={handleCloseBatchSelection}
+                  disabled={saving}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
             <div className="batch-selection-modal-body">
-              <div className="batch-selection-order-info">
-                <p><strong>Order:</strong> {selectedOrderForBatch.OrderNo || '-'}</p>
-                <p><strong>Item:</strong> {selectedOrderForBatch.StockItem || '-'}</p>
-                <p><strong>Pending Qty:</strong> {selectedOrderForBatch.PendingQty || '-'}</p>
-              </div>
               {(() => {
                 const orderKey = getOrderKey(selectedOrderForBatch);
                 const batchEntries = selectedOrderForBatch.StockItem ? itemBatchBalances[selectedOrderForBatch.StockItem] : undefined;
@@ -3213,9 +3478,10 @@ ${inventoryEntriesStr}
                                   type="text"
                                   className="batch-delivery-qty-input-modal"
                                   value={batchDeliveryQty}
-                                  onChange={(e) => handleBatchDeliveryQtyChange(orderKey, entry.godown, entry.Batchname, e.target.value)}
+                                  onChange={(e) => handleBatchDeliveryQtyChange(orderKey, entry.godown, entry.Batchname, e.target.value, availableBalance, selectedOrderForBatch)}
                                   placeholder="Enter qty"
                                   disabled={saving}
+                                  title={`Max: ${availableBalance.toFixed(2)} | Pending: ${selectedOrderForBatch.PendingQty || '-'}`}
                                 />
                               </td>
                               <td className="text-right">{netDisplay}</td>
@@ -3225,25 +3491,17 @@ ${inventoryEntriesStr}
                       </tbody>
                       <tfoot>
                         <tr className="batch-selection-total-row">
-                          <td colSpan={4}><strong>Total Delivery Qty:</strong></td>
-                          <td className="text-right">
+                          <td colSpan={4} style={{textAlign: 'left'}}><strong>Total Delivery Qty:</strong></td>
+                          <td style={{textAlign: 'center'}}>
                             <strong>{getTotalBatchDeliveryQty(selectedOrderForBatch)}</strong>
                           </td>
+                          <td></td>
                         </tr>
                       </tfoot>
                     </table>
                   </div>
                 );
               })()}
-            </div>
-            <div className="batch-selection-modal-actions">
-              <button
-                className="cancel-button"
-                onClick={handleCloseBatchSelection}
-                disabled={saving}
-              >
-                Close
-              </button>
             </div>
           </div>
         </div>
@@ -3256,6 +3514,9 @@ ${inventoryEntriesStr}
           setTempSectionVisibility(sectionVisibility);
           setTempAgeingBuckets(ageingBuckets);
           setTempBatchXmlFormat(batchXmlFormat);
+          setTempAllowNegativeStock(allowNegativeStock);
+          setTempAllowDeliveryExceedOrder(allowDeliveryExceedOrder);
+          setConfigModalTab('sections');
           setShowConfigModal(false);
         }}>
           <div className="config-modal-content" onClick={(e) => e.stopPropagation()}>
@@ -3268,97 +3529,175 @@ ${inventoryEntriesStr}
                   setTempSectionVisibility(sectionVisibility);
                   setTempAgeingBuckets(ageingBuckets);
                   setTempBatchXmlFormat(batchXmlFormat);
+                  setTempAllowNegativeStock(allowNegativeStock);
+                setTempAllowDeliveryExceedOrder(allowDeliveryExceedOrder);
+                  setConfigModalTab('sections');
                   setShowConfigModal(false);
                 }}>
                 ✕
               </button>
             </div>
             <div className="config-modal-body">
-              <div className="config-option">
-                <label className="config-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={tempSectionVisibility.outstanding}
-                    onChange={(e) => setTempSectionVisibility({
-                      ...tempSectionVisibility,
-                      outstanding: e.target.checked,
-                    })}
-                  />
-                  <span>Sales Orders Outstanding</span>
-                </label>
+              <div className="config-tabs">
+                <button
+                  type="button"
+                  className={`config-tab ${configModalTab === 'sections' ? 'active' : ''}`}
+                  onClick={() => setConfigModalTab('sections')}
+                >
+                  Sections
+                </button>
+                <button
+                  type="button"
+                  className={`config-tab ${configModalTab === 'controls' ? 'active' : ''}`}
+                  onClick={() => setConfigModalTab('controls')}
+                >
+                  Controls
+                </button>
               </div>
-              <div className="config-option">
-                <label className="config-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={tempSectionVisibility.cleared}
-                    onChange={(e) => setTempSectionVisibility({
-                      ...tempSectionVisibility,
-                      cleared: e.target.checked,
-                    })}
-                  />
-                  <span>Sales Orders Cleared</span>
-                  <span className="config-hint">(Requires reload from Tally when enabled)</span>
-                </label>
-              </div>
-              <div className="config-option">
-                <label className="config-checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={tempSectionVisibility.negativePending}
-                    onChange={(e) => setTempSectionVisibility({
-                      ...tempSectionVisibility,
-                      negativePending: e.target.checked,
-                    })}
-                  />
-                  <span>Goods delivered by Orders not received</span>
-                </label>
-              </div>
-              
-              <div className="config-option">
-                <label className="config-label">Order Ageing Buckets (days, comma-separated):</label>
-                <input
-                  type="text"
-                  className="config-input"
-                  value={tempAgeingBuckets.join(', ')}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    const buckets = value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 0);
-                    if (buckets.length > 0) {
-                      setTempAgeingBuckets(buckets);
-                    }
-                  }}
-                  placeholder="0, 7, 15, 30, 60"
-                />
-                <span className="config-hint">Enter bucket values (e.g., 0, 7, 15, 30, 60)</span>
-              </div>
+              {configModalTab === 'sections' ? (
+                <>
+                  <div className="config-option">
+                    <label className="config-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={tempSectionVisibility.outstanding}
+                        onChange={(e) => setTempSectionVisibility({
+                          ...tempSectionVisibility,
+                          outstanding: e.target.checked,
+                        })}
+                      />
+                      <span>Sales Orders Outstanding</span>
+                    </label>
+                  </div>
+                  <div className="config-option">
+                    <label className="config-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={tempSectionVisibility.cleared}
+                        onChange={(e) => setTempSectionVisibility({
+                          ...tempSectionVisibility,
+                          cleared: e.target.checked,
+                        })}
+                      />
+                      <span>Sales Orders Cleared</span>
+                      <span className="config-hint">(Requires reload from Tally when enabled)</span>
+                    </label>
+                  </div>
+                  <div className="config-option">
+                    <label className="config-checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={tempSectionVisibility.negativePending}
+                        onChange={(e) => setTempSectionVisibility({
+                          ...tempSectionVisibility,
+                          negativePending: e.target.checked,
+                        })}
+                      />
+                      <span>Goods delivered by Orders not received</span>
+                    </label>
+                  </div>
+                  
+                  <div className="config-option">
+                    <label className="config-label">Order Ageing Buckets (days, comma-separated):</label>
+                    <input
+                      type="text"
+                      className="config-input"
+                      value={tempAgeingBuckets.join(', ')}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        const buckets = value.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n >= 0);
+                        if (buckets.length > 0) {
+                          setTempAgeingBuckets(buckets);
+                        }
+                      }}
+                      placeholder="0, 7, 15, 30, 60"
+                    />
+                    <span className="config-hint">Enter bucket values (e.g., 0, 7, 15, 30, 60)</span>
+                  </div>
 
-              <div className="config-option">
-                <label className="config-label">Batch XML Format:</label>
-                <div className="config-radio-group">
-                  <label className="config-radio-label">
-                    <input
-                      type="radio"
-                      name="batchXmlFormat"
-                      value="single"
-                      checked={tempBatchXmlFormat === 'single'}
-                      onChange={(e) => setTempBatchXmlFormat('single')}
-                    />
-                    <span>Single entry with multiple batch allocations (Default)</span>
-                  </label>
-                  <label className="config-radio-label">
-                    <input
-                      type="radio"
-                      name="batchXmlFormat"
-                      value="separate"
-                      checked={tempBatchXmlFormat === 'separate'}
-                      onChange={(e) => setTempBatchXmlFormat('separate')}
-                    />
-                    <span>Separate entry for each batch</span>
-                  </label>
-                </div>
-                <span className="config-hint">Choose how batches are structured in the delivery note XML</span>
-              </div>
+                  <div className="config-option">
+                    <label className="config-label">Batch XML Format:</label>
+                    <div className="config-radio-group">
+                      <label className="config-radio-label">
+                        <input
+                          type="radio"
+                          name="batchXmlFormat"
+                          value="single"
+                          checked={tempBatchXmlFormat === 'single'}
+                          onChange={() => setTempBatchXmlFormat('single')}
+                        />
+                        <span>Single entry with multiple batch allocations (Default)</span>
+                      </label>
+                      <label className="config-radio-label">
+                        <input
+                          type="radio"
+                          name="batchXmlFormat"
+                          value="separate"
+                          checked={tempBatchXmlFormat === 'separate'}
+                          onChange={() => setTempBatchXmlFormat('separate')}
+                        />
+                        <span>Separate entry for each batch</span>
+                      </label>
+                    </div>
+                    <span className="config-hint">Choose how batches are structured in the delivery note XML</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="config-option">
+                    <label className="config-label">Allow negative stock?</label>
+                    <div className="config-radio-group config-radio-group-inline">
+                      <label className="config-radio-label">
+                        <input
+                          type="radio"
+                          name="allowNegativeStock"
+                          value="yes"
+                          checked={tempAllowNegativeStock === true}
+                          onChange={() => setTempAllowNegativeStock(true)}
+                        />
+                        <span>Yes</span>
+                      </label>
+                      <label className="config-radio-label">
+                        <input
+                          type="radio"
+                          name="allowNegativeStock"
+                          value="no"
+                          checked={tempAllowNegativeStock === false}
+                          onChange={() => setTempAllowNegativeStock(false)}
+                        />
+                        <span>No</span>
+                      </label>
+                    </div>
+                    <span className="config-hint">When enabled, delivery quantities may exceed available stock balances during Update Delivery.</span>
+                  </div>
+                  <div className="config-option">
+                    <label className="config-label">Allow delivery Qty exceeding Order Qty?</label>
+                    <div className="config-radio-group config-radio-group-inline">
+                      <label className="config-radio-label">
+                        <input
+                          type="radio"
+                          name="allowDeliveryExceedOrder"
+                          value="yes"
+                          checked={tempAllowDeliveryExceedOrder === true}
+                          onChange={() => setTempAllowDeliveryExceedOrder(true)}
+                        />
+                        <span>Yes</span>
+                      </label>
+                      <label className="config-radio-label">
+                        <input
+                          type="radio"
+                          name="allowDeliveryExceedOrder"
+                          value="no"
+                          checked={tempAllowDeliveryExceedOrder === false}
+                          onChange={() => setTempAllowDeliveryExceedOrder(false)}
+                        />
+                        <span>No</span>
+                      </label>
+                    </div>
+                    <span className="config-hint">Enable this when you need to dispatch quantities beyond the original order (or pending) amount.</span>
+                  </div>
+                </>
+              )}
             </div>
             <div className="config-modal-actions">
               <button
@@ -3368,6 +3707,9 @@ ${inventoryEntriesStr}
                   setTempSectionVisibility(sectionVisibility);
                   setTempAgeingBuckets(ageingBuckets);
                   setTempBatchXmlFormat(batchXmlFormat);
+                  setTempAllowNegativeStock(allowNegativeStock);
+                  setTempAllowDeliveryExceedOrder(allowDeliveryExceedOrder);
+                  setConfigModalTab('sections');
                   setShowConfigModal(false);
                 }}>
                 Cancel
@@ -3386,6 +3728,12 @@ ${inventoryEntriesStr}
                   // Apply batch XML format
                   setBatchXmlFormat(tempBatchXmlFormat);
                   localStorage.setItem('companyOrdersBatchXmlFormat', tempBatchXmlFormat);
+                  // Apply negative stock control
+                  setAllowNegativeStock(tempAllowNegativeStock);
+                  localStorage.setItem('companyOrdersAllowNegativeStock', tempAllowNegativeStock ? 'true' : 'false');
+                  // Apply delivery > order control
+                  setAllowDeliveryExceedOrder(tempAllowDeliveryExceedOrder);
+                  localStorage.setItem('companyOrdersAllowDeliveryExceedOrder', tempAllowDeliveryExceedOrder ? 'true' : 'false');
                   
                   // Only reload from Tally if enabling cleared orders (not when disabling)
                   if (!wasClearedEnabled && isClearedEnabled) {
@@ -3396,6 +3744,7 @@ ${inventoryEntriesStr}
                   // If disabling cleared orders, just hide the section (no reload needed)
                   
                   setShowConfigModal(false);
+                  setConfigModalTab('sections');
                 }}>
                 Save
               </button>
