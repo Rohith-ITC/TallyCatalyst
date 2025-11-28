@@ -106,7 +106,7 @@ const CacheManagement = () => {
     try {
       // Clear all cache by clearing OPFS directories
       const opfsRoot = await navigator.storage.getDirectory();
-      
+
       // Clear sales directory
       try {
         await opfsRoot.removeEntry('sales', { recursive: true });
@@ -224,20 +224,20 @@ const CacheManagement = () => {
   // Helper function to convert date from various formats to YYYYMMDD
   const convertDateToYYYYMMDD = (dateString) => {
     if (!dateString) return null;
-    
+
     // If already in YYYYMMDD format, return as is
     if (/^\d{8}$/.test(dateString)) {
       return dateString;
     }
-    
+
     // If in YYYY-MM-DD format, convert to YYYYMMDD
     if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
       return dateString.replace(/-/g, '');
     }
-    
+
     // Handle format like "1-Apr-24" or "15-Jul-2024"
     const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-    
+
     try {
       // Match pattern: day-month-year (e.g., "1-Apr-24" or "15-Jul-2024")
       const parts = dateString.split('-');
@@ -245,52 +245,52 @@ const CacheManagement = () => {
         const day = parseInt(parts[0], 10);
         const monthName = parts[1].toLowerCase();
         const year = parseInt(parts[2], 10);
-        
+
         const monthIndex = monthNames.findIndex(m => m === monthName);
         if (monthIndex === -1) {
           console.warn('Unknown month in date:', dateString);
           return null;
         }
-        
+
         // Determine full year (if 2-digit, assume 20XX for years < 50, 19XX otherwise)
         const fullYear = year < 50 ? 2000 + year : (year < 100 ? 1900 + year : year);
-        
+
         const month = String(monthIndex + 1).padStart(2, '0');
         const dayStr = String(day).padStart(2, '0');
-        
+
         return `${fullYear}${month}${dayStr}`;
       }
     } catch (error) {
       console.warn('Error parsing date:', dateString, error);
     }
-    
+
     return null;
   };
 
   // Helper function to format date for display (YYYY-MM-DD)
   const formatDateForDisplay = (dateString) => {
     if (!dateString) return dateString;
-    
+
     // If already in YYYY-MM-DD format, return as is
     if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
       return dateString;
     }
-    
+
     // If in YYYYMMDD format, convert to YYYY-MM-DD
     if (/^\d{8}$/.test(dateString)) {
       return `${dateString.slice(0, 4)}-${dateString.slice(4, 6)}-${dateString.slice(6, 8)}`;
     }
-    
+
     // If in format like "1-Apr-24" or "1-Apr-2024", convert to YYYY-MM-DD
     const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-    
+
     try {
       const parts = dateString.split('-');
       if (parts.length === 3) {
         const day = parseInt(parts[0], 10);
         const monthName = parts[1].toLowerCase();
         const year = parseInt(parts[2], 10);
-        
+
         const monthIndex = monthNames.findIndex(m => m === monthName);
         if (monthIndex !== -1) {
           const fullYear = year < 50 ? 2000 + year : (year < 100 ? 1900 + year : year);
@@ -302,7 +302,7 @@ const CacheManagement = () => {
     } catch (error) {
       console.warn('Error formatting date for display:', dateString, error);
     }
-    
+
     // Return as-is if we can't parse it
     return dateString;
   };
@@ -314,12 +314,12 @@ const CacheManagement = () => {
     if (converted) {
       return converted;
     }
-    
+
     // Fallback: try removing dashes if it's YYYY-MM-DD format
     if (dateString.includes('-')) {
       return dateString.replace(/-/g, '');
     }
-    
+
     return dateString;
   };
 
@@ -328,25 +328,25 @@ const CacheManagement = () => {
     const chunks = [];
     const start = new Date(startDate);
     const end = new Date(endDate);
-    
+
     let currentStart = new Date(start);
-    
+
     while (currentStart <= end) {
       let currentEnd = new Date(currentStart);
       currentEnd.setDate(currentEnd.getDate() + 4); // 5-day chunks
-      
+
       if (currentEnd > end) {
         currentEnd = new Date(end);
       }
-      
+
       chunks.push({
         start: currentStart.toISOString().split('T')[0],
         end: currentEnd.toISOString().split('T')[0]
       });
-      
+
       currentStart.setDate(currentStart.getDate() + 5);
     }
-    
+
     return chunks;
   };
 
@@ -355,7 +355,7 @@ const CacheManagement = () => {
     if (!data || !data.vouchers || !Array.isArray(data.vouchers)) {
       return null;
     }
-    
+
     let maxAlterId = null;
     for (const voucher of data.vouchers) {
       const alterid = voucher.alterid || voucher.ALTERID;
@@ -402,7 +402,7 @@ const CacheManagement = () => {
           const shared = Array.isArray(response.sharedWithMe) ? response.sharedWithMe : [];
           apiConnections = [...created, ...shared];
         }
-        
+
         const company = apiConnections.find(c => c.guid === selectedGuid);
         if (company && company.booksfrom) {
           console.log('📋 Found booksfrom from API:', company.booksfrom);
@@ -411,7 +411,7 @@ const CacheManagement = () => {
           return company.booksfrom; // This is in YYYYMMDD format
         }
       }
-      
+
       console.warn('⚠️ booksfrom not found in any source');
       return null;
     } catch (error) {
@@ -486,7 +486,7 @@ const CacheManagement = () => {
       // Use production API URL directly for salesextract calls
       const apiBaseUrl = 'https://itcatalystindia.com/Development/CustomerPortal_API';
       const salesextractUrl = `${apiBaseUrl}/api/reports/salesextract?ts=${Date.now()}`;
-      
+
       // Make direct fetch call to production API
       const token = sessionStorage.getItem('token');
       const headers = {
@@ -495,19 +495,19 @@ const CacheManagement = () => {
       if (token) {
         headers.Authorization = `Bearer ${token}`;
       }
-      
+
       let response;
       let needsSlice = false;
-      
+
       // For initial downloads (not updates), always use chunking to avoid timeouts
       // For updates with lastaltid, try direct request first, but fallback to chunking on timeout
       const shouldUseChunking = !isUpdate; // Always chunk for initial downloads
-      
+
       if (!shouldUseChunking) {
         // Try direct request for updates
         try {
           setDownloadProgress({ current: 0, total: 1, message: 'Fetching updates (may take a moment)...' });
-          
+
           const fetchResponse = await fetch(salesextractUrl, {
             method: 'POST',
             headers,
@@ -535,7 +535,7 @@ const CacheManagement = () => {
               console.error('JSON parse error:', parseError);
               throw new Error(`Failed to parse JSON response: ${parseError.message}`);
             }
-            
+
             // Check if backend wants us to slice
             needsSlice = response && (
               response.message === 'slice' ||
@@ -565,7 +565,7 @@ const CacheManagement = () => {
       if (needsSlice || shouldUseChunking) {
         // Need to fetch in chunks
         setDownloadProgress({ current: 0, total: 1, message: 'Preparing chunks...' });
-        
+
         // Convert booksfrom to YYYY-MM-DD format for date calculations
         let startDateForChunks = todayStr;
         if (booksfrom) {
@@ -575,15 +575,15 @@ const CacheManagement = () => {
           }
         }
         const chunks = splitDateRange(startDateForChunks, todayStr);
-        
+
         setDownloadProgress({ current: 0, total: chunks.length, message: `Fetching ${chunks.length} chunks...` });
 
         for (let i = 0; i < chunks.length; i++) {
           const chunk = chunks[i];
-          setDownloadProgress({ 
-            current: i + 1, 
-            total: chunks.length, 
-            message: `Fetching chunk ${i + 1}/${chunks.length}: ${chunk.start} to ${chunk.end}` 
+          setDownloadProgress({
+            current: i + 1,
+            total: chunks.length,
+            message: `Fetching chunk ${i + 1}/${chunks.length}: ${chunk.start} to ${chunk.end}`
           });
 
           const chunkPayload = {
@@ -618,7 +618,7 @@ const CacheManagement = () => {
             console.error('JSON parse error:', parseError);
             throw new Error(`Failed to parse JSON response: ${parseError.message}`);
           }
-          
+
           if (chunkResponse && chunkResponse.vouchers && Array.isArray(chunkResponse.vouchers)) {
             allVouchers.push(...chunkResponse.vouchers);
           }
@@ -627,64 +627,64 @@ const CacheManagement = () => {
         mergedData = { vouchers: allVouchers };
       } else {
         // Direct response
-          if (response && response.vouchers && Array.isArray(response.vouchers)) {
-            if (isUpdate) {
-              // For update, merge with existing data
-              const existingData = await hybridCache.getCompleteSalesData(selectedCompany);
-              if (existingData && existingData.data && existingData.data.vouchers) {
-                const existingVouchers = existingData.data.vouchers;
-                // Create a set of existing voucher IDs using multiple possible field combinations
-                const existingIds = new Set(existingVouchers.map(v => {
-                  // Try different field name variations
-                  const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
-                  const alterid = v.alterid || v.ALTERID;
-                  const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
-                  const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
-                  
-                  // Use mstid + alterid combination if available, otherwise use vchno + date
-                  if (mstid && alterid) {
-                    return `${mstid}_${alterid}`;
-                  } else if (vchno && date) {
-                    return `${vchno}_${date}`;
-                  } else if (mstid) {
-                    return mstid.toString();
-                  } else {
-                    // Fallback: use JSON string of key fields
-                    return JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
-                  }
-                }));
-                
-                // Add only new vouchers
-                const newVouchers = response.vouchers.filter(v => {
-                  const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
-                  const alterid = v.alterid || v.ALTERID;
-                  const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
-                  const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
-                  
-                  let id;
-                  if (mstid && alterid) {
-                    id = `${mstid}_${alterid}`;
-                  } else if (vchno && date) {
-                    id = `${vchno}_${date}`;
-                  } else if (mstid) {
-                    id = mstid.toString();
-                  } else {
-                    id = JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
-                  }
-                  
-                  return !existingIds.has(id);
-                });
-                
-                console.log(`📊 Update: ${existingVouchers.length} existing vouchers, ${newVouchers.length} new vouchers`);
-                allVouchers = [...existingVouchers, ...newVouchers];
-              } else {
-                allVouchers = response.vouchers;
-              }
+        if (response && response.vouchers && Array.isArray(response.vouchers)) {
+          if (isUpdate) {
+            // For update, merge with existing data
+            const existingData = await hybridCache.getCompleteSalesData(selectedCompany);
+            if (existingData && existingData.data && existingData.data.vouchers) {
+              const existingVouchers = existingData.data.vouchers;
+              // Create a set of existing voucher IDs using multiple possible field combinations
+              const existingIds = new Set(existingVouchers.map(v => {
+                // Try different field name variations
+                const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
+                const alterid = v.alterid || v.ALTERID;
+                const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
+                const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
+
+                // Use mstid + alterid combination if available, otherwise use vchno + date
+                if (mstid && alterid) {
+                  return `${mstid}_${alterid}`;
+                } else if (vchno && date) {
+                  return `${vchno}_${date}`;
+                } else if (mstid) {
+                  return mstid.toString();
+                } else {
+                  // Fallback: use JSON string of key fields
+                  return JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
+                }
+              }));
+
+              // Add only new vouchers
+              const newVouchers = response.vouchers.filter(v => {
+                const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
+                const alterid = v.alterid || v.ALTERID;
+                const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
+                const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
+
+                let id;
+                if (mstid && alterid) {
+                  id = `${mstid}_${alterid}`;
+                } else if (vchno && date) {
+                  id = `${vchno}_${date}`;
+                } else if (mstid) {
+                  id = mstid.toString();
+                } else {
+                  id = JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
+                }
+
+                return !existingIds.has(id);
+              });
+
+              console.log(`📊 Update: ${existingVouchers.length} existing vouchers, ${newVouchers.length} new vouchers`);
+              allVouchers = [...existingVouchers, ...newVouchers];
             } else {
               allVouchers = response.vouchers;
             }
-            mergedData = { vouchers: allVouchers };
+          } else {
+            allVouchers = response.vouchers;
           }
+          mergedData = { vouchers: allVouchers };
+        }
       }
 
       // Calculate max alterid
@@ -698,12 +698,12 @@ const CacheManagement = () => {
 
       await hybridCache.setCompleteSalesData(selectedCompany, mergedData, metadata);
 
-      setMessage({ 
-        type: 'success', 
-        text: `Successfully ${isUpdate ? 'updated' : 'downloaded'} ${mergedData.vouchers.length} vouchers! Last Alter ID: ${maxAlterId || 'N/A'}` 
+      setMessage({
+        type: 'success',
+        text: `Successfully ${isUpdate ? 'updated' : 'downloaded'} ${mergedData.vouchers.length} vouchers! Last Alter ID: ${maxAlterId || 'N/A'}`
       });
       await loadCacheStats();
-      
+
     } catch (error) {
       console.error('Error downloading complete data:', error);
       setMessage({ type: 'error', text: 'Failed to download data: ' + error.message });
@@ -717,7 +717,7 @@ const CacheManagement = () => {
   const viewCacheAsJson = async (cacheKey) => {
     setViewingJsonCache(cacheKey);
     setJsonCacheData(null);
-    
+
     try {
       const data = await hybridCache.getCacheFileAsJson(cacheKey);
       setJsonCacheData(data);
@@ -763,6 +763,35 @@ const CacheManagement = () => {
           Manage and clear cached data stored in OPFS (Origin Private File System)
         </p>
       </div>
+
+      {/* Message Display */}
+      {message.text && (
+        <div style={{
+          background: message.type === 'success' ? '#d1fae5' : '#fee2e2',
+          border: `1px solid ${message.type === 'success' ? '#6ee7b7' : '#fca5a5'}`,
+          borderRadius: '12px',
+          padding: '16px 20px',
+          marginBottom: '24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px'
+        }}>
+          <span className="material-icons" style={{
+            fontSize: '24px',
+            color: message.type === 'success' ? '#059669' : '#dc2626'
+          }}>
+            {message.type === 'success' ? 'check_circle' : 'error'}
+          </span>
+          <div style={{
+            fontSize: '15px',
+            fontWeight: 500,
+            color: message.type === 'success' ? '#065f46' : '#991b1b',
+            flex: 1
+          }}>
+            {message.text}
+          </div>
+        </div>
+      )}
 
       {/* Current Company Info */}
       {selectedCompany && (
@@ -829,7 +858,7 @@ const CacheManagement = () => {
         }}>
           Download and cache complete sales data from the beginning of your books. Update to fetch only new records since last download.
         </p>
-        
+
         {downloadProgress.total > 0 && (
           <div style={{
             marginBottom: '16px',
@@ -1361,8 +1390,8 @@ const CacheManagement = () => {
             <option value="custom">Custom...</option>
           </select>
           {savingExpiry && (
-            <span className="material-icons" style={{ 
-              fontSize: '20px', 
+            <span className="material-icons" style={{
+              fontSize: '20px',
               color: '#3b82f6',
               animation: 'spin 1s linear infinite'
             }}>
@@ -1374,47 +1403,12 @@ const CacheManagement = () => {
             color: '#64748b',
             fontStyle: 'italic'
           }}>
-            {cacheExpiryDays === 'never' 
-              ? 'Cache will never expire automatically' 
+            {cacheExpiryDays === 'never'
+              ? 'Cache will never expire automatically'
               : `Cache will expire after ${cacheExpiryDays} day${parseInt(cacheExpiryDays) !== 1 ? 's' : ''}`}
           </div>
         </div>
       </div>
-
-      {/* Message Display */}
-      {message.text && (
-        <div style={{
-          padding: '16px',
-          borderRadius: '8px',
-          marginBottom: '24px',
-          background: message.type === 'success' ? '#f0fdf4' : '#fef2f2',
-          border: `1px solid ${message.type === 'success' ? '#86efac' : '#fecaca'}`,
-          color: message.type === 'success' ? '#16a34a' : '#dc2626',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px'
-        }}>
-          <span className="material-icons">
-            {message.type === 'success' ? 'check_circle' : 'error'}
-          </span>
-          <span>{message.text}</span>
-          <button
-            onClick={() => setMessage({ type: '', text: '' })}
-            style={{
-              marginLeft: 'auto',
-              background: 'transparent',
-              border: 'none',
-              color: 'inherit',
-              cursor: 'pointer',
-              padding: '4px',
-              display: 'flex',
-              alignItems: 'center'
-            }}
-          >
-            <span className="material-icons" style={{ fontSize: '20px' }}>close</span>
-          </button>
-        </div>
-      )}
 
       {/* Cache Actions */}
       <div style={{
