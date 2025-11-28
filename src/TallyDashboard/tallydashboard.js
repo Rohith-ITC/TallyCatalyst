@@ -91,6 +91,7 @@ function TallyDashboard() {
   const [showControlPanel, setShowControlPanel] = useState(false);
   const [controlPanelView, setControlPanelView] = useState(null); // 'tally-config', 'modules', 'roles', 'create-access', 'share-access'
   const [controlPanelOpen, setControlPanelOpen] = useState(false);
+  const [pendingSidebarNavigation, setPendingSidebarNavigation] = useState(null);
   const [accessControlDropdownOpen, setAccessControlDropdownOpen] = useState(false);
   const [masterManagementDropdownOpen, setMasterManagementDropdownOpen] = useState(false);
   const masterManagementDropdownRef = useRef(null);
@@ -683,6 +684,35 @@ function TallyDashboard() {
     window.location.href = process.env.REACT_APP_HOMEPAGE || '/';
   };
 
+  // Safe navigation function that checks for ongoing data loading
+  const handleSafeNavigation = useCallback((newSidebarId) => {
+    // Check if sales dashboard is currently loading data
+    if (window.salesDashboardLoading && activeSidebar === 'sales_dashboard') {
+      console.log('⚠️ Navigation blocked - Sales dashboard is loading data');
+      const navigationCallback = () => {
+        setActiveSidebar(newSidebarId);
+        setPendingSidebarNavigation(null);
+      };
+      setPendingSidebarNavigation(() => navigationCallback);
+      if (window.salesDashboardShowWarning) {
+        window.salesDashboardShowWarning(navigationCallback);
+      }
+      return false;
+    }
+    
+    // Safe to navigate
+    setActiveSidebar(newSidebarId);
+    return true;
+  }, [activeSidebar]);
+
+  // Execute pending navigation when user confirms
+  useEffect(() => {
+    if (pendingSidebarNavigation && !window.salesDashboardLoading) {
+      pendingSidebarNavigation();
+      setPendingSidebarNavigation(null);
+    }
+  }, [pendingSidebarNavigation]);
+
   // Enhanced sidebar rendering
   const renderSidebarItems = () => {
     const userModules = getUserModules();
@@ -786,9 +816,9 @@ function TallyDashboard() {
           if (moduleKey === 'main_menu') {
             navigate('/admin-dashboard');
           } else {
-            setActiveSidebar(module.id); 
+            const canNavigate = handleSafeNavigation(module.id); 
             // Close control panel when sidebar item is clicked
-            if (showControlPanel) {
+            if (canNavigate && showControlPanel) {
               handleCloseControlPanel();
             }
           }
@@ -1172,9 +1202,9 @@ function TallyDashboard() {
                     e.preventDefault();
                     e.stopPropagation();
                     console.log('🖱️ Master dropdown item clicked:', subModule.key, subModule.id);
-                    setActiveSidebar(subModule.id);
+                    const canNavigate = handleSafeNavigation(subModule.id);
                     setMasterManagementDropdownOpen(false);
-                    if (showControlPanel) {
+                    if (canNavigate && showControlPanel) {
                       handleCloseControlPanel();
                     }
                   }}
@@ -1340,7 +1370,7 @@ function TallyDashboard() {
                 <button
                   key={subModule.key}
                   onClick={() => { 
-                    setActiveSidebar(subModule.id); 
+                    handleSafeNavigation(subModule.id); 
                   }}
                   style={{
                     color: isSubActive ? '#ff9800' : '#fff',
@@ -2806,7 +2836,7 @@ function TallyDashboard() {
           {activeSidebar === 'ecommerce' && <PlaceOrder_ECommerce />}
           {activeSidebar === 'sales_dashboard' && (
             <div style={{ margin: '-20px', padding: '0' }}>
-              <SalesDashboard />
+              <SalesDashboard onNavigationAttempt={true} />
             </div>
           )}
           {activeSidebar === 'receivables_dashboard' && (

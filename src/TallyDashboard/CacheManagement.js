@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { hybridCache } from '../utils/hybridCache';
+
 import { apiPost, apiGet } from '../utils/apiUtils';
+import { syncSalesData, syncCustomers, syncItems } from './utils/dataSync';
 
 const CacheManagement = () => {
   const [cacheStats, setCacheStats] = useState(null);
@@ -16,12 +18,77 @@ const CacheManagement = () => {
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, message: '' });
   const [viewingJsonCache, setViewingJsonCache] = useState(null);
   const [jsonCacheData, setJsonCacheData] = useState(null);
+  const [timeRange, setTimeRange] = useState('all');
+  const [selectedFinancialYear, setSelectedFinancialYear] = useState('');
+  const [financialYearOptions, setFinancialYearOptions] = useState([]);
+
+  // Session Cache State
+  const [sessionCacheStats, setSessionCacheStats] = useState({
+    customers: 0,
+    items: 0
+  });
+  const [refreshingSession, setRefreshingSession] = useState({
+    customers: false,
+    items: false
+  });
 
   useEffect(() => {
     loadCacheStats();
     loadCurrentCompany();
     loadCacheExpiry();
   }, []);
+
+  const loadSessionCacheStats = () => {
+    if (!selectedCompany) return;
+    const { tallyloc_id, company } = selectedCompany;
+
+    const customerKey = `ledgerlist-w-addrs_${tallyloc_id}_${company}`;
+    const itemKey = `stockitems_${tallyloc_id}_${company}`;
+
+    let customerCount = 0;
+    let itemCount = 0;
+
+    try {
+      const customers = sessionStorage.getItem(customerKey);
+      if (customers) customerCount = JSON.parse(customers).length;
+    } catch (e) { }
+
+    try {
+      const items = sessionStorage.getItem(itemKey);
+      if (items) itemCount = JSON.parse(items).length;
+    } catch (e) { }
+
+    setSessionCacheStats({ customers: customerCount, items: itemCount });
+  };
+
+  useEffect(() => {
+    if (selectedCompany) {
+      loadSessionCacheStats();
+    }
+  }, [selectedCompany]);
+
+  const handleRefreshSessionCache = async (type) => {
+    if (!selectedCompany) return;
+
+    setRefreshingSession(prev => ({ ...prev, [type]: true }));
+    setMessage({ type: '', text: '' });
+
+    try {
+      if (type === 'customers') {
+        const result = await syncCustomers(selectedCompany);
+        setMessage({ type: 'success', text: `Successfully refreshed ${result.count} customers!` });
+      } else if (type === 'items') {
+        const result = await syncItems(selectedCompany);
+        setMessage({ type: 'success', text: `Successfully refreshed ${result.count} items!` });
+      }
+      loadSessionCacheStats();
+    } catch (error) {
+      console.error(`Error refreshing ${type}:`, error);
+      setMessage({ type: 'error', text: `Failed to refresh ${type}: ${error.message}` });
+    } finally {
+      setRefreshingSession(prev => ({ ...prev, [type]: false }));
+    }
+  };
 
   const loadCacheExpiry = () => {
     try {
@@ -138,6 +205,17 @@ const CacheManagement = () => {
         console.warn('Failed to clear metadata:', err);
       }
 
+      // Clear session storage for items and customers
+      const keysToRemove = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && (key.startsWith('stockitems_') || key.startsWith('ledgerlist-w-addrs_'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach(key => sessionStorage.removeItem(key));
+      setSessionCacheStats({ customers: 0, items: 0 });
+
       // Note: We keep the keys directory as it contains user encryption keys
       // Clearing it would prevent decryption of any remaining cached data
 
@@ -166,6 +244,15 @@ const CacheManagement = () => {
 
     try {
       await hybridCache.clearCompanyCache(selectedCompany);
+
+      // Clear session storage for this company
+      if (selectedCompany) {
+        const { tallyloc_id, company } = selectedCompany;
+        sessionStorage.removeItem(`stockitems_${tallyloc_id}_${company}`);
+        sessionStorage.removeItem(`ledgerlist-w-addrs_${tallyloc_id}_${company}`);
+        setSessionCacheStats({ customers: 0, items: 0 });
+      }
+
       setMessage({ type: 'success', text: `Cache cleared successfully for ${selectedCompany.company}!` });
       await loadCacheStats();
     } catch (error) {
@@ -420,6 +507,40 @@ const CacheManagement = () => {
     }
   };
 
+  // Generate Financial Year options
+  useEffect(() => {
+    const generateFYOptions = async () => {
+      const today = new Date();
+      const currentYear = today.getMonth() >= 3 ? today.getFullYear() : today.getFullYear() - 1;
+      const options = [];
+
+      // Default: last 10 years
+      let startYear = currentYear - 10;
+
+      // Try to get booksfrom to limit the range
+      const booksFromDate = await fetchBooksFrom();
+      if (booksFromDate) {
+        // booksFromDate is in YYYYMMDD format
+        const bfYear = parseInt(booksFromDate.substring(0, 4));
+        const bfMonth = parseInt(booksFromDate.substring(4, 6));
+        // If booksfrom is after April, start from that FY
+        startYear = bfMonth >= 4 ? bfYear : bfYear - 1;
+      }
+
+      for (let y = currentYear; y >= startYear; y--) {
+        options.push(`${y}-${y + 1}`);
+      }
+      setFinancialYearOptions(options);
+      if (options.length > 0 && !selectedFinancialYear) {
+        setSelectedFinancialYear(options[0]);
+      }
+    };
+
+    if (selectedCompany) {
+      generateFYOptions();
+    }
+  }, [selectedCompany]);
+
   // Download complete sales data
   const downloadCompleteData = async (isUpdate = false) => {
     if (!selectedCompany) {
@@ -432,275 +553,13 @@ const CacheManagement = () => {
     setDownloadProgress({ current: 0, total: 0, message: 'Starting download...' });
 
     try {
-      // Get booksfrom date
-      const booksfrom = await fetchBooksFrom();
-      if (!booksfrom && !isUpdate) {
-        setMessage({ type: 'error', text: 'Unable to fetch booksfrom date. Please try again.' });
-        setDownloadingComplete(false);
-        return;
-      }
-
-      // Get lastaltid if updating
-      let lastaltid = null;
-      if (isUpdate) {
-        lastaltid = await hybridCache.getLastAlterId(selectedCompany);
-        if (!lastaltid) {
-          setMessage({ type: 'error', text: 'No existing data found. Please download complete data first.' });
-          setDownloadingComplete(false);
-          return;
-        }
-      }
-
-      // Format dates
-      const today = new Date();
-      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-      const todayAPI = formatDateForAPI(todayStr);
-
-      // Convert booksfrom to YYYYMMDD format if it's in a different format
-      let fromdateFormatted = todayAPI;
-      if (booksfrom) {
-        fromdateFormatted = convertDateToYYYYMMDD(booksfrom);
-        if (!fromdateFormatted) {
-          // If conversion fails, try formatDateForAPI as fallback
-          fromdateFormatted = formatDateForAPI(booksfrom);
-        }
-        console.log(`📅 Converted booksfrom "${booksfrom}" to "${fromdateFormatted}"`);
-      }
-
-      // First request: Try with serverslice: "Yes" if updating
-      let payload = {
-        tallyloc_id: selectedCompany.tallyloc_id,
-        company: selectedCompany.company,
-        guid: selectedCompany.guid,
-        fromdate: fromdateFormatted,
-        todate: todayAPI,
-        serverslice: isUpdate ? "Yes" : "No"
-      };
-
-      if (isUpdate && lastaltid) {
-        payload.lastaltid = lastaltid;
-      }
-
-      setDownloadProgress({ current: 0, total: 1, message: isUpdate ? 'Fetching updates...' : 'Fetching data...' });
-
-      // Use production API URL directly for salesextract calls
-      const apiBaseUrl = 'https://itcatalystindia.com/Development/CustomerPortal_API';
-      const salesextractUrl = `${apiBaseUrl}/api/reports/salesextract?ts=${Date.now()}`;
-
-      // Make direct fetch call to production API
-      const token = sessionStorage.getItem('token');
-      const headers = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
-
-      let response;
-      let needsSlice = false;
-
-      // For initial downloads (not updates), always use chunking to avoid timeouts
-      // For updates with lastaltid, try direct request first, but fallback to chunking on timeout
-      const shouldUseChunking = !isUpdate; // Always chunk for initial downloads
-
-      if (!shouldUseChunking) {
-        // Try direct request for updates
-        try {
-          setDownloadProgress({ current: 0, total: 1, message: 'Fetching updates (may take a moment)...' });
-
-          const fetchResponse = await fetch(salesextractUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(payload),
-          });
-
-          if (!fetchResponse.ok) {
-            // If timeout or error, fall back to chunking
-            if (fetchResponse.status === 504 || fetchResponse.status === 408) {
-              console.log('⚠️ Request timed out, falling back to chunked requests');
-              needsSlice = true;
-            } else {
-              const errorText = await fetchResponse.text();
-              throw new Error(`API request failed: ${fetchResponse.status} ${fetchResponse.statusText}. ${errorText.substring(0, 500)}`);
-            }
-          } else {
-            const responseText = await fetchResponse.text();
-            if (!responseText) {
-              throw new Error('Empty response from server');
-            }
-
-            try {
-              response = JSON.parse(responseText);
-            } catch (parseError) {
-              console.error('JSON parse error:', parseError);
-              throw new Error(`Failed to parse JSON response: ${parseError.message}`);
-            }
-
-            // Check if backend wants us to slice
-            needsSlice = response && (
-              response.message === 'slice' ||
-              response.message === 'Slice' ||
-              response.message?.toLowerCase().includes('slice') ||
-              (response.error && response.error.toLowerCase().includes('slice'))
-            );
-          }
-        } catch (error) {
-          // If fetch itself fails (network error, timeout, etc.), use chunking
-          if (error.message.includes('timeout') || error.message.includes('504') || error.message.includes('408') || error.message.includes('Gateway Timeout')) {
-            console.log('⚠️ Request failed with timeout, using chunked requests');
-            needsSlice = true;
-          } else {
-            throw error;
-          }
-        }
-      } else {
-        // For initial downloads, always use chunking
-        console.log('📦 Initial download: Using chunked requests to avoid timeouts');
-        needsSlice = true;
-      }
-
-      let allVouchers = [];
-      let mergedData = { vouchers: [] };
-
-      if (needsSlice || shouldUseChunking) {
-        // Need to fetch in chunks
-        setDownloadProgress({ current: 0, total: 1, message: 'Preparing chunks...' });
-
-        // Convert booksfrom to YYYY-MM-DD format for date calculations
-        let startDateForChunks = todayStr;
-        if (booksfrom) {
-          const booksfromYYYYMMDD = convertDateToYYYYMMDD(booksfrom);
-          if (booksfromYYYYMMDD && booksfromYYYYMMDD.length === 8) {
-            startDateForChunks = `${booksfromYYYYMMDD.slice(0, 4)}-${booksfromYYYYMMDD.slice(4, 6)}-${booksfromYYYYMMDD.slice(6, 8)}`;
-          }
-        }
-        const chunks = splitDateRange(startDateForChunks, todayStr);
-
-        setDownloadProgress({ current: 0, total: chunks.length, message: `Fetching ${chunks.length} chunks...` });
-
-        for (let i = 0; i < chunks.length; i++) {
-          const chunk = chunks[i];
-          setDownloadProgress({
-            current: i + 1,
-            total: chunks.length,
-            message: `Fetching chunk ${i + 1}/${chunks.length}: ${chunk.start} to ${chunk.end}`
-          });
-
-          const chunkPayload = {
-            ...payload,
-            fromdate: formatDateForAPI(chunk.start),
-            todate: formatDateForAPI(chunk.end),
-            serverslice: "No"
-          };
-
-          // Use production API URL directly for chunked requests
-          const chunkUrl = `${apiBaseUrl}/api/reports/salesextract?ts=${Date.now()}`;
-          const chunkFetchResponse = await fetch(chunkUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(chunkPayload),
-          });
-
-          if (!chunkFetchResponse.ok) {
-            const errorText = await chunkFetchResponse.text();
-            throw new Error(`API request failed: ${chunkFetchResponse.status} ${chunkFetchResponse.statusText}. ${errorText.substring(0, 500)}`);
-          }
-
-          const chunkResponseText = await chunkFetchResponse.text();
-          if (!chunkResponseText) {
-            throw new Error('Empty response from server');
-          }
-
-          let chunkResponse;
-          try {
-            chunkResponse = JSON.parse(chunkResponseText);
-          } catch (parseError) {
-            console.error('JSON parse error:', parseError);
-            throw new Error(`Failed to parse JSON response: ${parseError.message}`);
-          }
-
-          if (chunkResponse && chunkResponse.vouchers && Array.isArray(chunkResponse.vouchers)) {
-            allVouchers.push(...chunkResponse.vouchers);
-          }
-        }
-
-        mergedData = { vouchers: allVouchers };
-      } else {
-        // Direct response
-        if (response && response.vouchers && Array.isArray(response.vouchers)) {
-          if (isUpdate) {
-            // For update, merge with existing data
-            const existingData = await hybridCache.getCompleteSalesData(selectedCompany);
-            if (existingData && existingData.data && existingData.data.vouchers) {
-              const existingVouchers = existingData.data.vouchers;
-              // Create a set of existing voucher IDs using multiple possible field combinations
-              const existingIds = new Set(existingVouchers.map(v => {
-                // Try different field name variations
-                const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
-                const alterid = v.alterid || v.ALTERID;
-                const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
-                const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
-
-                // Use mstid + alterid combination if available, otherwise use vchno + date
-                if (mstid && alterid) {
-                  return `${mstid}_${alterid}`;
-                } else if (vchno && date) {
-                  return `${vchno}_${date}`;
-                } else if (mstid) {
-                  return mstid.toString();
-                } else {
-                  // Fallback: use JSON string of key fields
-                  return JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
-                }
-              }));
-
-              // Add only new vouchers
-              const newVouchers = response.vouchers.filter(v => {
-                const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
-                const alterid = v.alterid || v.ALTERID;
-                const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
-                const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
-
-                let id;
-                if (mstid && alterid) {
-                  id = `${mstid}_${alterid}`;
-                } else if (vchno && date) {
-                  id = `${vchno}_${date}`;
-                } else if (mstid) {
-                  id = mstid.toString();
-                } else {
-                  id = JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
-                }
-
-                return !existingIds.has(id);
-              });
-
-              console.log(`📊 Update: ${existingVouchers.length} existing vouchers, ${newVouchers.length} new vouchers`);
-              allVouchers = [...existingVouchers, ...newVouchers];
-            } else {
-              allVouchers = response.vouchers;
-            }
-          } else {
-            allVouchers = response.vouchers;
-          }
-          mergedData = { vouchers: allVouchers };
-        }
-      }
-
-      // Calculate max alterid
-      const maxAlterId = calculateMaxAlterId(mergedData);
-
-      // Store in cache
-      const metadata = {
-        booksfrom: booksfrom || formatDateForAPI(todayStr),
-        lastaltid: maxAlterId
-      };
-
-      await hybridCache.setCompleteSalesData(selectedCompany, mergedData, metadata);
+      const result = await syncSalesData(selectedCompany, (progress) => {
+        setDownloadProgress(progress);
+      });
 
       setMessage({
         type: 'success',
-        text: `Successfully ${isUpdate ? 'updated' : 'downloaded'} ${mergedData.vouchers.length} vouchers! Last Alter ID: ${maxAlterId || 'N/A'}`
+        text: `Successfully ${isUpdate ? 'updated' : 'downloaded'} ${result.count} vouchers! Last Alter ID: ${result.lastAlterId || 'N/A'}`
       });
       await loadCacheStats();
 
@@ -823,170 +682,381 @@ const CacheManagement = () => {
         </div>
       )}
 
-      {/* Download Complete Sales Data */}
-      <div style={{
-        background: '#fff',
-        border: '1px solid #e2e8f0',
-        borderRadius: '12px',
-        padding: '24px',
-        marginBottom: '24px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-      }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px', marginBottom: '24px' }}>
+        {/* Download Complete Sales Data */}
         <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: '12px',
-          marginBottom: '16px'
-        }}>
-          <span className="material-icons" style={{ fontSize: '28px', color: '#10b981' }}>
-            download
-          </span>
-          <h3 style={{
-            fontSize: '18px',
-            fontWeight: 600,
-            color: '#1e293b',
-            margin: 0
-          }}>
-            Complete Sales Data
-          </h3>
-        </div>
-        <p style={{
-          fontSize: '14px',
-          color: '#64748b',
-          marginBottom: '20px',
-          lineHeight: '1.6'
-        }}>
-          Download and cache complete sales data from the beginning of your books. Update to fetch only new records since last download.
-        </p>
+          background: '#fff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '12px',
+          padding: '24px',
 
-        {downloadProgress.total > 0 && (
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+        }}>
           <div style={{
-            marginBottom: '16px',
-            padding: '12px',
-            background: '#f0f9ff',
-            border: '1px solid #bae6fd',
-            borderRadius: '8px'
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            marginBottom: '16px'
           }}>
-            <div style={{
-              fontSize: '13px',
-              color: '#0369a1',
-              marginBottom: '8px',
-              fontWeight: 500
+            <span className="material-icons" style={{ fontSize: '28px', color: '#10b981' }}>
+              download
+            </span>
+            <h3 style={{
+              fontSize: '18px',
+              fontWeight: 600,
+              color: '#1e293b',
+              margin: 0
             }}>
-              {downloadProgress.message}
-            </div>
+              Complete Sales Data
+            </h3>
+          </div>
+          <p style={{
+            fontSize: '14px',
+            color: '#64748b',
+            marginBottom: '20px',
+            lineHeight: '1.6'
+          }}>
+            Download and cache complete sales data from the beginning of your books. Update to fetch only new records since last download.
+          </p>
+
+          {downloadProgress.total > 0 && (
             <div style={{
-              width: '100%',
-              height: '8px',
-              background: '#e0f2fe',
-              borderRadius: '4px',
-              overflow: 'hidden'
+              marginBottom: '16px',
+              padding: '12px',
+              background: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              borderRadius: '8px'
             }}>
               <div style={{
-                width: `${(downloadProgress.current / downloadProgress.total) * 100}%`,
-                height: '100%',
-                background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
-                transition: 'width 0.3s ease'
-              }} />
+                fontSize: '13px',
+                color: '#0369a1',
+                marginBottom: '8px',
+                fontWeight: 500
+              }}>
+                {downloadProgress.message}
+              </div>
+              <div style={{
+                width: '100%',
+                height: '8px',
+                background: '#e0f2fe',
+                borderRadius: '4px',
+                overflow: 'hidden'
+              }}>
+                <div style={{
+                  width: `${(downloadProgress.current / downloadProgress.total) * 100}%`,
+                  height: '100%',
+                  background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
+                  transition: 'width 0.3s ease'
+                }} />
+              </div>
+              <div style={{
+                fontSize: '12px',
+                color: '#64748b',
+                marginTop: '4px',
+                textAlign: 'right'
+              }}>
+                {downloadProgress.current} / {downloadProgress.total}
+              </div>
             </div>
-            <div style={{
-              fontSize: '12px',
-              color: '#64748b',
-              marginTop: '4px',
-              textAlign: 'right'
-            }}>
-              {downloadProgress.current} / {downloadProgress.total}
+          )}
+
+          <div style={{
+            display: 'flex',
+            gap: '12px',
+            flexWrap: 'wrap',
+            flexDirection: 'column'
+          }}>
+            {/* Time Range Selection */}
+            <div style={{ marginBottom: '8px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 200px' }}>
+                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#475569', marginBottom: '6px' }}>
+                  Time Range
+                </label>
+                <select
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid #cbd5e1',
+                    fontSize: '14px',
+                    color: '#1e293b',
+                    outline: 'none',
+                    cursor: 'pointer',
+                    backgroundColor: '#f8fafc'
+                  }}
+                >
+                  <option value="all">All Time (From Books Begin)</option>
+                  <option value="1y">Last 1 Year</option>
+                  <option value="2y">Last 2 Years</option>
+                  <option value="5y">Last 5 Years</option>
+                  <option value="10y">Last 10 Years</option>
+                  <option value="fy">Specific Financial Year</option>
+                </select>
+              </div>
+
+              {timeRange === 'fy' && (
+                <div style={{ flex: '1 1 200px' }}>
+                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#475569', marginBottom: '6px' }}>
+                    Financial Year
+                  </label>
+                  <select
+                    value={selectedFinancialYear}
+                    onChange={(e) => setSelectedFinancialYear(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '10px',
+                      borderRadius: '8px',
+                      border: '1px solid #cbd5e1',
+                      fontSize: '14px',
+                      color: '#1e293b',
+                      outline: 'none',
+                      cursor: 'pointer',
+                      backgroundColor: '#f8fafc'
+                    }}
+                  >
+                    {financialYearOptions.map(fy => (
+                      <option key={fy} value={fy}>{fy}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', width: '100%' }}>
+              <button
+                onClick={() => downloadCompleteData(false)}
+                disabled={downloadingComplete || !selectedCompany}
+                style={{
+                  flex: '1 1 calc(50% - 6px)',
+                  minWidth: '150px',
+                  padding: '12px 16px',
+                  background: (downloadingComplete || !selectedCompany) ? '#94a3b8' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  cursor: (downloadingComplete || !selectedCompany) ? 'not-allowed' : 'pointer',
+                  boxShadow: (downloadingComplete || !selectedCompany) ? 'none' : '0 2px 8px rgba(16, 185, 129, 0.25)',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+              >
+                {downloadingComplete ? (
+                  <>
+                    <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite', flexShrink: 0 }}>
+                      refresh
+                    </span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Downloading...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-icons" style={{ fontSize: '18px', flexShrink: 0 }}>
+                      download
+                    </span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Download Complete Data</span>
+                  </>
+                )}
+              </button>
+              <button
+                onClick={() => downloadCompleteData(true)}
+                disabled={downloadingComplete || !selectedCompany}
+                style={{
+                  flex: '1 1 calc(50% - 6px)',
+                  minWidth: '150px',
+                  padding: '12px 16px',
+                  background: (downloadingComplete || !selectedCompany) ? '#94a3b8' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  cursor: (downloadingComplete || !selectedCompany) ? 'not-allowed' : 'pointer',
+                  boxShadow: (downloadingComplete || !selectedCompany) ? 'none' : '0 2px 8px rgba(139, 92, 246, 0.25)',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+              >
+                {downloadingComplete ? (
+                  <>
+                    <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite', flexShrink: 0 }}>
+                      refresh
+                    </span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Updating...</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="material-icons" style={{ fontSize: '18px', flexShrink: 0 }}>
+                      update
+                    </span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Update Data</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
-        )}
+        </div>
 
+        {/* Session Cache */}
         <div style={{
-          display: 'flex',
-          gap: '12px',
-          flexWrap: 'wrap'
+          background: '#fff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '12px',
+          padding: '24px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
         }}>
-          <button
-            onClick={() => downloadCompleteData(false)}
-            disabled={downloadingComplete || !selectedCompany}
-            style={{
-              flex: '1 1 calc(50% - 6px)',
-              minWidth: '150px',
-              padding: '12px 16px',
-              background: (downloadingComplete || !selectedCompany) ? '#94a3b8' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            marginBottom: '16px'
+          }}>
+            <span className="material-icons" style={{ fontSize: '28px', color: '#10b981' }}>
+              memory
+            </span>
+            <h3 style={{
+              fontSize: '18px',
               fontWeight: 600,
-              fontSize: '14px',
-              cursor: (downloadingComplete || !selectedCompany) ? 'not-allowed' : 'pointer',
-              boxShadow: (downloadingComplete || !selectedCompany) ? 'none' : '0 2px 8px rgba(16, 185, 129, 0.25)',
-              transition: 'all 0.2s',
+              color: '#1e293b',
+              margin: 0
+            }}>
+              Session Cache
+            </h3>
+          </div>
+          <p style={{
+            fontSize: '14px',
+            color: '#64748b',
+            marginBottom: '20px',
+            lineHeight: '1.6'
+          }}>
+            Manage temporary session cache for customers and items. This data is refreshed automatically every 30 minutes.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* Customers */}
+            <div style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
-            }}
-          >
-            {downloadingComplete ? (
-              <>
-                <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite', flexShrink: 0 }}>
+              justifyContent: 'space-between',
+              padding: '12px',
+              background: '#f8fafc',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0'
+            }}>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>Customers</div>
+                <div style={{ fontSize: '12px', color: '#64748b' }}>
+                  {sessionCacheStats.customers} cached
+                </div>
+              </div>
+              <button
+                onClick={() => handleRefreshSessionCache('customers')}
+                disabled={refreshingSession.customers || !selectedCompany}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  padding: '6px 12px',
+                  cursor: (refreshingSession.customers || !selectedCompany) ? 'not-allowed' : 'pointer',
+                  color: '#475569',
+                  fontSize: '13px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (!refreshingSession.customers && selectedCompany) {
+                    e.currentTarget.style.background = '#f1f5f9';
+                    e.currentTarget.style.borderColor = '#94a3b8';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!refreshingSession.customers && selectedCompany) {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  }
+                }}
+              >
+                <span className="material-icons" style={{
+                  fontSize: '16px',
+                  animation: refreshingSession.customers ? 'spin 1s linear infinite' : 'none'
+                }}>
                   refresh
                 </span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Downloading...</span>
-              </>
-            ) : (
-              <>
-                <span className="material-icons" style={{ fontSize: '18px', flexShrink: 0 }}>
-                  download
-                </span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Download Complete Data</span>
-              </>
-            )}
-          </button>
-          <button
-            onClick={() => downloadCompleteData(true)}
-            disabled={downloadingComplete || !selectedCompany}
-            style={{
-              flex: '1 1 calc(50% - 6px)',
-              minWidth: '150px',
-              padding: '12px 16px',
-              background: (downloadingComplete || !selectedCompany) ? '#94a3b8' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              fontWeight: 600,
-              fontSize: '14px',
-              cursor: (downloadingComplete || !selectedCompany) ? 'not-allowed' : 'pointer',
-              boxShadow: (downloadingComplete || !selectedCompany) ? 'none' : '0 2px 8px rgba(139, 92, 246, 0.25)',
-              transition: 'all 0.2s',
+                Refresh
+              </button>
+            </div>
+
+            {/* Items */}
+            <div style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              gap: '6px',
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
-            }}
-          >
-            {downloadingComplete ? (
-              <>
-                <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite', flexShrink: 0 }}>
+              justifyContent: 'space-between',
+              padding: '12px',
+              background: '#f8fafc',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0'
+            }}>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>Items</div>
+                <div style={{ fontSize: '12px', color: '#64748b' }}>
+                  {sessionCacheStats.items} cached
+                </div>
+              </div>
+              <button
+                onClick={() => handleRefreshSessionCache('items')}
+                disabled={refreshingSession.items || !selectedCompany}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '6px',
+                  padding: '6px 12px',
+                  cursor: (refreshingSession.items || !selectedCompany) ? 'not-allowed' : 'pointer',
+                  color: '#475569',
+                  fontSize: '13px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s'
+                }}
+                onMouseEnter={(e) => {
+                  if (!refreshingSession.items && selectedCompany) {
+                    e.currentTarget.style.background = '#f1f5f9';
+                    e.currentTarget.style.borderColor = '#94a3b8';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!refreshingSession.items && selectedCompany) {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  }
+                }}
+              >
+                <span className="material-icons" style={{
+                  fontSize: '16px',
+                  animation: refreshingSession.items ? 'spin 1s linear infinite' : 'none'
+                }}>
                   refresh
                 </span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Updating...</span>
-              </>
-            ) : (
-              <>
-                <span className="material-icons" style={{ fontSize: '18px', flexShrink: 0 }}>
-                  update
-                </span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Update Data</span>
-              </>
-            )}
-          </button>
+                Refresh
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1586,10 +1656,9 @@ const CacheManagement = () => {
           </button>
         </div>
 
-        {/* Clear Sales Cache */}
+
         <div style={{
           background: '#fff',
-          border: '1px solid #e2e8f0',
           borderRadius: '12px',
           padding: '24px',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
