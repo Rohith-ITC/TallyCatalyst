@@ -227,11 +227,37 @@ class EncryptionUtils {
     }
   }
 
+  // Check if Web Crypto API is available
+  isCryptoAvailable() {
+    return typeof crypto !== 'undefined' && 
+           crypto !== null && 
+           typeof crypto.subtle !== 'undefined' && 
+           crypto.subtle !== null;
+  }
+
   // Derive encryption key from email + salt (stable across token refreshes)
   async getEncryptionKey() {
     const email = sessionStorage.getItem('email');
     if (!email) {
       throw new Error('No user email found - cannot access encrypted cache');
+    }
+
+    // Check if crypto.subtle is available
+    if (!this.isCryptoAvailable()) {
+      const isSecureContext = window.isSecureContext || 
+                             window.location.protocol === 'https:' || 
+                             window.location.hostname === 'localhost' || 
+                             window.location.hostname === '127.0.0.1';
+      
+      if (!isSecureContext) {
+        console.warn('⚠️ Web Crypto API not available (not a secure context). Cache encryption disabled.');
+        console.warn('⚠️ For production, use HTTPS. For development, access via localhost or use HTTPS.');
+        // Return a dummy key for development - data will be stored unencrypted
+        // This is acceptable for development but should never happen in production
+        return new ArrayBuffer(32); // 32 bytes for AES-256
+      } else {
+        throw new Error('Web Crypto API (crypto.subtle) is not available in this browser. Cache encryption cannot be used.');
+      }
     }
 
     try {
@@ -259,6 +285,23 @@ class EncryptionUtils {
   // Encrypt data
   async encryptData(data) {
     try {
+      // Check if crypto is available
+      if (!this.isCryptoAvailable()) {
+        const isSecureContext = window.isSecureContext || 
+                               window.location.protocol === 'https:' || 
+                               window.location.hostname === 'localhost' || 
+                               window.location.hostname === '127.0.0.1';
+        
+        if (!isSecureContext) {
+          // For development on HTTP, store data unencrypted (base64 encoded)
+          console.warn('⚠️ Storing data unencrypted (development mode - HTTP)');
+          const jsonString = JSON.stringify(data);
+          return btoa(unescape(encodeURIComponent(jsonString))); // Base64 encode
+        } else {
+          throw new Error('Web Crypto API not available. Cannot encrypt cache data.');
+        }
+      }
+
       const keyBuffer = await this.getEncryptionKey();
       const key = await crypto.subtle.importKey(
         'raw',
@@ -312,6 +355,29 @@ class EncryptionUtils {
   // Decrypt data
   async decryptData(encryptedBase64) {
     try {
+      // Check if crypto is available
+      if (!this.isCryptoAvailable()) {
+        const isSecureContext = window.isSecureContext || 
+                               window.location.protocol === 'https:' || 
+                               window.location.hostname === 'localhost' || 
+                               window.location.hostname === '127.0.0.1';
+        
+        if (!isSecureContext) {
+          // For development on HTTP, data is stored as base64 encoded JSON
+          console.warn('⚠️ Decrypting unencrypted data (development mode - HTTP)');
+          try {
+            const jsonString = decodeURIComponent(escape(atob(encryptedBase64)));
+            return JSON.parse(jsonString);
+          } catch (error) {
+            // If base64 decode fails, try as encrypted data (might be from HTTPS session)
+            console.warn('⚠️ Failed to decode as unencrypted, might be encrypted data');
+            return null;
+          }
+        } else {
+          throw new Error('Web Crypto API not available. Cannot decrypt cache data.');
+        }
+      }
+
       const keyBuffer = await this.getEncryptionKey();
       const key = await crypto.subtle.importKey(
         'raw',
@@ -328,6 +394,18 @@ class EncryptionUtils {
         bytes[i] = binaryString.charCodeAt(i);
       }
       
+      // Check if this looks like encrypted data (has IV) or unencrypted base64
+      // Encrypted data starts with 12-byte IV, so if length < 12, it's probably unencrypted
+      if (bytes.length < 12) {
+        // Try as unencrypted base64
+        try {
+          const jsonString = decodeURIComponent(escape(encryptedBase64));
+          return JSON.parse(jsonString);
+        } catch {
+          return null;
+        }
+      }
+      
       // Extract IV and encrypted data
       const iv = bytes.slice(0, 12);
       const encrypted = bytes.slice(12);
@@ -342,8 +420,13 @@ class EncryptionUtils {
       return JSON.parse(decoder.decode(decrypted));
     } catch (error) {
       console.error('Decryption error:', error);
-      // If decryption fails (e.g., wrong user), return null
-      return null;
+      // If decryption fails (e.g., wrong user or unencrypted data), try as unencrypted
+      try {
+        const jsonString = decodeURIComponent(escape(atob(encryptedBase64)));
+        return JSON.parse(jsonString);
+      } catch {
+        return null;
+      }
     }
   }
 }
@@ -502,6 +585,14 @@ class OPFSBackend {
   async setSalesData(cacheKey, data, maxAgeDays = null, startDate = null, endDate = null) {
     try {
       await this.init();
+      
+      // Check data size and warn on mobile if large
+      const dataSize = JSON.stringify(data).length;
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      if (isMobile && dataSize > 5 * 1024 * 1024) { // > 5MB
+        console.warn(`⚠️ Large data write on mobile: ${(dataSize / (1024 * 1024)).toFixed(2)} MB`);
+      }
+      
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
       
@@ -536,8 +627,9 @@ class OPFSBackend {
       const fileHandle = await dir.getFileHandle(fileName, { create: true });
       
       try {
-        // Try sync access handle for better performance (if available)
-        if ('createSyncAccessHandle' in fileHandle) {
+        // Sync access handles may not be available on mobile browsers
+        // Skip sync access on mobile for better compatibility
+        if (!isMobile && 'createSyncAccessHandle' in fileHandle) {
           const syncHandle = await fileHandle.createSyncAccessHandle();
           try {
             const encoder = new TextEncoder();
@@ -548,12 +640,13 @@ class OPFSBackend {
             syncHandle.close();
           }
         } else {
-          // Fallback to async file writing
+          // Use async file writing (more compatible with mobile)
           const writable = await fileHandle.createWritable();
           await writable.write(encrypted);
           await writable.close();
         }
       } catch (writeError) {
+        console.warn('⚠️ Primary write method failed, trying fallback:', writeError.message);
         // If sync fails, try async
         const writable = await fileHandle.createWritable();
         await writable.write(encrypted);
@@ -1869,6 +1962,9 @@ class HybridCache {
   async init() {
     if (this.initialized) return;
     
+    // Detect mobile device
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
     // Detect browser support with detailed logging
     const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const hasStorage = 'storage' in navigator;
@@ -1876,6 +1972,7 @@ class HybridCache {
     const supportsOPFS = isSecureContext && hasStorage && hasGetDirectory;
     
     console.log('🔍 Storage Detection:', {
+      isMobile,
       isSecureContext,
       protocol: window.location.protocol,
       hostname: window.location.hostname,
@@ -1885,36 +1982,76 @@ class HybridCache {
       userAgent: navigator.userAgent
     });
     
-    // Try OPFS first if supported
-    if (supportsOPFS) {
+    // On mobile browsers, OPFS support varies significantly
+    // Safari iOS: Limited OPFS support, better to use IndexedDB
+    // Chrome Android: Good OPFS support
+    // Firefox Android: Limited OPFS support
+    const isSafariIOS = isMobile && /Safari/i.test(navigator.userAgent) && /iPhone|iPad|iPod/i.test(navigator.userAgent) && !/Chrome|CriOS|FxiOS/i.test(navigator.userAgent);
+    const isFirefoxMobile = isMobile && /Firefox/i.test(navigator.userAgent);
+    
+    // Prefer IndexedDB on Safari iOS and Firefox Mobile due to better stability
+    const preferIndexedDB = isSafariIOS || isFirefoxMobile;
+    
+    if (preferIndexedDB) {
+      console.log('📱 Mobile browser detected with limited OPFS support, using IndexedDB');
+    }
+    
+    if (supportsOPFS && !preferIndexedDB) {
       try {
         console.log('🚀 Initializing OPFS backend...');
-        // Initialize OPFS root first
-        const opfsRoot = await navigator.storage.getDirectory();
+        // Initialize OPFS root first with timeout for mobile
+        const opfsInitPromise = navigator.storage.getDirectory();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('OPFS initialization timeout')), isMobile ? 10000 : 5000)
+        );
+        
+        const opfsRoot = await Promise.race([opfsInitPromise, timeoutPromise]);
+        
+        // Check storage quota on mobile
+        if (isMobile && 'estimate' in navigator.storage) {
+          const estimate = await navigator.storage.estimate();
+          const usagePercent = (estimate.usage / estimate.quota) * 100;
+          console.log(`📊 Storage quota: ${(estimate.usage / (1024 * 1024)).toFixed(2)} MB / ${(estimate.quota / (1024 * 1024)).toFixed(2)} MB (${usagePercent.toFixed(1)}%)`);
+          
+          if (usagePercent > 90) {
+            console.warn('⚠️ Storage quota nearly full on mobile (>90%), consider cleanup');
+          } else if (usagePercent > 75) {
+            console.warn('⚠️ Storage quota getting high on mobile (>75%)');
+          }
+        }
+        
         this.encryption = new EncryptionUtils(opfsRoot);
         this.backend = new OPFSBackend(this.encryption);
         await this.backend.init();
         this.backendType = 'OPFS';
-        console.log('✅ OPFS backend initialized successfully');
+        console.log('✅ OPFS backend initialized successfully' + (isMobile ? ' (mobile)' : ''));
         this.initialized = true;
         return;
       } catch (error) {
-        console.warn('⚠️ OPFS initialization failed, falling back to IndexedDB:', error);
+        console.warn('⚠️ OPFS initialization failed, falling back to IndexedDB:', {
+          error: error.message,
+          isMobile,
+          browser: navigator.userAgent
+        });
         // Fall through to IndexedDB
       }
     }
     
-    // Fall back to IndexedDB
+    // Fall back to IndexedDB (or use it directly if preferred)
     try {
-      console.log('🚀 Initializing IndexedDB backend...');
+      console.log('🚀 Initializing IndexedDB backend...' + (isMobile ? ' (mobile)' : ''));
       this.encryption = new EncryptionUtils(null); // No OPFS root
       this.backend = new IndexedDBBackend(this.encryption);
       await this.backend.init();
       this.backendType = 'IndexedDB';
-      console.log('✅ IndexedDB backend initialized successfully');
+      console.log('✅ IndexedDB backend initialized successfully' + (isMobile ? ' (mobile)' : ''));
     } catch (error) {
-      console.error('❌ IndexedDB initialization failed:', error);
-      throw new Error('Failed to initialize both OPFS and IndexedDB backends');
+      console.error('❌ IndexedDB initialization failed:', {
+        error: error.message,
+        isMobile,
+        browser: navigator.userAgent
+      });
+      throw new Error(`Failed to initialize storage backends: ${error.message}. Please ensure your browser supports modern storage APIs.`);
     }
     
     this.initialized = true;
@@ -1966,6 +2103,36 @@ class HybridCache {
       isUsingOPFS: this.backendType === 'OPFS',
       isUsingIndexedDB: this.backendType === 'IndexedDB'
     };
+  }
+
+  // Add this method to HybridCache class
+  async getStorageQuota() {
+    try {
+      if ('storage' in navigator && 'estimate' in navigator.storage) {
+        const estimate = await navigator.storage.estimate();
+        return {
+          quota: estimate.quota,
+          usage: estimate.usage,
+          available: estimate.quota - estimate.usage,
+          usagePercent: ((estimate.usage / estimate.quota) * 100).toFixed(2),
+          quotaMB: (estimate.quota / (1024 * 1024)).toFixed(2),
+          usageMB: (estimate.usage / (1024 * 1024)).toFixed(2),
+          availableMB: ((estimate.quota - estimate.usage) / (1024 * 1024)).toFixed(2)
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting storage quota:', error);
+      return null;
+    }
+  }
+
+  // Add this method to check if storage is getting low
+  async isStorageLow(thresholdPercent = 80) {
+    const quota = await this.getStorageQuota();
+    if (!quota) return false;
+    const usagePercent = (quota.usage / quota.quota) * 100;
+    return usagePercent >= thresholdPercent;
   }
 
   // List all cache entries

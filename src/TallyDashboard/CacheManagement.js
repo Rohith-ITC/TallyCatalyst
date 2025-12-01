@@ -21,6 +21,9 @@ const CacheManagement = () => {
   const [timeRange, setTimeRange] = useState('all');
   const [selectedFinancialYear, setSelectedFinancialYear] = useState('');
   const [financialYearOptions, setFinancialYearOptions] = useState([]);
+  
+  // Detect if running on mobile
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 
   // Session Cache State
   const [sessionCacheStats, setSessionCacheStats] = useState({
@@ -543,17 +546,77 @@ const CacheManagement = () => {
 
   // Download complete sales data
   const downloadCompleteData = async (isUpdate = false) => {
+    console.log('='.repeat(60));
+    console.log('🎯 DOWNLOAD COMPLETE DATA CALLED');
+    console.log('='.repeat(60));
+    
     if (!selectedCompany) {
+      console.error('❌ No company selected');
       setMessage({ type: 'error', text: 'No company selected' });
       return;
     }
+
+    console.log('✅ Company selected:', selectedCompany);
+
+    // Check network connectivity before starting
+    if (!navigator.onLine) {
+      console.error('❌ No internet connection (navigator.onLine = false)');
+      setMessage({ type: 'error', text: 'No internet connection. Please check your network and try again.' });
+      return;
+    }
+
+    console.log('✅ Network is online');
+
+    // Check sessionStorage for required data
+    const sessionData = {
+      token: sessionStorage.getItem('token'),
+      email: sessionStorage.getItem('email'),
+      booksfrom: sessionStorage.getItem('booksfrom'),
+      allConnections: sessionStorage.getItem('allConnections'),
+      selectedCompanyGuid: sessionStorage.getItem('selectedCompanyGuid')
+    };
+
+    console.log('📦 SessionStorage check:', {
+      hasToken: !!sessionData.token,
+      tokenLength: sessionData.token?.length || 0,
+      hasEmail: !!sessionData.email,
+      email: sessionData.email,
+      hasBooksfrom: !!sessionData.booksfrom,
+      booksfrom: sessionData.booksfrom,
+      hasAllConnections: !!sessionData.allConnections,
+      connectionsCount: sessionData.allConnections ? JSON.parse(sessionData.allConnections).length : 0,
+      hasSelectedGuid: !!sessionData.selectedCompanyGuid,
+      selectedGuid: sessionData.selectedCompanyGuid
+    });
+
+    // Log network info for debugging
+    console.log('📱 Network diagnostics:', {
+      online: navigator.onLine,
+      userAgent: navigator.userAgent,
+      connection: navigator.connection ? {
+        effectiveType: navigator.connection.effectiveType,
+        downlink: navigator.connection.downlink,
+        rtt: navigator.connection.rtt,
+        saveData: navigator.connection.saveData
+      } : 'not available',
+      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
+      location: {
+        href: window.location.href,
+        origin: window.location.origin,
+        protocol: window.location.protocol,
+        hostname: window.location.hostname
+      }
+    });
 
     setDownloadingComplete(true);
     setMessage({ type: '', text: '' });
     setDownloadProgress({ current: 0, total: 0, message: 'Starting download...' });
 
+    console.log('🚀 Calling syncSalesData...');
+    
     try {
       const result = await syncSalesData(selectedCompany, (progress) => {
+        console.log('📊 Progress update:', progress);
         setDownloadProgress(progress);
       });
 
@@ -564,8 +627,28 @@ const CacheManagement = () => {
       await loadCacheStats();
 
     } catch (error) {
-      console.error('Error downloading complete data:', error);
-      setMessage({ type: 'error', text: 'Failed to download data: ' + error.message });
+      console.error('❌ Error downloading complete data:', error);
+      
+      // Provide more helpful error messages
+      let errorMsg = error.message || 'Unknown error occurred';
+      
+      if (!navigator.onLine) {
+        errorMsg = 'Lost internet connection during download. Please check your network and try again.';
+      } else if (error.message.includes('Failed to fetch')) {
+        errorMsg = 'Cannot reach the server. Please check if you have internet access and the server is available.';
+      } else if (error.message.includes('timeout')) {
+        errorMsg = 'Request timed out. Your connection might be too slow. Try using WiFi or reducing the data range.';
+      } else if (error.message.includes('CORS')) {
+        errorMsg = 'Security error (CORS). This usually means the server configuration needs updating.';
+      } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+        errorMsg = 'Your session has expired. Please log in again.';
+      } else if (error.message.includes('404')) {
+        errorMsg = 'API endpoint not found. The server might be misconfigured.';
+      } else if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
+        errorMsg = 'Server error. Please try again later or contact support.';
+      }
+      
+      setMessage({ type: 'error', text: 'Failed to download data: ' + errorMsg });
     } finally {
       setDownloadingComplete(false);
       setDownloadProgress({ current: 0, total: 0, message: '' });
@@ -622,6 +705,51 @@ const CacheManagement = () => {
           Manage and clear cached data stored in OPFS (Origin Private File System)
         </p>
       </div>
+
+      {/* Mobile Information Banner */}
+      {isMobile && (
+        <div style={{
+          background: '#dbeafe',
+          border: '1px solid #93c5fd',
+          borderRadius: '12px',
+          padding: '16px 20px',
+          marginBottom: '24px',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '12px'
+        }}>
+          <span className="material-icons" style={{
+            fontSize: '24px',
+            color: '#2563eb',
+            flexShrink: 0
+          }}>
+            phone_android
+          </span>
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontSize: '16px',
+              fontWeight: 600,
+              color: '#1e40af',
+              marginBottom: '8px'
+            }}>
+              Mobile Device Detected
+            </div>
+            <div style={{
+              fontSize: '14px',
+              color: '#1e40af',
+              lineHeight: '1.5'
+            }}>
+              Data downloads may take longer on mobile devices. Please ensure:
+              <ul style={{ margin: '8px 0 0 20px', paddingLeft: 0 }}>
+                <li>You have a stable internet connection (WiFi recommended)</li>
+                <li>Your device has sufficient storage space</li>
+                <li>Keep this browser tab active during download</li>
+                <li>If download fails, try downloading in smaller chunks by selecting a Financial Year</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Message Display */}
       {message.text && (
