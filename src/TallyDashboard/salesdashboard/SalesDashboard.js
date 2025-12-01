@@ -21,24 +21,11 @@ import {
 import { getApiUrl } from '../../config';
 import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/companyConfigUtils';
 import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
+import { syncSalesData } from '../utils/dataSync';
 
-const SalesDashboard = () => {
+const SalesDashboard = ({ onNavigationAttempt }) => {
   const RAW_DATA_PAGE_SIZE = 20;
 
-  const getInitialCachedState = async () => {
-    try {
-      const connections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
-      const selectedGuid = sessionStorage.getItem('selectedCompanyGuid');
-      if (!selectedGuid || !Array.isArray(connections)) return null;
-      const company = connections.find(c => c.guid === selectedGuid);
-      if (!company || !company.tallyloc_id || !company.guid) return null;
-      const cacheKey = `sales-dashboard_${company.tallyloc_id}_${company.guid}`;
-      return await hybridCache.getDashboardState(cacheKey);
-    } catch (err) {
-      console.warn('⚠️ Unable to read cached sales dashboard state:', err);
-      return null;
-    }
-  };
 
 
   // API data state
@@ -51,6 +38,11 @@ const SalesDashboard = () => {
   const [progress, setProgress] = useState({ current: 0, total: 0, percentage: 0 });
   const [elapsedTime, setElapsedTime] = useState(0);
   const [loadingStartTime, setLoadingStartTime] = useState(null);
+  
+  // Navigation warning modal state
+  const [showNavigationWarning, setShowNavigationWarning] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState(null);
+  const abortLoadingRef = useRef(false);
 
   // Form state
   const [fromDate, setFromDate] = useState('');
@@ -122,6 +114,21 @@ const SalesDashboard = () => {
   const [customCardChartTypes, setCustomCardChartTypes] = useState({});
   const customCardsSectionRef = useRef(null);
 
+  // Calendar modal state
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [tempFromDate, setTempFromDate] = useState('');
+  const [tempToDate, setTempToDate] = useState('');
+  const [booksFromDate, setBooksFromDate] = useState('');
+
+  // Download dropdown state
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
+  const downloadDropdownRef = useRef(null);
+
+  // Background cache download state
+  const [isDownloadingCache, setIsDownloadingCache] = useState(false);
+  const [cacheDownloadProgress, setCacheDownloadProgress] = useState({ current: 0, total: 0, message: '' });
+  const cacheDownloadAbortRef = useRef(false);
+
   // Helper function to get auth token
   const getAuthToken = () => {
     const token = sessionStorage.getItem('token');
@@ -174,6 +181,65 @@ const SalesDashboard = () => {
       window.removeEventListener('companyChanged', handleAccessUpdate);
     };
   }, [computeShowProfitPermission]);
+
+  // Expose loading state to parent component
+  useEffect(() => {
+    if (onNavigationAttempt) {
+      window.salesDashboardLoading = loading;
+      window.salesDashboardShowWarning = () => {
+        setShowNavigationWarning(true);
+      };
+    }
+    return () => {
+      if (!loading) {
+        window.salesDashboardLoading = false;
+      }
+    };
+  }, [loading, onNavigationAttempt]);
+
+  // Get booksFrom date from company info
+  useEffect(() => {
+    try {
+      const companyInfo = getCompanyInfo();
+      let booksFrom = '1-Apr-00';
+      const dateMatch = companyInfo.company.match(/from\s+(\d{1,2}-[A-Za-z]{3}-\d{2,4})/i);
+      if (dateMatch && dateMatch[1]) {
+        booksFrom = dateMatch[1];
+      }
+      const parsedDate = parseDateFromNewFormat(booksFrom);
+      if (parsedDate) {
+        setBooksFromDate(parsedDate);
+      }
+    } catch (err) {
+      console.warn('Unable to get booksFrom date:', err);
+    }
+  }, []);
+
+  // Close download dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (downloadDropdownRef.current && !downloadDropdownRef.current.contains(event.target)) {
+        setShowDownloadDropdown(false);
+      }
+    };
+
+    if (showDownloadDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDownloadDropdown]);
+
+  // Cleanup on component unmount - DO NOT abort cache download
+  useEffect(() => {
+    return () => {
+      // Note: We intentionally DO NOT abort cache download on unmount
+      // Cache download continues in background even when user switches tabs
+      console.log('📋 Sales Dashboard unmounting - cache download continues in background');
+    };
+  }, []);
 
   // Helper functions
   const getCompanyInfo = () => {
@@ -258,46 +324,6 @@ const SalesDashboard = () => {
     return null;
   };
 
-  const getDashboardCacheKey = (companyInfo) => {
-    if (!companyInfo || !companyInfo.tallyloc_id || !companyInfo.guid) return null;
-    return `sales-dashboard_${companyInfo.tallyloc_id}_${companyInfo.guid}`;
-  };
-
-  const applyCachedDashboardState = useCallback((cached) => {
-    if (!cached) return;
-    const from = cached.fromDate;
-    const to = cached.toDate;
-    if (from) {
-      setFromDate(from);
-    }
-    if (to) {
-      setToDate(to);
-    }
-    if (from && to) {
-      setDateRange({ start: from, end: to });
-    }
-    if (Array.isArray(cached.sales)) {
-      setSales(cached.sales);
-    }
-
-    const filters = cached.filters || {};
-    setSelectedCustomer(filters.customer ?? 'all');
-    setSelectedItem(filters.item ?? 'all');
-    setSelectedStockGroup(filters.stockGroup ?? 'all');
-    setSelectedRegion(filters.region ?? 'all');
-    setSelectedCountry(filters.country ?? 'all');
-    setSelectedPeriod(filters.period ?? null);
-  }, [setFromDate, setToDate, setDateRange, setSales, setSelectedCustomer, setSelectedItem, setSelectedStockGroup, setSelectedRegion, setSelectedCountry, setSelectedPeriod]);
-
-  const persistDashboardCache = async (companyInfo, payload) => {
-    const cacheKey = getDashboardCacheKey(companyInfo);
-    if (!cacheKey) return;
-    try {
-      await hybridCache.setDashboardState(cacheKey, payload);
-    } catch (err) {
-      console.warn('⚠️ Failed to persist sales dashboard cache:', err);
-    }
-  };
 
   const getDefaultDateRange = useCallback(() => {
     const now = new Date();
@@ -319,16 +345,19 @@ const SalesDashboard = () => {
       setNoCompanySelected(false);
       setError(null);
 
-      const cacheKey = getDashboardCacheKey(companyInfo);
-      if (cacheKey) {
-        const cachedState = await getInitialCachedState();
-        if (cachedState) {
-          applyCachedDashboardState(cachedState);
-          setShouldAutoLoad(false);
-          return;
+      // Check if sales cache exists
+      let hasCachedSalesData = false;
+      try {
+        const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+        if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
+          hasCachedSalesData = true;
+          console.log('✅ Sales cache found');
         }
+      } catch (err) {
+        console.warn('Unable to check sales cache:', err);
       }
 
+      // Set default dates
       const defaults = getDefaultDateRange();
       setFromDate(defaults.start);
       setToDate(defaults.end);
@@ -340,7 +369,14 @@ const SalesDashboard = () => {
       setSelectedRegion('all');
       setSelectedCountry('all');
       setSelectedPeriod(null);
-      if (options.triggerFetch) {
+      
+      // If no cache exists, trigger background cache download
+      if (!hasCachedSalesData && !isDownloadingCache) {
+        console.log('📭 No sales cache found - starting background download...');
+        startBackgroundCacheDownload(companyInfo);
+      } else if (hasCachedSalesData) {
+        // Auto-load data from cache
+        console.log('🚀 Loading data from cache...');
         setShouldAutoLoad(true);
       }
     } catch (err) {
@@ -348,7 +384,7 @@ const SalesDashboard = () => {
       setNoCompanySelected(true);
       setError('Please select a company from the top navigation before loading sales data.');
     }
-  }, [applyCachedDashboardState, getDefaultDateRange]);
+  }, [getDefaultDateRange, isDownloadingCache]);
 
   const splitDateRange = (startDate, endDate) => {
     const chunks = [];
@@ -947,9 +983,16 @@ const SalesDashboard = () => {
     try {
       const dateChunks = splitDateRange(startDate, endDate);
       setProgress({ current: 0, total: dateChunks.length, percentage: 0 });
+      abortLoadingRef.current = false;
       
       const responses = [];
       for (let i = 0; i < dateChunks.length; i++) {
+        // Check if loading should be aborted
+        if (abortLoadingRef.current) {
+          console.log('⚠️ Loading aborted by user navigation');
+          break;
+        }
+        
         const chunk = dateChunks[i];
         const response = await fetchSalesDataWithProgress(chunk.start, chunk.end, i + 1, dateChunks.length);
         responses.push(response);
@@ -1339,20 +1382,7 @@ const SalesDashboard = () => {
       // Reset salespersons initialization when new data is loaded
       salespersonsInitializedRef.current = false;
 
-      persistDashboardCache(companyInfo, {
-        fromDate: startDate,
-        toDate: endDate,
-        sales: transformedSales,
-        filters: {
-          customer: selectedCustomer,
-          item: selectedItem,
-          stockGroup: selectedStockGroup,
-          region: selectedRegion,
-          country: selectedCountry,
-          period: selectedPeriod
-        },
-        timestamp: Date.now()
-      });
+      // Note: Dashboard state is not cached - only sales data is cached via hybridCache.setSalesData()
     } catch (error) {
       console.error('Error loading sales data:', error);
       if (error.message && error.message.includes('No company selected')) {
@@ -1373,6 +1403,75 @@ const SalesDashboard = () => {
   const handleSubmit = (e) => {
     e.preventDefault();
     loadSales(fromDate, toDate, { invalidateCache: true });
+  };
+
+  // Background cache download function
+  const startBackgroundCacheDownload = async (companyInfo) => {
+    if (isDownloadingCache || cacheDownloadAbortRef.current) return;
+
+    setIsDownloadingCache(true);
+    setCacheDownloadProgress({ current: 0, total: 0, message: 'Preparing to download cache...' });
+    cacheDownloadAbortRef.current = false;
+
+    try {
+      console.log('🔄 Starting background cache download...');
+      
+      await syncSalesData(companyInfo, (progress) => {
+        // Only update progress if not aborted
+        if (!cacheDownloadAbortRef.current) {
+          setCacheDownloadProgress(progress);
+        }
+      });
+
+      // Check if download was aborted
+      if (cacheDownloadAbortRef.current) {
+        console.log('⚠️ Cache download was aborted');
+        return;
+      }
+
+      console.log('✅ Background cache download completed!');
+      setCacheDownloadProgress({ current: 0, total: 0, message: 'Cache download complete!' });
+      
+      // Auto-load data after successful cache download
+      setTimeout(() => {
+        if (!cacheDownloadAbortRef.current) {
+          console.log('🚀 Auto-loading sales data from newly downloaded cache...');
+          setShouldAutoLoad(true);
+        }
+      }, 500);
+
+    } catch (error) {
+      console.error('❌ Background cache download failed:', error);
+      setCacheDownloadProgress({ current: 0, total: 0, message: 'Cache download failed' });
+      setError('Failed to download cache in background. Please try refreshing or use Cache Management.');
+    } finally {
+      setIsDownloadingCache(false);
+      // Clear progress message after a few seconds
+      setTimeout(() => {
+        if (!cacheDownloadAbortRef.current) {
+          setCacheDownloadProgress({ current: 0, total: 0, message: '' });
+        }
+      }, 3000);
+    }
+  };
+
+  // Calendar modal handlers
+  const handleOpenCalendar = () => {
+    setTempFromDate(fromDate);
+    setTempToDate(toDate);
+    setShowCalendarModal(true);
+  };
+
+  const handleApplyDates = () => {
+    setFromDate(tempFromDate);
+    setToDate(tempToDate);
+    setShowCalendarModal(false);
+    // Directly submit the form
+    loadSales(tempFromDate, tempToDate, { invalidateCache: true });
+  };
+
+  const handleCancelDates = () => {
+    setShowCalendarModal(false);
   };
 
   // Calculate metrics
@@ -4532,6 +4631,26 @@ const SalesDashboard = () => {
                   <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
                   {filteredSales.length} records
                 </div>
+
+                {/* Background Cache Download Indicator */}
+                {isDownloadingCache && (
+                  <div style={{
+                    display: 'inline-flex',
+                    background: '#fef3c7',
+                    color: '#92400e',
+                    padding: '4px 10px',
+                    borderRadius: '16px',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    alignItems: 'center',
+                    gap: '5px',
+                    border: '1px solid #fde68a',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: '14px', animation: 'spin 1s linear infinite' }}>sync</span>
+                    Downloading cache {cacheDownloadProgress.total > 0 ? `(${cacheDownloadProgress.current}/${cacheDownloadProgress.total})` : '...'}
+                  </div>
+                )}
               </div>
           </div>
 
@@ -4584,7 +4703,7 @@ const SalesDashboard = () => {
                   </button>
           </div>
 
-          {/* Center: Date Range and Submit Button */}
+          {/* Center: Calendar Button */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -4592,222 +4711,75 @@ const SalesDashboard = () => {
             flex: '1 1 0',
             justifyContent: 'center',
             flexWrap: 'wrap',
-            minWidth: '400px'
+            minWidth: '200px'
           }}>
-            {/* Start Date - Compact */}
-            <div style={{ position: 'relative', flex: '0 0 150px' }}>
-              <div style={{
-                position: 'relative',
-                background: 'white',
+            {/* Calendar Button */}
+            <button
+              type="button"
+              onClick={handleOpenCalendar}
+              title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
+              style={{
+                background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                border: 'none',
                 borderRadius: '10px',
-                border: '2px solid #e2e8f0',
-                transition: 'all 0.2s ease',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)'
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = '#3b82f6';
-                e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = '#e2e8f0';
-                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
-              }}
-              >
-                <input
-                  type="date"
-                  value={fromDate}
-                  onChange={(e) => setFromDate(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    border: 'none',
-                    outline: 'none',
-                    background: 'transparent',
-                    fontSize: '13px',
-                    color: '#1e293b',
-                    borderRadius: '8px',
-                    fontWeight: '500'
-                  }}
-                />
-                <label style={{
-                  position: 'absolute',
-                  top: '-7px',
-                  left: '10px',
-                  background: 'white',
-                  fontSize: '10px',
-                  fontWeight: '600',
-                  color: '#64748b',
-                  padding: '0 4px',
-                  transition: 'all 0.2s ease',
-                  pointerEvents: 'none',
-                  zIndex: 1,
-                  letterSpacing: '0.02em'
-                }}>
-                  Start
-                </label>
-              </div>
-            </div>
-
-            {/* End Date - Compact */}
-            <div style={{ position: 'relative', flex: '0 0 150px' }}>
-              <div style={{
-                position: 'relative',
-                background: 'white',
-                borderRadius: '10px',
-                border: '2px solid #e2e8f0',
-                transition: 'all 0.2s ease',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)'
-              }}
-              onFocus={(e) => {
-                e.currentTarget.style.borderColor = '#3b82f6';
-                e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-              }}
-              onBlur={(e) => {
-                e.currentTarget.style.borderColor = '#e2e8f0';
-                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
-              }}
-              >
-                <input
-                  type="date"
-                  value={toDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '9px 12px',
-                    border: 'none',
-                    outline: 'none',
-                    background: 'transparent',
-                    fontSize: '13px',
-                    color: '#1e293b',
-                    borderRadius: '8px',
-                    fontWeight: '500'
-                  }}
-                />
-                <label style={{
-                  position: 'absolute',
-                  top: '-7px',
-                  left: '10px',
-                  background: 'white',
-                  fontSize: '10px',
-                  fontWeight: '600',
-                  color: '#64748b',
-                  padding: '0 4px',
-                  transition: 'all 0.2s ease',
-                  pointerEvents: 'none',
-                  zIndex: 1,
-                  letterSpacing: '0.02em'
-                }}>
-                  End
-                </label>
-              </div>
-            </div>
-
-            {/* Submit Button - Compact */}
-              <button
-                type="submit"
-                disabled={loading}
-                style={{
-                  background: loading ? '#94a3b8' : 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
-                  border: 'none',
-                  borderRadius: '10px',
                 padding: '9px 18px',
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  color: '#fff',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: loading ? 'none' : '0 3px 8px rgba(59, 130, 246, 0.3)',
-                  minWidth: '100px',
-                  justifyContent: 'center',
-                opacity: loading ? 0.7 : 1,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: '#fff',
+                fontSize: '13px',
+                fontWeight: '600',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 3px 8px rgba(124, 58, 237, 0.3)',
+                minWidth: '140px',
+                justifyContent: 'center',
                 height: '40px',
                 whiteSpace: 'nowrap'
-                }}
-                onMouseEnter={(e) => {
-                  if (!loading) {
-                    e.target.style.background = 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%)';
-                    e.target.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.4)';
-                    e.target.style.transform = 'translateY(-1px)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!loading) {
-                    e.target.style.background = 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)';
-                    e.target.style.boxShadow = '0 3px 8px rgba(59, 130, 246, 0.3)';
-                    e.target.style.transform = 'translateY(0)';
-                  }
-                }}
-              >
-                {loading ? (
-                  <span className="material-icons" style={{ fontSize: '14px', animation: 'spin 1s linear infinite' }}>refresh</span>
-                ) : (
-                  <span className="material-icons" style={{ fontSize: '14px' }}>search</span>
-                )}
-                {loading ? 'Loading...' : 'Submit'}
-              </button>
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
+                e.target.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)';
+                e.target.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
+                e.target.style.boxShadow = '0 3px 8px rgba(124, 58, 237, 0.3)';
+                e.target.style.transform = 'translateY(0)';
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: '16px' }}>calendar_month</span>
+              <span>
+                {fromDate && toDate ? 'Date Range' : 'Select Dates'}
+              </span>
+            </button>
           </div>
 
-          {/* Right: Export Buttons */}
+          {/* Right: Download Dropdown */}
           <div style={{
             display: 'flex', 
             gap: '6px', 
             alignItems: 'center',
             flex: '1 1 0',
             justifyContent: 'flex-end',
-            minWidth: '200px'
-          }}>
+            minWidth: '150px',
+            position: 'relative'
+          }} ref={downloadDropdownRef}>
             <button
               type="button"
-              title="Export to PDF"
-              onClick={exportToPDF}
-              style={{
-                background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
-                border: 'none',
-                borderRadius: '8px',
-                padding: '8px 12px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                color: '#fff',
-                fontSize: '12px',
-                fontWeight: '600',
-                transition: 'all 0.2s ease',
-                boxShadow: '0 2px 6px rgba(220, 38, 38, 0.25)',
-                height: '40px'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)';
-                e.target.style.boxShadow = '0 3px 10px rgba(220, 38, 38, 0.35)';
-                e.target.style.transform = 'translateY(-1px)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)';
-                e.target.style.boxShadow = '0 2px 6px rgba(220, 38, 38, 0.25)';
-                e.target.style.transform = 'translateY(0)';
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: '16px' }}>picture_as_pdf</span>
-              <span style={{ fontSize: '12px' }}>PDF</span>
-            </button>
-            <button
-              type="button"
-              title="Export to Excel"
-              onClick={exportToExcel}
+              title="Download"
+              onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
               style={{
                 background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
                 border: 'none',
                 borderRadius: '8px',
-                padding: '8px 12px',
+                padding: '8px 16px',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '5px',
+                gap: '6px',
                 color: '#fff',
-                fontSize: '12px',
+                fontSize: '13px',
                 fontWeight: '600',
                 transition: 'all 0.2s ease',
                 boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
@@ -4824,43 +4796,124 @@ const SalesDashboard = () => {
                 e.target.style.transform = 'translateY(0)';
               }}
             >
-              <span className="material-icons" style={{ fontSize: '16px' }}>table_chart</span>
-              <span style={{ fontSize: '12px' }}>Excel</span>
+              <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
+              <span>Download</span>
+              <span className="material-icons" style={{ fontSize: '18px' }}>
+                {showDownloadDropdown ? 'expand_less' : 'expand_more'}
+              </span>
             </button>
-            <button
-              type="button"
-              title="Print Report"
-              onClick={printDashboard}
-              style={{
-                background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
-                border: 'none',
+
+            {/* Download Dropdown Menu */}
+            {showDownloadDropdown && (
+              <div style={{
+                position: 'absolute',
+                top: '45px',
+                right: '0',
+                background: 'white',
                 borderRadius: '8px',
-                padding: '8px 12px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '5px',
-                color: '#fff',
-                fontSize: '12px',
-                fontWeight: '600',
-                transition: 'all 0.2s ease',
-                boxShadow: '0 2px 6px rgba(30, 64, 175, 0.25)',
-                height: '40px'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = 'linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%)';
-                e.target.style.boxShadow = '0 3px 10px rgba(30, 64, 175, 0.35)';
-                e.target.style.transform = 'translateY(-1px)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)';
-                e.target.style.boxShadow = '0 2px 6px rgba(30, 64, 175, 0.25)';
-                e.target.style.transform = 'translateY(0)';
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: '16px' }}>print</span>
-              <span style={{ fontSize: '12px' }}>Print</span>
-            </button>
+                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                zIndex: 1000,
+                minWidth: '150px',
+                overflow: 'hidden',
+                border: '1px solid #e2e8f0'
+              }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    exportToPDF();
+                    setShowDownloadDropdown(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    border: 'none',
+                    background: 'white',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    color: '#1e293b',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    transition: 'background 0.2s ease',
+                    textAlign: 'left'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#f8fafc';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'white';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '18px', color: '#dc2626' }}>picture_as_pdf</span>
+                  <span>PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    exportToExcel();
+                    setShowDownloadDropdown(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    border: 'none',
+                    background: 'white',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    color: '#1e293b',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    transition: 'background 0.2s ease',
+                    textAlign: 'left',
+                    borderTop: '1px solid #e2e8f0'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#f8fafc';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'white';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '18px', color: '#059669' }}>table_chart</span>
+                  <span>Excel</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    printDashboard();
+                    setShowDownloadDropdown(false);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    border: 'none',
+                    background: 'white',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    color: '#1e293b',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    transition: 'background 0.2s ease',
+                    textAlign: 'left',
+                    borderTop: '1px solid #e2e8f0'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#f8fafc';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'white';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '18px', color: '#1e40af' }}>print</span>
+                  <span>Print</span>
+                </button>
+              </div>
+            )}
           </div>
           </div>
         </div>
@@ -4940,6 +4993,61 @@ const SalesDashboard = () => {
               {noCompanySelected ? 'warning' : 'error'}
             </span>
             {error}
+          </div>
+        )}
+
+        {/* Background Cache Download Info */}
+        {isDownloadingCache && sales.length === 0 && !loading && (
+          <div style={{
+            background: '#e0f2fe',
+            border: '1px solid #7dd3fc',
+            borderRadius: '12px',
+            padding: '20px',
+            margin: '16px 0',
+            color: '#075985',
+            fontSize: '14px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: '12px'
+          }}>
+            <span className="material-icons" style={{ fontSize: '24px', animation: 'spin 2s linear infinite' }}>
+              cloud_download
+            </span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: '600', marginBottom: '8px', fontSize: '15px' }}>
+                Downloading Sales Cache in Background
+              </div>
+              <div style={{ fontSize: '13px', lineHeight: '1.6', marginBottom: '8px' }}>
+                We're fetching your complete sales data from Tally Server and building the cache.
+                This process continues even if you switch tabs. You'll be able to view your data once the download completes.
+              </div>
+              {cacheDownloadProgress.total > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+                  <div style={{
+                    flex: 1,
+                    height: '6px',
+                    background: '#bae6fd',
+                    borderRadius: '3px',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${(cacheDownloadProgress.current / cacheDownloadProgress.total) * 100}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #0284c7, #0369a1)',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                  <span style={{ fontWeight: '600', whiteSpace: 'nowrap' }}>
+                    {cacheDownloadProgress.current} / {cacheDownloadProgress.total}
+                  </span>
+                </div>
+              )}
+              {cacheDownloadProgress.message && (
+                <div style={{ fontSize: '12px', marginTop: '6px', opacity: 0.8 }}>
+                  {cacheDownloadProgress.message}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -9837,6 +9945,210 @@ const SalesDashboard = () => {
       </div>
     )}
 
+    {/* Navigation Warning Modal */}
+    {showNavigationWarning && (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.6)',
+          zIndex: 20000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px',
+          backdropFilter: 'blur(4px)'
+        }}
+      >
+        <div
+          style={{
+            background: 'white',
+            borderRadius: '16px',
+            width: '90%',
+            maxWidth: '480px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+            overflow: 'hidden'
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div style={{
+            padding: '24px 28px',
+            background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px'
+          }}>
+            <span className="material-icons" style={{ 
+              fontSize: '32px', 
+              color: '#fff',
+              animation: 'pulse 2s ease-in-out infinite'
+            }}>
+              warning
+            </span>
+            <h3 style={{
+              margin: 0,
+              fontSize: '20px',
+              fontWeight: '700',
+              color: '#fff',
+              letterSpacing: '-0.01em'
+            }}>
+              Data Loading in Progress
+            </h3>
+          </div>
+
+          {/* Content */}
+          <div style={{
+            padding: '28px'
+          }}>
+            <p style={{
+              margin: '0 0 20px 0',
+              fontSize: '15px',
+              lineHeight: '1.6',
+              color: '#334155',
+              fontWeight: '400'
+            }}>
+              Sales data is currently being fetched in chunks 
+              ({progress.current} of {progress.total} completed, {progress.percentage}% done).
+            </p>
+            <p style={{
+              margin: '0 0 24px 0',
+              fontSize: '15px',
+              lineHeight: '1.6',
+              color: '#334155',
+              fontWeight: '500'
+            }}>
+              If you navigate away now, the data loading will stop and you may lose progress.
+            </p>
+
+            <div style={{
+              background: '#fef3c7',
+              border: '1px solid #fcd34d',
+              borderRadius: '10px',
+              padding: '14px 16px',
+              marginBottom: '24px',
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: '10px'
+            }}>
+              <span className="material-icons" style={{ 
+                fontSize: '20px', 
+                color: '#f59e0b',
+                marginTop: '1px'
+              }}>
+                info
+              </span>
+              <p style={{
+                margin: 0,
+                fontSize: '13px',
+                lineHeight: '1.5',
+                color: '#78350f',
+                fontWeight: '500'
+              }}>
+                Recommended: Wait for the data loading to complete for best results.
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                onClick={() => {
+                  setShowNavigationWarning(false);
+                  setPendingNavigation(null);
+                }}
+                style={{
+                  padding: '12px 24px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '10px',
+                  background: '#ffffff',
+                  color: '#64748b',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  minWidth: '120px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#f8fafc';
+                  e.target.style.borderColor = '#cbd5e1';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#ffffff';
+                  e.target.style.borderColor = '#e2e8f0';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>schedule</span>
+                Wait & Continue
+              </button>
+              <button
+                onClick={() => {
+                  abortLoadingRef.current = true;
+                  setLoading(false);
+                  setLoadingStartTime(null);
+                  setShowNavigationWarning(false);
+                  if (pendingNavigation) {
+                    pendingNavigation();
+                  }
+                  setPendingNavigation(null);
+                }}
+                style={{
+                  padding: '12px 24px',
+                  border: 'none',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)',
+                  minWidth: '120px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)';
+                  e.target.style.boxShadow = '0 4px 6px rgba(239, 68, 68, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+                  e.target.style.boxShadow = '0 2px 4px rgba(239, 68, 68, 0.2)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>exit_to_app</span>
+                Stop & Leave
+              </button>
+            </div>
+          </div>
+
+          {/* Pulse animation */}
+          <style>{`
+            @keyframes pulse {
+              0%, 100% {
+                opacity: 1;
+              }
+              50% {
+                opacity: 0.6;
+              }
+            }
+          `}</style>
+        </div>
+      </div>
+    )}
+
     {/* Custom Card Modal */}
     {showCustomCardModal && (
       <div
@@ -9869,6 +10181,206 @@ const SalesDashboard = () => {
           }}
           onCreate={handleCreateCustomCard}
         />
+      </div>
+    )}
+
+    {/* Calendar Modal */}
+    {showCalendarModal && (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          zIndex: 17000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px'
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            handleCancelDates();
+          }
+        }}
+      >
+        <div
+          style={{
+            background: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            padding: '24px',
+            maxWidth: '400px',
+            width: '100%'
+          }}
+        >
+          <div style={{ marginBottom: '20px' }}>
+            <h2 style={{
+              fontSize: '20px',
+              fontWeight: '700',
+              color: '#1e293b',
+              margin: '0 0 6px 0'
+            }}>
+              Select Date Range
+            </h2>
+            <p style={{
+              fontSize: '13px',
+              color: '#64748b',
+              margin: 0
+            }}>
+              Choose the start and end dates for your sales data
+            </p>
+          </div>
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '13px',
+              fontWeight: '600',
+              color: '#475569',
+              marginBottom: '6px'
+            }}>
+              From Date
+            </label>
+            <input
+              type="date"
+              value={tempFromDate}
+              min={booksFromDate}
+              onChange={(e) => setTempFromDate(e.target.value)}
+              style={{
+                width: 'calc(100% - 4px)',
+                maxWidth: '100%',
+                padding: '8px 12px',
+                border: '2px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '13px',
+                color: '#1e293b',
+                outline: 'none',
+                transition: 'all 0.2s ease',
+                fontWeight: '500',
+                boxSizing: 'border-box'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#7c3aed';
+                e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#e2e8f0';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+            {booksFromDate && (
+              <p style={{
+                fontSize: '11px',
+                color: '#64748b',
+                marginTop: '4px',
+                marginBottom: 0
+              }}>
+                Earliest available date: {booksFromDate}
+              </p>
+            )}
+          </div>
+
+          <div style={{ marginBottom: '24px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '13px',
+              fontWeight: '600',
+              color: '#475569',
+              marginBottom: '6px'
+            }}>
+              To Date
+            </label>
+            <input
+              type="date"
+              value={tempToDate}
+              onChange={(e) => setTempToDate(e.target.value)}
+              style={{
+                width: 'calc(100% - 4px)',
+                maxWidth: '100%',
+                padding: '8px 12px',
+                border: '2px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '13px',
+                color: '#1e293b',
+                outline: 'none',
+                transition: 'all 0.2s ease',
+                fontWeight: '500',
+                boxSizing: 'border-box'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#7c3aed';
+                e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#e2e8f0';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+          </div>
+
+          <div style={{
+            display: 'flex',
+            gap: '12px',
+            justifyContent: 'flex-end'
+          }}>
+            <button
+              type="button"
+              onClick={handleCancelDates}
+              style={{
+                padding: '10px 20px',
+                border: '2px solid #e2e8f0',
+                borderRadius: '10px',
+                background: 'white',
+                color: '#64748b',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = '#f8fafc';
+                e.target.style.borderColor = '#cbd5e1';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'white';
+                e.target.style.borderColor = '#e2e8f0';
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleApplyDates}
+              style={{
+                padding: '10px 20px',
+                border: 'none',
+                borderRadius: '10px',
+                background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 4px 6px rgba(124, 58, 237, 0.25)'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
+                e.target.style.boxShadow = '0 6px 10px rgba(124, 58, 237, 0.35)';
+                e.target.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
+                e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25)';
+                e.target.style.transform = 'translateY(0)';
+              }}
+            >
+              Apply
+            </button>
+          </div>
+        </div>
       </div>
     )}
     </>

@@ -15,19 +15,19 @@ function PlaceOrder_ECommerce() {
       return [];
     }
   }, []);
-  
+
   // Get company from sessionStorage (controlled by top bar) - make it reactive
   const [company, setCompany] = useState(() => {
     return sessionStorage.getItem('selectedCompanyGuid') || '';
   });
-  
+
   // Company-related state (kept for JSX compatibility but not used)
   const [companyFocused, setCompanyFocused] = useState(false);
   const [companySearchTerm, setCompanySearchTerm] = useState('');
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
   const [filteredCompanyOptions, setFilteredCompanyOptions] = useState([]);
   // Note: setCompany is now the state setter from useState above, not a dummy function
-  
+
   // VoucherType state
   const [voucherTypes, setVoucherTypes] = useState([]);
   const [voucherTypesLoading, setVoucherTypesLoading] = useState(false);
@@ -44,7 +44,7 @@ function PlaceOrder_ECommerce() {
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [customerFocused, setCustomerFocused] = useState(false);
-  
+
   const [stockItems, setStockItems] = useState([]);
   const [stockItemsLoading, setStockItemsLoading] = useState(false);
   const [refreshStockItems, setRefreshStockItems] = useState(0);
@@ -55,7 +55,7 @@ function PlaceOrder_ECommerce() {
   // Customer refresh state
   const [refreshCustomers, setRefreshCustomers] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
+
   // User permissions state
   const [userModules, setUserModules] = useState([]);
 
@@ -65,53 +65,53 @@ function PlaceOrder_ECommerce() {
       const modules = getUserModules();
       setUserModules(modules);
     };
-    
+
     updateUserModules();
-    
+
     window.addEventListener('userAccessUpdated', updateUserModules);
     window.addEventListener('companyChanged', updateUserModules);
-    
+
     return () => {
       window.removeEventListener('userAccessUpdated', updateUserModules);
       window.removeEventListener('companyChanged', updateUserModules);
     };
   }, []);
 
-  
+
   // Check if user has show_rateamt_Column permission
   const canShowRateAmtColumn = hasPermission('ecommerce_place_order', 'show_rateamt_Column', userModules);
-  
+
   // Check if user has save_optional permission
   const canSaveOptional = hasPermission('ecommerce_place_order', 'save_optional', userModules);
-  
+
   // Check if user has show_clsstck_Column permission
   const canShowClosingStock = hasPermission('ecommerce_place_order', 'show_ClsStck_Column', userModules);
-  
+
   // Check if user has show_clsstck_yesno permission
   const canShowClosingStockYesNo = hasPermission('ecommerce_place_order', 'show_ClsStck_yesno', userModules);
-  
+
   // Check if user has show_itemshasqty permission
   const canShowItemsHasQty = hasPermission('ecommerce_place_order', 'show_itemshasqty', userModules);
-  
+
   // Check if user has show_godownbrkup permission
   const canShowGodownBrkup = hasPermission('ecommerce_place_order', 'show_godownbrkup', userModules);
-  
+
   // Check if user has show_multicobrkup permission
   const canShowMulticoBrkup = hasPermission('ecommerce_place_order', 'show_multicobrkup', userModules);
-  
+
   // Check if user has show_image permission
   const canShowImage = hasPermission('ecommerce_place_order', 'show_image', userModules);
-  
+
   // Get default quantity value from def_qty permission
   const defaultQuantity = getPermissionValue('ecommerce_place_order', 'def_qty', userModules);
   const defQtyValue = defaultQuantity ? parseInt(defaultQuantity) : 1;
-  
+
   // Check if user has show_creditdayslimit permission
   const canShowCreditLimit = hasPermission('ecommerce_place_order', 'show_creditdayslimit', userModules);
-  
+
   // Check if user has ctrl_creditdayslimit permission
   const canControlCreditLimit = hasPermission('ecommerce_place_order', 'ctrl_creditdayslimit', userModules);
-  
+
   // Check if user has any stock breakdown permission
   const canShowStockBreakdown = canShowGodownBrkup || canShowMulticoBrkup;
 
@@ -119,10 +119,10 @@ function PlaceOrder_ECommerce() {
   const [creditLimitData, setCreditLimitData] = useState(null);
   const [showOverdueBills, setShowOverdueBills] = useState(false);
   const [creditLimitLoading, setCreditLimitLoading] = useState(false);
-  
+
   // Cart state
   const [cart, setCart] = useState([]);
-  
+
   // Stock breakdown modal state
   const [showStockModal, setShowStockModal] = useState(false);
   const [stockBreakdownData, setStockBreakdownData] = useState(null);
@@ -140,13 +140,13 @@ function PlaceOrder_ECommerce() {
   // Fetch Google token when company changes
   useEffect(() => {
     const fetchGoogleToken = async () => {
-      console.log('🔄 Token fetch effect triggered:', { 
-        company, 
+      console.log('🔄 Token fetch effect triggered:', {
+        company,
         companiesCount: companies.length,
         hasCompany: !!company,
         companiesSample: companies.slice(0, 2).map(c => ({ guid: c.guid, company: c.company }))
       });
-      
+
       if (!company) {
         console.log('🔄 No company selected, clearing Google token');
         setGoogleToken(null);
@@ -160,8 +160,8 @@ function PlaceOrder_ECommerce() {
 
       const currentCompany = companies.find(c => c.guid === company);
       if (!currentCompany) {
-        console.log('🔄 Company not found in companies list:', { 
-          lookingFor: company, 
+        console.log('🔄 Company not found in companies list:', {
+          lookingFor: company,
           availableGuids: companies.map(c => c.guid).slice(0, 5)
         });
         setGoogleToken(null);
@@ -189,10 +189,10 @@ function PlaceOrder_ECommerce() {
       // Company changed from top bar
       const newCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
       console.log('🔄 PlaceOrder_ECommerce: Company changed event received:', newCompanyGuid);
-      
+
       // Update company state (this will trigger token fetch)
       setCompany(newCompanyGuid);
-      
+
       // Clear related state
       setSelectedCustomer('');
       setCustomerOptions([]);
@@ -262,15 +262,15 @@ function PlaceOrder_ECommerce() {
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const filteredStockItems = useMemo(() => {
     let items = stockItems;
-    
+
     // If user has show_itemshasqty permission, only show items with stock > 0
     if (canShowItemsHasQty) {
       items = stockItems.filter(item => (item.CLOSINGSTOCK || 0) > 0);
     }
-    
+
     const term = productSearchTerm.trim().toLowerCase();
     if (!term) return items;
-    
+
     const out = [];
     for (let i = 0; i < items.length; i++) {
       const it = items[i];
@@ -281,7 +281,7 @@ function PlaceOrder_ECommerce() {
     }
     return out;
   }, [productSearchTerm, stockItems, canShowItemsHasQty]);
-  
+
 
   // Compute rate for an item using selected customer's price level
   const computeRateForItem = useMemo(() => {
@@ -322,16 +322,16 @@ function PlaceOrder_ECommerce() {
       setFilteredCompanyOptions([]);
       return;
     }
-    
+
     const timeoutId = setTimeout(() => {
       const searchLower = companySearchTerm.toLowerCase();
-      const filtered = companies.filter(company => 
+      const filtered = companies.filter(company =>
         company.company.toLowerCase().includes(searchLower) ||
         company.access_type.toLowerCase().includes(searchLower)
       );
       setFilteredCompanyOptions(filtered);
     }, 150);
-    
+
     return () => clearTimeout(timeoutId);
   }, [companySearchTerm, companies]);
 
@@ -353,7 +353,7 @@ function PlaceOrder_ECommerce() {
         setVoucherTypesError('');
         return;
       }
-      
+
       // Get the current company object directly from companies
       const currentCompany = companies.find(c => c.guid === company);
       if (!currentCompany) {
@@ -363,23 +363,23 @@ function PlaceOrder_ECommerce() {
         setVoucherTypesError('');
         return;
       }
-      
+
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
-      
+
       setVoucherTypesLoading(true);
       setVoucherTypesError('');
       setVoucherTypes([]); // Clear previous data while loading
-      
+
       try {
-        const data = await apiPost(`/api/tally/vouchertype?ts=${Date.now()}`, { 
-          tallyloc_id, 
-          company: companyVal, 
+        const data = await apiPost(`/api/tally/vouchertype?ts=${Date.now()}`, {
+          tallyloc_id,
+          company: companyVal,
           guid
         });
-        
+
         if (data && data.voucherTypes && Array.isArray(data.voucherTypes)) {
           setVoucherTypes(data.voucherTypes);
-          
+
           // Check if there's a previously selected voucher type in sessionStorage
           const savedVoucherType = sessionStorage.getItem('selectedVoucherType');
           if (savedVoucherType && data.voucherTypes.find(vt => vt.NAME === savedVoucherType)) {
@@ -404,18 +404,18 @@ function PlaceOrder_ECommerce() {
         setVoucherTypesLoading(false);
       }
     };
-    
+
     fetchVoucherTypes();
   }, [company]);
 
   useEffect(() => {
     const fetchCustomers = async () => {
       console.log('Customer useEffect triggered - company:', company, 'refreshCustomers:', refreshCustomers);
-      
+
       // Check if we're auto-populating from cart
       const cartData = sessionStorage.getItem('ecommerceCartData');
       const isAutoPopulating = !!cartData;
-      
+
       if (!company) {
         setCustomerOptions([]);
         // Don't clear customer if we're auto-populating
@@ -424,17 +424,17 @@ function PlaceOrder_ECommerce() {
         }
         return;
       }
-      
+
       const currentCompany = companies.find(c => c.guid === company);
       if (!currentCompany) return;
-      
+
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
       const cacheKey = `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`;
-      
+
       console.log('Customer cache key:', cacheKey);
       console.log('Cache exists:', !!sessionStorage.getItem(cacheKey));
       console.log('Refresh requested:', !!refreshCustomers);
-      
+
       // Check cache first
       const cached = sessionStorage.getItem(cacheKey);
       if (cached && !refreshCustomers) {
@@ -444,32 +444,32 @@ function PlaceOrder_ECommerce() {
           setCustomerOptions(customers);
           setCustomerLoading(false);
           return;
-        } catch {}
+        } catch { }
       }
-      
+
       // Clear cache if refresh requested
       if (refreshCustomers) {
         console.log('Clearing customer cache due to refresh');
         sessionStorage.removeItem(cacheKey);
       }
-      
+
       // Set loading state and fetch data
       console.log('Fetching fresh customer data');
       setCustomerLoading(true);
       setCustomerOptions([]);
-      
+
       const token = sessionStorage.getItem('token');
-      
+
       // Create AbortController for request cancellation
       const abortController = new AbortController();
-      
+
       try {
-        const data = await apiPost(`${API_CONFIG.ENDPOINTS.TALLY_LEDGERLIST_W_ADDRS}?ts=${Date.now()}`, { 
-          tallyloc_id, 
-          company: companyVal, 
+        const data = await apiPost(`${API_CONFIG.ENDPOINTS.TALLY_LEDGERLIST_W_ADDRS}?ts=${Date.now()}`, {
+          tallyloc_id,
+          company: companyVal,
           guid
         });
-        
+
         if (data && data.ledgers && Array.isArray(data.ledgers)) {
           console.log(`Successfully fetched ${data.ledgers.length} customers`);
           setCustomerOptions(data.ledgers);
@@ -478,7 +478,7 @@ function PlaceOrder_ECommerce() {
             if (data.ledgers.length === 1) setSelectedCustomer(data.ledgers[0].NAME);
             else setSelectedCustomer('');
           }
-          
+
           // Cache the result with graceful fallback if storage is full
           try {
             const cacheString = JSON.stringify(data.ledgers);
@@ -505,13 +505,13 @@ function PlaceOrder_ECommerce() {
       } finally {
         setCustomerLoading(false);
       }
-      
+
       // Cleanup function to cancel request when effect re-runs or component unmounts
       return () => {
         abortController.abort();
       };
     };
-    
+
     fetchCustomers();
   }, [company, refreshCustomers, companies]); // Added 'companies' back to dependencies to check cache properly
 
@@ -519,22 +519,22 @@ function PlaceOrder_ECommerce() {
   useEffect(() => {
     const fetchStockItems = async () => {
       console.log('Stock items useEffect triggered - company:', company, 'refreshStockItems:', refreshStockItems);
-      
+
       if (!company) {
         setStockItems([]);
         return;
       }
-      
+
       const currentCompany = companies.find(c => c.guid === company);
       if (!currentCompany) return;
-      
+
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
       const cacheKey = `stockitems_${tallyloc_id}_${companyVal}`;
-      
+
       console.log('Stock items cache key:', cacheKey);
       console.log('Cache exists:', !!sessionStorage.getItem(cacheKey));
       console.log('Refresh requested:', !!refreshStockItems);
-      
+
       // Check cache first
       const cached = sessionStorage.getItem(cacheKey);
       if (cached && !refreshStockItems) {
@@ -543,29 +543,29 @@ function PlaceOrder_ECommerce() {
           const items = JSON.parse(cached);
           setStockItems(items);
           return;
-        } catch {}
+        } catch { }
       }
-      
+
       // Clear cache if refresh requested
       if (refreshStockItems) {
         console.log('Clearing stock items cache due to refresh');
         sessionStorage.removeItem(cacheKey);
       }
-      
+
       console.log('Fetching fresh stock items data');
       setStockItemsLoading(true);
       const token = sessionStorage.getItem('token');
-      
+
       // Create AbortController for request cancellation
       const abortController = new AbortController();
-      
+
       try {
-        const data = await apiPost(`${API_CONFIG.ENDPOINTS.TALLY_STOCK_ITEMS}?ts=${Date.now()}`, { 
-          tallyloc_id, 
-          company: companyVal, 
+        const data = await apiPost(`${API_CONFIG.ENDPOINTS.TALLY_STOCK_ITEMS}?ts=${Date.now()}`, {
+          tallyloc_id,
+          company: companyVal,
           guid
         });
-        
+
         if (data && data.stockItems && Array.isArray(data.stockItems)) {
           // Deobfuscate sensitive pricing data
           const decryptedItems = deobfuscateStockItems(data.stockItems);
@@ -584,13 +584,13 @@ function PlaceOrder_ECommerce() {
       } finally {
         setStockItemsLoading(false);
       }
-      
+
       // Cleanup function to cancel request when effect re-runs or component unmounts
       return () => {
         abortController.abort();
       };
     };
-    
+
     fetchStockItems();
   }, [company, refreshStockItems, companies]); // Added 'companies' back to dependencies to check cache properly
 
@@ -624,36 +624,36 @@ function PlaceOrder_ECommerce() {
   useEffect(() => {
     // Capture the current search term to avoid closure issues
     const currentSearchTerm = customerSearchTerm.trim();
-    
+
     // Clear results immediately if search term is empty
     if (!currentSearchTerm) {
       // Don't set to empty here - let the dropdown useEffect handle showing all customers
       return;
     }
-    
+
     // Clear previous results immediately when search term changes
     // This ensures old results don't show when user types new search term
     setFilteredCustomers([]);
-    
+
     // Debounce search to improve performance
     const timeoutId = setTimeout(() => {
       // Use captured search term to ensure we're searching with the correct value
       const searchLower = currentSearchTerm.toLowerCase();
-      
+
       const exactMatches = [];
       const startsWithMatches = [];
       const containsMatches = [];
-      
+
       for (let i = 0; i < customerOptions.length; i++) {
         const customer = customerOptions[i];
         const customerName = customer.NAME || '';
         const customerGstNo = customer.GSTNO || '';
         const customerNameLower = customerName.toLowerCase();
         const customerGstNoLower = customerGstNo.toLowerCase();
-        
+
         const nameMatch = customerNameLower.includes(searchLower);
         const gstMatch = customerGstNoLower.includes(searchLower);
-        
+
         if (nameMatch || gstMatch) {
           if (customerNameLower === searchLower || customerGstNoLower === searchLower) {
             exactMatches.push(customer);
@@ -663,16 +663,16 @@ function PlaceOrder_ECommerce() {
             containsMatches.push(customer);
           }
         }
-        
+
         if (exactMatches.length + startsWithMatches.length + containsMatches.length >= 50) {
           break;
         }
       }
-      
+
       const filtered = [...exactMatches, ...startsWithMatches, ...containsMatches].slice(0, 50);
       setFilteredCustomers(filtered);
     }, 150);
-    
+
     return () => clearTimeout(timeoutId);
   }, [customerSearchTerm, customerOptions]);
 
@@ -693,29 +693,29 @@ function PlaceOrder_ECommerce() {
         alert(`Cannot add items: Customer has ${creditLimitData.overdueBills.length} overdue bill(s). Please clear overdue bills first.`);
         return;
       }
-      
+
       // Check credit limit - only if credit limit is set (> 0)
       if (Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) > 0) {
         const currentTotal = cart.reduce((sum, cartItem) => {
-          const amount = parseFloat(cartItem.quantity || 0) * parseFloat(cartItem.rate || 0) * (1 - (parseFloat(cartItem.discountPercent || 0)/100));
+          const amount = parseFloat(cartItem.quantity || 0) * parseFloat(cartItem.rate || 0) * (1 - (parseFloat(cartItem.discountPercent || 0) / 100));
           return sum + amount;
         }, 0);
-        
-        const itemAmount = defQtyValue * parseFloat(item.rate || 0) * (1 - (parseFloat(item.discountPercent || 0)/100));
+
+        const itemAmount = defQtyValue * parseFloat(item.rate || 0) * (1 - (parseFloat(item.discountPercent || 0) / 100));
         const newTotal = currentTotal + itemAmount;
         const availableCredit = Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) - Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE);
-        
+
         if (newTotal > availableCredit) {
           alert(`Cannot add item: Total order amount (₹${newTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}) would exceed available credit limit (₹${availableCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}).\n\nCurrent total: ₹${currentTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\nItem amount: ₹${itemAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
           return;
         }
       }
     }
-    
+
     const existingItem = cart.find(cartItem => cartItem.NAME === item.NAME);
     if (existingItem) {
-      setCart(cart.map(cartItem => 
-        cartItem.NAME === item.NAME 
+      setCart(cart.map(cartItem =>
+        cartItem.NAME === item.NAME
           ? { ...cartItem, quantity: cartItem.quantity + defQtyValue }
           : cartItem
       ));
@@ -730,8 +730,8 @@ function PlaceOrder_ECommerce() {
       removeFromCart(itemName);
       return;
     }
-    setCart(cart.map(cartItem => 
-      cartItem.NAME === itemName 
+    setCart(cart.map(cartItem =>
+      cartItem.NAME === itemName
         ? { ...cartItem, quantity: newQuantity }
         : cartItem
     ));
@@ -745,16 +745,16 @@ function PlaceOrder_ECommerce() {
   // Fetch stock breakdown data
   const fetchStockBreakdown = async (itemName) => {
     if (!itemName || !company) return;
-    
+
     const currentCompany = companies.find(c => c.guid === company);
     if (!currentCompany) return;
-    
+
     setStockBreakdownLoading(true);
     setStockBreakdownError('');
-    
+
     try {
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
-      
+
       // Determine which endpoint to use based on permissions
       let endpoint;
       if (canShowGodownBrkup && canShowMulticoBrkup) {
@@ -770,14 +770,14 @@ function PlaceOrder_ECommerce() {
         setStockBreakdownError('No stock breakdown permissions available');
         return;
       }
-      
+
       const data = await apiPost(`${endpoint}?ts=${Date.now()}`, {
         tallyloc_id,
         company: companyVal,
         guid,
         item: itemName
       });
-      
+
       if (data) {
         setStockBreakdownData(data);
       } else {
@@ -809,7 +809,7 @@ function PlaceOrder_ECommerce() {
       }
     }
   }, [showGodownStock]);
-  
+
   // Credit limit useEffect
   useEffect(() => {
     const fetchCreditLimitData = async () => {
@@ -817,7 +817,7 @@ function PlaceOrder_ECommerce() {
         setCreditLimitData(null);
         return;
       }
-      
+
       try {
         setCreditLimitLoading(true);
         const currentCompany = companies.find(c => c.guid === company);
@@ -826,15 +826,15 @@ function PlaceOrder_ECommerce() {
           setCreditLimitData(null);
           return;
         }
-        
+
         const { tallyloc_id, company: companyVal, guid } = currentCompany;
         const payload = {
-          tallyloc_id, 
-          company: companyVal, 
+          tallyloc_id,
+          company: companyVal,
           guid,
           ledgername: selectedCustomer
         };
-        
+
         const data = await apiPost(`/api/tally/creditdayslimit?ts=${Date.now()}`, payload);
         if (data && data.creditLimitInfo) {
           setCreditLimitData(data);
@@ -848,10 +848,10 @@ function PlaceOrder_ECommerce() {
         setCreditLimitLoading(false);
       }
     };
-    
+
     fetchCreditLimitData();
   }, [selectedCustomer, canShowCreditLimit, canControlCreditLimit, company, companies]);
-  
+
   // Product Image Component for Google Drive images
   const ProductImage = React.memo(({ imagePath, itemName, googleToken, imageUrlCacheRef, canShowImage }) => {
     const [imageUrl, setImageUrl] = useState(null);
@@ -860,13 +860,13 @@ function PlaceOrder_ECommerce() {
 
     useEffect(() => {
       const loadImageUrl = async () => {
-        console.log('🖼️ ProductImage: Loading image URL', { 
-          imagePath: imagePath?.substring(0, 50), 
+        console.log('🖼️ ProductImage: Loading image URL', {
+          imagePath: imagePath?.substring(0, 50),
           hasToken: !!googleToken,
           tokenLength: googleToken?.length,
-          itemName 
+          itemName
         });
-        
+
         if (!imagePath) {
           console.log('❌ ProductImage: No imagePath');
           setImageLoading(false);
@@ -878,7 +878,7 @@ function PlaceOrder_ECommerce() {
         // the effect will re-run when token becomes available
         // Check if it looks like a Google Drive file ID (not a full URL)
         const isGoogleDriveId = !imagePath.startsWith('http') && /^[a-zA-Z0-9_-]{20,}$/.test(imagePath);
-        
+
         if (isGoogleDriveId && !googleToken) {
           console.log('⏳ ProductImage: Google Drive file ID detected but no token yet. Will retry when token is available.');
           setImageLoading(true);
@@ -903,9 +903,9 @@ function PlaceOrder_ECommerce() {
             hasToken: !!googleToken,
             tokenPreview: googleToken ? `${googleToken.substring(0, 20)}...` : 'none'
           });
-          
+
           const url = await getGoogleDriveImageUrl(imagePath, googleToken);
-          
+
           if (url) {
             // Double-check we're not using public URL (which will fail with 403)
             if (url.includes('drive.google.com/uc?export=view')) {
@@ -915,7 +915,7 @@ function PlaceOrder_ECommerce() {
               setImageLoading(false);
               return;
             }
-            
+
             console.log('✅ ProductImage: Got image URL (blob or direct):', url.substring(0, 80));
             setImageUrl(url);
             // Update cache
@@ -1030,7 +1030,7 @@ function PlaceOrder_ECommerce() {
   // Navigate to PlaceOrder page with cart data
   const navigateToPlaceOrder = () => {
     if (cart.length === 0) return;
-    
+
     // Store cart data in sessionStorage for PlaceOrder page
     const cartData = {
       company: company,
@@ -1044,30 +1044,29 @@ function PlaceOrder_ECommerce() {
         amount: computeRateForItem(cartItem) * cartItem.quantity * (1 - (computeDiscountForItem(cartItem) || 0) / 100)
       }))
     };
-    
+
     console.log('Storing cart data:', cartData);
     console.log('Customer being stored:', selectedCustomer);
     sessionStorage.setItem('ecommerceCartData', JSON.stringify(cartData));
-    
+
     // Navigate to PlaceOrder page by dispatching a custom event
     // The TallyDashboard component will listen for this event and switch to Place Order
-    window.dispatchEvent(new CustomEvent('navigateToPlaceOrder', { 
-      detail: { 
+    window.dispatchEvent(new CustomEvent('navigateToPlaceOrder', {
+      detail: {
         reason: 'ecommerce_cart',
-        cartData: cartData 
-      } 
+        cartData: cartData
+      }
     }));
   };
 
 
   return (
     <div style={{
-      width: '100vw',
-      minHeight: 'calc(100vh - 120px)',
-      background: '#f3f4f6',
+      width: '100%',
+      minHeight: '100%',
+      background: 'transparent',
       padding: 0,
       margin: 0,
-      paddingLeft: 220,
     }}>
       <style>
         {`
@@ -1110,16 +1109,16 @@ function PlaceOrder_ECommerce() {
           {/* Header */}
           <div style={{
             display: 'flex',
-            alignItems: 'center', 
+            alignItems: 'center',
             justifyContent: 'space-between',
             marginBottom: '6px',
             paddingBottom: '16px',
             borderBottom: '1px solid #f3f4f6',
             position: 'relative'
           }}>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
               gap: '12px'
             }}>
               <div style={{
@@ -1145,7 +1144,7 @@ function PlaceOrder_ECommerce() {
                 E-Commerce Place Order
               </h3>
             </div>
-            
+
             {/* Optional text centered between E-Commerce Place Order and customer count */}
             {canSaveOptional && (
               <div style={{
@@ -1160,7 +1159,7 @@ function PlaceOrder_ECommerce() {
                 (Optional)
               </div>
             )}
-            
+
             {/* Customer Count Display */}
             <div style={{
               fontSize: '14px',
@@ -1196,7 +1195,7 @@ function PlaceOrder_ECommerce() {
             position: 'relative'
           }}>
             {/* VoucherType */}
-            <div style={{ 
+            <div style={{
               position: 'relative',
               flex: '0 0 300px'
             }}>
@@ -1220,7 +1219,7 @@ function PlaceOrder_ECommerce() {
                     if (!inputValue.trim()) {
                       setVoucherTypes(voucherTypes);
                     } else {
-                      const filtered = voucherTypes.filter(vt => 
+                      const filtered = voucherTypes.filter(vt =>
                         vt.NAME.toLowerCase().includes(inputValue.toLowerCase())
                       );
                       setVoucherTypes(filtered);
@@ -1368,7 +1367,7 @@ function PlaceOrder_ECommerce() {
             </div>
 
             {/* Customer */}
-            <div style={{ 
+            <div style={{
               position: 'relative',
               flex: '0 0 500px'
             }} data-customer-dropdown>
@@ -1430,11 +1429,11 @@ function PlaceOrder_ECommerce() {
                   }}
                   placeholder={customerLoading ? 'Loading...' : ''}
                 />
-                
+
                 {/* Search Icon or Dropdown Arrow */}
                 {!selectedCustomer && (
-                  <span 
-                    className="material-icons" 
+                  <span
+                    className="material-icons"
                     style={{
                       position: 'absolute',
                       right: '16px',
@@ -1449,7 +1448,7 @@ function PlaceOrder_ECommerce() {
                     {showCustomerDropdown ? 'expand_less' : 'search'}
                   </span>
                 )}
-                
+
                 {/* Clear Button for Customer */}
                 {selectedCustomer && (
                   <button
@@ -1482,7 +1481,7 @@ function PlaceOrder_ECommerce() {
                     ×
                   </button>
                 )}
-                
+
                 <label style={{
                   position: 'absolute',
                   left: '20px',
@@ -1497,7 +1496,7 @@ function PlaceOrder_ECommerce() {
                 }}>
                   Customer
                 </label>
-                
+
                 {customerLoading && (
                   <div style={{
                     position: 'absolute',
@@ -1512,10 +1511,10 @@ function PlaceOrder_ECommerce() {
                     animation: 'spin 1s linear infinite'
                   }} />
                 )}
-                
+
                 {/* Custom Customer Dropdown */}
                 {showCustomerDropdown && (
-                  <div 
+                  <div
                     className="dropdown-animation"
                     style={{
                       position: 'absolute',
@@ -1534,52 +1533,52 @@ function PlaceOrder_ECommerce() {
                     }}
                   >
                     {filteredCustomers.map((customer, index) => (
-                     <div
-                       key={customer.NAME}
-                       onClick={() => {
-                         setSelectedCustomer(customer.NAME);
-                         setCustomerSearchTerm('');
-                         setShowCustomerDropdown(false);
-                         setFilteredCustomers([]);
-                       }}
-                       style={{
-                         padding: '12px 16px',
-                         cursor: 'pointer',
-                         borderBottom: index < filteredCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
-                         transition: 'background-color 0.2s ease'
-                       }}
-                       onMouseEnter={(e) => {
-                         e.target.style.backgroundColor = '#f8fafc';
-                       }}
-                       onMouseLeave={(e) => {
-                         e.target.style.backgroundColor = 'white';
-                       }}
-                     >
-                       <div style={{
-                         fontWeight: '600',
-                         color: '#1e293b',
-                         fontSize: '14px'
-                       }}>
-                         {customer.NAME}
-                       </div>
-                       <div style={{
-                         fontSize: '12px',
-                         color: '#64748b',
-                         marginTop: '2px'
-                       }}>
-                         {customer.GSTNO && `GST No: ${customer.GSTNO} | `}Address: {customer.ADDRESS || 'N/A'}
-                       </div>
-                     </div>
-                   ))}
+                      <div
+                        key={customer.NAME}
+                        onClick={() => {
+                          setSelectedCustomer(customer.NAME);
+                          setCustomerSearchTerm('');
+                          setShowCustomerDropdown(false);
+                          setFilteredCustomers([]);
+                        }}
+                        style={{
+                          padding: '12px 16px',
+                          cursor: 'pointer',
+                          borderBottom: index < filteredCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
+                          transition: 'background-color 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.backgroundColor = '#f8fafc';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.backgroundColor = 'white';
+                        }}
+                      >
+                        <div style={{
+                          fontWeight: '600',
+                          color: '#1e293b',
+                          fontSize: '14px'
+                        }}>
+                          {customer.NAME}
+                        </div>
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#64748b',
+                          marginTop: '2px'
+                        }}>
+                          {customer.GSTNO && `GST No: ${customer.GSTNO} | `}Address: {customer.ADDRESS || 'N/A'}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
             </div>
 
             {/* Cart Button and Refresh Icon */}
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
               gap: '10px',
               flex: '0 0 180px'
             }}>
@@ -1607,10 +1606,10 @@ function PlaceOrder_ECommerce() {
                 <span className="material-icons" style={{ fontSize: '18px' }}>shopping_cart</span>
                 {cart.length === 0 ? 'Cart Empty' : `Cart (${cart.length})`}
               </button>
-              
+
             </div>
           </div>
-          
+
           {/* Credit Information */}
           {(canShowCreditLimit || canControlCreditLimit) && selectedCustomer && (
             <div style={{
@@ -1628,39 +1627,39 @@ function PlaceOrder_ECommerce() {
                 </span>
                 <span style={{ color: '#374151', fontWeight: '500' }}>Credit Info:</span>
               </div>
-              
+
               {creditLimitLoading ? (
                 <span style={{ color: '#6b7280', fontSize: '13px' }}>Loading...</span>
               ) : creditLimitData ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ color: '#6b7280', fontSize: '13px' }}>Closing Balance:</span>
-                    <span style={{ 
-                      fontWeight: '600', 
-                      color: creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? '#dc2626' : '#059669', 
-                      fontSize: '13px' 
+                    <span style={{
+                      fontWeight: '600',
+                      color: creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? '#dc2626' : '#059669',
+                      fontSize: '13px'
                     }}>
                       ₹{Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       {creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? ' Dr' : ' Cr'}
                     </span>
                   </div>
-                  
+
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ color: '#6b7280', fontSize: '13px' }}>Credit Limit:</span>
-                    <span style={{ 
-                      fontWeight: '600', 
-                      color: creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? '#dc2626' : '#059669', 
-                      fontSize: '13px' 
+                    <span style={{
+                      fontWeight: '600',
+                      color: creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? '#dc2626' : '#059669',
+                      fontSize: '13px'
                     }}>
                       ₹{Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       {creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? ' Dr' : ' Cr'}
                     </span>
                   </div>
-                  
-                  <div 
-                    style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
                       gap: '6px',
                       cursor: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? 'pointer' : 'default',
                       padding: '4px 8px',
@@ -1675,8 +1674,8 @@ function PlaceOrder_ECommerce() {
                     }}
                   >
                     <span style={{ color: '#6b7280', fontSize: '13px' }}>Overdue:</span>
-                    <span style={{ 
-                      fontWeight: '600', 
+                    <span style={{
+                      fontWeight: '600',
                       color: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '#dc2626' : '#059669',
                       fontSize: '13px'
                     }}>
@@ -1705,9 +1704,9 @@ function PlaceOrder_ECommerce() {
           padding: '24px',
           boxSizing: 'border-box'
         }}>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
             justifyContent: 'space-between',
             marginBottom: '24px'
           }}>
@@ -1760,7 +1759,7 @@ function PlaceOrder_ECommerce() {
           }}>
             {filteredStockItems.map((item, index) => {
               const cartItem = cart.find(cartItem => cartItem.NAME === item.NAME);
-              
+
               return (
                 <div key={item.NAME || index} style={{
                   background: '#fff',
@@ -1799,15 +1798,15 @@ function PlaceOrder_ECommerce() {
                       justifyContent: 'center',
                       position: 'relative'
                     }}>
-                      <ProductImage 
-                        imagePath={item.IMAGEPATH} 
+                      <ProductImage
+                        imagePath={item.IMAGEPATH}
                         itemName={item.NAME}
                         googleToken={googleToken}
                         imageUrlCacheRef={imageUrlCache}
                         canShowImage={canShowImage}
                       />
                     </div>
-                    
+
                     {/* Product Details */}
                     <div style={{
                       display: 'flex',
@@ -1827,7 +1826,7 @@ function PlaceOrder_ECommerce() {
                       }}>
                         {item.NAME}
                       </h3>
-                      
+
                       {/* Part Number and Stock */}
                       <div style={{
                         display: 'flex',
@@ -1843,7 +1842,7 @@ function PlaceOrder_ECommerce() {
                           Part: {item.PARTNO || 'N/A'}
                         </span>
                         {canShowClosingStock && (
-                          <span 
+                          <span
                             style={{
                               fontSize: 12,
                               color: '#64748b',
@@ -1871,7 +1870,7 @@ function PlaceOrder_ECommerce() {
                           </span>
                         )}
                       </div>
-                      
+
                       {/* Price */}
                       {canShowRateAmtColumn && (
                         <div style={{
@@ -1933,7 +1932,7 @@ function PlaceOrder_ECommerce() {
                             >
                               {cartItem.quantity === 1 ? '🗑️' : '➖'}
                             </button>
-                            
+
                             <span style={{
                               fontSize: '16px',
                               fontWeight: '600',
@@ -1944,7 +1943,7 @@ function PlaceOrder_ECommerce() {
                             }}>
                               {cartItem.quantity}
                             </span>
-                            
+
                             <button
                               onClick={() => updateQuantity(item.NAME, cartItem.quantity + 1)}
                               style={{
@@ -2203,11 +2202,11 @@ function PlaceOrder_ECommerce() {
                   {(stockBreakdownData.godownStocks || stockBreakdownData.companyStocks || []).map((item, index) => {
                     // Check if this is the current company (for company-wise view)
                     const isCurrentCompany = !showGodownStock && company && item.GUID === company;
-                    
+
                     // Determine stock display value
                     const stockValue = item.CLOSINGSTOCK || 0;
                     const displayValue = canShowClosingStockYesNo ? (stockValue > 0 ? 'Yes' : 'No') : stockValue;
-                    
+
                     return (
                       <div
                         key={index}
@@ -2269,7 +2268,7 @@ function PlaceOrder_ECommerce() {
           </div>
         </div>
       )}
-      
+
       {/* Overdue Bills Modal */}
       {showOverdueBills && creditLimitData && creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 && (
         <div style={{
@@ -2306,7 +2305,7 @@ function PlaceOrder_ECommerce() {
                 fontWeight: '600',
                 color: '#1f2937'
               }}>Overdue Bills Details</h2>
-              <button 
+              <button
                 style={{
                   background: 'none',
                   border: 'none',
@@ -2320,14 +2319,14 @@ function PlaceOrder_ECommerce() {
                   justifyContent: 'center',
                   width: '32px',
                   height: '32px'
-                }} 
+                }}
                 onClick={() => setShowOverdueBills(false)}
                 title="Close"
               >
                 ×
               </button>
             </div>
-            
+
             <div style={{
               padding: '20px',
               maxHeight: '60vh',
@@ -2357,7 +2356,7 @@ function PlaceOrder_ECommerce() {
                   Customer has outstanding bills that are past their due date. Please review the details below.
                 </p>
               </div>
-              
+
               <div style={{
                 overflowX: 'auto',
                 border: '1px solid #e5e7eb',
@@ -2503,7 +2502,7 @@ function PlaceOrder_ECommerce() {
                   </tbody>
                 </table>
               </div>
-              
+
               <div style={{
                 marginTop: '20px',
                 padding: '16px',
