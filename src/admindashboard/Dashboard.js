@@ -12,6 +12,7 @@ import ShareAccess from '../TallyDashboard/ShareAccess';
 import SubscriptionManagement from './SubscriptionManagement';
 import SubscriptionBadge from './components/SubscriptionBadge';
 import TrialReminderModal from './components/TrialReminderModal';
+import { AdminMobileMenu, useIsMobile } from './MobileViewConfig';
 
 // Ensure Material Icons are properly loaded and styled
 const materialIconsStyle = `
@@ -62,6 +63,10 @@ function AdminDashboard() {
   const controlPanelButtonRef = useRef(null);
   const controlPanelDropdownRef = useRef(null);
   let sidebarTooltipTimeout = null;
+  
+  // Mobile menu state
+  const isMobile = useIsMobile();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Access Control dropdown items
   const ACCESS_CONTROL_ITEMS = [
@@ -262,6 +267,24 @@ function AdminDashboard() {
     return () => window.removeEventListener('resize', handleResize);
   }, [sidebarOpen]);
 
+  // Prepare sidebar items for mobile menu
+  const mobileSidebarItems = [
+    {
+      key: 'dashboard',
+      label: 'Home',
+      icon: 'home',
+    },
+    {
+      key: 'control-panel',
+      label: 'Control Panel',
+      icon: 'admin_panel_settings',
+      subItems: [
+        { key: 'tally-config', label: 'Tally Connections', icon: 'settings' },
+        ...ACCESS_CONTROL_ITEMS,
+      ],
+    },
+  ];
+
   useEffect(() => {
     function handleClickOutside(event) {
       if (profileDropdownRef.current && !profileDropdownRef.current.contains(event.target)) {
@@ -340,7 +363,68 @@ function AdminDashboard() {
   return (
     <div style={{ width: '100%', minHeight: '100vh', background: 'linear-gradient(135deg, #e0e7ff 0%, #f8fafc 100%)' }}>
       <style>{materialIconsStyle}</style>
-      {/* Top Bar */}
+      
+      {/* Hamburger Menu Button - Mobile Only */}
+      {isMobile && (
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          style={{
+            position: 'fixed',
+            top: '12px',
+            left: '12px',
+            zIndex: 10000,
+            background: 'rgba(255, 255, 255, 0.95)',
+            border: '1px solid rgba(0, 0, 0, 0.1)',
+            borderRadius: '8px',
+            width: '44px',
+            height: '44px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+            transition: 'all 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = '#fff';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+            e.currentTarget.style.transform = 'scale(1.05)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.95)';
+            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: 24, color: '#1e3a8a' }}>
+            menu
+          </span>
+        </button>
+      )}
+
+      {/* Mobile Menu */}
+      {isMobile && (
+        <AdminMobileMenu
+          isOpen={mobileMenuOpen}
+          onClose={() => setMobileMenuOpen(false)}
+          sidebarItems={mobileSidebarItems}
+          activeView={view}
+          onViewChange={handleViewChange}
+          name={name}
+          email={email}
+          onProfileClick={() => setProfileDropdownOpen(true)}
+          onLogout={handleLogout}
+          profileDropdownOpen={profileDropdownOpen}
+          setProfileDropdownOpen={setProfileDropdownOpen}
+          showGoogleConfigModal={showGoogleConfigModal}
+          setShowGoogleConfigModal={setShowGoogleConfigModal}
+          SubscriptionBadge={SubscriptionBadge}
+          navigate={navigate}
+        />
+      )}
+
+      {/* Top Bar - Hidden in Mobile */}
+      {!isMobile && (
       <div style={{
         position: 'fixed',
         top: 0,
@@ -529,6 +613,7 @@ function AdminDashboard() {
           )}
         </div>
       </div>
+      )}
 
       {/* Google Account Configuration Modal */}
       {showGoogleConfigModal && (
@@ -743,7 +828,8 @@ function AdminDashboard() {
         </div>
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar - Hidden in Mobile */}
+      {!isMobile && (
       <aside
         className={`adminhome-sidebar sidebar-animated`}
         style={{
@@ -979,8 +1065,10 @@ function AdminDashboard() {
           </div>
         </nav>
       </aside>
+      )}
 
-      {/* Sidebar Toggle */}
+      {/* Sidebar Toggle - Hidden in Mobile */}
+      {!isMobile && (
       <button
         className="sidebar-toggle-btn-main"
         onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -1005,9 +1093,10 @@ function AdminDashboard() {
       >
         <span className="material-icons" style={{ fontSize: 22, color: '#1e40af' }}>{sidebarOpen ? 'chevron_left' : 'chevron_right'}</span>
       </button>
+      )}
 
       {/* Tooltip */}
-      {sidebarTooltip.show && !sidebarOpen && (
+      {!isMobile && sidebarTooltip.show && !sidebarOpen && (
         <div className="sidebar-tooltip" style={{ top: sidebarTooltip.top }}>
           {sidebarTooltip.text}
         </div>
@@ -1017,9 +1106,9 @@ function AdminDashboard() {
       <main
         className="adminhome-main"
         style={{
-          marginLeft: sidebarOpen ? 220 : 60,
-          paddingTop: 64,
-          padding: 20,
+          marginLeft: isMobile ? 0 : (sidebarOpen ? 220 : 60),
+          paddingTop: isMobile ? 0 : 64,
+          padding: isMobile ? 12 : 20,
           transition: 'margin 0.3s',
         }}
       >

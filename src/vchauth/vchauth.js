@@ -180,26 +180,29 @@ function VoucherAuthorization() {
         customer = partyName;
       }
       
-      // Determine status based on apprv_status field from API
-      // Check if voucher has rejection/authorization narration or status field
+      // Determine status based on VOUCHER_ACTIVITY_HISTORY
+      // Check the last entry in the activity history to determine current status
       let status = 'Pending';
       let rejectionNarration = '';
       let authorizationNarration = '';
       
-      // Check apprv_status field from API
-      // - If apprv_status is "approved", set status to 'Authorized'
-      // - If apprv_status is "rejected", set status to 'Rejected'
-      // - If apprv_status is missing, null, undefined, or empty, set status to 'Pending'
-      const apprvStatus = v.apprv_status || v.APPRV_STATUS || '';
+      // Check if VOUCHER_ACTIVITY_HISTORY exists and has entries
+      const activityHistory = v.VOUCHER_ACTIVITY_HISTORY || [];
       
-      if (apprvStatus.toLowerCase() === 'approved') {
-        status = 'Authorized';
-        authorizationNarration = v.AUTHORIZATIONNARRATION || v.authorizationNarration || '';
-      } else if (apprvStatus.toLowerCase() === 'rejected') {
-        status = 'Rejected';
-        rejectionNarration = v.REJECTIONNARRATION || v.rejectionNarration || '';
+      if (activityHistory.length > 0) {
+        // Get the last (most recent) entry in the history
+        const lastActivity = activityHistory[activityHistory.length - 1];
+        const lastStatus = lastActivity.apprv_status || '';
+        
+        if (lastStatus.toLowerCase() === 'approved') {
+          status = 'Authorized';
+          authorizationNarration = lastActivity.comments || '';
+        } else if (lastStatus.toLowerCase() === 'rejected') {
+          status = 'Rejected';
+          rejectionNarration = lastActivity.comments || '';
+        }
       } else {
-        // If apprv_status is not present, null, undefined, or empty, default to 'Pending'
+        // If no history, default to 'Pending'
         status = 'Pending';
       }
       
