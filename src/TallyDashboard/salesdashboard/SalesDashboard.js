@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { apiPost } from '../../utils/apiUtils';
+// import { apiPost } from '../../utils/apiUtils'; // REMOVED: Sales dashboard now uses cache only
 import BarChart from './components/BarChart';
 import PieChart from './components/PieChart';
 import TreeMap from './components/TreeMap';
@@ -197,22 +197,29 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     };
   }, [loading, onNavigationAttempt]);
 
-  // Get booksFrom date from company info
+  // Get booksFrom date from company info (updated when company changes)
   useEffect(() => {
-    try {
-      const companyInfo = getCompanyInfo();
-      let booksFrom = '1-Apr-00';
-      const dateMatch = companyInfo.company.match(/from\s+(\d{1,2}-[A-Za-z]{3}-\d{2,4})/i);
-      if (dateMatch && dateMatch[1]) {
-        booksFrom = dateMatch[1];
+    const loadBooksFromDate = async () => {
+      try {
+        const companyInfo = getCompanyInfo();
+        const booksFrom = await fetchBooksFromDate(companyInfo.guid);
+        if (booksFrom) {
+          setBooksFromDate(booksFrom);
+        }
+      } catch (err) {
+        console.warn('Unable to get booksFrom date:', err);
       }
-      const parsedDate = parseDateFromNewFormat(booksFrom);
-      if (parsedDate) {
-        setBooksFromDate(parsedDate);
-      }
-    } catch (err) {
-      console.warn('Unable to get booksFrom date:', err);
-    }
+    };
+    
+    loadBooksFromDate();
+    
+    // Also reload when company changes
+    const handleCompanyChange = () => {
+      loadBooksFromDate();
+    };
+    
+    window.addEventListener('companyChanged', handleCompanyChange);
+    return () => window.removeEventListener('companyChanged', handleCompanyChange);
   }, []);
 
   // Close download dropdown when clicking outside
@@ -325,22 +332,76 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   };
 
 
-  const getDefaultDateRange = useCallback(() => {
+  // Helper function to fetch booksfrom date
+  const fetchBooksFromDate = async (companyGuid) => {
+    try {
+      // First check sessionStorage
+      const booksfromDirect = sessionStorage.getItem('booksfrom');
+      if (booksfromDirect) {
+        // Handle YYYYMMDD format
+        if (/^\d{8}$/.test(booksfromDirect)) {
+          return parseDateFromAPI(booksfromDirect);
+        }
+        // Handle other formats
+        const parsed = parseDateFromNewFormat(booksfromDirect);
+        if (parsed) return parsed;
+      }
+
+      // Check allConnections in sessionStorage
+      const connections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+      if (companyGuid && Array.isArray(connections)) {
+        const company = connections.find(c => c.guid === companyGuid);
+        if (company && company.booksfrom) {
+          // Handle YYYYMMDD format
+          if (/^\d{8}$/.test(company.booksfrom)) {
+            return parseDateFromAPI(company.booksfrom);
+          }
+          // Handle other formats
+          const parsed = parseDateFromNewFormat(company.booksfrom);
+          if (parsed) return parsed;
+        }
+      }
+    } catch (err) {
+      console.warn('Error fetching booksfrom date:', err);
+    }
+    return null;
+  };
+
+  const getDefaultDateRange = useCallback(async (companyGuid = null) => {
     const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    
     const formatDate = (date) => {
       return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     };
     
+    // Try to get booksfrom date
+    let startDate = new Date(now.getFullYear(), now.getMonth(), 1); // Default to start of month
+    
+    if (companyGuid) {
+      const booksFrom = await fetchBooksFromDate(companyGuid);
+      if (booksFrom) {
+        const booksFromDate = new Date(booksFrom);
+        if (!isNaN(booksFromDate.getTime())) {
+          startDate = booksFromDate;
+        }
+      }
+    }
+    
     return {
-      start: formatDate(startOfMonth),
+      start: formatDate(startDate),
       end: formatDate(now)
     };
   }, []);
 
   const initializeDashboard = useCallback(async (options = { triggerFetch: false }) => {
     try {
+      // Abort any ongoing cache download when switching companies
+      if (isDownloadingCache) {
+        console.log('⚠️ Aborting previous cache download due to company change');
+        cacheDownloadAbortRef.current = true;
+        // Wait a bit for abort to take effect
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
       const companyInfo = getCompanyInfo();
       setNoCompanySelected(false);
       setError(null);
@@ -357,11 +418,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         console.warn('Unable to check sales cache:', err);
       }
 
-      // Set default dates
-      const defaults = getDefaultDateRange();
+      // Set default dates using booksfrom date
+      const defaults = await getDefaultDateRange(companyInfo.guid);
+      console.log('📅 Setting default date range:', defaults);
       setFromDate(defaults.start);
       setToDate(defaults.end);
       setDateRange(defaults);
+      
+      // Also update booksFromDate state for calendar modal
+      const booksFrom = await fetchBooksFromDate(companyInfo.guid);
+      if (booksFrom) {
+        setBooksFromDate(booksFrom);
+      }
       setSales([]);
       setSelectedCustomer('all');
       setSelectedItem('all');
@@ -370,14 +438,22 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setSelectedCountry('all');
       setSelectedPeriod(null);
       
-      // If no cache exists, trigger background cache download
-      if (!hasCachedSalesData && !isDownloadingCache) {
-        console.log('📭 No sales cache found - starting background download...');
-        startBackgroundCacheDownload(companyInfo);
+      // Check if cache exists and start background download accordingly
+      if (!hasCachedSalesData) {
+        console.log('📭 No sales cache found - starting background download from books begin date');
+        // Start background download for first time (complete data)
+        startBackgroundCacheDownload(companyInfo, false);
       } else if (hasCachedSalesData) {
-        // Auto-load data from cache
-        console.log('🚀 Loading data from cache...');
-        setShouldAutoLoad(true);
+        // Auto-load data from cache when tab opens
+        console.log('🚀 Loading data from cache and checking for updates in background...');
+        console.log('📅 Auto-load will use dates:', defaults);
+        // Use setTimeout to ensure dates are set in state before triggering auto-load
+        setTimeout(() => {
+          console.log('✅ Triggering auto-load with dates:', defaults);
+          setShouldAutoLoad(true);
+        }, 100);
+        // Start background update to fetch only new records
+        startBackgroundCacheDownload(companyInfo, true);
       }
     } catch (err) {
       console.warn('⚠️ Sales dashboard initialization error:', err);
@@ -412,20 +488,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return chunks;
   };
 
-  const fetchSalesDataWithProgress = async (startDate, endDate, currentIndex, totalChunks) => {
-    console.log(`🔄 Fetching data chunk ${currentIndex}/${totalChunks}: ${startDate} to ${endDate}`);
-    
-    // Update progress before starting the API call
-    setProgress(prev => {
-      const newCurrent = currentIndex;
-      const newPercentage = Math.round((newCurrent / totalChunks) * 100);
-      return { current: newCurrent, total: totalChunks, percentage: newPercentage };
-    });
-    
-    const result = await fetchSalesData(startDate, endDate);
-    console.log(`✅ Completed chunk ${currentIndex}/${totalChunks}`);
-    return result;
-  };
+  // Removed fetchSalesDataWithProgress - no longer needed since we use cache-only mode
+  // and fetch the entire date range at once from complete cache
 
   // Update elapsed time while loading
   useEffect(() => {
@@ -488,11 +552,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           vouchers: filteredVouchers
         };
       } else {
-        console.log('📋 No complete cached data found, will check date-range cache or fetch from API');
+        console.log('📋 No complete cached data found, will check date-range cache');
       }
     } catch (error) {
       console.warn('⚠️ Error checking complete cache:', error);
-      // Continue to check other cache or API if complete cache check fails
+      // Continue to check other cache if complete cache check fails
     }
     
     // Include salesperson formula in cache key so cache invalidates when formula changes
@@ -581,76 +645,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return { vouchers: [] };
   };
 
-  // Helper function to fetch data from API
-  const fetchSalesDataFromAPI = async (companyInfo, startDate, endDate) => {
-    try {
-      const payload = {
-        tallyloc_id: companyInfo.tallyloc_id,
-        company: companyInfo.company,
-        guid: companyInfo.guid,
-        fromdate: formatDateForAPI(startDate),
-        todate: formatDateForAPI(endDate)
-      };
-
-      // Include salesperson formula from configuration if available
-      if (salespersonFormula) {
-        payload.salesperson_formula = salespersonFormula;
-        console.log('✅ Using salesperson formula from config:', salespersonFormula);
-      }
-
-      // Note: The backend API /api/reports/salesextract should use the 
-      // 'salesdash_salesprsn' company configuration to extract salesperson data.
-      // We're also passing it explicitly in the payload to ensure it's used.
-      console.log('🚀 Making API call with payload:', payload);
-      const data = await apiPost(`/api/reports/salesextract?ts=${Date.now()}`, payload);
-      console.log('✅ API response structure:', {
-        hasVouchers: !!data?.vouchers,
-        vouchersCount: data?.vouchers?.length || 0,
-        firstVoucherKeys: data?.vouchers?.[0] ? Object.keys(data.vouchers[0]) : [],
-        firstVoucherSample: data?.vouchers?.[0] || null
-      });
-      
-      // Check for salesperson data in the response
-      if (data?.vouchers && data.vouchers.length > 0) {
-        const firstVoucher = data.vouchers[0];
-        const salespersonFields = Object.keys(firstVoucher).filter(key => {
-          const lowerKey = key.toLowerCase();
-          return lowerKey.includes('salesperson') || 
-                 lowerKey.includes('sales_person') ||
-                 lowerKey.includes('salespersonname') ||
-                 lowerKey.includes('sales_person_name') ||
-                 lowerKey.includes('salesprsn') ||
-                 lowerKey === 'salesprsn';
-        });
-        
-        console.log('🔍 Salesperson data check:', {
-          salespersonFieldsFound: salespersonFields,
-          sampleValues: salespersonFields.reduce((acc, field) => {
-            acc[field] = firstVoucher[field];
-            return acc;
-          }, {}),
-          allVoucherKeys: Object.keys(firstVoucher),
-          sampleVoucher: firstVoucher
-        });
-        
-        // Check how many vouchers have salesperson data
-        const vouchersWithSalesperson = data.vouchers.filter(v => {
-          return salespersonFields.some(field => v[field] && String(v[field]).trim() !== '');
-        });
-        console.log('📊 Salesperson data statistics:', {
-          totalVouchers: data.vouchers.length,
-          vouchersWithSalesperson: vouchersWithSalesperson.length,
-          vouchersWithoutSalesperson: data.vouchers.length - vouchersWithSalesperson.length,
-          percentageWithSalesperson: ((vouchersWithSalesperson.length / data.vouchers.length) * 100).toFixed(2) + '%'
-        });
-      }
-      
-      return data;
-    } catch (error) {
-      console.error('Error fetching sales data from API:', error);
-      throw error;
-    }
-  };
+  // REMOVED: fetchSalesDataFromAPI - Sales dashboard now uses cache only
+  // All data must be loaded from cache. Use Cache Management to download complete sales data.
+  // const fetchSalesDataFromAPI = async (companyInfo, startDate, endDate) => {
+  //   // This function has been removed - sales dashboard uses cache only
+  //   // To get data, download complete sales data from Cache Management
+  //   throw new Error('API calls are disabled. Please use cached data from Cache Management.');
+  // };
 
   // Helper function to merge cached data from multiple date ranges
   const mergeCachedData = (ranges) => {
@@ -752,6 +753,28 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     window.addEventListener('companyChanged', handleCompanyChange);
     return () => window.removeEventListener('companyChanged', handleCompanyChange);
   }, [initializeDashboard]);
+
+  // Auto-update cache every 30 minutes in the background
+  useEffect(() => {
+    const autoUpdateInterval = setInterval(async () => {
+      try {
+        const companyInfo = getCompanyInfo();
+        // Check if cache exists
+        const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+        if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
+          console.log('⏰ Auto-update: Checking for new sales data...');
+          // Only start update if not already downloading
+          if (!isDownloadingCache) {
+            startBackgroundCacheDownload(companyInfo, true);
+          }
+        }
+      } catch (err) {
+        console.warn('⚠️ Auto-update check failed:', err);
+      }
+    }, 30 * 60 * 1000); // 30 minutes in milliseconds
+
+    return () => clearInterval(autoUpdateInterval);
+  }, [isDownloadingCache]);
 
   // Filter sales data based on selected filters (excluding issales filter)
   const filteredSales = useMemo(() => {
@@ -948,10 +971,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return filtered;
   }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedLedgerGroup, selectedRegion, selectedCountry, selectedPeriod, selectedSalesperson, enabledSalespersons]);
 
-  // NOTE: This is the ONLY API call made for sales data
-  // It fetches ALL data including country, region, customer, items, etc. in ONE call
-  // After this call, all chart data and raw data is derived from the 'sales' state
-  // NO additional API calls are made for country data or any other drilldowns
+  // NOTE: Sales dashboard now uses CACHE ONLY - no API calls
+  // All data must be loaded from cache. Use Cache Management to download complete sales data.
+  // After loading from cache, all chart data and raw data is derived from the 'sales' state
+  // NO API calls are made - all data comes from cache
   const loadSales = async (startDate, endDate, { invalidateCache = false } = {}) => {
     if (!startDate || !endDate) {
       setError('Please select both start and end dates');
@@ -981,33 +1004,29 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     setElapsedTime(0);
 
     try {
-      const dateChunks = splitDateRange(startDate, endDate);
-      setProgress({ current: 0, total: dateChunks.length, percentage: 0 });
+      // Since we're using cache-only mode, we can fetch the entire date range at once
+      // fetchSalesData will filter from the complete cache
+      setProgress({ current: 0, total: 1, percentage: 0 });
       abortLoadingRef.current = false;
       
-      const responses = [];
-      for (let i = 0; i < dateChunks.length; i++) {
-        // Check if loading should be aborted
-        if (abortLoadingRef.current) {
-          console.log('⚠️ Loading aborted by user navigation');
-          break;
-        }
-        
-        const chunk = dateChunks[i];
-        const response = await fetchSalesDataWithProgress(chunk.start, chunk.end, i + 1, dateChunks.length);
-        responses.push(response);
-        
-        if (i < dateChunks.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 200));
-        }
-      }
+      // Fetch data for the entire date range from cache
+      console.log('📥 Loading sales data from cache for date range:', startDate, 'to', endDate);
+      const response = await fetchSalesData(startDate, endDate);
+      console.log('📦 Response from fetchSalesData:', {
+        hasResponse: !!response,
+        voucherCount: response?.vouchers?.length || 0,
+        sampleVoucher: response?.vouchers?.[0]
+      });
       
       const allVouchers = [];
-      responses.forEach(response => {
-        if (response?.vouchers && Array.isArray(response.vouchers)) {
-          allVouchers.push(...response.vouchers);
-        }
-      });
+      if (response?.vouchers && Array.isArray(response.vouchers)) {
+        allVouchers.push(...response.vouchers);
+        console.log('✅ Loaded', allVouchers.length, 'vouchers from cache');
+      } else {
+        console.warn('⚠️ No vouchers found in response:', response);
+      }
+      
+      setProgress({ current: 1, total: 1, percentage: 100 });
       
       // Debug: Log first voucher to see available fields
       if (allVouchers.length > 0) {
@@ -1196,7 +1215,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       // Process each sales voucher
       salesVouchers.forEach((voucher, voucherIndex) => {
         const voucherSalesperson = extractSalesperson(voucher);
-        const voucherDate = parseDateFromNewFormat(voucher.date);
+        // Try multiple date fields and formats
+        const voucherDateRaw = voucher.cp_date || voucher.date || voucher.DATE || voucher.CP_DATE;
+        let voucherDate = null;
+        if (voucherDateRaw) {
+          voucherDate = parseDateFromNewFormat(voucherDateRaw);
+          if (!voucherDate && /^\d{8}$/.test(voucherDateRaw)) {
+            voucherDate = parseDateFromAPI(voucherDateRaw);
+          }
+          if (!voucherDate) {
+            voucherDate = voucherDateRaw; // Use as-is if parsing fails
+          }
+        }
         const voucherCountry = extractCountry(voucher);
         const voucherState = voucher.state || 'Unknown';
         
@@ -1240,9 +1270,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         let totalSgst = 0;
         let totalRoundoff = 0;
         let totalSalesAmount = 0;
-        const inventoryItems = [];
         
-        // First pass: extract tax information and collect all inventory items
+        // Extract tax information from ledgers
         if (voucher.ledgers && Array.isArray(voucher.ledgers)) {
           voucher.ledgers.forEach(ledger => {
             const ledgerName = (ledger.ledger || '').toLowerCase();
@@ -1256,24 +1285,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             } else if (ledgerName.includes('round off') || ledgerName.includes('roundoff')) {
               totalRoundoff += ledgerAmt; // Can be negative
             }
-            
-            // Collect inventory items from sales ledgers
-            if (ledger.inventry && Array.isArray(ledger.inventry) && ledger.inventry.length > 0) {
-              ledger.inventry.forEach(inventoryItem => {
-                const itemAmount = parseAmount(inventoryItem.amt);
-                totalSalesAmount += itemAmount;
-                inventoryItems.push({
-                  ledger: ledger,
-                  inventoryItem: inventoryItem
-                });
-              });
-            }
           });
         }
         
-        // Second pass: create sale records with proportional tax distribution
-        if (inventoryItems.length > 0) {
-          inventoryItems.forEach(({ ledger, inventoryItem }) => {
+        // Calculate total sales amount from inventory items
+        if (voucher.inventry && Array.isArray(voucher.inventry)) {
+          voucher.inventry.forEach(inventoryItem => {
+            const itemAmount = parseAmount(inventoryItem.amt);
+            totalSalesAmount += itemAmount;
+          });
+        }
+        
+        // Process inventory items directly from voucher.inventry
+        if (voucher.inventry && Array.isArray(voucher.inventry) && voucher.inventry.length > 0) {
+          voucher.inventry.forEach((inventoryItem) => {
             // Parse quantity
             const parseQuantity = (qtyStr) => {
               if (!qtyStr) return 0;
@@ -1287,6 +1312,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             const itemCgst = totalCgst * taxRatio;
             const itemSgst = totalSgst * taxRatio;
             const itemRoundoff = totalRoundoff * taxRatio;
+            
+            // Get ledger group from accalloc (account allocation) if available
+            let ledgerGroup = 'Other';
+            if (inventoryItem.accalloc && Array.isArray(inventoryItem.accalloc) && inventoryItem.accalloc.length > 0) {
+              const accountAlloc = inventoryItem.accalloc[0]; // Usually first allocation
+              ledgerGroup = accountAlloc.ledgergroupidentify || accountAlloc.group || accountAlloc.grouplist?.split('|')[0] || 'Other';
+            }
             
             const saleRecord = {
               // Item-level fields
@@ -1306,8 +1338,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               country: voucherCountry,
               salesperson: voucherSalesperson,
               
-              // Ledger-level fields
-              ledgerGroup: ledger.ledgergroupidentify || ledger.group || ledger.grouplist?.split('|')[0] || 'Other',
+              // Ledger-level fields (from accalloc)
+              ledgerGroup: ledgerGroup,
               
               // Tax information (proportionally distributed)
               cgst: itemCgst,
@@ -1333,7 +1365,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               // Include all other fields from voucher for custom card creation
               ...Object.keys(voucher).reduce((acc, key) => {
                 // Only add fields that aren't already mapped above
-                const mappedKeys = ['mstid', 'alterid', 'vchno', 'date', 'party', 'partyid', 'state', 'country', 'amt', 'vchtype', 'reservedname', 'gstno', 'pincode', 'reference', 'ledgers', 'salesprsn', 'SalesPrsn', 'SALESPRSN', 'salesperson', 'SalesPerson', 'salespersonname', 'SalesPersonName', 'sales_person', 'SALES_PERSON', 'sales_person_name', 'SALES_PERSON_NAME', 'SALESPERSONNAME'];
+                const mappedKeys = ['mstid', 'alterid', 'vchno', 'date', 'party', 'partyid', 'state', 'country', 'amt', 'vchtype', 'reservedname', 'gstno', 'pincode', 'reference', 'ledgers', 'inventry', 'salesprsn', 'SalesPrsn', 'SALESPRSN', 'salesperson', 'SalesPerson', 'salespersonname', 'SalesPersonName', 'sales_person', 'SALES_PERSON', 'sales_person_name', 'SALES_PERSON_NAME', 'SALESPERSONNAME'];
                 if (!mappedKeys.includes(key) && !key.toLowerCase().includes('sales') && !key.toLowerCase().includes('person') && !key.toLowerCase().includes('prsn')) {
                   acc[key] = voucher[key];
                 }
@@ -1375,7 +1407,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         salespersonCounts: salespersonStats
       });
 
+      console.log('💾 Setting sales state with', transformedSales.length, 'transformed sales records');
       setSales(transformedSales);
+      console.log('✅ Sales data loaded successfully. Total records:', transformedSales.length);
       setDateRange({ start: startDate, end: endDate });
       setFromDate(startDate);
       setToDate(endDate);
@@ -1406,15 +1440,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   };
 
   // Background cache download function
-  const startBackgroundCacheDownload = async (companyInfo) => {
+  const startBackgroundCacheDownload = async (companyInfo, isUpdate = false) => {
     if (isDownloadingCache || cacheDownloadAbortRef.current) return;
 
     setIsDownloadingCache(true);
-    setCacheDownloadProgress({ current: 0, total: 0, message: 'Preparing to download cache...' });
+    setCacheDownloadProgress({ current: 0, total: 0, message: isUpdate ? 'Checking for updates...' : 'Downloading cache...' });
     cacheDownloadAbortRef.current = false;
 
     try {
-      console.log('🔄 Starting background cache download...');
+      console.log(`🔄 Starting background cache ${isUpdate ? 'update' : 'download'}...`);
       
       await syncSalesData(companyInfo, (progress) => {
         // Only update progress if not aborted
@@ -1429,29 +1463,32 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         return;
       }
 
-      console.log('✅ Background cache download completed!');
-      setCacheDownloadProgress({ current: 0, total: 0, message: 'Cache download complete!' });
+      console.log(`✅ Background cache ${isUpdate ? 'update' : 'download'} completed!`);
       
-      // Auto-load data after successful cache download
-      setTimeout(() => {
-        if (!cacheDownloadAbortRef.current) {
-          console.log('🚀 Auto-loading sales data from newly downloaded cache...');
-          setShouldAutoLoad(true);
-        }
-      }, 500);
+      // Auto-load data after successful cache download (only if it's first time download)
+      if (!isUpdate) {
+        setTimeout(() => {
+          if (!cacheDownloadAbortRef.current) {
+            console.log('🚀 Auto-loading sales data from newly downloaded cache...');
+            setShouldAutoLoad(true);
+          }
+        }, 500);
+      } else {
+        // For updates, reload the current view if user is still on the same date range
+        setTimeout(() => {
+          if (!cacheDownloadAbortRef.current && fromDate && toDate) {
+            console.log('🔄 Refreshing view with updated data...');
+            loadSales(fromDate, toDate, { invalidateCache: true });
+          }
+        }, 500);
+      }
 
     } catch (error) {
       console.error('❌ Background cache download failed:', error);
-      setCacheDownloadProgress({ current: 0, total: 0, message: 'Cache download failed' });
-      setError('Failed to download cache in background. Please try refreshing or use Cache Management.');
+      // Silent failure - no error shown to user
     } finally {
       setIsDownloadingCache(false);
-      // Clear progress message after a few seconds
-      setTimeout(() => {
-        if (!cacheDownloadAbortRef.current) {
-          setCacheDownloadProgress({ current: 0, total: 0, message: '' });
-        }
-      }, 3000);
+      setCacheDownloadProgress({ current: 0, total: 0, message: '' });
     }
   };
 
@@ -2621,8 +2658,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   }, [buildTransactionRows, filteredSales, transactionColumns]);
 
   // NOTE: fetchBillDrilldown is no longer needed - we use existing sales data
+  // DISABLED: API calls removed - sales dashboard uses cache only
   // Keeping for backward compatibility but it's not used anymore
   const fetchBillDrilldown_DEPRECATED = useCallback(async (ledgerName, billName, salesperson) => {
+    // API calls disabled - sales dashboard uses cache only
+    console.warn('⚠️ fetchBillDrilldown_DEPRECATED called but API calls are disabled. Use cached data instead.');
+    setShowDrilldown(true);
+    setDrilldownLoading(false);
+    setDrilldownError('API calls are disabled. Sales dashboard uses cache only.');
+    setSelectedBill({ ledgerName, billName, salesperson });
+    return;
+    
+    /* DISABLED - API calls removed
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -2764,11 +2811,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setDrilldownLoading(false);
       abortControllerRef.current = null;
     }
+    */ // End of disabled code
   }, []);
 
   // NOTE: fetchVoucherDetails is no longer needed - we use existing sales data
   // Keeping for backward compatibility but it's not used anymore
   const fetchVoucherDetails_DEPRECATED = useCallback(async (masterId) => {
+    // API calls disabled - sales dashboard uses cache only
+    console.warn('⚠️ fetchVoucherDetails_DEPRECATED called but API calls are disabled. Use cached data instead.');
+    setShowVoucherDetails(true);
+    setVoucherDetailsLoading(false);
+    setVoucherDetailsError('API calls are disabled. Sales dashboard uses cache only.');
+    return;
+    
+    /* DISABLED - API calls removed
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -2948,6 +3004,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setVoucherDetailsLoading(false);
       abortControllerRef.current = null;
     }
+    */ // End of disabled code
   }, []);
 
   // Handle voucher row click - use existing sales data
@@ -3947,9 +4004,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   loadSalesRef.current = loadSales;
 
+  // Auto-load cached data when tab opens (if cache exists)
   useEffect(() => {
     if (shouldAutoLoad && fromDate && toDate) {
-      loadSalesRef.current?.(fromDate, toDate, { invalidateCache: true });
+      // Always use cache when auto-loading - don't invalidate cache
+      // This ensures the sales dashboard always uses cached data when opening the tab
+      loadSalesRef.current?.(fromDate, toDate, { invalidateCache: false });
     }
   }, [shouldAutoLoad, fromDate, toDate]);
 
@@ -4517,6 +4577,26 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             0% { transform: translateX(-100%); }
             100% { transform: translateX(100%); }
           }
+          @keyframes pulse {
+            0%, 100% {
+              opacity: 1;
+              transform: scale(1);
+            }
+            50% {
+              opacity: 0.6;
+              transform: scale(1.1);
+            }
+          }
+          @keyframes pulseRing {
+            0% {
+              transform: scale(0.8);
+              opacity: 1;
+            }
+            100% {
+              transform: scale(1.8);
+              opacity: 0;
+            }
+          }
         `}
       </style>
      <div
@@ -4552,6 +4632,45 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           background: 'linear-gradient(to bottom, #ffffff 0%, #fafbfc 100%)',
           position: 'relative'
           }}>
+            {/* Green Pulsating Dot Indicator */}
+            {isDownloadingCache && (
+              <div style={{
+                position: 'absolute',
+                top: '20px',
+                right: '20px',
+                zIndex: 1000,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <div style={{ position: 'relative', width: '12px', height: '12px' }}>
+                  {/* Pulsating ring effect */}
+                  <div style={{
+                    position: 'absolute',
+                    top: '0',
+                    left: '0',
+                    width: '12px',
+                    height: '12px',
+                    borderRadius: '50%',
+                    background: '#10b981',
+                    opacity: 0.4,
+                    animation: 'pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                  }}></div>
+                  {/* Main dot */}
+                  <div style={{
+                    position: 'absolute',
+                    top: '0',
+                    left: '0',
+                    width: '12px',
+                    height: '12px',
+                    borderRadius: '50%',
+                    background: '#10b981',
+                    boxShadow: '0 0 8px rgba(16, 185, 129, 0.6)',
+                    animation: 'pulse 2s ease-in-out infinite'
+                  }}></div>
+                </div>
+              </div>
+            )}
             {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
         <div style={{
           display: 'flex',
@@ -4632,25 +4751,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   {filteredSales.length} records
                 </div>
 
-                {/* Background Cache Download Indicator */}
-                {isDownloadingCache && (
-                  <div style={{
-                    display: 'inline-flex',
-                    background: '#fef3c7',
-                    color: '#92400e',
-                    padding: '4px 10px',
-                    borderRadius: '16px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    alignItems: 'center',
-                    gap: '5px',
-                    border: '1px solid #fde68a',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    <span className="material-icons" style={{ fontSize: '14px', animation: 'spin 1s linear infinite' }}>sync</span>
-                    Downloading cache {cacheDownloadProgress.total > 0 ? `(${cacheDownloadProgress.current}/${cacheDownloadProgress.total})` : '...'}
-                  </div>
-                )}
               </div>
           </div>
 
@@ -4919,61 +5019,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
         </div>
 
-        {/* Progress Bar */}
-        {loading && progress.total > 0 && (
-          <div style={{
-            background: '#f0f9ff',
-            border: '1px solid #0ea5e9',
-            borderRadius: '8px',
-            padding: '16px',
-            margin: '16px 0',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px'
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontSize: '14px',
-              color: '#0369a1'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span className="material-icons" style={{ fontSize: '18px' }}>cloud_download</span>
-                <span style={{ fontWeight: '600' }}>Fetching data from Tally server...</span>
-              </div>
-              <span style={{ fontWeight: '600' }}>
-                {elapsedTime > 0 ? formatElapsedTime(elapsedTime) : 'Starting...'}
-              </span>
-            </div>
-            <div style={{
-              width: '100%',
-              background: '#e0f2fe',
-              borderRadius: '4px',
-              height: '8px',
-              overflow: 'hidden'
-            }}>
-              <div style={{
-                height: '8px',
-                background: 'linear-gradient(90deg, #0ea5e9 0%, #0284c7 100%)',
-                borderRadius: '4px',
-                width: `${progress.percentage}%`,
-                transition: 'width 0.3s ease',
-                position: 'relative'
-              }}>
-                <div style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%)',
-                  animation: 'progressShimmer 1.5s infinite'
-                }} />
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Progress Bar - Removed: Sales dashboard uses cache-only mode, no server fetching notifications */}
 
         {/* Error Message */}
         {error && (
@@ -4996,60 +5042,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           </div>
         )}
 
-        {/* Background Cache Download Info */}
-        {isDownloadingCache && sales.length === 0 && !loading && (
-          <div style={{
-            background: '#e0f2fe',
-            border: '1px solid #7dd3fc',
-            borderRadius: '12px',
-            padding: '20px',
-            margin: '16px 0',
-            color: '#075985',
-            fontSize: '14px',
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: '12px'
-          }}>
-            <span className="material-icons" style={{ fontSize: '24px', animation: 'spin 2s linear infinite' }}>
-              cloud_download
-            </span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: '600', marginBottom: '8px', fontSize: '15px' }}>
-                Downloading Sales Cache in Background
-              </div>
-              <div style={{ fontSize: '13px', lineHeight: '1.6', marginBottom: '8px' }}>
-                We're fetching your complete sales data from Tally Server and building the cache.
-                This process continues even if you switch tabs. You'll be able to view your data once the download completes.
-              </div>
-              {cacheDownloadProgress.total > 0 && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
-                  <div style={{
-                    flex: 1,
-                    height: '6px',
-                    background: '#bae6fd',
-                    borderRadius: '3px',
-                    overflow: 'hidden'
-                  }}>
-                    <div style={{
-                      width: `${(cacheDownloadProgress.current / cacheDownloadProgress.total) * 100}%`,
-                      height: '100%',
-                      background: 'linear-gradient(90deg, #0284c7, #0369a1)',
-                      transition: 'width 0.3s ease'
-                    }} />
-                  </div>
-                  <span style={{ fontWeight: '600', whiteSpace: 'nowrap' }}>
-                    {cacheDownloadProgress.current} / {cacheDownloadProgress.total}
-                  </span>
-                </div>
-              )}
-              {cacheDownloadProgress.message && (
-                <div style={{ fontSize: '12px', marginTop: '6px', opacity: 0.8 }}>
-                  {cacheDownloadProgress.message}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Active Filters Display */}
         {hasActiveFilters && (
@@ -5519,6 +5511,35 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
         {/* Dashboard Content */}
         <div style={{ padding: '24px 28px 28px 28px' }}>
+          {/* Date Range Display */}
+          {fromDate && toDate && (
+            <div style={{
+              marginBottom: '24px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              fontSize: '16px',
+              fontWeight: '600',
+              color: '#475569'
+            }}>
+              <span>
+                {new Date(fromDate).toLocaleDateString('en-IN', { 
+                  day: 'numeric', 
+                  month: 'short', 
+                  year: 'numeric' 
+                })}
+              </span>
+              <span style={{ color: '#94a3b8' }}>→</span>
+              <span>
+                {new Date(toDate).toLocaleDateString('en-IN', { 
+                  day: 'numeric', 
+                  month: 'short', 
+                  year: 'numeric' 
+                })}
+              </span>
+            </div>
+          )}
+          
           {/* KPI Cards */}
           <div style={{
             display: 'grid',
