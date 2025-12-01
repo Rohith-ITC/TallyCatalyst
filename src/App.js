@@ -14,13 +14,8 @@ import UserDashboard from './UserDashboard';
 import AdminDashboard from './admindashboard/Dashboard';
 import ChangePassword from './admindashboard/ChangePassword';
 import TallyDashboard from './TallyDashboard/tallydashboard';
-<<<<<<< HEAD
 import SubscriptionManagement from './admindashboard/SubscriptionManagement';
-import VendorInvitationForm from './TallyDashboard/VendorInvitationForm';
-=======
-import SubscriptionPlans from './subscription/SubscriptionPlans';
 import MasterInvitationForm from './TallyDashboard/MasterInvitationForm';
->>>>>>> 97cc187618a1b9becc15fd103b173a40072c661c
 import { APP_CONFIG } from './config';
 
 // Protected Route Component

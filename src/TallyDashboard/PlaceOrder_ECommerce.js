@@ -3,11 +3,8 @@ import { getApiUrl, API_CONFIG } from '../config';
 import { apiGet, apiPost } from '../utils/apiUtils';
 import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
-<<<<<<< HEAD
-import { convertGoogleDriveToImageUrl, isGoogleDriveLink, detectGoogleDriveFileType, extractGoogleDriveFileId } from '../utils/googleDriveImageUtils';
-=======
 import { getGoogleTokenFromConfigs, getGoogleDriveImageUrl } from '../utils/googleDriveUtils';
->>>>>>> 97cc187618a1b9becc15fd103b173a40072c661c
+import { isGoogleDriveLink, detectGoogleDriveFileType, convertGoogleDriveToImageUrl } from '../utils/googleDriveImageUtils';
 
 function PlaceOrder_ECommerce() {
   // Get all companies from sessionStorage - moved outside to prevent recreation
@@ -1802,142 +1799,6 @@ function PlaceOrder_ECommerce() {
                       justifyContent: 'center',
                       position: 'relative'
                     }}>
-<<<<<<< HEAD
-                      {canShowImage && item.IMAGEPATH ? (
-                        <>
-                          <img
-                            src={imageUrlMap[item.NAME] || convertGoogleDriveToImageUrl(item.IMAGEPATH) || item.IMAGEPATH}
-                            alt={item.NAME}
-                            style={{
-                              width: '100%',
-                              height: '100%',
-                              objectFit: 'cover',
-                              borderRadius: '8px',
-                              position: 'absolute',
-                              top: 0,
-                              left: 0
-                            }}
-                            onLoad={() => {
-                              // If image loads successfully, make sure iframe is not shown
-                              if (isGoogleDriveLink(item.IMAGEPATH)) {
-                                const parent = document.querySelector(`[data-item-name="${item.NAME}"]`);
-                                if (parent) {
-                                  const existingIframe = parent.querySelector('iframe');
-                                  if (existingIframe) {
-                                    existingIframe.remove();
-                                    console.log('Image loaded successfully, removed iframe fallback');
-                                  }
-                                }
-                              }
-                            }}
-                            onError={(e) => {
-                              // If Google Drive conversion failed, try smaller thumbnails first
-                              if (isGoogleDriveLink(item.IMAGEPATH)) {
-                                const fileId = extractGoogleDriveFileId(item.IMAGEPATH);
-                                if (fileId) {
-                                  const currentSrc = e.target.src;
-                                  const errorCount = parseInt(e.target.dataset.errorCount || '0');
-                                  
-                                  // Try smaller CDN sizes first (most reliable)
-                                  const fallbackMethods = [
-                                    `https://lh3.googleusercontent.com/d/${fileId}=w400`, // Smaller CDN
-                                    `https://lh3.googleusercontent.com/d/${fileId}=w200`, // Very small CDN
-                                    `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`, // Old thumbnail API as backup
-                                    `https://drive.google.com/uc?export=view&id=${fileId}`, // Direct view as last image attempt
-                                  ];
-                                  
-                                  // Try thumbnail methods with delays to avoid rate limiting
-                                  if (errorCount < fallbackMethods.length) {
-                                    const nextMethod = fallbackMethods[errorCount];
-                                    e.target.dataset.errorCount = (errorCount + 1).toString();
-                                    
-                                    // Add delay to avoid rate limiting (3s, 6s, 9s)
-                                    setTimeout(() => {
-                                      console.log(`Retrying Google Drive file ${fileId} with method ${errorCount + 1}:`, nextMethod);
-                                      e.target.src = nextMethod;
-                                      e.target.style.display = 'block'; // Make sure img is visible
-                                    }, 3000 * (errorCount + 1));
-                                    return;
-                                  }
-                                  
-                                  // Only use iframe if ALL image methods fail (including all thumbnail sizes)
-                                  // Check if iframe already exists to avoid duplicates
-                                  const parent = e.target.parentElement;
-                                  const existingIframe = parent.querySelector('iframe');
-                                  if (!existingIframe) {
-                                    e.target.style.display = 'none';
-                                    const iframeContainer = document.createElement('div');
-                                    iframeContainer.style.cssText = `
-                                      width: 100%;
-                                      height: 100%;
-                                      position: absolute;
-                                      top: 0;
-                                      left: 0;
-                                      border-radius: 8px;
-                                      overflow: hidden;
-                                    `;
-                                    const iframe = document.createElement('iframe');
-                                    iframe.src = `https://drive.google.com/file/d/${fileId}/preview`;
-                                    iframe.style.cssText = `
-                                      width: 100%;
-                                      height: 100%;
-                                      border: none;
-                                      pointer-events: none;
-                                    `;
-                                    iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts');
-                                    iframeContainer.appendChild(iframe);
-                                    parent.appendChild(iframeContainer);
-                                    console.log('Using iframe fallback for Google Drive file (CSP warnings are harmless)');
-                                  }
-                                  return;
-                                }
-                              }
-                              
-                              // Show placeholder if all attempts fail
-                              console.warn('⚠️ All image loading methods failed for:', item.IMAGEPATH);
-                              e.target.style.display = 'none';
-                              const placeholder = e.target.nextElementSibling;
-                              if (placeholder) {
-                                placeholder.style.display = 'flex';
-                              }
-                            }}
-                          />
-                          <div style={{
-                            width: '100%',
-                            height: '100%',
-                            display: 'none',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            border: '2px dashed #d1d5db',
-                            borderRadius: '8px'
-                          }}>
-                            <span className="material-icons" style={{
-                              fontSize: '32px',
-                              color: '#9ca3af'
-                            }}>
-                              inventory_2
-                            </span>
-                          </div>
-                        </>
-                      ) : (
-                        <div style={{
-                          width: '100%',
-                          height: '100%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          border: '2px dashed #d1d5db',
-                          borderRadius: '8px'
-                        }}>
-                          <span className="material-icons" style={{
-                            fontSize: '32px',
-                            color: '#9ca3af'
-                          }}>
-                            inventory_2
-                          </span>
-                        </div>
-                      )}
-=======
                       <ProductImage 
                         imagePath={item.IMAGEPATH} 
                         itemName={item.NAME}
@@ -1945,7 +1806,6 @@ function PlaceOrder_ECommerce() {
                         imageUrlCacheRef={imageUrlCache}
                         canShowImage={canShowImage}
                       />
->>>>>>> 97cc187618a1b9becc15fd103b173a40072c661c
                     </div>
                     
                     {/* Product Details */}

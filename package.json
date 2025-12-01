@@ -18,11 +18,7 @@
     "ajv-keywords": "^3.5.2",
     "date-fns": "^4.1.0",
     "plotly.js": "^3.3.0",
-<<<<<<< HEAD
-=======
     "dexie": "^4.2.1",
-    "plotly.js": "^3.3.0",
->>>>>>> 97cc187618a1b9becc15fd103b173a40072c661c
     "razorpay": "^2.9.6",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
