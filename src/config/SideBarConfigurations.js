@@ -29,6 +29,22 @@ export const MODULE_SEQUENCE = [
       permissions     : {}
     },
     {
+      key             : 'receipt_find_party',
+      id              : 'receipt_find_party',
+      label           : 'Receipt Find Party',
+      icon            : 'search',
+      alwaysVisible   : true,
+      permissions     : {}
+    },
+    {
+      key             : 'company_orders',
+      id              : 'company_orders',
+      label           : 'Company Orders',
+      icon            : 'shopping_bag',
+      alwaysVisible   : true,
+      permissions     : {}
+    },
+    {
       key               : 'place_order',
       id                : 'order',
       label             : 'Place Order',
@@ -138,45 +154,45 @@ export const MODULE_SEQUENCE = [
 
     },
     {
-      key               : 'vendor_management',
-      id                : 'vendor_management',
-      label             : 'Vendor Management',
+      key               : 'cache_management',
+      id                : 'cache_management',
+      label             : 'Cache Management',
+      icon              : 'storage',
+      alwaysVisible     : true,
+      permissions       : {}
+    },
+    {
+      key               : 'master_management',
+      id                : 'master_management',
+      label             : 'Master Management',
       icon              : 'business_center',
       hasSubModules     : true,
       useRightSideDropdown : true,
       alwaysVisible     : true,
       subModules: [
         {
-          key           : 'vendor_form',
-          id            : 'vendor_form',
-          label         : 'Vendor Creation',
+          key           : 'master_form',
+          id            : 'master_form',
+          label         : 'Master Creation',
           icon          : 'person_add',
           permissions   : {}
         },
         {
-          key           : 'vendor_authorization',
-          id            : 'vendor_authorization',
-          label         : 'Vendor Authorization',
+          key           : 'master_authorization',
+          id            : 'master_authorization',
+          label         : 'Master Authorization',
           icon          : 'verified_user',
           permissions   : {}
         },
         {
-          key           : 'vendor_list',
-          id            : 'vendor_list',
-          label         : 'Vendor List',
+          key           : 'master_list',
+          id            : 'master_list',
+          label         : 'Master List',
           icon          : 'list',
           permissions   : {}
         }
       ],
       permissions: {}
-    },
-    {
-      key               : 'link_account',
-      id                : 'link_account',
-      label             : 'Link Account',
-      icon              : 'link',
-      alwaysVisible     : true,
-      permissions       : {}
     }
     
   ];

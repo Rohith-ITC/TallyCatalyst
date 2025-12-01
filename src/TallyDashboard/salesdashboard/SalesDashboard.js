@@ -20,11 +20,12 @@ import {
 } from '../../RecvDashboard/utils/helpers';
 import { getApiUrl } from '../../config';
 import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/companyConfigUtils';
+import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
 
 const SalesDashboard = () => {
   const RAW_DATA_PAGE_SIZE = 20;
 
-  const getInitialCachedState = () => {
+  const getInitialCachedState = async () => {
     try {
       const connections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
       const selectedGuid = sessionStorage.getItem('selectedCompanyGuid');
@@ -32,18 +33,16 @@ const SalesDashboard = () => {
       const company = connections.find(c => c.guid === selectedGuid);
       if (!company || !company.tallyloc_id || !company.guid) return null;
       const cacheKey = `sales-dashboard_${company.tallyloc_id}_${company.guid}`;
-      const cached = sessionStorage.getItem(cacheKey);
-      return cached ? JSON.parse(cached) : null;
+      return await hybridCache.getDashboardState(cacheKey);
     } catch (err) {
       console.warn('⚠️ Unable to read cached sales dashboard state:', err);
       return null;
     }
   };
 
-  const initialCachedState = getInitialCachedState();
 
   // API data state
-  const [sales, setSales] = useState(() => initialCachedState?.sales || []);
+  const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [noCompanySelected, setNoCompanySelected] = useState(false);
@@ -54,15 +53,15 @@ const SalesDashboard = () => {
   const [loadingStartTime, setLoadingStartTime] = useState(null);
 
   // Form state
-  const [fromDate, setFromDate] = useState(() => initialCachedState?.fromDate || '');
-  const [toDate, setToDate] = useState(() => initialCachedState?.toDate || '');
-  const [dateRange, setDateRange] = useState(() => ({ start: initialCachedState?.fromDate || '', end: initialCachedState?.toDate || '' }));
-  const [selectedCustomer, setSelectedCustomer] = useState(() => initialCachedState?.filters?.customer ?? 'all');
-  const [selectedItem, setSelectedItem] = useState(() => initialCachedState?.filters?.item ?? 'all');
-  const [selectedStockGroup, setSelectedStockGroup] = useState(() => initialCachedState?.filters?.stockGroup ?? 'all');
-  const [selectedRegion, setSelectedRegion] = useState(() => initialCachedState?.filters?.region ?? 'all');
-  const [selectedCountry, setSelectedCountry] = useState(() => initialCachedState?.filters?.country ?? 'all');
-  const [selectedPeriod, setSelectedPeriod] = useState(() => initialCachedState?.filters?.period ?? null); // Format: "YYYY-MM"
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [dateRange, setDateRange] = useState({ start: '', end: '' });
+  const [selectedCustomer, setSelectedCustomer] = useState('all');
+  const [selectedItem, setSelectedItem] = useState('all');
+  const [selectedStockGroup, setSelectedStockGroup] = useState('all');
+  const [selectedRegion, setSelectedRegion] = useState('all');
+  const [selectedCountry, setSelectedCountry] = useState('all');
+  const [selectedPeriod, setSelectedPeriod] = useState(null); // Format: "YYYY-MM"
   const [selectedLedgerGroup, setSelectedLedgerGroup] = useState('all');
   // Generic filter state for custom card fields that aren't explicitly mapped
   const [genericFilters, setGenericFilters] = useState(() => {
@@ -95,8 +94,7 @@ const SalesDashboard = () => {
   const [salespersonFormula, setSalespersonFormula] = useState(''); // Formula from company configuration
   const requestTimestampRef = useRef(Date.now());
 
-  // Cache for API responses
-  const [apiCache, setApiCache] = useState(new Map());
+  // Note: apiCache removed - using hybridCache (OPFS-only) instead
   const [shouldAutoLoad, setShouldAutoLoad] = useState(false);
   const loadSalesRef = useRef(null);
   const [rawDataModal, setRawDataModal] = useState({ open: false, title: '', rows: [], columns: [] });
@@ -219,6 +217,47 @@ const SalesDashboard = () => {
     return `${dateString.slice(0, 4)}-${dateString.slice(4, 6)}-${dateString.slice(6, 8)}`;
   };
 
+  const parseDateFromNewFormat = (dateString) => {
+    // Parse dates from format like "1-Jun-25" to "2025-06-01"
+    if (!dateString) return null;
+    
+    // If already in YYYY-MM-DD format, return as is
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
+      return dateString;
+    }
+    
+    // If in YYYYMMDD format, use existing parser
+    if (/^\d{8}$/.test(dateString)) {
+      return parseDateFromAPI(dateString);
+    }
+    
+    try {
+      // Parse format like "1-Jun-25" or "15-Jul-25"
+      const parts = dateString.split('-');
+      if (parts.length === 3) {
+        const day = parseInt(parts[0], 10);
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const monthIndex = monthNames.findIndex(m => m.toLowerCase() === parts[1].toLowerCase());
+        if (monthIndex === -1) {
+          console.warn('Unknown month in date:', dateString);
+          return null;
+        }
+        const year = parseInt(parts[2], 10);
+        // Assume years < 50 are 20XX, >= 50 are 19XX
+        const fullYear = year < 50 ? 2000 + year : 1900 + year;
+        
+        const month = String(monthIndex + 1).padStart(2, '0');
+        const dayStr = String(day).padStart(2, '0');
+        
+        return `${fullYear}-${month}-${dayStr}`;
+      }
+    } catch (error) {
+      console.warn('Error parsing date:', dateString, error);
+    }
+    
+    return null;
+  };
+
   const getDashboardCacheKey = (companyInfo) => {
     if (!companyInfo || !companyInfo.tallyloc_id || !companyInfo.guid) return null;
     return `sales-dashboard_${companyInfo.tallyloc_id}_${companyInfo.guid}`;
@@ -250,11 +289,11 @@ const SalesDashboard = () => {
     setSelectedPeriod(filters.period ?? null);
   }, [setFromDate, setToDate, setDateRange, setSales, setSelectedCustomer, setSelectedItem, setSelectedStockGroup, setSelectedRegion, setSelectedCountry, setSelectedPeriod]);
 
-  const persistDashboardCache = (companyInfo, payload) => {
+  const persistDashboardCache = async (companyInfo, payload) => {
     const cacheKey = getDashboardCacheKey(companyInfo);
     if (!cacheKey) return;
     try {
-      sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+      await hybridCache.setDashboardState(cacheKey, payload);
     } catch (err) {
       console.warn('⚠️ Failed to persist sales dashboard cache:', err);
     }
@@ -274,7 +313,7 @@ const SalesDashboard = () => {
     };
   }, []);
 
-  const initializeDashboard = useCallback((options = { triggerFetch: true }) => {
+  const initializeDashboard = useCallback(async (options = { triggerFetch: false }) => {
     try {
       const companyInfo = getCompanyInfo();
       setNoCompanySelected(false);
@@ -282,16 +321,11 @@ const SalesDashboard = () => {
 
       const cacheKey = getDashboardCacheKey(companyInfo);
       if (cacheKey) {
-        const cachedState = sessionStorage.getItem(cacheKey);
+        const cachedState = await getInitialCachedState();
         if (cachedState) {
-          try {
-            const parsed = JSON.parse(cachedState);
-            applyCachedDashboardState(parsed);
-            setShouldAutoLoad(false);
-            return;
-          } catch (err) {
-            console.warn('⚠️ Failed to parse cached sales dashboard state:', err);
-          }
+          applyCachedDashboardState(cachedState);
+          setShouldAutoLoad(false);
+          return;
         }
       }
 
@@ -376,27 +410,143 @@ const SalesDashboard = () => {
 
   const fetchSalesData = async (startDate, endDate) => {
     const companyInfo = getCompanyInfo();
+    
+    // First, check for complete cached data - if exists, use it and don't call API
+    try {
+      const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+      if (completeCache && completeCache.data && completeCache.data.vouchers) {
+        console.log(`📋 Using complete cached data (${completeCache.data.vouchers.length} total vouchers), filtering for date range ${startDate} to ${endDate}`);
+        
+        // Filter vouchers by date range
+        const filteredVouchers = completeCache.data.vouchers.filter(voucher => {
+          const voucherDate = voucher.cp_date || voucher.date || voucher.DATE || voucher.CP_DATE;
+          if (!voucherDate) return false;
+          
+          // Parse date - handle different formats using existing helper function
+          let dateStr = parseDateFromNewFormat(voucherDate);
+          if (!dateStr && typeof voucherDate === 'string') {
+            // Try parsing YYYYMMDD format
+            if (/^\d{8}$/.test(voucherDate)) {
+              dateStr = parseDateFromAPI(voucherDate);
+            } else {
+              // Try direct parsing
+              dateStr = voucherDate;
+            }
+          }
+          
+          if (!dateStr) return false;
+          
+          // Ensure dateStr is in YYYY-MM-DD format for comparison
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+            return false;
+          }
+          
+          return dateStr >= startDate && dateStr <= endDate;
+        });
+        
+        console.log(`✅ Filtered ${filteredVouchers.length} vouchers from complete cache for date range ${startDate} to ${endDate}`);
+        
+        // Return filtered data from cache - don't proceed to API calls
+        return {
+          ...completeCache.data,
+          vouchers: filteredVouchers
+        };
+      } else {
+        console.log('📋 No complete cached data found, will check date-range cache or fetch from API');
+      }
+    } catch (error) {
+      console.warn('⚠️ Error checking complete cache:', error);
+      // Continue to check other cache or API if complete cache check fails
+    }
+    
     // Include salesperson formula in cache key so cache invalidates when formula changes
     const formulaHash = salespersonFormula ? btoa(salespersonFormula).substring(0, 10) : 'noformula';
-    const cacheKey = `${companyInfo.tallyloc_id}_${companyInfo.guid}_${requestTimestampRef.current}_${formulaHash}_${startDate}_${endDate}`;
+    const baseKey = `${companyInfo.tallyloc_id}_${companyInfo.guid}_${requestTimestampRef.current}_${formulaHash}`;
+    const cacheKey = `${baseKey}_${startDate}_${endDate}`;
     
-    // Check cache first
-    if (apiCache.has(cacheKey)) {
-      const cachedData = apiCache.get(cacheKey);
-      const cacheDate = new Date(cachedData.timestamp);
-      const now = new Date();
-      const daysDiff = (now - cacheDate) / (1000 * 60 * 60 * 24);
-      
-      if (daysDiff < 5) {
-        console.log(`📋 Using cached data for ${startDate} to ${endDate}`);
-        return cachedData.data;
-      } else {
-        console.log(`⏰ Cache expired for ${startDate} to ${endDate}, fetching fresh data`);
+    // Check for exact cache match
+    try {
+      const cachedData = await hybridCache.getSalesData(cacheKey); // Uses configured expiry
+      if (cachedData) {
+        console.log(`📋 Using exact cached data for ${startDate} to ${endDate}`);
+        return cachedData;
       }
-    } else {
-      console.log(`🆕 No cache found for ${startDate} to ${endDate}, fetching fresh data`);
+    } catch (error) {
+      console.warn('Cache read error:', error);
     }
+    
+    // Check for overlapping cached date ranges
+    try {
+      const cachedRanges = await hybridCache.findCachedDateRanges(baseKey, startDate, endDate);
+      
+      if (cachedRanges.length > 0) {
+        console.log(`🔍 Found ${cachedRanges.length} overlapping cached date range(s)`);
+        
+        // Calculate gaps (missing date ranges)
+        const requestRange = { startDate, endDate };
+        const { cached, gaps } = DateRangeUtils.splitDateRangeIntoGaps(requestRange, cachedRanges);
+        
+        if (gaps.length === 0) {
+          // All data is cached, merge and return
+          console.log(`✅ All data is cached, merging ${cached.length} cached range(s)`);
+          return mergeCachedData(cached);
+        }
+        
+        // Some data is missing, but we're not calling API - use only cached data
+        console.log(`📊 Partial cache: ${cached.length} cached range(s), ${gaps.length} gap(s) missing (not fetching from API)`);
+        console.log(`⚠️ Missing gaps: ${gaps.map(g => `${g.startDate} to ${g.endDate}`).join(', ')}`);
+        
+        // Return only cached data without fetching gaps
+        const merged = mergeCachedData(cached);
+        console.log(`✅ Returning ${merged.vouchers?.length || 0} vouchers from cached ranges only`);
+        return merged;
+      }
+    } catch (error) {
+      console.warn('Error checking for overlapping cache:', error);
+    }
+    
+    // Check once more if complete cache exists (in case it was added while we were checking)
+    const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+    if (completeCache && completeCache.data && completeCache.data.vouchers) {
+      console.log(`📋 Complete cache found during final check, using it instead of API`);
+      
+      // Filter vouchers by date range
+      const filteredVouchers = completeCache.data.vouchers.filter(voucher => {
+        const voucherDate = voucher.cp_date || voucher.date || voucher.DATE || voucher.CP_DATE;
+        if (!voucherDate) return false;
+        
+        let dateStr = parseDateFromNewFormat(voucherDate);
+        if (!dateStr && typeof voucherDate === 'string') {
+          if (/^\d{8}$/.test(voucherDate)) {
+            dateStr = parseDateFromAPI(voucherDate);
+          } else {
+            dateStr = voucherDate;
+          }
+        }
+        
+        if (!dateStr) return false;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          return false;
+        }
+        
+        return dateStr >= startDate && dateStr <= endDate;
+      });
+      
+      return {
+        ...completeCache.data,
+        vouchers: filteredVouchers
+      };
+    }
+    
+    console.log(`⚠️ No cache found for ${startDate} to ${endDate}. Complete cache not available.`);
+    console.log(`⚠️ Skipping API call as requested - please download complete data first from Cache Management.`);
+    
+    // Return empty data instead of calling API
+    return { vouchers: [] };
+  };
 
+  // Helper function to fetch data from API
+  const fetchSalesDataFromAPI = async (companyInfo, startDate, endDate) => {
     try {
       const payload = {
         tallyloc_id: companyInfo.tallyloc_id,
@@ -412,11 +562,11 @@ const SalesDashboard = () => {
         console.log('✅ Using salesperson formula from config:', salespersonFormula);
       }
 
-      // Note: The backend API /api/reports/salesvoucherextract should use the 
+      // Note: The backend API /api/reports/salesextract should use the 
       // 'salesdash_salesprsn' company configuration to extract salesperson data.
       // We're also passing it explicitly in the payload to ensure it's used.
       console.log('🚀 Making API call with payload:', payload);
-      const data = await apiPost(`/api/reports/salesvoucherextract?ts=${Date.now()}`, payload);
+      const data = await apiPost(`/api/reports/salesextract?ts=${Date.now()}`, payload);
       console.log('✅ API response structure:', {
         hasVouchers: !!data?.vouchers,
         vouchersCount: data?.vouchers?.length || 0,
@@ -459,17 +609,46 @@ const SalesDashboard = () => {
         });
       }
       
-      // Cache the response
-      setApiCache(prev => new Map(prev).set(cacheKey, {
-        data: data,
-        timestamp: new Date().toISOString()
-      }));
-
       return data;
     } catch (error) {
-      console.error('Error fetching sales data:', error);
+      console.error('Error fetching sales data from API:', error);
       throw error;
     }
+  };
+
+  // Helper function to merge cached data from multiple date ranges
+  const mergeCachedData = (ranges) => {
+    if (ranges.length === 0) {
+      return { vouchers: [] };
+    }
+    
+    // Combine all vouchers
+    const allVouchers = [];
+    const voucherIds = new Set(); // To track duplicates
+    
+    for (const range of ranges) {
+      if (range.data?.vouchers && Array.isArray(range.data.vouchers)) {
+        for (const voucher of range.data.vouchers) {
+          // Try to identify unique vouchers (use voucher number or ID if available)
+          const voucherId = voucher.voucher_number || voucher.voucherNumber || voucher.id || 
+                           `${voucher.cp_date || voucher.date}_${voucher.customer}_${voucher.amount}`;
+          
+          if (!voucherIds.has(voucherId)) {
+            voucherIds.add(voucherId);
+            allVouchers.push(voucher);
+          }
+        }
+      }
+    }
+    
+    // Return merged data structure
+    return {
+      vouchers: allVouchers,
+      ...(ranges[0].data ? Object.keys(ranges[0].data).filter(k => k !== 'vouchers').reduce((acc, key) => {
+        acc[key] = ranges[0].data[key];
+        return acc;
+      }, {}) : {})
+    };
   };
 
   // Fetch company configuration for sales person formula
@@ -516,26 +695,22 @@ const SalesDashboard = () => {
   useEffect(() => {
     // Only refresh if formula actually changed (not just initial load)
     if (salespersonFormula !== prevFormulaRef.current && prevFormulaRef.current !== '') {
-      console.log('🔄 Salesperson formula changed, refreshing data...', {
+      console.log('🔄 Salesperson formula changed. Please click Submit to refresh data with new formula.', {
         old: prevFormulaRef.current,
         new: salespersonFormula
       });
-      // Clear cache to force fresh fetch with new formula
-      setApiCache(new Map());
-      // Refresh data if date range is already set
-      if (dateRange.start && dateRange.end) {
-        initializeDashboard({ triggerFetch: true });
-      }
+      // Note: Cache will be invalidated by requestTimestampRef update when user clicks Submit
+      // Don't auto-fetch - user must click Submit button to refresh data
     }
     prevFormulaRef.current = salespersonFormula;
   }, [salespersonFormula, dateRange.start, dateRange.end, initializeDashboard]);
 
   // Set default date range on component mount
   useEffect(() => {
-    initializeDashboard({ triggerFetch: true });
+    initializeDashboard({ triggerFetch: false });
 
     const handleCompanyChange = () => {
-      initializeDashboard({ triggerFetch: true });
+      initializeDashboard({ triggerFetch: false });
     };
 
     window.addEventListener('companyChanged', handleCompanyChange);
@@ -761,7 +936,7 @@ const SalesDashboard = () => {
 
     if (invalidateCache) {
       requestTimestampRef.current = Date.now();
-    setApiCache(new Map());
+      // Note: Cache invalidation happens via cacheKey change (requestTimestampRef)
     }
 
     setLoading(true);
@@ -949,18 +1124,41 @@ const SalesDashboard = () => {
         return 'Unknown';
       };
       
-      const transformedSales = allVouchers.map(voucher => {
-        // Extract salesperson with detailed logging for first voucher
-        // Check "salesprsn" first as it's the field name from the backend
-        const salesperson = voucher.salesprsn || voucher.SalesPrsn || voucher.SALESPRSN ||
-                            voucher.salesperson || voucher.SalesPerson || 
-                            voucher.salespersonname || voucher.SalesPersonName || 
-                            voucher.sales_person || voucher.SALES_PERSON || 
-                            voucher.sales_person_name || voucher.SALES_PERSON_NAME ||
-                            voucher.salespersonname || voucher.SALESPERSONNAME || 'Unassigned';
+      // Transform nested response structure (vouchers -> ledgers -> inventry) into flat sale records
+      const transformedSales = [];
+      
+      // Filter vouchers to only include sales-related vouchers
+      const salesVouchers = allVouchers.filter(voucher => {
+        const vchtype = (voucher.vchtype || '').toLowerCase();
+        const reservedname = (voucher.reservedname || '').toLowerCase();
+        return vchtype.includes('sales') || reservedname === 'sales';
+      });
+      
+      console.log('📊 Filtered sales vouchers:', {
+        totalVouchers: allVouchers.length,
+        salesVouchers: salesVouchers.length,
+        nonSalesVouchers: allVouchers.length - salesVouchers.length
+      });
+      
+      // Extract salesperson from voucher (if available) or use formula
+      const extractSalesperson = (voucher) => {
+        return voucher.salesprsn || voucher.SalesPrsn || voucher.SALESPRSN ||
+               voucher.salesperson || voucher.SalesPerson || 
+               voucher.salespersonname || voucher.SalesPersonName || 
+               voucher.sales_person || voucher.SALES_PERSON || 
+               voucher.sales_person_name || voucher.SALES_PERSON_NAME ||
+               voucher.salespersonname || voucher.SALESPERSONNAME || 'Unassigned';
+      };
+      
+      // Process each sales voucher
+      salesVouchers.forEach((voucher, voucherIndex) => {
+        const voucherSalesperson = extractSalesperson(voucher);
+        const voucherDate = parseDateFromNewFormat(voucher.date);
+        const voucherCountry = extractCountry(voucher);
+        const voucherState = voucher.state || 'Unknown';
         
         // Log salesperson extraction for first voucher only
-        if (allVouchers.indexOf(voucher) === 0) {
+        if (voucherIndex === 0) {
           console.log('🔍 Salesperson extraction (first voucher):', {
             originalFields: {
               salesprsn: voucher.salesprsn,
@@ -977,7 +1175,7 @@ const SalesDashboard = () => {
               salespersonname: voucher.salespersonname,
               SALESPERSONNAME: voucher.SALESPERSONNAME
             },
-            extractedValue: salesperson,
+            extractedValue: voucherSalesperson,
             allKeys: Object.keys(voucher).filter(k => {
               const lowerKey = k.toLowerCase();
               return lowerKey.includes('sales') || lowerKey.includes('person') || lowerKey.includes('prsn');
@@ -985,39 +1183,124 @@ const SalesDashboard = () => {
           });
         }
         
-        return {
-        category: voucher.sgrpofgrp || voucher.sgroup || 'Other',
-          ledgerGroup: voucher.group || voucher.Group || voucher.GROUP || voucher.ledgerGroup || voucher.ledger_group || voucher.ledgerGroupName || voucher.ledger_group_name || voucher.parent || voucher.parentName || voucher.customerGroup || voucher.customer_group || 'Other',
-        region: voucher.state || 'Unknown',
-        country: extractCountry(voucher),
-          salesperson: salesperson,
-        amount: parseFloat(voucher.amount) || 0,
-        quantity: parseInt(voucher.billedqty) || 0,
-        customer: voucher.customer || 'Unknown',
-        item: voucher.stockitem || 'Unknown',
-        date: parseDateFromAPI(voucher.date),
-        cp_date: voucher.cp_date ? parseDateFromAPI(voucher.cp_date) : null,
-        vchno: voucher.vchno,
-        masterid: voucher.masterid,
-        issales: voucher.issales,
-        profit: parseFloat(voucher.profit) || 0,
-        // Store tax information if available in original voucher
-        cgst: parseFloat(voucher.cgst || voucher.CGST || 0),
-        sgst: parseFloat(voucher.sgst || voucher.SGST || 0),
-          roundoff: parseFloat(voucher.roundoff || voucher.ROUNDOFF || voucher.round_off || 0),
-          // Store narration from CP_Temp7 field (XML tag is "NARRATION" per line 1869)
-          // Check NARRATION first since that's the XML tag, then fallback to CP_Temp7
-          CP_Temp7: voucher.NARRATION || voucher.narration || voucher.Narration || voucher.CP_Temp7 || voucher.cp_temp7 || '',
-          // Include all other fields from the voucher for custom card creation
-          ...Object.keys(voucher).reduce((acc, key) => {
-            // Only add fields that aren't already mapped above
-            const mappedKeys = ['sgrpofgrp', 'sgroup', 'group', 'Group', 'GROUP', 'state', 'customer', 'stockitem', 'date', 'cp_date', 'vchno', 'masterid', 'issales', 'amount', 'billedqty', 'profit', 'cgst', 'CGST', 'sgst', 'SGST', 'roundoff', 'ROUNDOFF', 'round_off', 'NARRATION', 'narration', 'Narration', 'CP_Temp7', 'cp_temp7'];
-            if (!mappedKeys.includes(key) && !key.toLowerCase().includes('sales') && !key.toLowerCase().includes('person') && !key.toLowerCase().includes('prsn')) {
-              acc[key] = voucher[key];
-            }
-            return acc;
-          }, {})
+        // Extract tax information from ledgers
+        const parseAmount = (amountStr) => {
+          if (!amountStr) return 0;
+          const cleaned = String(amountStr).replace(/,/g, '').replace(/[()]/g, '');
+          // Handle negative amounts in parentheses like "(-)0.30"
+          const isNegative = cleaned.includes('(-)') || (cleaned.startsWith('-') && !cleaned.startsWith('(-)'));
+          const numValue = parseFloat(cleaned.replace(/[()]/g, '')) || 0;
+          return isNegative ? -Math.abs(numValue) : numValue;
         };
+        
+        let totalCgst = 0;
+        let totalSgst = 0;
+        let totalRoundoff = 0;
+        let totalSalesAmount = 0;
+        const inventoryItems = [];
+        
+        // First pass: extract tax information and collect all inventory items
+        if (voucher.ledgers && Array.isArray(voucher.ledgers)) {
+          voucher.ledgers.forEach(ledger => {
+            const ledgerName = (ledger.ledger || '').toLowerCase();
+            const ledgerAmt = parseAmount(ledger.amt);
+            
+            // Extract tax information from tax ledgers
+            if (ledgerName.includes('cgst')) {
+              totalCgst += Math.abs(ledgerAmt);
+            } else if (ledgerName.includes('sgst')) {
+              totalSgst += Math.abs(ledgerAmt);
+            } else if (ledgerName.includes('round off') || ledgerName.includes('roundoff')) {
+              totalRoundoff += ledgerAmt; // Can be negative
+            }
+            
+            // Collect inventory items from sales ledgers
+            if (ledger.inventry && Array.isArray(ledger.inventry) && ledger.inventry.length > 0) {
+              ledger.inventry.forEach(inventoryItem => {
+                const itemAmount = parseAmount(inventoryItem.amt);
+                totalSalesAmount += itemAmount;
+                inventoryItems.push({
+                  ledger: ledger,
+                  inventoryItem: inventoryItem
+                });
+              });
+            }
+          });
+        }
+        
+        // Second pass: create sale records with proportional tax distribution
+        if (inventoryItems.length > 0) {
+          inventoryItems.forEach(({ ledger, inventoryItem }) => {
+            // Parse quantity
+            const parseQuantity = (qtyStr) => {
+              if (!qtyStr) return 0;
+              const cleaned = String(qtyStr).replace(/,/g, '');
+              return parseInt(cleaned, 10) || 0;
+            };
+            
+            const itemAmount = parseAmount(inventoryItem.amt);
+            // Calculate proportional taxes based on item amount vs total sales amount
+            const taxRatio = totalSalesAmount > 0 ? itemAmount / totalSalesAmount : 0;
+            const itemCgst = totalCgst * taxRatio;
+            const itemSgst = totalSgst * taxRatio;
+            const itemRoundoff = totalRoundoff * taxRatio;
+            
+            const saleRecord = {
+              // Item-level fields
+              category: inventoryItem.group || inventoryItem.grouplist?.split('|')[0] || 'Other',
+              item: inventoryItem.item || 'Unknown',
+              quantity: parseQuantity(inventoryItem.qty),
+              amount: itemAmount,
+              profit: parseAmount(inventoryItem.profit) || 0,
+              
+              // Voucher-level fields
+              customer: voucher.party || 'Unknown',
+              date: voucherDate,
+              cp_date: voucherDate, // Use same date for cp_date
+              vchno: voucher.vchno || '',
+              masterid: voucher.mstid || voucher.masterid || '',
+              region: voucherState,
+              country: voucherCountry,
+              salesperson: voucherSalesperson,
+              
+              // Ledger-level fields
+              ledgerGroup: ledger.ledgergroupidentify || ledger.group || ledger.grouplist?.split('|')[0] || 'Other',
+              
+              // Tax information (proportionally distributed)
+              cgst: itemCgst,
+              sgst: itemSgst,
+              roundoff: itemRoundoff,
+              
+              // Additional voucher fields
+              alterid: voucher.alterid,
+              partyid: voucher.partyid,
+              gstno: voucher.gstno || '',
+              pincode: voucher.pincode || '',
+              reference: voucher.reference || '',
+              
+              // Additional inventory fields
+              itemid: inventoryItem.itemid || '',
+              uom: inventoryItem.uom || '',
+              grosscost: parseAmount(inventoryItem.grosscost) || 0,
+              grossexpense: parseAmount(inventoryItem.grossexpense) || 0,
+              
+              // Mark as sales
+              issales: true,
+              
+              // Include all other fields from voucher for custom card creation
+              ...Object.keys(voucher).reduce((acc, key) => {
+                // Only add fields that aren't already mapped above
+                const mappedKeys = ['mstid', 'alterid', 'vchno', 'date', 'party', 'partyid', 'state', 'country', 'amt', 'vchtype', 'reservedname', 'gstno', 'pincode', 'reference', 'ledgers', 'salesprsn', 'SalesPrsn', 'SALESPRSN', 'salesperson', 'SalesPerson', 'salespersonname', 'SalesPersonName', 'sales_person', 'SALES_PERSON', 'sales_person_name', 'SALES_PERSON_NAME', 'SALESPERSONNAME'];
+                if (!mappedKeys.includes(key) && !key.toLowerCase().includes('sales') && !key.toLowerCase().includes('person') && !key.toLowerCase().includes('prsn')) {
+                  acc[key] = voucher[key];
+                }
+                return acc;
+              }, {})
+            };
+            
+            transformedSales.push(saleRecord);
+          });
+        }
       });
 
       // Debug: Log country extraction statistics

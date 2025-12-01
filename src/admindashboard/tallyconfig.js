@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiGet, apiPost, apiPut } from '../utils/apiUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 
@@ -77,15 +77,22 @@ function TallyConfig() {
           if (tokenConfig && tokenConfig.permission_value) {
             setGoogleAccessToken(tokenConfig.permission_value);
             // Also fetch email if we have token but no email
+            // Only try if we don't already have the email stored
             if (!emailConfig?.permission_value) {
-              fetchGoogleUserEmail(tokenConfig.permission_value);
+              // Try to fetch email, but don't show errors if token is expired
+              fetchGoogleUserEmail(tokenConfig.permission_value).catch(() => {
+                // Silently handle - token might be expired
+              });
             }
           } else {
-            // Fallback to localStorage if not in configs
+            // Fallback to localStorage if not in configs (legacy support)
             const token = localStorage.getItem('google_access_token');
             if (token) {
               setGoogleAccessToken(token);
-              fetchGoogleUserEmail(token);
+              // Try to fetch email, but don't show errors if token is expired
+              fetchGoogleUserEmail(token).catch(() => {
+                // Silently handle - token might be expired
+              });
             }
           }
         }
@@ -363,23 +370,51 @@ function TallyConfig() {
     });
   };
 
+  // Track failed token attempts to avoid repeated calls
+  const failedTokenAttempts = useRef(new Set());
+
   // Fetch Google user email
   const fetchGoogleUserEmail = async (token) => {
+    if (!token) {
+      return null;
+    }
+
+    // Skip if we've already tried this token and it failed
+    if (failedTokenAttempts.current.has(token)) {
+      return null;
+    }
+
     try {
       const response = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
         headers: {
           'Authorization': `Bearer ${token}`
         }
       });
+
       if (response.ok) {
         const userInfo = await response.json();
-        setGoogleUserEmail(userInfo.email || userInfo.emailAddress || '');
-        return userInfo.email || userInfo.emailAddress || '';
+        const email = userInfo.email || userInfo.emailAddress || '';
+        if (email) {
+          setGoogleUserEmail(email);
+          // Remove from failed attempts if it succeeds
+          failedTokenAttempts.current.delete(token);
+        }
+        return email;
+      } else if (response.status === 401) {
+        // Token expired or invalid - mark it as failed and don't retry
+        failedTokenAttempts.current.add(token);
+        // Clear the invalid token from state
+        setGoogleAccessToken(null);
+        // Silently return - don't log warnings for expected token expiration
+        return null;
+      } else {
+        // For other errors, don't mark as permanently failed (might be temporary)
+        return null;
       }
     } catch (error) {
-      console.error('Error fetching Google user email:', error);
+      // Network errors - don't mark as permanently failed
+      return null;
     }
-    return null;
   };
 
   // Update Link Account configurations with Google data
@@ -626,6 +661,10 @@ function TallyConfig() {
           );
         }
         setFormSuccess(`Configurations saved successfully for ${companyConfig.co_name}`);
+        
+        // Close the modal and return to Tally Connections tab
+        setShowConfigModal(false);
+        setActiveConfigTab(0);
       } else {
         throw new Error(data?.message || 'Failed to save configurations');
       }

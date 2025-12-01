@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { getApiUrl, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 
-// Vendor Constants
-const VENDOR_CONSTANTS = {
+// Master Constants
+const MASTER_CONSTANTS = {
   FORM_LABELS: {
     PAN_NUMBER: 'PAN Number',
-    VENDOR_NAME: 'Vendor Name',
+    MASTER_NAME: 'Master Name',
     ADDRESS: 'Address',
     COUNTRY: 'Country',
     STATE: 'State',
@@ -358,7 +358,7 @@ const formatGST = (value) => {
   return limited;
 };
 
-const VendorInvitationForm = () => {
+const MasterInvitationForm = () => {
   const { token } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -523,7 +523,7 @@ const VendorInvitationForm = () => {
         }
       }
       
-      const savedInvitations = localStorage.getItem('vendor_invitations');
+      const savedInvitations = localStorage.getItem('master_invitations');
       if (!savedInvitations) {
         setError('Invalid or expired invitation link');
         setLoading(false);
@@ -898,7 +898,7 @@ const VendorInvitationForm = () => {
     const newErrors = {};
 
     if (!formData.name.trim()) {
-      newErrors.name = 'Vendor Name is required';
+      newErrors.name = 'Master Name is required';
     }
 
     if (formData.tax_type === 'PAN') {
@@ -917,7 +917,7 @@ const VendorInvitationForm = () => {
 
     // Check for duplicates
     if (duplicateCheck.name.isDuplicate) {
-      newErrors.name = duplicateCheck.name.message || 'Vendor name already exists';
+      newErrors.name = duplicateCheck.name.message || 'Master name already exists';
     }
     if (duplicateCheck.panno.isDuplicate) {
       newErrors.panno = duplicateCheck.panno.message || 'PAN number already exists';
@@ -946,7 +946,7 @@ const VendorInvitationForm = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const createVendor = async (vendorData) => {
+  const createMaster = async (masterData) => {
     try {
       setSubmitError(null);
 
@@ -959,32 +959,32 @@ const VendorInvitationForm = () => {
         company: invitationData.company_session,
         guid: invitationData.guid,
         ledgerData: {
-          name: vendorData.name.trim(),
-          address: (vendorData.address1 || '').replace(/\n/g, '|'),
-          pincode: vendorData.pincode || '',
-          stateName: vendorData.state || '',
-          countryName: vendorData.country || 'India',
-          contactPerson: vendorData.contactperson || '',
-          phoneNo: vendorData.phoneno || '',
-          mobileNo: vendorData.mobileno || '',
-          email: vendorData.emailid || '',
+          name: masterData.name.trim(),
+          address: (masterData.address1 || '').replace(/\n/g, '|'),
+          pincode: masterData.pincode || '',
+          stateName: masterData.state || '',
+          countryName: masterData.country || 'India',
+          contactPerson: masterData.contactperson || '',
+          phoneNo: masterData.phoneno || '',
+          mobileNo: masterData.mobileno || '',
+          email: masterData.emailid || '',
           emailCC: '',
-          panNo: vendorData.panno || '',
-          gstinNo: vendorData.gstinno || '',
-          bankName: vendorData.bankname || '',
-          accountNo: vendorData.accountno || '',
-          ifscCode: vendorData.ifsccode || '',
-          panDocumentLink: vendorData.panDocumentLink || '',
-          gstDocumentLink: vendorData.gstDocumentLink || ''
+          panNo: masterData.panno || '',
+          gstinNo: masterData.gstinno || '',
+          bankName: masterData.bankname || '',
+          accountNo: masterData.accountno || '',
+          ifscCode: masterData.ifsccode || '',
+          panDocumentLink: masterData.panDocumentLink || '',
+          gstDocumentLink: masterData.gstDocumentLink || ''
         }
       };
 
       if (!apiData.ledgerData.name) {
-        throw new Error('Vendor Name is mandatory');
+        throw new Error('Master Name is mandatory');
       }
 
       if (apiData.ledgerData.name.length < 2) {
-        throw new Error('Vendor name must be at least 2 characters long');
+        throw new Error('Master name must be at least 2 characters long');
       }
       
       if (apiData.ledgerData.mobileNo && !/^[6-9][0-9]{9}$/.test(apiData.ledgerData.mobileNo)) {
@@ -1014,7 +1014,7 @@ const VendorInvitationForm = () => {
       });
 
       if (!response.ok) {
-        let errorMessage = 'Failed to create vendor';
+        let errorMessage = 'Failed to create master';
         try {
           const errorData = await response.json();
           console.error('API Error Response:', errorData);
@@ -1027,7 +1027,7 @@ const VendorInvitationForm = () => {
       }
 
       const result = await response.json();
-      console.log('Vendor creation API response:', result);
+      console.log('Master creation API response:', result);
       
       if (result.success === false) {
         let errorMessage = result.message || 'Failed to create ledger';
@@ -1036,7 +1036,7 @@ const VendorInvitationForm = () => {
       
       return result;
     } catch (err) {
-      console.error('Error creating vendor:', err);
+      console.error('Error creating master:', err);
       setSubmitError(err.message);
       throw err;
     }
@@ -1051,10 +1051,10 @@ const VendorInvitationForm = () => {
 
     try {
       setLoading(true);
-      await createVendor(formData);
+      await createMaster(formData);
       setIsSubmitted(true);
     } catch (error) {
-      console.error('Vendor creation failed:', error);
+      console.error('Master creation failed:', error);
       setLoading(false);
     }
   };
@@ -1196,7 +1196,7 @@ const VendorInvitationForm = () => {
             fontFamily: 'system-ui, -apple-system, sans-serif',
             lineHeight: '1.6'
           }}>
-            Your vendor registration has been submitted successfully and sent for authorization. You will be notified once your registration is approved.
+            Your master registration has been submitted successfully and sent for authorization. You will be notified once your registration is approved.
           </p>
           <button
             onClick={() => navigate('/')}
@@ -1230,24 +1230,24 @@ const VendorInvitationForm = () => {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
-        .vendor-form-grid > div {
+        .master-form-grid > div {
           min-width: 0;
           overflow: hidden;
         }
-        .vendor-form-grid input,
-        .vendor-form-grid select,
-        .vendor-form-grid textarea {
+        .master-form-grid input,
+        .master-form-grid select,
+        .master-form-grid textarea {
           max-width: 100%;
           box-sizing: border-box;
         }
         @media (max-width: 1200px) {
-          .vendor-form-grid {
+          .master-form-grid {
             grid-template-columns: repeat(2, 1fr) !important;
             gap: 20px !important;
           }
         }
         @media (max-width: 900px) {
-          .vendor-form-grid {
+          .master-form-grid {
             grid-template-columns: 1fr !important;
             gap: 20px !important;
           }
@@ -1274,7 +1274,7 @@ const VendorInvitationForm = () => {
           gap: '12px'
         }}>
           <span className="material-icons" style={{ fontSize: '28px', color: '#3b82f6' }}>person_add</span>
-          Vendor Registration Form
+          Master Registration Form
         </h2>
         <p style={{ 
           fontSize: '14px', 
@@ -1282,7 +1282,7 @@ const VendorInvitationForm = () => {
           marginBottom: '32px',
           fontFamily: 'system-ui, -apple-system, sans-serif'
         }}>
-          Please fill in your details to complete vendor registration
+          Please fill in your details to complete master registration
         </p>
         
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -1440,7 +1440,7 @@ const VendorInvitationForm = () => {
             {/* Basic Information Tab */}
             {activeTab === 'basic' && (
               <div>
-                <div className="vendor-form-grid" style={{ 
+                <div className="master-form-grid" style={{ 
                   display: 'grid', 
                   gridTemplateColumns: 'repeat(3, 1fr)', 
                   gap: '24px',
@@ -1495,7 +1495,7 @@ const VendorInvitationForm = () => {
                 marginBottom: '6px',
                 fontFamily: 'system-ui, -apple-system, sans-serif'
               }}>
-                          {VENDOR_CONSTANTS.FORM_LABELS.GST_NUMBER}
+                          {MASTER_CONSTANTS.FORM_LABELS.GST_NUMBER}
               </label>
                         <div style={{ position: 'relative', display: 'flex', gap: '8px', alignItems: 'stretch', width: '100%', overflow: 'visible' }}>
               <input
@@ -1705,7 +1705,7 @@ const VendorInvitationForm = () => {
                           marginBottom: '6px',
                           fontFamily: 'system-ui, -apple-system, sans-serif'
                         }}>
-                          {VENDOR_CONSTANTS.FORM_LABELS.GST_TYPE}
+                          {MASTER_CONSTANTS.FORM_LABELS.GST_TYPE}
                         </label>
                         <select
                           value={formData.gsttype}
@@ -1713,7 +1713,7 @@ const VendorInvitationForm = () => {
                           style={selectStyles}
                         >
                           <option value="">Select GST Type</option>
-                          {VENDOR_CONSTANTS.GST_TYPES.map((type) => (
+                          {MASTER_CONSTANTS.GST_TYPES.map((type) => (
                             <option key={type} value={type}>{type}</option>
                           ))}
                         </select>
@@ -1732,7 +1732,7 @@ const VendorInvitationForm = () => {
                 marginBottom: '6px',
                 fontFamily: 'system-ui, -apple-system, sans-serif'
               }}>
-                        {VENDOR_CONSTANTS.FORM_LABELS.PAN_NUMBER}
+                        {MASTER_CONSTANTS.FORM_LABELS.PAN_NUMBER}
                         <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: '400' }}> (Format: ABCDE1234F)</span>
                         {formData.tax_type === 'GST' && (
                           <span style={{ fontSize: '12px', color: '#059669', fontWeight: '400', marginLeft: '8px' }}>
@@ -1917,7 +1917,7 @@ const VendorInvitationForm = () => {
                     </div>
                   )}
 
-                  {/* Vendor Name */}
+                  {/* Master Name */}
             <div>
               <label style={{ 
                 display: 'block', 
@@ -1927,7 +1927,7 @@ const VendorInvitationForm = () => {
                 marginBottom: '6px',
                 fontFamily: 'system-ui, -apple-system, sans-serif'
               }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.VENDOR_NAME} *
+                      {MASTER_CONSTANTS.FORM_LABELS.MASTER_NAME} *
               </label>
                     <div style={{ position: 'relative' }}>
               <input
@@ -1939,7 +1939,7 @@ const VendorInvitationForm = () => {
                           border: `1px solid ${errors.name ? '#ef4444' : duplicateCheck.name.isDuplicate ? '#ef4444' : '#d1d5db'}`,
                           paddingRight: duplicateCheck.name.isChecking ? '40px' : '16px'
                         }}
-                        placeholder="Enter vendor name"
+                        placeholder="Enter master name"
                       />
                       {duplicateCheck.name.isChecking && (
                         <div style={{
@@ -1996,7 +1996,7 @@ const VendorInvitationForm = () => {
                     {duplicateCheck.name.isDuplicate && !errors.name && (
                       <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif', display: 'flex', alignItems: 'center', gap: '4px' }}>
                         <span className="material-icons" style={{ fontSize: '14px' }}>warning</span>
-                        {duplicateCheck.name.message || 'Vendor name already exists'}
+                        {duplicateCheck.name.message || 'Master name already exists'}
                       </p>
                     )}
             </div>
@@ -2011,7 +2011,7 @@ const VendorInvitationForm = () => {
                 marginBottom: '6px',
                 fontFamily: 'system-ui, -apple-system, sans-serif'
               }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.ADDRESS}
+                      {MASTER_CONSTANTS.FORM_LABELS.ADDRESS}
               </label>
               <textarea
                       value={formData.address1}
@@ -2037,10 +2037,10 @@ const VendorInvitationForm = () => {
                       marginBottom: '6px',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.COUNTRY}
+                      {MASTER_CONSTANTS.FORM_LABELS.COUNTRY}
                     </label>
                     <SearchableDropdown
-                      options={VENDOR_CONSTANTS.COUNTRIES}
+                      options={MASTER_CONSTANTS.COUNTRIES}
                       value={formData.country}
                       onChange={(value) => updateField('country', value)}
                       placeholder="Start typing to search countries..."
@@ -2063,10 +2063,10 @@ const VendorInvitationForm = () => {
                       marginBottom: '6px',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.STATE}
+                      {MASTER_CONSTANTS.FORM_LABELS.STATE}
                     </label>
                     <SearchableDropdown
-                      options={VENDOR_CONSTANTS.INDIAN_STATES}
+                      options={MASTER_CONSTANTS.INDIAN_STATES}
                       value={formData.state}
                       onChange={(value) => updateField('state', value)}
                       placeholder="Start typing to search states..."
@@ -2089,7 +2089,7 @@ const VendorInvitationForm = () => {
                       marginBottom: '6px',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.PINCODE}
+                      {MASTER_CONSTANTS.FORM_LABELS.PINCODE}
                     </label>
                     <input
                       type="text"
@@ -2111,7 +2111,7 @@ const VendorInvitationForm = () => {
             {/* Contact Details Tab */}
             {activeTab === 'contact' && (
               <div>
-                <div className="vendor-form-grid" style={{ 
+                <div className="master-form-grid" style={{ 
                   display: 'grid', 
                   gridTemplateColumns: 'repeat(2, 1fr)', 
                   gap: '24px',
@@ -2127,7 +2127,7 @@ const VendorInvitationForm = () => {
                 marginBottom: '6px',
                 fontFamily: 'system-ui, -apple-system, sans-serif'
               }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.CONTACT_PERSON}
+                      {MASTER_CONSTANTS.FORM_LABELS.CONTACT_PERSON}
               </label>
               <input
                 type="text"
@@ -2152,7 +2152,7 @@ const VendorInvitationForm = () => {
                       marginBottom: '6px',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.EMAIL_ID}
+                      {MASTER_CONSTANTS.FORM_LABELS.EMAIL_ID}
                     </label>
                     <input
                       type="email"
@@ -2177,7 +2177,7 @@ const VendorInvitationForm = () => {
                 marginBottom: '6px',
                 fontFamily: 'system-ui, -apple-system, sans-serif'
               }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.PHONE_NUMBER}
+                      {MASTER_CONSTANTS.FORM_LABELS.PHONE_NUMBER}
               </label>
               <input
                 type="tel"
@@ -2198,7 +2198,7 @@ const VendorInvitationForm = () => {
                       marginBottom: '6px',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.MOBILE_NUMBER}
+                      {MASTER_CONSTANTS.FORM_LABELS.MOBILE_NUMBER}
                     </label>
                     <input
                       type="tel"
@@ -2219,7 +2219,7 @@ const VendorInvitationForm = () => {
             {/* Bank Details Tab */}
             {activeTab === 'bank' && (
               <div>
-                <div className="vendor-form-grid" style={{ 
+                <div className="master-form-grid" style={{ 
                   display: 'grid', 
                   gridTemplateColumns: 'repeat(2, 1fr)', 
                   gap: '24px',
@@ -2235,7 +2235,7 @@ const VendorInvitationForm = () => {
                       marginBottom: '6px',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.ACCOUNT_NUMBER}
+                      {MASTER_CONSTANTS.FORM_LABELS.ACCOUNT_NUMBER}
                     </label>
                     <input
                       type="text"
@@ -2245,7 +2245,7 @@ const VendorInvitationForm = () => {
                         ...inputStyles,
                         border: `1px solid ${errors.accountno ? '#ef4444' : '#d1d5db'}`
                       }}
-                      placeholder={VENDOR_CONSTANTS.PLACEHOLDERS.ACCOUNT_NUMBER}
+                      placeholder={MASTER_CONSTANTS.PLACEHOLDERS.ACCOUNT_NUMBER}
                     />
                     {errors.accountno && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.accountno}</p>}
             </div>
@@ -2260,7 +2260,7 @@ const VendorInvitationForm = () => {
                       marginBottom: '6px',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.IFSC_CODE}
+                      {MASTER_CONSTANTS.FORM_LABELS.IFSC_CODE}
                     </label>
                     <input
                       type="text"
@@ -2271,7 +2271,7 @@ const VendorInvitationForm = () => {
                         ...inputStyles,
                         border: `1px solid ${errors.ifsccode ? '#ef4444' : '#d1d5db'}`
                       }}
-                      placeholder={VENDOR_CONSTANTS.PLACEHOLDERS.IFSC}
+                      placeholder={MASTER_CONSTANTS.PLACEHOLDERS.IFSC}
                     />
                     {errors.ifsccode && <p style={{ color: '#ef4444', fontSize: '12px', marginTop: '4px', fontFamily: 'system-ui, -apple-system, sans-serif' }}>{errors.ifsccode}</p>}
                   </div>
@@ -2286,7 +2286,7 @@ const VendorInvitationForm = () => {
                       marginBottom: '6px',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>
-                      {VENDOR_CONSTANTS.FORM_LABELS.BANK_NAME}
+                      {MASTER_CONSTANTS.FORM_LABELS.BANK_NAME}
                     </label>
                     <input
                       type="text"
@@ -2401,4 +2401,4 @@ const VendorInvitationForm = () => {
   );
 };
 
-export default VendorInvitationForm;
+export default MasterInvitationForm;

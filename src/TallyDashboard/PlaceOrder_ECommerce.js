@@ -1,9 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getApiUrl, API_CONFIG } from '../config';
 import { apiGet, apiPost } from '../utils/apiUtils';
 import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
+<<<<<<< HEAD
 import { convertGoogleDriveToImageUrl, isGoogleDriveLink, detectGoogleDriveFileType, extractGoogleDriveFileId } from '../utils/googleDriveImageUtils';
+=======
+import { getGoogleTokenFromConfigs, getGoogleDriveImageUrl } from '../utils/googleDriveUtils';
+>>>>>>> 97cc187618a1b9becc15fd103b173a40072c661c
 
 function PlaceOrder_ECommerce() {
   // Get all companies from sessionStorage - moved outside to prevent recreation
@@ -15,16 +19,17 @@ function PlaceOrder_ECommerce() {
     }
   }, []);
   
-  // Get company from sessionStorage (controlled by top bar)
-  const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
-  const company = selectedCompanyGuid;
+  // Get company from sessionStorage (controlled by top bar) - make it reactive
+  const [company, setCompany] = useState(() => {
+    return sessionStorage.getItem('selectedCompanyGuid') || '';
+  });
   
   // Company-related state (kept for JSX compatibility but not used)
   const [companyFocused, setCompanyFocused] = useState(false);
   const [companySearchTerm, setCompanySearchTerm] = useState('');
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
   const [filteredCompanyOptions, setFilteredCompanyOptions] = useState([]);
-  const setCompany = () => {}; // Dummy function for JSX compatibility
+  // Note: setCompany is now the state setter from useState above, not a dummy function
   
   // VoucherType state
   const [voucherTypes, setVoucherTypes] = useState([]);
@@ -131,17 +136,74 @@ function PlaceOrder_ECommerce() {
     return canShowGodownBrkup;
   });
 
+  // Google token state for image display
+  const [googleToken, setGoogleToken] = useState(null);
+  const imageUrlCache = useRef(new Map()); // Cache for image URLs (useRef to avoid re-renders)
+
+  // Fetch Google token when company changes
+  useEffect(() => {
+    const fetchGoogleToken = async () => {
+      console.log('🔄 Token fetch effect triggered:', { 
+        company, 
+        companiesCount: companies.length,
+        hasCompany: !!company,
+        companiesSample: companies.slice(0, 2).map(c => ({ guid: c.guid, company: c.company }))
+      });
+      
+      if (!company) {
+        console.log('🔄 No company selected, clearing Google token');
+        setGoogleToken(null);
+        return;
+      }
+
+      if (companies.length === 0) {
+        console.log('⏳ Companies list not loaded yet, waiting...');
+        return;
+      }
+
+      const currentCompany = companies.find(c => c.guid === company);
+      if (!currentCompany) {
+        console.log('🔄 Company not found in companies list:', { 
+          lookingFor: company, 
+          availableGuids: companies.map(c => c.guid).slice(0, 5)
+        });
+        setGoogleToken(null);
+        return;
+      }
+
+      const { tallyloc_id, guid } = currentCompany;
+      console.log('🔄 Fetching Google token for company:', { tallyloc_id, guid, companyName: currentCompany.company });
+      try {
+        const token = await getGoogleTokenFromConfigs(tallyloc_id, guid);
+        console.log('✅ Google token fetched:', token ? `Token available (${token.substring(0, 20)}...)` : 'No token found');
+        setGoogleToken(token);
+      } catch (error) {
+        console.error('❌ Error fetching Google token:', error);
+        setGoogleToken(null);
+      }
+    };
+
+    fetchGoogleToken();
+  }, [company, companies]);
+
   // Listen for company changes from top bar
   useEffect(() => {
     const handleCompanyChange = () => {
       // Company changed from top bar
+      const newCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+      console.log('🔄 PlaceOrder_ECommerce: Company changed event received:', newCompanyGuid);
+      
+      // Update company state (this will trigger token fetch)
+      setCompany(newCompanyGuid);
+      
+      // Clear related state
       setSelectedCustomer('');
       setCustomerOptions([]);
       setStockItems([]);
       setCart([]);
       setCustomerSearchTerm('');
+      imageUrlCache.current.clear(); // Clear image URL cache
 
-      const newCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
       const currentCompany = companies.find(c => c.guid === newCompanyGuid);
 
       if (currentCompany) {
@@ -171,9 +233,21 @@ function PlaceOrder_ECommerce() {
       }
     };
 
+    // Check on mount and whenever companies are loaded
+    const initialCompany = sessionStorage.getItem('selectedCompanyGuid') || '';
+    if (initialCompany) {
+      if (initialCompany !== company) {
+        console.log('🔄 Setting initial company from sessionStorage:', initialCompany);
+        setCompany(initialCompany);
+      } else if (companies.length > 0) {
+        // Companies are loaded and company is set, ensure token fetch runs
+        console.log('🔄 Companies loaded, ensuring token fetch will run');
+      }
+    }
+
     window.addEventListener('companyChanged', handleCompanyChange);
     return () => window.removeEventListener('companyChanged', handleCompanyChange);
-  }, []);
+  }, [companies, company]);
 
   // Listen for global refresh from top bar
   useEffect(() => {
@@ -781,6 +855,181 @@ function PlaceOrder_ECommerce() {
     fetchCreditLimitData();
   }, [selectedCustomer, canShowCreditLimit, canControlCreditLimit, company, companies]);
   
+  // Product Image Component for Google Drive images
+  const ProductImage = React.memo(({ imagePath, itemName, googleToken, imageUrlCacheRef, canShowImage }) => {
+    const [imageUrl, setImageUrl] = useState(null);
+    const [imageLoading, setImageLoading] = useState(true);
+    const [imageError, setImageError] = useState(false);
+
+    useEffect(() => {
+      const loadImageUrl = async () => {
+        console.log('🖼️ ProductImage: Loading image URL', { 
+          imagePath: imagePath?.substring(0, 50), 
+          hasToken: !!googleToken,
+          tokenLength: googleToken?.length,
+          itemName 
+        });
+        
+        if (!imagePath) {
+          console.log('❌ ProductImage: No imagePath');
+          setImageLoading(false);
+          setImageError(true);
+          return;
+        }
+
+        // If it's a Google Drive file ID and we don't have a token yet, 
+        // the effect will re-run when token becomes available
+        // Check if it looks like a Google Drive file ID (not a full URL)
+        const isGoogleDriveId = !imagePath.startsWith('http') && /^[a-zA-Z0-9_-]{20,}$/.test(imagePath);
+        
+        if (isGoogleDriveId && !googleToken) {
+          console.log('⏳ ProductImage: Google Drive file ID detected but no token yet. Will retry when token is available.');
+          setImageLoading(true);
+          setImageError(false);
+          // Don't set error yet - wait for token to be available
+          return;
+        }
+
+        // Check cache first
+        const cacheKey = `${imagePath}_${googleToken || 'no-token'}`;
+        if (imageUrlCacheRef.current.has(cacheKey)) {
+          const cachedUrl = imageUrlCacheRef.current.get(cacheKey);
+          console.log('✅ ProductImage: Using cached URL');
+          setImageUrl(cachedUrl);
+          setImageLoading(false);
+          return;
+        }
+
+        try {
+          console.log('🖼️ ProductImage: Calling getGoogleDriveImageUrl with:', {
+            imagePath: imagePath?.substring(0, 100),
+            hasToken: !!googleToken,
+            tokenPreview: googleToken ? `${googleToken.substring(0, 20)}...` : 'none'
+          });
+          
+          const url = await getGoogleDriveImageUrl(imagePath, googleToken);
+          
+          if (url) {
+            // Double-check we're not using public URL (which will fail with 403)
+            if (url.includes('drive.google.com/uc?export=view')) {
+              console.error('❌ ProductImage: ERROR - Public URL detected! This should not happen. URL:', url);
+              console.error('❌ This means getGoogleDriveImageUrl returned a public URL, which will fail with 403');
+              setImageError(true);
+              setImageLoading(false);
+              return;
+            }
+            
+            console.log('✅ ProductImage: Got image URL (blob or direct):', url.substring(0, 80));
+            setImageUrl(url);
+            // Update cache
+            imageUrlCacheRef.current.set(cacheKey, url);
+          } else {
+            console.log('❌ ProductImage: No URL returned (likely no token available)');
+            setImageError(true);
+          }
+        } catch (error) {
+          console.error('❌ ProductImage: Error loading Google Drive image:', error);
+          setImageError(true);
+        } finally {
+          setImageLoading(false);
+        }
+      };
+
+      loadImageUrl();
+    }, [imagePath, googleToken, itemName]);
+
+    if (!canShowImage || !imagePath || imageError) {
+      return (
+        <div style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '2px dashed #d1d5db',
+          borderRadius: '8px'
+        }}>
+          <span className="material-icons" style={{
+            fontSize: '32px',
+            color: '#9ca3af'
+          }}>
+            inventory_2
+          </span>
+        </div>
+      );
+    }
+
+    if (imageLoading || !imageUrl) {
+      return (
+        <div style={{
+          width: '100%',
+          height: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '2px dashed #d1d5db',
+          borderRadius: '8px',
+          backgroundColor: '#f8fafc'
+        }}>
+          <div style={{
+            width: '24px',
+            height: '24px',
+            border: '2px solid #e5e7eb',
+            borderTop: '2px solid #3b82f6',
+            borderRadius: '50%',
+            animation: 'spin 1s linear infinite'
+          }} />
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <img
+          src={imageUrl}
+          alt={itemName}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            borderRadius: '8px',
+            position: 'absolute',
+            top: 0,
+            left: 0
+          }}
+          onLoad={() => {
+            console.log('✅ ProductImage: Image loaded successfully');
+          }}
+          onError={(e) => {
+            console.error('❌ ProductImage: Image failed to load', { imageUrl: imageUrl?.substring(0, 50) });
+            e.target.style.display = 'none';
+            setImageError(true);
+            const placeholder = e.target.nextElementSibling;
+            if (placeholder) {
+              placeholder.style.display = 'flex';
+            }
+          }}
+        />
+        <div style={{
+          width: '100%',
+          height: '100%',
+          display: 'none',
+          alignItems: 'center',
+          justifyContent: 'center',
+          border: '2px dashed #d1d5db',
+          borderRadius: '8px'
+        }}>
+          <span className="material-icons" style={{
+            fontSize: '32px',
+            color: '#9ca3af'
+          }}>
+            inventory_2
+          </span>
+        </div>
+      </>
+    );
+  });
+
   // Navigate to PlaceOrder page with cart data
   const navigateToPlaceOrder = () => {
     if (cart.length === 0) return;
@@ -1553,6 +1802,7 @@ function PlaceOrder_ECommerce() {
                       justifyContent: 'center',
                       position: 'relative'
                     }}>
+<<<<<<< HEAD
                       {canShowImage && item.IMAGEPATH ? (
                         <>
                           <img
@@ -1687,6 +1937,15 @@ function PlaceOrder_ECommerce() {
                           </span>
                         </div>
                       )}
+=======
+                      <ProductImage 
+                        imagePath={item.IMAGEPATH} 
+                        itemName={item.NAME}
+                        googleToken={googleToken}
+                        imageUrlCacheRef={imageUrlCache}
+                        canShowImage={canShowImage}
+                      />
+>>>>>>> 97cc187618a1b9becc15fd103b173a40072c661c
                     </div>
                     
                     {/* Product Details */}

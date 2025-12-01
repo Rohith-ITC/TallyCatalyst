@@ -1,9 +1,21 @@
 // Environment-based API Configuration
 const getBaseUrl = () => {
-  // Override URLs when in development mode (regardless of .env values)
+  // Use .env value for development mode
   if (process.env.NODE_ENV === 'development') {
+<<<<<<< HEAD
     // In development, always use relative paths when running on localhost
     // This allows the proxy (setupProxy.js) to handle the requests and avoid CORS issues
+=======
+    const devUrl = process.env.REACT_APP_DEV_API_URL || '';
+    
+    // Always use proxy (empty string) for localhost in development to avoid CORS issues
+    // The proxy in setupProxy.js will handle forwarding to the correct backend
+    if (!devUrl || devUrl.includes('localhost') || devUrl.includes('127.0.0.1')) {
+      return ''; // Use relative paths to go through proxy
+    }
+    
+    // Only use direct URL if it's a remote server (not localhost)
+>>>>>>> 97cc187618a1b9becc15fd103b173a40072c661c
     if (typeof window !== 'undefined') {
       const currentHost = window.location.hostname;
       // If running on localhost, use relative paths to go through proxy
@@ -11,8 +23,13 @@ const getBaseUrl = () => {
         return ''; // Use relative paths (will go through proxy)
       }
     }
+<<<<<<< HEAD
     // For remote/mobile access in dev, use the full URL
     return 'https://itcatalystindia.com/Development/CustomerPortal_API';
+=======
+    
+    return devUrl;
+>>>>>>> 97cc187618a1b9becc15fd103b173a40072c661c
   }
 
   // For non-development environments, use .env values
@@ -58,7 +75,7 @@ export const API_CONFIG = {
     TALLY_LEDGER_SHAREACCESS: '/api/tally/ledger-shareaccess',
     TALLY_LEDGER_SHAREACCESS_ACC: '/api/tally/ledger-shareaccess-acc',
     
-    // Vendor Authorization endpoints
+    // Master Authorization endpoints
     TALLY_LEDGER_LIST: '/api/tally/ledger-list',
     TALLY_LEDGER_AUTH: '/api/tally/ledger-auth',
     TALLY_LEDGER_CHECK: '/api/tally/ledger-check',
