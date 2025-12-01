@@ -3,6 +3,7 @@ import { getApiUrl, API_CONFIG } from '../config';
 import { apiGet, apiPost } from '../utils/apiUtils';
 import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
+import { convertGoogleDriveToImageUrl, isGoogleDriveLink, detectGoogleDriveFileType, extractGoogleDriveFileId } from '../utils/googleDriveImageUtils';
 
 function PlaceOrder_ECommerce() {
   // Get all companies from sessionStorage - moved outside to prevent recreation
@@ -45,6 +46,9 @@ function PlaceOrder_ECommerce() {
   const [stockItems, setStockItems] = useState([]);
   const [stockItemsLoading, setStockItemsLoading] = useState(false);
   const [refreshStockItems, setRefreshStockItems] = useState(0);
+  
+  // Image URL state for Google Drive conversions
+  const [imageUrlMap, setImageUrlMap] = useState({});
   
   // Customer refresh state
   const [refreshCustomers, setRefreshCustomers] = useState(0);
@@ -494,6 +498,7 @@ function PlaceOrder_ECommerce() {
         if (data && data.stockItems && Array.isArray(data.stockItems)) {
           // Deobfuscate sensitive pricing data
           const decryptedItems = deobfuscateStockItems(data.stockItems);
+          
           setStockItems(decryptedItems);
           // Cache the deobfuscated result with graceful fallback
           try {
@@ -517,6 +522,32 @@ function PlaceOrder_ECommerce() {
     
     fetchStockItems();
   }, [company, refreshStockItems, companies]); // Added 'companies' back to dependencies to check cache properly
+
+  // Convert Google Drive links to image URLs
+  useEffect(() => {
+    const convertImagePaths = async () => {
+      const newImageUrlMap = {};
+      
+      for (const item of stockItems) {
+        if (item.IMAGEPATH && isGoogleDriveLink(item.IMAGEPATH)) {
+          try {
+            const fileType = await detectGoogleDriveFileType(item.IMAGEPATH);
+            const imageUrl = convertGoogleDriveToImageUrl(item.IMAGEPATH, fileType);
+            newImageUrlMap[item.NAME] = imageUrl;
+          } catch (error) {
+            console.warn(`Failed to convert Google Drive URL for ${item.NAME}:`, error);
+            newImageUrlMap[item.NAME] = item.IMAGEPATH; // Fallback to original
+          }
+        }
+      }
+      
+      setImageUrlMap(newImageUrlMap);
+    };
+    
+    if (stockItems.length > 0) {
+      convertImagePaths();
+    }
+  }, [stockItems]);
 
   // Customer filtering
   useEffect(() => {
@@ -1508,7 +1539,9 @@ function PlaceOrder_ECommerce() {
                   {/* Product Info */}
                   <div style={{ marginBottom: 12, flex: 1 }}>
                     {/* Product Image or Placeholder Icon */}
-                    <div style={{
+                    <div 
+                      data-item-name={item.NAME}
+                      style={{
                       width: '100%',
                       height: '120px',
                       marginBottom: '12px',
@@ -1523,7 +1556,7 @@ function PlaceOrder_ECommerce() {
                       {canShowImage && item.IMAGEPATH ? (
                         <>
                           <img
-                            src={item.IMAGEPATH}
+                            src={imageUrlMap[item.NAME] || convertGoogleDriveToImageUrl(item.IMAGEPATH) || item.IMAGEPATH}
                             alt={item.NAME}
                             style={{
                               width: '100%',
@@ -1534,7 +1567,84 @@ function PlaceOrder_ECommerce() {
                               top: 0,
                               left: 0
                             }}
+                            onLoad={() => {
+                              // If image loads successfully, make sure iframe is not shown
+                              if (isGoogleDriveLink(item.IMAGEPATH)) {
+                                const parent = document.querySelector(`[data-item-name="${item.NAME}"]`);
+                                if (parent) {
+                                  const existingIframe = parent.querySelector('iframe');
+                                  if (existingIframe) {
+                                    existingIframe.remove();
+                                    console.log('Image loaded successfully, removed iframe fallback');
+                                  }
+                                }
+                              }
+                            }}
                             onError={(e) => {
+                              // If Google Drive conversion failed, try smaller thumbnails first
+                              if (isGoogleDriveLink(item.IMAGEPATH)) {
+                                const fileId = extractGoogleDriveFileId(item.IMAGEPATH);
+                                if (fileId) {
+                                  const currentSrc = e.target.src;
+                                  const errorCount = parseInt(e.target.dataset.errorCount || '0');
+                                  
+                                  // Try smaller CDN sizes first (most reliable)
+                                  const fallbackMethods = [
+                                    `https://lh3.googleusercontent.com/d/${fileId}=w400`, // Smaller CDN
+                                    `https://lh3.googleusercontent.com/d/${fileId}=w200`, // Very small CDN
+                                    `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`, // Old thumbnail API as backup
+                                    `https://drive.google.com/uc?export=view&id=${fileId}`, // Direct view as last image attempt
+                                  ];
+                                  
+                                  // Try thumbnail methods with delays to avoid rate limiting
+                                  if (errorCount < fallbackMethods.length) {
+                                    const nextMethod = fallbackMethods[errorCount];
+                                    e.target.dataset.errorCount = (errorCount + 1).toString();
+                                    
+                                    // Add delay to avoid rate limiting (3s, 6s, 9s)
+                                    setTimeout(() => {
+                                      console.log(`Retrying Google Drive file ${fileId} with method ${errorCount + 1}:`, nextMethod);
+                                      e.target.src = nextMethod;
+                                      e.target.style.display = 'block'; // Make sure img is visible
+                                    }, 3000 * (errorCount + 1));
+                                    return;
+                                  }
+                                  
+                                  // Only use iframe if ALL image methods fail (including all thumbnail sizes)
+                                  // Check if iframe already exists to avoid duplicates
+                                  const parent = e.target.parentElement;
+                                  const existingIframe = parent.querySelector('iframe');
+                                  if (!existingIframe) {
+                                    e.target.style.display = 'none';
+                                    const iframeContainer = document.createElement('div');
+                                    iframeContainer.style.cssText = `
+                                      width: 100%;
+                                      height: 100%;
+                                      position: absolute;
+                                      top: 0;
+                                      left: 0;
+                                      border-radius: 8px;
+                                      overflow: hidden;
+                                    `;
+                                    const iframe = document.createElement('iframe');
+                                    iframe.src = `https://drive.google.com/file/d/${fileId}/preview`;
+                                    iframe.style.cssText = `
+                                      width: 100%;
+                                      height: 100%;
+                                      border: none;
+                                      pointer-events: none;
+                                    `;
+                                    iframe.setAttribute('sandbox', 'allow-same-origin allow-scripts');
+                                    iframeContainer.appendChild(iframe);
+                                    parent.appendChild(iframeContainer);
+                                    console.log('Using iframe fallback for Google Drive file (CSP warnings are harmless)');
+                                  }
+                                  return;
+                                }
+                              }
+                              
+                              // Show placeholder if all attempts fail
+                              console.warn('⚠️ All image loading methods failed for:', item.IMAGEPATH);
                               e.target.style.display = 'none';
                               const placeholder = e.target.nextElementSibling;
                               if (placeholder) {

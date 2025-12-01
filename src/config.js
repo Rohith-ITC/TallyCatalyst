@@ -2,17 +2,17 @@
 const getBaseUrl = () => {
   // Override URLs when in development mode (regardless of .env values)
   if (process.env.NODE_ENV === 'development') {
-    const devUrl = 'https://itcatalystindia.com/Development/CustomerPortal_API';
-    // If dev URL contains localhost and we're accessing from a different host (mobile/remote),
-    // use empty string to use relative paths (which will go through the proxy)
-    if (devUrl && typeof window !== 'undefined') {
+    // In development, always use relative paths when running on localhost
+    // This allows the proxy (setupProxy.js) to handle the requests and avoid CORS issues
+    if (typeof window !== 'undefined') {
       const currentHost = window.location.hostname;
-      // If accessing from a different host (not localhost/127.0.0.1), use relative paths
-      if (devUrl.includes('localhost') && currentHost !== 'localhost' && currentHost !== '127.0.0.1') {
-        return ''; // Use relative paths to go through proxy
+      // If running on localhost, use relative paths to go through proxy
+      if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
+        return ''; // Use relative paths (will go through proxy)
       }
     }
-    return devUrl;
+    // For remote/mobile access in dev, use the full URL
+    return 'https://itcatalystindia.com/Development/CustomerPortal_API';
   }
 
   // For non-development environments, use .env values
