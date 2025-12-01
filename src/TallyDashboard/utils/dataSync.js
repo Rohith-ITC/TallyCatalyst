@@ -1,6 +1,131 @@
 import { hybridCache } from '../../utils/hybridCache';
 import { apiPost, apiGet } from '../../utils/apiUtils';
 import { deobfuscateStockItems } from '../../utils/frontendDeobfuscate';
+import { getApiUrl } from '../../config';
+
+// Detect mobile device
+const isMobileDevice = () => {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+};
+
+// Fetch with timeout and retry logic
+const fetchWithTimeout = async (url, options, timeout = 60000, retries = 3) => {
+    const isMobile = isMobileDevice();
+    // Use longer timeout on mobile (90 seconds vs 60 seconds)
+    const effectiveTimeout = isMobile ? 90000 : timeout;
+    
+    console.log('🔍 Fetch request details:', {
+        url,
+        method: options.method || 'GET',
+        hasAuth: !!options.headers?.Authorization,
+        headers: Object.keys(options.headers || {}),
+        bodySize: options.body ? options.body.length : 0,
+        isMobile,
+        timeout: effectiveTimeout
+    });
+    
+    for (let attempt = 1; attempt <= retries; attempt++) {
+        try {
+            console.log(`🌐 Fetch attempt ${attempt}/${retries} to ${url}`);
+            console.log(`   Device: ${isMobile ? 'Mobile' : 'Desktop'}`);
+            console.log(`   Timeout: ${effectiveTimeout}ms`);
+            console.log(`   User-Agent: ${navigator.userAgent}`);
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                console.warn(`⏰ Request timeout after ${effectiveTimeout}ms`);
+                controller.abort();
+            }, effectiveTimeout);
+            
+            const startTime = Date.now();
+            
+            try {
+                const response = await fetch(url, {
+                    ...options,
+                    signal: controller.signal,
+                    // Add these for better mobile compatibility
+                    cache: 'no-cache',
+                    mode: 'cors',
+                    credentials: 'omit'
+                });
+                
+                const duration = Date.now() - startTime;
+                clearTimeout(timeoutId);
+                
+                console.log(`📡 Response received in ${duration}ms:`, {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: {
+                        contentType: response.headers.get('content-type'),
+                        contentLength: response.headers.get('content-length')
+                    }
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text().catch(() => 'Unable to read error message');
+                    console.error(`❌ HTTP Error:`, {
+                        status: response.status,
+                        statusText: response.statusText,
+                        body: errorText.substring(0, 500)
+                    });
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}. ${errorText.substring(0, 200)}`);
+                }
+                
+                console.log(`✅ Fetch successful on attempt ${attempt} (${duration}ms)`);
+                return response;
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+                throw fetchError;
+            }
+        } catch (error) {
+            const isTimeout = error.name === 'AbortError' || error.message.includes('timeout');
+            const isNetworkError = error.message.includes('Failed to fetch') || error.message.includes('NetworkError') || error.message.includes('Network request failed');
+            const isCORSError = error.message.includes('CORS') || error.message.includes('Origin');
+            
+            console.error(`❌ Fetch attempt ${attempt}/${retries} failed:`, {
+                errorName: error.name,
+                errorMessage: error.message,
+                isTimeout,
+                isNetworkError,
+                isCORSError,
+                isMobile,
+                url: url.substring(0, 100),
+                navigator: {
+                    online: navigator.onLine,
+                    connection: navigator.connection ? {
+                        effectiveType: navigator.connection.effectiveType,
+                        downlink: navigator.connection.downlink,
+                        rtt: navigator.connection.rtt
+                    } : 'not available'
+                }
+            });
+            
+            // Don't retry on non-retryable errors
+            if (!isTimeout && !isNetworkError && !error.message.includes('504') && !error.message.includes('408') && !error.message.includes('502')) {
+                console.error(`🛑 Non-retryable error, throwing immediately`);
+                throw error;
+            }
+            
+            // If last attempt, throw detailed error
+            if (attempt === retries) {
+                const detailedError = new Error(
+                    `Failed after ${retries} attempts. ` +
+                    `Last error: ${error.message}. ` +
+                    `Device: ${isMobile ? 'Mobile' : 'Desktop'}. ` +
+                    `Online: ${navigator.onLine}. ` +
+                    `Please check your internet connection and try again.`
+                );
+                console.error(`🛑 All attempts exhausted:`, detailedError.message);
+                throw detailedError;
+            }
+            
+            // Wait before retrying (exponential backoff)
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
+            console.log(`⏳ Waiting ${delay}ms before retry ${attempt + 1}...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+};
 
 // Helper functions
 const convertDateToYYYYMMDD = (dateString) => {
@@ -69,17 +194,45 @@ const calculateMaxAlterId = (data) => {
 };
 
 const fetchBooksFrom = async (selectedGuid) => {
+    console.log('📅 fetchBooksFrom called with guid:', selectedGuid);
+    
     try {
+        // Check sessionStorage first
         const booksfromDirect = sessionStorage.getItem('booksfrom');
-        if (booksfromDirect) return booksfromDirect;
+        if (booksfromDirect) {
+            console.log('✅ Found booksfrom in sessionStorage:', booksfromDirect);
+            return booksfromDirect;
+        }
+        console.log('ℹ️ No booksfrom in sessionStorage, checking allConnections...');
 
-        const connections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+        // Check allConnections in sessionStorage
+        const connectionsStr = sessionStorage.getItem('allConnections');
+        console.log('ℹ️ allConnections exists:', !!connectionsStr);
+        
+        const connections = JSON.parse(connectionsStr || '[]');
+        console.log('ℹ️ Parsed connections count:', connections.length);
+        
         if (selectedGuid && Array.isArray(connections)) {
             const company = connections.find(c => c.guid === selectedGuid);
-            if (company && company.booksfrom) return company.booksfrom;
+            if (company) {
+                console.log('✅ Found company in allConnections:', {
+                    name: company.company,
+                    hasBooksfrom: !!company.booksfrom,
+                    booksfrom: company.booksfrom
+                });
+                if (company.booksfrom) {
+                    return company.booksfrom;
+                }
+            } else {
+                console.warn('⚠️ Company not found in allConnections for guid:', selectedGuid);
+            }
         }
 
+        // Fallback to API call
+        console.log('🌐 Fetching from API: /api/tally/user-connections');
         const response = await apiGet(`/api/tally/user-connections?ts=${Date.now()}`);
+        console.log('🌐 API response received:', !!response);
+        
         if (response) {
             let apiConnections = [];
             if (Array.isArray(response)) {
@@ -89,28 +242,57 @@ const fetchBooksFrom = async (selectedGuid) => {
                 const shared = Array.isArray(response.sharedWithMe) ? response.sharedWithMe : [];
                 apiConnections = [...created, ...shared];
             }
+            console.log('ℹ️ API connections count:', apiConnections.length);
+            
             const company = apiConnections.find(c => c.guid === selectedGuid);
             if (company && company.booksfrom) {
+                console.log('✅ Found booksfrom from API:', company.booksfrom);
                 sessionStorage.setItem('booksfrom', company.booksfrom);
                 return company.booksfrom;
+            } else {
+                console.warn('⚠️ Company found but no booksfrom:', company);
             }
+        } else {
+            console.error('❌ No response from API');
         }
+        
+        console.error('❌ Could not find booksfrom anywhere');
         return null;
     } catch (error) {
-        console.error('Error fetching booksfrom:', error);
+        console.error('❌ Error in fetchBooksFrom:', {
+            message: error.message,
+            stack: error.stack
+        });
         return null;
     }
 };
 
 // Sync functions
 export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
-    if (!companyInfo) throw new Error('No company selected');
+    if (!companyInfo) {
+        console.error('❌ No company selected');
+        throw new Error('No company selected');
+    }
+
+    console.log('🚀 Starting syncSalesData for company:', {
+        tallyloc_id: companyInfo.tallyloc_id,
+        company: companyInfo.company,
+        guid: companyInfo.guid
+    });
 
     try {
+        console.log('📅 Fetching booksfrom date...');
         const booksfrom = await fetchBooksFrom(companyInfo.guid);
-        if (!booksfrom) throw new Error('Unable to fetch booksfrom date');
+        console.log('📅 Booksfrom result:', booksfrom);
+        
+        if (!booksfrom) {
+            console.error('❌ Unable to fetch booksfrom date - this will prevent API call!');
+            throw new Error('Unable to fetch booksfrom date. Please ensure you have access to this company.');
+        }
 
+        console.log('💾 Checking for cached data...');
         const lastaltid = await hybridCache.getLastAlterId(companyInfo);
+        console.log('💾 Last alter ID:', lastaltid);
         const isUpdate = !!lastaltid;
 
         const today = new Date();
@@ -142,8 +324,13 @@ export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
 
         onProgress({ current: 0, total: 1, message: isUpdate ? 'Checking for updates...' : 'Fetching data...' });
 
-        const apiBaseUrl = 'https://itcatalystindia.com/Development/CustomerPortal_API';
-        const salesextractUrl = `${apiBaseUrl}/api/reports/salesextract?ts=${Date.now()}`;
+        // Use getApiUrl to get the correct URL (relative in dev for proxy, absolute in prod)
+        // This ensures CORS works correctly on mobile when accessing via IP address
+        const salesextractUrl = `${getApiUrl('/api/reports/salesextract')}?ts=${Date.now()}`;
+        console.log('🌐 Salesextract URL:', salesextractUrl);
+        console.log('🌐 Current origin:', window.location.origin);
+        console.log('🌐 Using proxy:', !salesextractUrl.startsWith('http'));
+        
         const token = sessionStorage.getItem('token');
         const headers = {
             'Content-Type': 'application/json',
@@ -156,39 +343,36 @@ export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
 
         if (!shouldUseChunking) {
             try {
-                const fetchResponse = await fetch(salesextractUrl, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify(payload),
-                });
+                const fetchResponse = await fetchWithTimeout(
+                    salesextractUrl,
+                    {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(payload),
+                    },
+                    60000, // 60 second timeout (will be 90s on mobile)
+                    2 // 2 retries
+                );
 
-                if (!fetchResponse.ok) {
-                    if (fetchResponse.status === 504 || fetchResponse.status === 408) {
-                        needsSlice = true;
-                    } else {
-                        const errorText = await fetchResponse.text();
-                        throw new Error(`API request failed: ${fetchResponse.status} ${fetchResponse.statusText}. ${errorText.substring(0, 500)}`);
-                    }
+                const responseText = await fetchResponse.text();
+                if (!responseText) throw new Error('Empty response from server');
+                response = JSON.parse(responseText);
+                
+                // Check if server wants frontend to handle slicing
+                if (response && response.frontendslice === 'Yes') {
+                    console.log('📋 Server requested frontend slicing, switching to chunk mode');
+                    needsSlice = true;
                 } else {
-                    const responseText = await fetchResponse.text();
-                    if (!responseText) throw new Error('Empty response from server');
-                    response = JSON.parse(responseText);
-                    
-                    // Check if server wants frontend to handle slicing
-                    if (response && response.frontendslice === 'Yes') {
-                        console.log('📋 Server requested frontend slicing, switching to chunk mode');
-                        needsSlice = true;
-                    } else {
-                        needsSlice = response && (
-                            response.message === 'slice' ||
-                            response.message === 'Slice' ||
-                            response.message?.toLowerCase().includes('slice') ||
-                            (response.error && response.error.toLowerCase().includes('slice'))
-                        );
-                    }
+                    needsSlice = response && (
+                        response.message === 'slice' ||
+                        response.message === 'Slice' ||
+                        response.message?.toLowerCase().includes('slice') ||
+                        (response.error && response.error.toLowerCase().includes('slice'))
+                    );
                 }
             } catch (error) {
-                if (error.message.includes('timeout') || error.message.includes('504') || error.message.includes('408')) {
+                console.warn('⚠️ Initial fetch failed, will try chunked approach:', error.message);
+                if (error.message.includes('timeout') || error.message.includes('504') || error.message.includes('408') || error.message.includes('Failed after')) {
                     needsSlice = true;
                 } else {
                     throw error;
@@ -228,16 +412,16 @@ export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
                     serverslice: "No"
                 };
 
-                const chunkFetchResponse = await fetch(salesextractUrl, {
-                    method: 'POST',
-                    headers,
-                    body: JSON.stringify(chunkPayload),
-                });
-
-                if (!chunkFetchResponse.ok) {
-                    const errorText = await chunkFetchResponse.text();
-                    throw new Error(`API request failed: ${chunkFetchResponse.status} ${chunkFetchResponse.statusText}. ${errorText.substring(0, 500)}`);
-                }
+                const chunkFetchResponse = await fetchWithTimeout(
+                    salesextractUrl,
+                    {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(chunkPayload),
+                    },
+                    60000, // 60 second timeout (will be 90s on mobile)
+                    3 // 3 retries for chunks
+                );
 
                 const chunkResponseText = await chunkFetchResponse.text();
                 if (chunkResponseText) {
