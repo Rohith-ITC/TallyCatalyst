@@ -173,12 +173,19 @@ export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
                     const responseText = await fetchResponse.text();
                     if (!responseText) throw new Error('Empty response from server');
                     response = JSON.parse(responseText);
-                    needsSlice = response && (
-                        response.message === 'slice' ||
-                        response.message === 'Slice' ||
-                        response.message?.toLowerCase().includes('slice') ||
-                        (response.error && response.error.toLowerCase().includes('slice'))
-                    );
+                    
+                    // Check if server wants frontend to handle slicing
+                    if (response && response.frontendslice === 'Yes') {
+                        console.log('📋 Server requested frontend slicing, switching to chunk mode');
+                        needsSlice = true;
+                    } else {
+                        needsSlice = response && (
+                            response.message === 'slice' ||
+                            response.message === 'Slice' ||
+                            response.message?.toLowerCase().includes('slice') ||
+                            (response.error && response.error.toLowerCase().includes('slice'))
+                        );
+                    }
                 }
             } catch (error) {
                 if (error.message.includes('timeout') || error.message.includes('504') || error.message.includes('408')) {
