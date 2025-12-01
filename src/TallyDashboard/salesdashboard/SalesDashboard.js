@@ -26,7 +26,16 @@ import { syncSalesData } from '../utils/dataSync';
 const SalesDashboard = ({ onNavigationAttempt }) => {
   const RAW_DATA_PAGE_SIZE = 20;
 
-
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // API data state
   const [sales, setSales] = useState([]);
@@ -5893,7 +5902,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           {/* Row 1: Sales by Ledger Group and Salesperson Totals */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
             gap: '24px',
             marginBottom: '24px'
           }}>
@@ -6398,7 +6407,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           {/* Row 2: Sales by State and Sales by Country */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
             gap: '24px',
             marginBottom: '24px'
           }}>
@@ -6896,7 +6905,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           {/* Row 3: Period Chart and Top Customers */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
             gap: '24px',
             marginBottom: '24px'
           }}>
@@ -7526,7 +7535,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           {/* Row 4: Top Items by Revenue and Top Items by Quantity */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
             gap: '24px',
             marginBottom: '24px'
           }}>
@@ -8210,7 +8219,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           {canShowProfit && (
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
+              gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
               gap: '24px',
               marginBottom: '24px'
             }}>
@@ -8824,7 +8833,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           {canShowProfit && (
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
             gap: '24px',
             marginBottom: '24px'
           }}>
@@ -9282,7 +9291,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           {/* Sales by Stock Group and Custom Cards - Moved to end */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
             gap: '24px',
             marginBottom: '24px'
           }}>
@@ -9547,7 +9556,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               ref={customCards.length === 2 ? customCardsSectionRef : null}
               style={{
                 display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
                 gap: '24px',
                 marginBottom: '24px'
               }}>
@@ -10410,6 +10419,17 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
 // Custom Card Modal Component
 const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // Initialize form state from editingCard if provided, otherwise use defaults
   const [cardTitle, setCardTitle] = useState(editingCard?.title || '');
   const [selectedFields, setSelectedFields] = useState(() => {
@@ -11026,7 +11046,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
           {/* Buckets Grid */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
             gap: '12px'
           }}>
             {/* Axis (Categories) */}
