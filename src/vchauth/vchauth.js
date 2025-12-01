@@ -30,6 +30,9 @@ function VoucherAuthorization() {
   const [authorizeNarration, setAuthorizeNarration] = useState('');
   const [voucherToAuthorize, setVoucherToAuthorize] = useState(null);
   const [authorizingMultiple, setAuthorizingMultiple] = useState(false);
+  const [showVoucherActivity, setShowVoucherActivity] = useState(false);
+  const [voucherActivityData, setVoucherActivityData] = useState(null);
+  const [activityLoading, setActivityLoading] = useState(false);
   const [progressState, setProgressState] = useState({
     active: false,
     total: 0,
@@ -177,19 +180,30 @@ function VoucherAuthorization() {
         customer = partyName;
       }
       
-      // Determine status based on ISALTAUTH or other fields
-      // Check if voucher has rejection/authorization narration or status field
+      // Determine status based on VOUCHER_ACTIVITY_HISTORY
+      // Check the last entry in the activity history to determine current status
       let status = 'Pending';
       let rejectionNarration = '';
       let authorizationNarration = '';
       
-      // Check if voucher is already authorized or rejected
-      if (v.ISALTAUTH === 'Yes' || v.ISALTAUTH === true || v.status === 'Authorized') {
-        status = 'Authorized';
-        authorizationNarration = v.AUTHORIZATIONNARRATION || v.authorizationNarration || '';
-      } else if (v.ISALTAUTH === 'No' || v.status === 'Rejected' || v.REJECTIONNARRATION) {
-        status = 'Rejected';
-        rejectionNarration = v.REJECTIONNARRATION || v.rejectionNarration || '';
+      // Check if VOUCHER_ACTIVITY_HISTORY exists and has entries
+      const activityHistory = v.VOUCHER_ACTIVITY_HISTORY || [];
+      
+      if (activityHistory.length > 0) {
+        // Get the last (most recent) entry in the history
+        const lastActivity = activityHistory[activityHistory.length - 1];
+        const lastStatus = lastActivity.apprv_status || '';
+        
+        if (lastStatus.toLowerCase() === 'approved') {
+          status = 'Authorized';
+          authorizationNarration = lastActivity.comments || '';
+        } else if (lastStatus.toLowerCase() === 'rejected') {
+          status = 'Rejected';
+          rejectionNarration = lastActivity.comments || '';
+        }
+      } else {
+        // If no history, default to 'Pending'
+        status = 'Pending';
       }
       
       // Extract narration from NARRATION or CP_Temp7 field
@@ -404,6 +418,12 @@ function VoucherAuthorization() {
     setShowVoucherDetails(true);
   };
 
+  // Handle viewing voucher activity history
+  const handleViewVoucherActivity = (voucher) => {
+    setVoucherActivityData(voucher);
+    setShowVoucherActivity(true);
+  };
+
   const handleSelectAll = () => {
     if (selectedVouchers.length === filteredVouchers.length) {
       setSelectedVouchers([]);
@@ -435,7 +455,7 @@ function VoucherAuthorization() {
   };
 
   // Helper function to authorize a single voucher
-  const authorizeSingleVoucher = async (voucher, narration = '') => {
+  const authorizeSingleVoucher = async (voucher) => {
     if (!voucher) return false;
 
     try {
@@ -444,19 +464,24 @@ function VoucherAuthorization() {
       
       const dateYYMMDD = convertDateToYYYYMMDD(voucher.date);
       
+      // Extract narration from voucher if available
+      const narration = voucher.narration || '';
+      
       console.log('📝 Authorizing voucher:', {
         masterid: voucher.masterId,
         date: dateYYMMDD,
         narration
       });
       
+      // Payload format: {"tallyloc_id":88,"company":"Data Lynk","guid":"f0650bb9-d9ad-4034-93e5-0d27e8286d39","date":20251127,"masterid":62, "narration":"testing", "comments":""}
       const response = await apiPost('/api/tally/vchauth/auth', {
         tallyloc_id: parseInt(companyInfo.tallyloc_id),
         company: companyInfo.company,
         guid: companyInfo.guid,
         date: parseInt(dateYYMMDD),
         masterid: parseInt(voucher.masterId),
-        narration: narration || ''
+        narration: narration,
+        comments: '' // No comments for authorization
       });
       
       if (response && response.success) {
@@ -464,7 +489,7 @@ function VoucherAuthorization() {
         setVouchers(prevVouchers => 
           prevVouchers.map(v => 
             v.id === voucher.id || v.masterId === voucher.masterId
-              ? { ...v, status: 'Authorized', authorizationNarration: narration || '' }
+              ? { ...v, status: 'Authorized', authorizationNarration: '' }
               : v
           )
         );
@@ -478,7 +503,7 @@ function VoucherAuthorization() {
   };
 
   // Helper function to reject a single voucher
-  const rejectSingleVoucher = async (voucher, narration = '') => {
+  const rejectSingleVoucher = async (voucher, comments = '') => {
     if (!voucher) return false;
 
     try {
@@ -487,19 +512,25 @@ function VoucherAuthorization() {
       
       const dateYYMMDD = convertDateToYYYYMMDD(voucher.date);
       
+      // Extract narration from voucher if available
+      const narration = voucher.narration || '';
+      
       console.log('📝 Rejecting voucher:', {
         masterid: voucher.masterId,
         date: dateYYMMDD,
-        narration
+        narration,
+        comments
       });
       
+      // Payload format: {"tallyloc_id":88,"company":"Data Lynk","guid":"f0650bb9-d9ad-4034-93e5-0d27e8286d39","date":20251127,"masterid":62, "narration":"testing", "comments":"qty issue"}
       const response = await apiPost('/api/tally/vchauth/reject', {
         tallyloc_id: parseInt(companyInfo.tallyloc_id),
         company: companyInfo.company,
         guid: companyInfo.guid,
         date: parseInt(dateYYMMDD),
         masterid: parseInt(voucher.masterId),
-        narration: narration || ''
+        narration: narration,
+        comments: comments || ''
       });
       
       if (response && response.success) {
@@ -507,7 +538,7 @@ function VoucherAuthorization() {
         setVouchers(prevVouchers => 
           prevVouchers.map(v => 
             v.id === voucher.id || v.masterId === voucher.masterId
-              ? { ...v, status: 'Rejected', rejectionNarration: narration || '' }
+              ? { ...v, status: 'Rejected', rejectionNarration: comments || '' }
               : v
           )
         );
@@ -520,33 +551,21 @@ function VoucherAuthorization() {
     }
   };
 
-  // Handle authorizing a single voucher from modal
-  const handleAuthorizeSingleVoucher = () => {
+  // Handle authorizing a single voucher from modal (direct authorization without description)
+  const handleAuthorizeSingleVoucher = async () => {
     if (!viewingVoucher) {
       alert('No voucher selected');
       return;
     }
 
-    setVoucherToAuthorize(viewingVoucher);
-    setAuthorizeNarration('');
-    setShowAuthorizeNarrationModal(true);
-  };
-
-  // Confirm authorization with narration
-  const confirmAuthorizeSingleVoucher = async () => {
-    if (!voucherToAuthorize) return;
-
     setAuthorizing(true);
-    setShowAuthorizeNarrationModal(false);
     try {
-      const success = await authorizeSingleVoucher(voucherToAuthorize, authorizeNarration);
+      const success = await authorizeSingleVoucher(viewingVoucher);
       
       if (success) {
         alert('Voucher authorized successfully');
         setShowVoucherDetails(false);
         setViewingVoucher(null);
-        setVoucherToAuthorize(null);
-        setAuthorizeNarration('');
         // Switch to authorized tab to show the newly authorized voucher
         setActiveTab('authorized');
         // Don't reload - status is already updated locally
@@ -600,7 +619,7 @@ function VoucherAuthorization() {
     }
   };
 
-  const handleAuthorizeVouchers = () => {
+  const handleAuthorizeVouchers = async () => {
     if (selectedVouchers.length === 0) {
       alert('Please select vouchers to authorize');
       return;
@@ -608,21 +627,11 @@ function VoucherAuthorization() {
 
     // Get selected voucher objects
     const selectedVoucherObjects = vouchers.filter(v => selectedVouchers.includes(v.id));
-    setVoucherToAuthorize(selectedVoucherObjects); // Store array for bulk authorization
-    setAuthorizingMultiple(true);
-    setAuthorizeNarration('');
-    setShowAuthorizeNarrationModal(true);
-  };
-
-  // Confirm bulk authorization with narration
-  const confirmAuthorizeMultipleVouchers = async () => {
-    if (!voucherToAuthorize || !Array.isArray(voucherToAuthorize)) return;
 
     setAuthorizing(true);
-    setShowAuthorizeNarrationModal(false);
     try {
-      // Authorize each voucher individually with the same narration
-      const authorizationPromises = voucherToAuthorize.map(voucher => authorizeSingleVoucher(voucher, authorizeNarration));
+      // Authorize each voucher individually (no narration required)
+      const authorizationPromises = selectedVoucherObjects.map(voucher => authorizeSingleVoucher(voucher));
       
       // Wait for all authorizations to complete
       const responses = await Promise.all(authorizationPromises);
@@ -632,11 +641,8 @@ function VoucherAuthorization() {
       const allSuccessful = responses.every(response => response === true);
       
       if (allSuccessful) {
-        alert(`${voucherToAuthorize.length} voucher(s) authorized successfully`);
+        alert(`${selectedVoucherObjects.length} voucher(s) authorized successfully`);
         setSelectedVouchers([]);
-        setVoucherToAuthorize(null);
-        setAuthorizeNarration('');
-        setAuthorizingMultiple(false);
         // Switch to authorized tab to show the newly authorized vouchers
         setActiveTab('authorized');
         // Don't reload - status is already updated locally
@@ -1348,7 +1354,7 @@ function VoucherAuthorization() {
                   {/* Table Header */}
                   <div style={{
                     display: 'grid',
-                    gridTemplateColumns: '40px 140px 1fr 120px 100px 140px 140px 200px',
+                    gridTemplateColumns: '40px 140px 1fr 120px 100px 140px 140px 200px 120px',
                     gap: 16,
                     padding: '12px 20px',
                     background: '#ffffff',
@@ -1365,6 +1371,7 @@ function VoucherAuthorization() {
                     <div style={{ textAlign: 'right' }}>Debit</div>
                     <div style={{ textAlign: 'right' }}>Credit</div>
                     <div style={{ textAlign: 'left' }}>Notes</div>
+                    <div style={{ textAlign: 'center' }}>Actions</div>
                   </div>
 
                   {/* Table Rows */}
@@ -1373,7 +1380,7 @@ function VoucherAuthorization() {
                       key={voucher.id}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '40px 140px 1fr 120px 100px 140px 140px 200px',
+                        gridTemplateColumns: '40px 140px 1fr 120px 100px 140px 140px 200px 120px',
                         gap: 16,
                         padding: '12px 20px',
                         borderBottom: '1px solid #e5e7eb',
@@ -1390,7 +1397,7 @@ function VoucherAuthorization() {
                       onClick={(e) => {
                         // Checkbox has stopPropagation, so clicking checkbox won't trigger this
                         // Only open voucher details when clicking elsewhere on the row
-                        if (e.target.type !== 'checkbox' && e.target.tagName !== 'INPUT') {
+                        if (e.target.type !== 'checkbox' && e.target.tagName !== 'INPUT' && !e.target.closest('button')) {
                           handleVoucherView(voucher);
                         }
                       }}
@@ -1443,6 +1450,39 @@ function VoucherAuthorization() {
                         ) : (
                           <span style={{ color: '#94a3b8' }}>-</span>
                         )}
+                      </div>
+                      <div style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => handleViewVoucherActivity(voucher)}
+                          style={{
+                            padding: '6px 12px',
+                            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                            fontWeight: '600',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            transition: 'all 0.2s ease',
+                            boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
+                            e.target.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.4)';
+                            e.target.style.transform = 'translateY(-1px)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                            e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.3)';
+                            e.target.style.transform = 'translateY(0)';
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: '16px' }}>history</span>
+                          Activity
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -2046,8 +2086,8 @@ function VoucherAuthorization() {
                   fontWeight: 500
                 }}>
                   {rejectingMultiple && Array.isArray(voucherToReject)
-                    ? `Add a reason for rejecting ${voucherToReject.length} voucher(s)`
-                    : 'Add an optional reason for rejecting this voucher'}
+                    ? `Add comments for rejecting ${voucherToReject.length} voucher(s)`
+                    : 'Add optional comments for rejecting this voucher'}
                 </p>
               </div>
             </div>
@@ -2064,8 +2104,8 @@ function VoucherAuthorization() {
                   color: '#374151',
                   marginBottom: '12px'
                 }}>
-                  <span className="material-icons" style={{ fontSize: '18px', color: '#dc2626' }}>warning</span>
-                  Rejection Reason
+                  <span className="material-icons" style={{ fontSize: '18px', color: '#dc2626' }}>comment</span>
+                  Comments
                   <span style={{
                     fontSize: '12px',
                     fontWeight: 500,
@@ -2078,7 +2118,7 @@ function VoucherAuthorization() {
                 <textarea
                   value={rejectNarration}
                   onChange={(e) => setRejectNarration(e.target.value)}
-                  placeholder="Enter your rejection reason here... (e.g., Missing documents, Incorrect amount, Policy violation, etc.)"
+                  placeholder="Enter your comments here... (e.g., qty issue, Missing documents, Incorrect amount, Policy violation, etc.)"
                   style={{
                     width: '100%',
                     minHeight: '120px',
@@ -2116,7 +2156,7 @@ function VoucherAuthorization() {
                   gap: '4px'
                 }}>
                   <span className="material-icons" style={{ fontSize: '14px' }}>info</span>
-                  This reason will be visible in the voucher details
+                  These comments will be visible in the voucher details
                 </div>
               </div>
 
@@ -2215,8 +2255,8 @@ function VoucherAuthorization() {
         </div>
       )}
 
-      {/* Authorization Narration Modal */}
-      {showAuthorizeNarrationModal && (
+      {/* Voucher Activity Modal */}
+      {showVoucherActivity && voucherActivityData && (
         <div
           style={{
             position: 'fixed',
@@ -2235,10 +2275,8 @@ function VoucherAuthorization() {
           }}
           onClick={(e) => {
             if (e.target === e.currentTarget) {
-              setShowAuthorizeNarrationModal(false);
-              setAuthorizeNarration('');
-              setVoucherToAuthorize(null);
-              setAuthorizingMultiple(false);
+              setShowVoucherActivity(false);
+              setVoucherActivityData(null);
             }
           }}
         >
@@ -2247,220 +2285,272 @@ function VoucherAuthorization() {
               background: 'white',
               borderRadius: '16px',
               width: '90%',
-              maxWidth: '560px',
+              maxWidth: '800px',
+              maxHeight: '80vh',
               boxShadow: '0 20px 60px rgba(0, 0, 0, 0.3)',
               overflow: 'hidden',
               animation: 'slideUp 0.3s ease-out',
-              transform: 'translateY(0)'
+              display: 'flex',
+              flexDirection: 'column'
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header with Icon */}
+            {/* Header */}
             <div style={{
-              background: 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)',
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
               padding: '24px 28px',
               display: 'flex',
               alignItems: 'center',
-              gap: '16px'
+              justifyContent: 'space-between'
             }}>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '12px',
-                background: 'rgba(255, 255, 255, 0.2)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backdropFilter: 'blur(10px)'
-              }}>
-                <span className="material-icons" style={{ fontSize: '28px', color: 'white' }}>check_circle</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '12px',
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  backdropFilter: 'blur(10px)'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '28px', color: 'white' }}>history</span>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <h3 style={{
+                    margin: 0,
+                    fontSize: '20px',
+                    fontWeight: 700,
+                    color: 'white',
+                    marginBottom: '4px',
+                    letterSpacing: '-0.01em'
+                  }}>
+                    Voucher Activity History
+                  </h3>
+                  <p style={{
+                    margin: 0,
+                    fontSize: '14px',
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    fontWeight: 500
+                  }}>
+                    {voucherActivityData.voucherNumber} - {voucherActivityData.type}
+                  </p>
+                </div>
               </div>
-              <div style={{ flex: 1 }}>
-                <h3 style={{
-                  margin: 0,
-                  fontSize: '20px',
-                  fontWeight: 700,
+              <button
+                onClick={() => {
+                  setShowVoucherActivity(false);
+                  setVoucherActivityData(null);
+                }}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '8px',
+                  background: 'rgba(255, 255, 255, 0.2)',
+                  border: 'none',
+                  cursor: 'pointer',
                   color: 'white',
-                  marginBottom: '4px',
-                  letterSpacing: '-0.01em'
-                }}>
-                  Authorize Voucher{authorizingMultiple && Array.isArray(voucherToAuthorize) ? 's' : ''}
-                </h3>
-                <p style={{
-                  margin: 0,
-                  fontSize: '14px',
-                  color: 'rgba(255, 255, 255, 0.9)',
-                  fontWeight: 500
-                }}>
-                  {authorizingMultiple && Array.isArray(voucherToAuthorize)
-                    ? `Add a note for ${voucherToAuthorize.length} voucher(s)`
-                    : 'Add an optional note for this authorization'}
-                </p>
-              </div>
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'rgba(255, 255, 255, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'rgba(255, 255, 255, 0.2)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '20px' }}>close</span>
+              </button>
             </div>
 
             {/* Content */}
-            <div style={{ padding: '28px' }}>
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  fontSize: '14px',
-                  fontWeight: 600,
-                  color: '#374151',
-                  marginBottom: '12px'
-                }}>
-                  <span className="material-icons" style={{ fontSize: '18px', color: '#F27020' }}>note</span>
-                  Authorization Note
-                  <span style={{
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    color: '#94a3b8',
-                    marginLeft: '4px'
-                  }}>
-                    (Optional)
-                  </span>
-                </label>
-                <textarea
-                  value={authorizeNarration}
-                  onChange={(e) => setAuthorizeNarration(e.target.value)}
-                  placeholder="Enter your authorization note here... (e.g., Verified and approved, All documents checked, etc.)"
-                  style={{
-                    width: '100%',
-                    minHeight: '120px',
-                    maxHeight: '200px',
-                    padding: '14px 16px',
-                    border: '2px solid #e2e8f0',
-                    borderRadius: '10px',
-                    fontSize: '14px',
-                    fontFamily: 'inherit',
-                    resize: 'vertical',
-                    outline: 'none',
-                    transition: 'all 0.2s ease',
-                    backgroundColor: '#fafbfc',
-                    color: '#1e293b',
-                    lineHeight: '1.6',
-                    boxSizing: 'border-box'
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.borderColor = '#F27020';
-                    e.target.style.backgroundColor = 'white';
-                    e.target.style.boxShadow = '0 0 0 3px rgba(242, 112, 32, 0.1)';
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.borderColor = '#e2e8f0';
-                    e.target.style.backgroundColor = '#fafbfc';
-                    e.target.style.boxShadow = 'none';
-                  }}
-                />
-                <div style={{
-                  marginTop: '8px',
-                  fontSize: '12px',
-                  color: '#94a3b8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px'
-                }}>
-                  <span className="material-icons" style={{ fontSize: '14px' }}>info</span>
-                  This note will be visible in the voucher details
-                </div>
-              </div>
+            <div style={{ 
+              padding: '28px', 
+              overflowY: 'auto',
+              flex: 1
+            }}>
+              {voucherActivityData.rawData && voucherActivityData.rawData.VOUCHER_ACTIVITY_HISTORY && 
+               Array.isArray(voucherActivityData.rawData.VOUCHER_ACTIVITY_HISTORY) && 
+               voucherActivityData.rawData.VOUCHER_ACTIVITY_HISTORY.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {voucherActivityData.rawData.VOUCHER_ACTIVITY_HISTORY.map((activity, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        background: '#f8fafc',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '12px',
+                        padding: '20px',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '16px',
+                        marginBottom: '16px'
+                      }}>
+                        <div>
+                          <div style={{
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            color: '#64748b',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            marginBottom: '4px'
+                          }}>
+                            User Email
+                          </div>
+                          <div style={{
+                            fontSize: '14px',
+                            fontWeight: 500,
+                            color: '#1e293b',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}>
+                            <span className="material-icons" style={{ fontSize: '18px', color: '#3b82f6' }}>
+                              email
+                            </span>
+                            {activity.email || 'N/A'}
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <div style={{
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            color: '#64748b',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            marginBottom: '4px'
+                          }}>
+                            Status
+                          </div>
+                          <div style={{
+                            fontSize: '14px',
+                            fontWeight: 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            padding: '6px 12px',
+                            borderRadius: '20px',
+                            background: activity.apprv_status === 'approved' ? '#d1fae5' : 
+                                       activity.apprv_status === 'rejected' ? '#fee2e2' : '#fef3c7',
+                            color: activity.apprv_status === 'approved' ? '#047857' : 
+                                   activity.apprv_status === 'rejected' ? '#991b1b' : '#92400e',
+                            border: `1px solid ${activity.apprv_status === 'approved' ? '#a7f3d0' : 
+                                                  activity.apprv_status === 'rejected' ? '#fecaca' : '#fde68a'}`
+                          }}>
+                            <span className="material-icons" style={{ fontSize: '16px' }}>
+                              {activity.apprv_status === 'approved' ? 'check_circle' : 
+                               activity.apprv_status === 'rejected' ? 'cancel' : 'pending'}
+                            </span>
+                            {activity.apprv_status ? activity.apprv_status.toUpperCase() : 'PENDING'}
+                          </div>
+                        </div>
+                      </div>
 
-              {/* Action Buttons */}
-              <div style={{
-                display: 'flex',
-                gap: '12px',
-                justifyContent: 'flex-end',
-                paddingTop: '8px',
-                borderTop: '1px solid #f1f5f9'
-              }}>
-                <button
-                  onClick={() => {
-                    setShowAuthorizeNarrationModal(false);
-                    setAuthorizeNarration('');
-                    setVoucherToAuthorize(null);
-                    setAuthorizingMultiple(false);
-                  }}
-                  style={{
-                    padding: '12px 24px',
-                    border: '2px solid #e2e8f0',
-                    borderRadius: '10px',
-                    background: 'white',
-                    color: '#64748b',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = '#f8fafc';
-                    e.target.style.borderColor = '#cbd5e1';
-                    e.target.style.color = '#475569';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'white';
-                    e.target.style.borderColor = '#e2e8f0';
-                    e.target.style.color = '#64748b';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '18px' }}>close</span>
-                  Cancel
-                </button>
-                <button
-                  onClick={authorizingMultiple ? confirmAuthorizeMultipleVouchers : confirmAuthorizeSingleVoucher}
-                  disabled={authorizing}
-                  style={{
-                    padding: '12px 24px',
-                    border: 'none',
-                    borderRadius: '10px',
-                    background: authorizing ? '#94a3b8' : 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)',
-                    color: 'white',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    cursor: authorizing ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s ease',
-                    opacity: authorizing ? 0.7 : 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    boxShadow: authorizing ? 'none' : '0 4px 12px rgba(242, 112, 32, 0.3)'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!authorizing) {
-                      e.target.style.background = 'linear-gradient(135deg, #e55a00 0%, #cc4a00 100%)';
-                      e.target.style.boxShadow = '0 6px 16px rgba(242, 112, 32, 0.4)';
-                      e.target.style.transform = 'translateY(-1px)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!authorizing) {
-                      e.target.style.background = 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)';
-                      e.target.style.boxShadow = '0 4px 12px rgba(242, 112, 32, 0.3)';
-                      e.target.style.transform = 'translateY(0)';
-                    }
-                  }}
-                >
-                  {authorizing ? (
-                    <>
-                      <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite' }}>refresh</span>
-                      Authorizing...
-                    </>
-                  ) : (
-                    <>
-                      <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
-                      Confirm Authorize
-                    </>
-                  )}
-                </button>
-              </div>
+                      <div style={{ 
+                        display: 'grid', 
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '16px'
+                      }}>
+                        <div>
+                          <div style={{
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            color: '#64748b',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px',
+                            marginBottom: '4px'
+                          }}>
+                            Date & Time
+                          </div>
+                          <div style={{
+                            fontSize: '14px',
+                            fontWeight: 500,
+                            color: '#1e293b',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}>
+                            <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>
+                              schedule
+                            </span>
+                            {activity.created_at ? new Date(activity.created_at).toLocaleString() : 'N/A'}
+                          </div>
+                        </div>
+
+                        {activity.comments && (
+                          <div>
+                            <div style={{
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              color: '#64748b',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px',
+                              marginBottom: '4px'
+                            }}>
+                              Comments
+                            </div>
+                            <div style={{
+                              fontSize: '14px',
+                              fontWeight: 500,
+                              color: '#1e293b',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '8px 12px',
+                              background: 'white',
+                              borderRadius: '8px',
+                              border: '1px solid #e2e8f0'
+                            }}>
+                              <span className="material-icons" style={{ fontSize: '18px', color: '#f59e0b' }}>
+                                comment
+                              </span>
+                              {activity.comments}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{
+                  textAlign: 'center',
+                  padding: '48px 20px',
+                  color: '#94a3b8'
+                }}>
+                  <span className="material-icons" style={{ 
+                    fontSize: '64px', 
+                    color: '#cbd5e1',
+                    marginBottom: '16px'
+                  }}>
+                    history_toggle_off
+                  </span>
+                  <p style={{ 
+                    fontSize: '16px', 
+                    fontWeight: 600, 
+                    margin: '0 0 8px 0',
+                    color: '#64748b'
+                  }}>
+                    No Activity History
+                  </p>
+                  <p style={{ fontSize: '14px', margin: 0 }}>
+                    There is no activity history available for this voucher yet.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </div>
       )}
+
     </>
   );
 }

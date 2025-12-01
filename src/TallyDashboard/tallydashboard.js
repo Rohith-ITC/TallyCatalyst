@@ -34,6 +34,7 @@ import {
 } from '../config/SideBarConfigurations';
 import { apiGet } from '../utils/apiUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
+import { MobileMenu, useIsMobile } from './MobileViewConfig';
 
 function TallyDashboard() {
   console.log('🎯 TallyDashboard component loading...');
@@ -73,6 +74,10 @@ function TallyDashboard() {
   const [googleConfigStatus, setGoogleConfigStatus] = useState(null);
   const [googleAccessToken, setGoogleAccessToken] = useState(localStorage.getItem('google_access_token') || null);
   
+  // Mobile menu state
+  const isMobile = useIsMobile();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  
   // Check if user is admin
   const isAdmin = () => {
     try {
@@ -91,6 +96,7 @@ function TallyDashboard() {
   const [showControlPanel, setShowControlPanel] = useState(false);
   const [controlPanelView, setControlPanelView] = useState(null); // 'tally-config', 'modules', 'roles', 'create-access', 'share-access'
   const [controlPanelOpen, setControlPanelOpen] = useState(false);
+  const [pendingSidebarNavigation, setPendingSidebarNavigation] = useState(null);
   const [accessControlDropdownOpen, setAccessControlDropdownOpen] = useState(false);
   const [masterManagementDropdownOpen, setMasterManagementDropdownOpen] = useState(false);
   const masterManagementDropdownRef = useRef(null);
@@ -683,6 +689,71 @@ function TallyDashboard() {
     window.location.href = process.env.REACT_APP_HOMEPAGE || '/';
   };
 
+  // Safe navigation function that checks for ongoing data loading
+  const handleSafeNavigation = useCallback((newSidebarId) => {
+    // Check if sales dashboard is currently loading data
+    if (window.salesDashboardLoading && activeSidebar === 'sales_dashboard') {
+      console.log('⚠️ Navigation blocked - Sales dashboard is loading data');
+      const navigationCallback = () => {
+        setActiveSidebar(newSidebarId);
+        setPendingSidebarNavigation(null);
+      };
+      setPendingSidebarNavigation(() => navigationCallback);
+      if (window.salesDashboardShowWarning) {
+        window.salesDashboardShowWarning(navigationCallback);
+      }
+      return false;
+    }
+    
+    // Safe to navigate
+    setActiveSidebar(newSidebarId);
+    return true;
+  }, [activeSidebar]);
+
+  // Execute pending navigation when user confirms
+  useEffect(() => {
+    if (pendingSidebarNavigation && !window.salesDashboardLoading) {
+      pendingSidebarNavigation();
+      setPendingSidebarNavigation(null);
+    }
+  }, [pendingSidebarNavigation]);
+
+  // Prepare sidebar items for mobile menu
+  const getMobileSidebarItems = useCallback(() => {
+    const userModules = getUserModules();
+    return MODULE_SEQUENCE
+      .filter(module => {
+        if (module.key === 'main_menu') return false;
+        if (module.hasSubModules) {
+          return isAlwaysVisible(module.key) || hasAnySubModuleAccess(module.key, userModules);
+        }
+        return isAlwaysVisible(module.key) || hasModuleAccess(module.key, userModules);
+      })
+      .map(module => {
+        if (module.hasSubModules && !module.useDropdownFilter) {
+          const accessibleSubModules = (module.subModules || []).filter(sub => 
+            isAlwaysVisible(module.key) || hasSubModuleAccess(sub.key, userModules)
+          );
+          return {
+            key: module.id,
+            label: module.label,
+            icon: module.icon,
+            hasSubModules: accessibleSubModules.length > 0,
+            subModules: accessibleSubModules.map(sub => ({
+              key: sub.id,
+              label: sub.label,
+              icon: sub.icon,
+            })),
+          };
+        }
+        return {
+          key: module.id,
+          label: module.label,
+          icon: module.icon,
+        };
+      });
+  }, []);
+
   // Enhanced sidebar rendering
   const renderSidebarItems = () => {
     const userModules = getUserModules();
@@ -786,9 +857,9 @@ function TallyDashboard() {
           if (moduleKey === 'main_menu') {
             navigate('/admin-dashboard');
           } else {
-            setActiveSidebar(module.id); 
+            const canNavigate = handleSafeNavigation(module.id); 
             // Close control panel when sidebar item is clicked
-            if (showControlPanel) {
+            if (canNavigate && showControlPanel) {
               handleCloseControlPanel();
             }
           }
@@ -1172,9 +1243,9 @@ function TallyDashboard() {
                     e.preventDefault();
                     e.stopPropagation();
                     console.log('🖱️ Master dropdown item clicked:', subModule.key, subModule.id);
-                    setActiveSidebar(subModule.id);
+                    const canNavigate = handleSafeNavigation(subModule.id);
                     setMasterManagementDropdownOpen(false);
-                    if (showControlPanel) {
+                    if (canNavigate && showControlPanel) {
                       handleCloseControlPanel();
                     }
                   }}
@@ -1340,7 +1411,7 @@ function TallyDashboard() {
                 <button
                   key={subModule.key}
                   onClick={() => { 
-                    setActiveSidebar(subModule.id); 
+                    handleSafeNavigation(subModule.id); 
                   }}
                   style={{
                     color: isSubActive ? '#ff9800' : '#fff',
@@ -1447,7 +1518,64 @@ function TallyDashboard() {
           }
         `}
       </style>
-      {/* Top Bar */}
+      
+      {/* Hamburger Menu Button - Mobile Only */}
+      {isMobile && (
+        <button
+          onClick={() => setMobileMenuOpen(true)}
+          style={{
+            position: 'fixed',
+            top: '12px',
+            left: '12px',
+            zIndex: 10000,
+            background: 'rgba(255, 255, 255, 0.95)',
+            border: '1px solid rgba(0, 0, 0, 0.1)',
+            borderRadius: '8px',
+            width: '44px',
+            height: '44px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+            transition: 'all 0.2s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = '#fff';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+            e.currentTarget.style.transform = 'scale(1.05)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.95)';
+            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+            e.currentTarget.style.transform = 'scale(1)';
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: 24, color: '#1e3a8a' }}>
+            menu
+          </span>
+        </button>
+      )}
+
+      {/* Mobile Menu */}
+      {isMobile && (
+        <MobileMenu
+          isOpen={mobileMenuOpen}
+          onClose={() => setMobileMenuOpen(false)}
+          sidebarItems={getMobileSidebarItems()}
+          activeSidebar={activeSidebar}
+          onSidebarClick={handleSafeNavigation}
+          name={name}
+          email={email}
+          companyName={company}
+          onProfileClick={() => setProfileDropdownOpen(true)}
+          onLogout={handleLogout}
+          onNavigate={navigate}
+        />
+      )}
+
+      {/* Top Bar - Hidden in Mobile */}
+      {!isMobile && (
       <div style={{
         position: 'fixed',
         top: 0,
@@ -2030,6 +2158,7 @@ function TallyDashboard() {
         </div>
         </div>
       </div>
+      )}
 
       {/* Google Account Configuration Modal */}
       {showGoogleConfigModal && (
@@ -2244,7 +2373,8 @@ function TallyDashboard() {
         </div>
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar - Hidden in Mobile */}
+      {!isMobile && (
       <aside
         className={`adminhome-sidebar sidebar-animated`}
         style={{
@@ -2739,8 +2869,10 @@ function TallyDashboard() {
           </div>
         )}
       </aside>
+      )}
 
-      {/* Sidebar Toggle */}
+      {/* Sidebar Toggle - Hidden in Mobile */}
+      {!isMobile && (
       <button
         className="sidebar-toggle-btn-main"
         onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -2773,14 +2905,15 @@ function TallyDashboard() {
       >
         <span className="material-icons" style={{ fontSize: 22, color: '#1e40af' }}>{sidebarOpen ? 'chevron_left' : 'chevron_right'}</span>
       </button>
+      )}
 
       {/* Main Content */}
       <main
         className="adminhome-main"
         style={{
-          marginLeft: sidebarOpen ? 260 : 70,
-          paddingTop: 64,
-          padding: 20,
+          marginLeft: isMobile ? 0 : (sidebarOpen ? 260 : 70),
+          paddingTop: isMobile ? 0 : 64,
+          padding: isMobile ? 12 : 20,
           transition: 'margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
@@ -2806,7 +2939,7 @@ function TallyDashboard() {
           {activeSidebar === 'ecommerce' && <PlaceOrder_ECommerce />}
           {activeSidebar === 'sales_dashboard' && (
             <div style={{ margin: '-20px', padding: '0' }}>
-              <SalesDashboard />
+              <SalesDashboard onNavigationAttempt={true} />
             </div>
           )}
           {activeSidebar === 'receivables_dashboard' && (

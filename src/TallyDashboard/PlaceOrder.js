@@ -9,7 +9,7 @@ function PlaceOrder() {
   useEffect(() => {
     console.log('=== Testing Deobfuscation on Mount ===');
     testDeobfuscation('ZWt2'); // Test with one of the values from the API
-    
+
     // Test zero value specifically
     console.log('=== Testing Zero Value Deobfuscation ===');
     console.log('Testing "ZA==" →', enhancedDeobfuscateValue('ZA=='));
@@ -77,23 +77,23 @@ function PlaceOrder() {
     window.addEventListener('globalRefresh', handleGlobalRefresh);
     return () => window.removeEventListener('globalRefresh', handleGlobalRefresh);
   }, []);
-  
+
   // Auto-populate from E-commerce cart data
   useEffect(() => {
     const cartData = sessionStorage.getItem('ecommerceCartData');
     if (cartData) {
       try {
         const data = JSON.parse(cartData);
-        
+
         // Set auto-population state
         setIsAutoPopulating(true);
         autoPopulatingRef.current = true;
-        
+
         // Store cart data for later use after customerOptions are loaded
         if (data.company) {
           setCompany(data.company);
         }
-        
+
         // Don't set customer yet - wait for customerOptions to be loaded
         // Store the customer data for later use
         if (data.customer) {
@@ -103,16 +103,16 @@ function PlaceOrder() {
         } else {
           console.log('No customer data found in cart');
         }
-        
+
         // Add all cart items to order
         if (data.items && data.items.length > 0) {
           // Store items data temporarily
           sessionStorage.setItem('pendingItems', JSON.stringify(data.items));
         }
-        
+
         // Clear the cart data after storing pending data
         sessionStorage.removeItem('ecommerceCartData');
-        
+
       } catch (error) {
         console.error('Error parsing E-commerce cart data:', error);
       }
@@ -123,21 +123,21 @@ function PlaceOrder() {
   let companies = [];
   try {
     companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
-  } catch (e) {}
+  } catch (e) { }
   // Show all companies without access_type filtering
   const filteredCompanies = companies;
 
   // Get company from sessionStorage (controlled by top bar)
   const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
   const company = selectedCompanyGuid;
-  
+
   // Company-related state (kept for JSX compatibility but not used)
   const [companyFocused, setCompanyFocused] = useState(false);
   const [companySearchTerm, setCompanySearchTerm] = useState('');
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
   const [filteredCompanyOptions, setFilteredCompanyOptions] = useState([]);
-  const setCompany = () => {}; // Dummy function for JSX compatibility
-  
+  const setCompany = () => { }; // Dummy function for JSX compatibility
+
   // Customer list state (with addresses)
   const [customerOptions, setCustomerOptions] = useState([]);
   const [customerLoading, setCustomerLoading] = useState(false);
@@ -145,12 +145,12 @@ function PlaceOrder() {
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [customerFocused, setCustomerFocused] = useState(false);
   const [refreshCustomers, setRefreshCustomers] = useState(0);
-  
+
   // Auto-population state
   const [isAutoPopulating, setIsAutoPopulating] = useState(false);
   const autoPopulatingRef = useRef(false);
   const hasAutoPopulatedRef = useRef(false);
-  
+
   // VoucherType state
   const [voucherTypes, setVoucherTypes] = useState([]);
   const [voucherTypesLoading, setVoucherTypesLoading] = useState(false);
@@ -163,38 +163,38 @@ function PlaceOrder() {
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [filteredCustomers, setFilteredCustomers] = useState([]);
-  
+
   // Stock items state
   const [stockItems, setStockItems] = useState([]);
   const [stockItemsLoading, setStockItemsLoading] = useState(false);
   const [stockItemsError, setStockItemsError] = useState('');
   const [refreshStockItems, setRefreshStockItems] = useState(0);
-  
+
   // Item search and dropdown state
   const [itemSearchTerm, setItemSearchTerm] = useState('');
   const [showItemDropdown, setShowItemDropdown] = useState(false);
   const [filteredItems, setFilteredItems] = useState([]);
-  
+
   // Memoized stock item names for O(1) lookup performance with large lists (25k+ items)
   const stockItemNames = useMemo(() => {
     return new Set(stockItems.map(item => item.NAME));
   }, [stockItems]);
-  
+
   // User permissions state
   const [userModules, setUserModules] = useState([]);
-  
+
   // Load user permissions on component mount and when permissions change
   useEffect(() => {
     const updateUserModules = () => {
       const modules = getUserModules();
       setUserModules(modules);
     };
-    
+
     updateUserModules();
-    
+
     window.addEventListener('userAccessUpdated', updateUserModules);
     window.addEventListener('companyChanged', updateUserModules);
-    
+
     return () => {
       window.removeEventListener('userAccessUpdated', updateUserModules);
       window.removeEventListener('companyChanged', updateUserModules);
@@ -219,28 +219,28 @@ function PlaceOrder() {
 
   // Check if user has edit_rate permission
   const canEditRate = hasPermission(permissionModule, 'edit_rate', userModules);
-  
+
   // Check if user has edit_discount permission
   const canEditDiscount = hasPermission(permissionModule, 'edit_discount', userModules);
-  
+
   // Check if user has save_optional permission
   const canSaveOptional = hasPermission(permissionModule, 'save_optional', userModules);
-  
+
   // Check if user has show_payterms permission
   const canShowPayTerms = hasPermission(permissionModule, 'show_payterms', userModules);
-  
+
   // Check if user has show_delvterms permission
   const canShowDelvTerms = hasPermission(permissionModule, 'show_delvterms', userModules);
-  
+
   // Check if user has show_pricelvl permission
   const canShowPriceLevel = hasPermission(permissionModule, 'show_pricelvl', userModules);
-  
+
   // Check if user has show_creditdayslimit permission
   const canShowCreditLimit = hasPermission(permissionModule, 'show_creditdayslimit', userModules);
-  
+
   // Check if user has ctrl_creditdayslimit permission
   const canControlCreditLimit = hasPermission(permissionModule, 'ctrl_creditdayslimit', userModules);
-  
+
   // Fetch credit limit data when customer changes and user has permission
   useEffect(() => {
     const fetchCreditLimitData = async () => {
@@ -252,29 +252,29 @@ function PlaceOrder() {
       try {
         setCreditLimitLoading(true);
         const currentCompany = filteredCompanies.find(c => c.guid === company);
-        
+
         if (!currentCompany) {
           console.error('No company found for credit limit API');
           setCreditLimitData(null);
           return;
         }
-        
+
         const { tallyloc_id, company: companyVal, guid } = currentCompany;
-        
+
         console.log('Credit Limit API - Current Company:', currentCompany);
         console.log('Credit Limit API - Selected Customer:', selectedCustomer);
-        
+
         const payload = {
-          tallyloc_id, 
-          company: companyVal, 
+          tallyloc_id,
+          company: companyVal,
           guid,
           ledgername: selectedCustomer
         };
-        
+
         console.log('Credit Limit API - Payload:', payload);
 
         const data = await apiPost(`/api/tally/creditdayslimit?ts=${Date.now()}`, payload);
-        
+
         if (data && data.creditLimitInfo) {
           setCreditLimitData(data);
         } else {
@@ -290,38 +290,38 @@ function PlaceOrder() {
 
     fetchCreditLimitData();
   }, [selectedCustomer, canShowCreditLimit, canControlCreditLimit]);
-  
+
   // Check if user has show_rateamt_Column permission
   const canShowRateAmtColumn = hasPermission(permissionModule, 'show_rateamt_Column', userModules);
-  
+
   // Check if user has show_disc_Column permission
   const canShowDiscColumn = hasPermission(permissionModule, 'show_disc_Column', userModules);
-  
+
   // Check if user has show_itemdesc permission
   const canShowItemDesc = hasPermission(permissionModule, 'show_itemdesc', userModules);
-  
+
   // Check if user has show_clsstck_Column permission
   const canShowClosingStock = hasPermission(permissionModule, 'show_ClsStck_Column', userModules);
-  
+
   // Check if user has show_clsstck_yesno permission
   const canShowClosingStockYesNo = hasPermission(permissionModule, 'show_ClsStck_yesno', userModules);
-  
+
   // Check if user has show_itemshasqty permission
   const canShowItemsHasQty = hasPermission(permissionModule, 'show_itemshasqty', userModules);
-  
+
   // Check if user has show_godownbrkup permission
   const canShowGodownBrkup = hasPermission(permissionModule, 'show_godownbrkup', userModules);
-  
+
   // Check if user has show_multicobrkup permission
   const canShowMulticoBrkup = hasPermission(permissionModule, 'show_multicobrkup', userModules);
-  
+
   // Check if user has any stock breakdown permission
   const canShowStockBreakdown = canShowGodownBrkup || canShowMulticoBrkup;
-  
+
   // Get default quantity value from def_qty permission
   const defaultQuantity = getPermissionValue(permissionModule, 'def_qty', userModules);
   const defQtyValue = defaultQuantity ? parseInt(defaultQuantity) : 1;
-  
+
   // Compute rate for an item using the same logic as the Rate field
   const computeRateForItem = useMemo(() => {
     return (item) => {
@@ -337,7 +337,7 @@ function PlaceOrder() {
       return item.STDPRICE || 0;
     };
   }, [customerOptions, selectedCustomer]);
-  
+
   // Filter items based on search term with debouncing
   useEffect(() => {
     if (!itemSearchTerm.trim()) {
@@ -347,27 +347,27 @@ function PlaceOrder() {
       }
       return;
     }
-    
+
     // Debounce search to improve performance
     const timeoutId = setTimeout(() => {
       const searchLower = itemSearchTerm.toLowerCase();
-      
+
       // Optimized search: search in both NAME and PARTNO fields
       const exactMatches = [];
       const startsWithMatches = [];
       const containsMatches = [];
-      
+
       for (let i = 0; i < stockItems.length; i++) {
         const item = stockItems[i];
         const itemName = item.NAME || '';
         const itemPartNo = item.PARTNO || '';
         const itemNameLower = itemName.toLowerCase();
         const itemPartNoLower = itemPartNo.toLowerCase();
-        
+
         // Check if search term matches name or part number
         const nameMatch = itemNameLower.includes(searchLower);
         const partNoMatch = itemPartNoLower.includes(searchLower);
-        
+
         if (nameMatch || partNoMatch) {
           // If user has show_itemshasqty permission, only show items with stock > 0
           if (canShowItemsHasQty) {
@@ -376,7 +376,7 @@ function PlaceOrder() {
               continue; // Skip items with no stock
             }
           }
-          
+
           // Prioritize exact matches
           if (itemNameLower === searchLower || itemPartNoLower === searchLower) {
             exactMatches.push(item);
@@ -386,18 +386,18 @@ function PlaceOrder() {
             containsMatches.push(item);
           }
         }
-        
+
         // Early exit if we have enough results
         if (exactMatches.length + startsWithMatches.length + containsMatches.length >= 100) {
           break;
         }
       }
-      
+
       // Combine results in priority order
       const filtered = [...exactMatches, ...startsWithMatches, ...containsMatches].slice(0, 100);
       setFilteredItems(filtered);
     }, 150); // 150ms debounce
-    
+
     return () => clearTimeout(timeoutId);
   }, [itemSearchTerm, stockItems.length, canShowItemsHasQty]); // Use stockItems.length instead of array reference
 
@@ -416,38 +416,38 @@ function PlaceOrder() {
   useEffect(() => {
     // Capture the current search term to avoid closure issues
     const currentSearchTerm = customerSearchTerm.trim();
-    
+
     // Clear results immediately if search term is empty
     if (!currentSearchTerm) {
       // Don't set to empty here - let the dropdown useEffect handle showing all customers
       return;
     }
-    
+
     // Clear previous results immediately when search term changes
     // This ensures old results don't show when user types new search term
     setFilteredCustomers([]);
-    
+
     // Debounce search to improve performance
     const timeoutId = setTimeout(() => {
       // Use captured search term to ensure we're searching with the correct value
       const searchLower = currentSearchTerm.toLowerCase();
-      
+
       // Search in both NAME and GSTNO fields
       const exactMatches = [];
       const startsWithMatches = [];
       const containsMatches = [];
-      
+
       for (let i = 0; i < customerOptions.length; i++) {
         const customer = customerOptions[i];
         const customerName = customer.NAME || '';
         const customerGstNo = customer.GSTNO || '';
         const customerNameLower = customerName.toLowerCase();
         const customerGstNoLower = customerGstNo.toLowerCase();
-        
+
         // Check if search term matches name or GST number
         const nameMatch = customerNameLower.includes(searchLower);
         const gstMatch = customerGstNoLower.includes(searchLower);
-        
+
         if (nameMatch || gstMatch) {
           // Prioritize exact matches
           if (customerNameLower === searchLower || customerGstNoLower === searchLower) {
@@ -458,22 +458,22 @@ function PlaceOrder() {
             containsMatches.push(customer);
           }
         }
-        
+
         // Early exit if we have enough results
         if (exactMatches.length + startsWithMatches.length + containsMatches.length >= 50) {
           break;
         }
       }
-      
+
       // Combine results in priority order
       const filtered = [...exactMatches, ...startsWithMatches, ...containsMatches].slice(0, 50);
       setFilteredCustomers(filtered);
     }, 150); // 150ms debounce
-    
+
     return () => clearTimeout(timeoutId);
   }, [customerSearchTerm, customerOptions]);
-  
-  
+
+
   // Show all customers when dropdown opens
   useEffect(() => {
     if (showCustomerDropdown && !customerSearchTerm.trim() && customerOptions.length > 0) {
@@ -481,8 +481,8 @@ function PlaceOrder() {
       setFilteredCustomers(customerOptions);
     }
   }, [showCustomerDropdown, customerSearchTerm, customerOptions.length]); // Use length instead of array reference
-  
-  
+
+
   // Show all items when dropdown opens
   useEffect(() => {
     if (showItemDropdown && !itemSearchTerm.trim()) {
@@ -496,13 +496,13 @@ function PlaceOrder() {
       }
     }
   }, [showItemDropdown, itemSearchTerm, stockItems, canShowItemsHasQty]);
-  
+
   // Additional form fields
   const [buyerOrderRef, setBuyerOrderRef] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
   const [deliveryTerms, setDeliveryTerms] = useState('');
   const [narration, setNarration] = useState('');
-  
+
   // Order item management state
   const [selectedItem, setSelectedItem] = useState('');
   const [itemQuantity, setItemQuantity] = useState(1);
@@ -515,26 +515,55 @@ function PlaceOrder() {
   const [quantityFocused, setQuantityFocused] = useState(false);
   const [descriptionFocused, setDescriptionFocused] = useState(false);
   const [showDescription, setShowDescription] = useState(false);
-  
+
+  // Unit selection state for TallyPrime compound units
+  const [selectedUnitType, setSelectedUnitType] = useState('base'); // 'base' or 'additional'
+  const [showUnitTypeDropdown, setShowUnitTypeDropdown] = useState(false);
+  const [selectedItemUnitConfig, setSelectedItemUnitConfig] = useState(null);
+
+  // Quantity input state (dynamic based on unit type)
+  const [baseUnitQty, setBaseUnitQty] = useState(''); // For simple base unit or compound base unit (first part)
+  const [baseUnitAddlQty, setBaseUnitAddlQty] = useState(''); // For compound base unit (second part)
+  const [additionalUnitQty, setAdditionalUnitQty] = useState(''); // For simple additional unit
+  const [additionalUnitAddlQty, setAdditionalUnitAddlQty] = useState(''); // For compound additional (second part)
+  const [denominatorValue, setDenominatorValue] = useState(''); // User-editable denominator
+
+  // Formula state
+  const [autoGeneratedFormula, setAutoGeneratedFormula] = useState('');
+  const [customFormula, setCustomFormula] = useState('');
+  const [isFormulaEditMode, setIsFormulaEditMode] = useState(false);
+
+  // Focus states for unit inputs
+  const [unitTypeFocused, setUnitTypeFocused] = useState(false);
+  const [baseQtyFocused, setBaseQtyFocused] = useState(false);
+  const [baseAddlQtyFocused, setBaseAddlQtyFocused] = useState(false);
+  const [additionalQtyFocused, setAdditionalQtyFocused] = useState(false);
+  const [additionalAddlQtyFocused, setAdditionalAddlQtyFocused] = useState(false);
+  const [denominatorFocused, setDenominatorFocused] = useState(false);
+  const [formulaFocused, setFormulaFocused] = useState(false);
+
+  // Auto-calculated amount
+  const [itemAmount, setItemAmount] = useState(0);
+
   // Credit limit state
   const [creditLimitData, setCreditLimitData] = useState(null);
   const [showOverdueBills, setShowOverdueBills] = useState(false);
   const [creditLimitLoading, setCreditLimitLoading] = useState(false);
-  
+
   // Edit item state
   const [editingItemIndex, setEditingItemIndex] = useState(null);
   const [editQuantity, setEditQuantity] = useState(1);
   const [editRate, setEditRate] = useState(0);
   const [editDiscountPercent, setEditDiscountPercent] = useState(0);
   const [editDescription, setEditDescription] = useState('');
-  
+
   // Editable customer details state
   const [editableAddress, setEditableAddress] = useState('');
   const [editableState, setEditableState] = useState('');
   const [editableCountry, setEditableCountry] = useState('');
   const [editableGstNo, setEditableGstNo] = useState('');
   const [editablePincode, setEditablePincode] = useState('');
-  
+
   // Focus states for floating labels
   const [addressFocused, setAddressFocused] = useState(false);
   const [stateFocused, setStateFocused] = useState(false);
@@ -545,7 +574,7 @@ function PlaceOrder() {
   const [paymentTermsFocused, setPaymentTermsFocused] = useState(false);
   const [deliveryTermsFocused, setDeliveryTermsFocused] = useState(false);
   const [narrationFocused, setNarrationFocused] = useState(false);
-  
+
   // Popup modal state
   const [showEditModal, setShowEditModal] = useState(false);
   const [tempCustomerData, setTempCustomerData] = useState({
@@ -561,14 +590,14 @@ function PlaceOrder() {
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState('');
   const [confirmAction, setConfirmAction] = useState(null);
-  
-    // Order submission state
+
+  // Order submission state
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
-  
+
   // Order result modal state
   const [showOrderResultModal, setShowOrderResultModal] = useState(false);
   const [orderResult, setOrderResult] = useState({ success: false, message: '', tallyResponse: null });
-  
+
   // Stock breakdown modal state
   const [showStockModal, setShowStockModal] = useState(false);
   const [stockBreakdownData, setStockBreakdownData] = useState(null);
@@ -580,13 +609,167 @@ function PlaceOrder() {
   });
 
 
+  // =============== Utility Functions for Unit Handling ===============
+
+  // Validate and format decimal places
+  const validateDecimalPlaces = (value, maxDecimals) => {
+    if (!value) return '';
+
+    const strValue = value.toString();
+    const parts = strValue.split('.');
+
+    if (!maxDecimals || maxDecimals === '0' || maxDecimals === 0) {
+      // No decimals allowed - return integer part only
+      return parts[0];
+    }
+
+    if (parts.length === 1) {
+      // No decimal point yet
+      return strValue;
+    }
+
+    // Limit decimal places
+    const decimals = parseInt(maxDecimals);
+    return parts[0] + '.' + parts[1].substring(0, decimals);
+  };
+
+  // Format number with specific decimal places
+  const formatWithDecimals = (value, maxDecimals) => {
+    if (!value && value !== 0) return '';
+    if (!maxDecimals || maxDecimals === '0' || maxDecimals === 0) {
+      return Math.floor(parseFloat(value || 0)).toString();
+    }
+    const decimals = parseInt(maxDecimals);
+    return parseFloat(value || 0).toFixed(decimals);
+  };
+
+  // Parse compound unit string (e.g., "LTR of 1000 ML" -> {base: "LTR", addl: "ML", conversion: "1000"})
+  const parseCompoundUnit = (compoundUnitString) => {
+    if (!compoundUnitString || typeof compoundUnitString !== 'string') return null;
+
+    const parts = compoundUnitString.split(' of ');
+    if (parts.length === 2) {
+      const [baseUnit, rest] = parts;
+      const match = rest.match(/^(\d+)\s+(.+)$/);
+      if (match) {
+        return {
+          base: baseUnit.trim(),
+          addl: match[2].trim(),
+          conversion: match[1].trim()
+        };
+      }
+    }
+    return null;
+  };
+
+  // Generate formula based on current unit configuration
+  const generateFormula = () => {
+    if (!selectedItemUnitConfig) return '';
+
+    const unitType = selectedUnitType;
+    const isCompound = unitType === 'base'
+      ? selectedItemUnitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes'
+      : selectedItemUnitConfig.ADDITIONALUNITHASCOMPOUNDUNIT === 'Yes';
+
+    let formula = '';
+
+    if (unitType === 'base') {
+      // Using base units
+      if (isCompound) {
+        // Compound base unit: "2.000 LTR 500.000 ML"
+        const baseUnit = selectedItemUnitConfig.BASEUNITCOMP_BASEUNIT;
+        const addlUnit = selectedItemUnitConfig.BASEUNITCOMP_ADDLUNIT;
+        const baseDecimals = selectedItemUnitConfig.BASEUNITCOMP_BASEUNIT_DECIMAL;
+        const addlDecimals = selectedItemUnitConfig.BASEUNITCOMP_ADDLUNIT_DECIMAL;
+
+        if (baseUnitQty || baseUnitAddlQty) {
+          formula = `${formatWithDecimals(baseUnitQty, baseDecimals)} ${baseUnit} ${formatWithDecimals(baseUnitAddlQty, addlDecimals)} ${addlUnit}`;
+        }
+      } else {
+        // Simple base unit: "10 nos"
+        const baseUnit = selectedItemUnitConfig.BASEUNITS;
+        const baseDecimals = selectedItemUnitConfig.BASEUNIT_DECIMAL;
+
+        if (baseUnitQty) {
+          formula = `${formatWithDecimals(baseUnitQty, baseDecimals)} ${baseUnit}`;
+        }
+      }
+    } else {
+      // Using additional units
+      const additionalUnit = selectedItemUnitConfig.ADDITIONALUNITS;
+      const baseUnit = selectedItemUnitConfig.BASEUNITS;
+      const denominator = denominatorValue || selectedItemUnitConfig.DENOMINATOR || 1;
+      const conversion = selectedItemUnitConfig.CONVERSION || 1;
+
+      if (isCompound) {
+        // Compound additional unit converting to base
+        const addlBaseUnit = selectedItemUnitConfig.ADDLUNITCOMP_BASEUNIT;
+        const addlAddlUnit = selectedItemUnitConfig.ADDLUNITCOMP_ADDLUNIT;
+        const addlAddlDecimals = selectedItemUnitConfig.ADDLUNITCOMP_ADDLUNIT_DECIMAL;
+
+        if (additionalUnitQty || additionalUnitAddlQty) {
+          // For compound additional units, calculate base equivalent
+          const totalAddlUnits = (parseFloat(additionalUnitQty || 0) * 1000) + parseFloat(additionalUnitAddlQty || 0);
+          const baseQty = (totalAddlUnits / 1000) * parseFloat(denominator) * parseFloat(conversion);
+
+          formula = `${additionalUnitQty || 0} ${addlBaseUnit} ${formatWithDecimals(additionalUnitAddlQty, addlAddlDecimals)} ${addlAddlUnit} = ${formatWithDecimals(baseQty, selectedItemUnitConfig.BASEUNIT_DECIMAL || 0)} ${baseUnit}`;
+        }
+      } else {
+        // Simple additional unit: "5 box = 125 nos"
+        const addlDecimals = selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL;
+
+        if (additionalUnitQty) {
+          const baseQty = parseFloat(additionalUnitQty || 0) * parseFloat(denominator) * parseFloat(conversion);
+          formula = `${formatWithDecimals(additionalUnitQty, addlDecimals)} ${additionalUnit} = ${formatWithDecimals(baseQty, selectedItemUnitConfig.BASEUNIT_DECIMAL || 0)} ${baseUnit}`;
+        }
+      }
+    }
+
+    return formula.trim();
+  };
+
+  // Update formula whenever quantity values change
+  const updateFormula = () => {
+    const formula = generateFormula();
+    setAutoGeneratedFormula(formula);
+    if (!isFormulaEditMode) {
+      setCustomFormula(formula);
+    }
+  };
+
+  // Handle unit type change
+  const handleUnitTypeChange = (unitType) => {
+    setSelectedUnitType(unitType);
+    setShowUnitTypeDropdown(false);
+
+    // Reset quantities when switching unit type
+    setBaseUnitQty('');
+    setBaseUnitAddlQty('');
+    setAdditionalUnitQty('');
+    setAdditionalUnitAddlQty('');
+
+    // Load default denominator if switching to additional units
+    if (unitType === 'additional' && selectedItemUnitConfig) {
+      setDenominatorValue(selectedItemUnitConfig.DENOMINATOR || '');
+    } else {
+      setDenominatorValue('');
+    }
+
+    // Clear formula
+    setAutoGeneratedFormula('');
+    setCustomFormula('');
+  };
+
+  // =============== End of Utility Functions ===============
+
+
   // Dynamic grid template based on Rate/Amount columns, Discount column, and Stock column visibility
   const getGridTemplateColumns = () => {
     let columns = '450px'; // Item Name column (always visible)
-    
+
     if (canShowRateAmtColumn) {
       columns += ' 80px'; // Qty column
-    if (canShowClosingStock) {
+      if (canShowClosingStock) {
         columns += ' 80px'; // Stock column
       }
       columns += ' 80px'; // Rate column
@@ -598,10 +781,10 @@ function PlaceOrder() {
       columns += ' 80px'; // Qty column
       if (canShowClosingStock) {
         columns += ' 80px'; // Stock column
-    }
+      }
       columns += ' 140px'; // Action column only
     }
-    
+
     return columns;
   };
 
@@ -619,7 +802,7 @@ function PlaceOrder() {
         setVoucherTypesError('');
         return;
       }
-      
+
       // Get the current company object directly from filteredCompanies
       const currentCompany = filteredCompanies.find(c => c.guid === company);
       if (!currentCompany) {
@@ -629,23 +812,23 @@ function PlaceOrder() {
         setVoucherTypesError('');
         return;
       }
-      
+
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
-      
+
       setVoucherTypesLoading(true);
       setVoucherTypesError('');
       setVoucherTypes([]); // Clear previous data while loading
-      
+
       try {
-        const data = await apiPost(`/api/tally/vouchertype?ts=${Date.now()}`, { 
-          tallyloc_id, 
-          company: companyVal, 
+        const data = await apiPost(`/api/tally/vouchertype?ts=${Date.now()}`, {
+          tallyloc_id,
+          company: companyVal,
           guid
         });
-        
+
         if (data && data.voucherTypes && Array.isArray(data.voucherTypes)) {
           setVoucherTypes(data.voucherTypes);
-          
+
           // Check if there's a previously selected voucher type in sessionStorage
           const savedVoucherType = sessionStorage.getItem('selectedVoucherType');
           if (savedVoucherType && data.voucherTypes.find(vt => vt.NAME === savedVoucherType)) {
@@ -670,7 +853,7 @@ function PlaceOrder() {
         setVoucherTypesLoading(false);
       }
     };
-    
+
     fetchVoucherTypes();
   }, [company]);
 
@@ -684,7 +867,7 @@ function PlaceOrder() {
         setCustomerError('');
         return;
       }
-      
+
       // Get the current company object directly from companies
       // Use companies directly to avoid dependency issues
       const currentCompany = companies.find(c => c.guid === company);
@@ -695,10 +878,10 @@ function PlaceOrder() {
         setCustomerError('');
         return;
       }
-      
+
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
       const cacheKey = `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`;
-      
+
       // Check cache first
       const cached = sessionStorage.getItem(cacheKey);
       if (cached && !refreshCustomers) {
@@ -710,33 +893,33 @@ function PlaceOrder() {
           setCustomerError('');
           setCustomerLoading(false);
           return;
-        } catch {}
+        } catch { }
       }
-      
+
       // Clear cache if refresh requested
       if (refreshCustomers) {
         sessionStorage.removeItem(cacheKey);
       }
-      
+
       // Set loading state and fetch data
       setCustomerLoading(true);
       setCustomerError('');
       setCustomerOptions([]); // Clear previous data while loading
-      
+
       try {
-        const data = await apiPost(`/api/tally/ledgerlist-w-addrs?ts=${Date.now()}`, { 
-          tallyloc_id, 
-          company: companyVal, 
+        const data = await apiPost(`/api/tally/ledgerlist-w-addrs?ts=${Date.now()}`, {
+          tallyloc_id,
+          company: companyVal,
           guid
         });
-        
+
         if (data && data.ledgers && Array.isArray(data.ledgers)) {
           console.log(`Successfully fetched ${data.ledgers.length} customers`);
           setCustomerOptions(data.ledgers);
           if (data.ledgers.length === 1) setSelectedCustomer(data.ledgers[0].NAME);
           else setSelectedCustomer('');
           setCustomerError('');
-          
+
           // Cache the result with graceful fallback if storage is full
           try {
             const cacheString = JSON.stringify(data.ledgers);
@@ -758,8 +941,8 @@ function PlaceOrder() {
       } catch (err) {
         console.error('Error fetching customers:', err);
         const errorMessage = err.message || 'Failed to fetch customers';
-        setCustomerError(errorMessage.includes('parse') || errorMessage.includes('JSON') 
-          ? `Failed to process large response. Please contact support.` 
+        setCustomerError(errorMessage.includes('parse') || errorMessage.includes('JSON')
+          ? `Failed to process large response. Please contact support.`
           : errorMessage);
         setCustomerOptions([]);
         setSelectedCustomer('');
@@ -771,9 +954,9 @@ function PlaceOrder() {
         }
       }
     };
-    
+
     fetchCustomers();
-   }, [company, refreshCustomers, filteredCompanies.length]); // Use length instead of array reference to prevent infinite loops
+  }, [company, refreshCustomers, filteredCompanies.length]); // Use length instead of array reference to prevent infinite loops
 
   // Fetch stock items when company changes or refreshStockItems increments
   useEffect(() => {
@@ -784,7 +967,7 @@ function PlaceOrder() {
         setStockItemsError('');
         return;
       }
-      
+
       // Get the current company object directly from companies
       // Use companies directly to avoid dependency issues
       const currentCompany = companies.find(c => c.guid === company);
@@ -794,10 +977,10 @@ function PlaceOrder() {
         setStockItemsError('');
         return;
       }
-      
+
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
       const cacheKey = `stockitems_${tallyloc_id}_${companyVal}`;
-      
+
       // Check cache first
       const cached = sessionStorage.getItem(cacheKey);
       if (cached && !refreshStockItems) {
@@ -807,30 +990,30 @@ function PlaceOrder() {
           setStockItemsError('');
           setStockItemsLoading(false);
           return;
-        } catch {}
+        } catch { }
       }
-      
+
       // Clear cache if refresh requested
       if (refreshStockItems) {
         sessionStorage.removeItem(cacheKey);
       }
-      
+
       // Set loading state and fetch data
       setStockItemsLoading(true);
       setStockItemsError('');
       setStockItems([]); // Clear previous data while loading
-      
+
       const token = sessionStorage.getItem('token');
       try {
-        const data = await apiPost(`/api/tally/stockitem?ts=${Date.now()}`, { 
-          tallyloc_id, 
-          company: companyVal, 
+        const data = await apiPost(`/api/tally/stockitem?ts=${Date.now()}`, {
+          tallyloc_id,
+          company: companyVal,
           guid
         });
-        
+
         if (data && data.stockItems && Array.isArray(data.stockItems)) {
           console.log('Raw stock items from API:', data.stockItems);
-          
+
           // Test deobfuscation on first item
           if (data.stockItems.length > 0) {
             const firstItem = data.stockItems[0];
@@ -842,7 +1025,7 @@ function PlaceOrder() {
               console.log('First PRICELEVEL RATE:', firstItem.PRICELEVELS[0].RATE);
             }
           }
-          
+
           // Deobfuscate sensitive pricing data
           const decryptedItems = deobfuscateStockItems(data.stockItems);
           setStockItems(decryptedItems);
@@ -873,9 +1056,9 @@ function PlaceOrder() {
         }
       }
     };
-    
+
     fetchStockItems();
-   }, [company, refreshStockItems, companies.length]); // Use length instead of array reference to prevent infinite loops
+  }, [company, refreshStockItems, companies.length]); // Use length instead of array reference to prevent infinite loops
 
   // Update editable fields when customer changes
   useEffect(() => {
@@ -887,7 +1070,7 @@ function PlaceOrder() {
         setEditableCountry(selectedCustomerObj.COUNTRY || '');
         setEditableGstNo(selectedCustomerObj.GSTNO || '');
         setEditablePincode(selectedCustomerObj.PINCODE || '');
-        
+
         // Update temporary data for modal
         setTempCustomerData({
           address: selectedCustomerObj.ADDRESS || '',
@@ -914,31 +1097,31 @@ function PlaceOrder() {
       });
     }
   }, [selectedCustomer, customerOptions]);
-  
+
   // Auto-populate customer and items after customerOptions are loaded (only once)
   useEffect(() => {
     // Only run once when customerOptions are first loaded and we have pending data
     if (customerOptions.length > 0 && !hasAutoPopulatedRef.current) {
       const pendingCustomer = sessionStorage.getItem('pendingCustomer');
       const pendingItems = sessionStorage.getItem('pendingItems');
-      
+
       // Only process if there's actually pending data
       if (!pendingCustomer && !pendingItems) {
         return;
       }
-      
+
       hasAutoPopulatedRef.current = true; // Mark as processed
-      
+
       if (pendingCustomer) {
         setSelectedCustomer(pendingCustomer);
         setCustomerSearchTerm(pendingCustomer);
         sessionStorage.removeItem('pendingCustomer');
       }
-      
+
       if (pendingItems) {
         try {
           const items = JSON.parse(pendingItems);
-          
+
           items.forEach(item => {
             const cartItem = {
               NAME: item.NAME,
@@ -950,16 +1133,16 @@ function PlaceOrder() {
               gstPercent: parseFloat(item.gstPercent || 0),
               amount: item.amount || 0
             };
-            
+
             addOrderItemFromCart(cartItem);
           });
-          
+
           sessionStorage.removeItem('pendingItems');
         } catch (error) {
           console.error('Error parsing pending items:', error);
         }
       }
-      
+
       // Don't clear auto-population state automatically
       // It will be cleared when user manually interacts with company/customer fields
     }
@@ -971,7 +1154,7 @@ function PlaceOrder() {
     if (isAutoPopulating || autoPopulatingRef.current) {
       return;
     }
-    
+
     if (orderItems.length > 0) {
       setConfirmMessage('Changing company will clear all selected items and order items. Are you sure you want to continue?');
       setConfirmAction(() => {
@@ -993,7 +1176,7 @@ function PlaceOrder() {
     if (isAutoPopulating || autoPopulatingRef.current) {
       return;
     }
-    
+
     if (orderItems.length > 0) {
       setConfirmMessage('Changing customer will clear all selected items and order items. Are you sure you want to continue?');
       setConfirmAction(() => {
@@ -1016,11 +1199,11 @@ function PlaceOrder() {
       if (selectedStockItem) {
         let finalRate = 0;
         let finalDiscount = 0;
-        
+
         // If customer is selected, try to get customer-specific pricing
         if (selectedCustomer) {
           const selectedCustomerData = customerOptions.find(customer => customer.NAME === selectedCustomer);
-          
+
           if (selectedCustomerData && selectedCustomerData.PRICELEVEL) {
             // Customer has PRICELEVEL - check PRICELEVELS array
             if (selectedStockItem.PRICELEVELS && Array.isArray(selectedStockItem.PRICELEVELS)) {
@@ -1049,7 +1232,7 @@ function PlaceOrder() {
           finalRate = selectedStockItem.STDPRICE || 0;
           finalDiscount = 0;
         }
-        
+
         console.log('💰 Rate Calculation:', {
           selectedItem,
           selectedCustomer,
@@ -1057,22 +1240,119 @@ function PlaceOrder() {
           finalDiscount,
           stdPrice: selectedStockItem.STDPRICE
         });
-        
+
         setItemRate(finalRate);
         setItemDiscountPercent(finalDiscount);
         setItemGstPercent(selectedStockItem.IGST || 0);
+
+        // Update unit configuration for the selected item
+        setSelectedItemUnitConfig(selectedStockItem);
+
+        // Reset unit selection to base and clear quantities
+        setSelectedUnitType('base');
+        setBaseUnitQty('');
+        setBaseUnitAddlQty('');
+        setAdditionalUnitQty('');
+        setAdditionalUnitAddlQty('');
+        setDenominatorValue('');
+        setAutoGeneratedFormula('');
+        setCustomFormula('');
+        setIsFormulaEditMode(false);
       }
     }
   }, [selectedItem, stockItems, selectedCustomer, customerOptions]);
 
+  // Update formula whenever quantity values change
+  useEffect(() => {
+    if (selectedItemUnitConfig) {
+      updateFormula();
+    }
+  }, [baseUnitQty, baseUnitAddlQty, additionalUnitQty, additionalUnitAddlQty, denominatorValue, selectedUnitType, selectedItemUnitConfig]);
 
+  // Calculate effective quantity for amount calculation
+  useEffect(() => {
+    let qty = 0;
 
-  // Styles
-  const selectWrapperStyle = {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 4,
-  };
+    if (selectedUnitType === 'base') {
+      const isCompound = selectedItemUnitConfig?.BASEUNITHASCOMPOUNDUNIT === 'Yes';
+      if (isCompound) {
+        // Compound Base Unit (e.g., 2 Kgs 500 Gms)
+        const mainQty = parseFloat(baseUnitQty) || 0;
+        const subQty = parseFloat(baseUnitAddlQty) || 0;
+
+        let conversion = 1;
+        const subUnitName = selectedItemUnitConfig?.BASEUNITCOMP_ADDLUNIT?.toLowerCase() || '';
+
+        if (subUnitName === 'gms' || subUnitName === 'gm' || subUnitName === 'ml' || subUnitName === 'g') {
+          conversion = 1000;
+        } else if (selectedItemUnitConfig?.BASEUNITCOMP_CONVERSION) {
+          conversion = parseFloat(selectedItemUnitConfig.BASEUNITCOMP_CONVERSION) || 1;
+        }
+
+        if (conversion === 1 && subQty > 0) {
+          qty = mainQty;
+        } else {
+          qty = mainQty + (subQty / conversion);
+        }
+      } else {
+        // Simple Base Unit
+        qty = parseFloat(baseUnitQty) || 0;
+      }
+    } else {
+      // Additional Unit
+      const denominator = parseFloat(denominatorValue) || parseFloat(selectedItemUnitConfig?.DENOMINATOR) || 1;
+      const conversion = parseFloat(selectedItemUnitConfig?.CONVERSION) || 1;
+
+      const isCompound = selectedItemUnitConfig?.ADDITIONALUNITHASCOMPOUNDUNIT === 'Yes';
+      if (isCompound) {
+        // Compound Additional Unit
+        const mainQty = parseFloat(additionalUnitQty) || 0;
+        const subQty = parseFloat(additionalUnitAddlQty) || 0;
+        const subConversion = 1000;
+
+        const totalAddlUnits = (mainQty * subConversion) + subQty;
+        qty = (totalAddlUnits / subConversion) * denominator * conversion;
+      } else {
+        // Simple Additional Unit
+        qty = (parseFloat(additionalUnitQty) || 0) * denominator * conversion;
+      }
+    }
+
+    setItemQuantity(qty);
+
+  }, [baseUnitQty, baseUnitAddlQty, additionalUnitQty, additionalUnitAddlQty, denominatorValue, selectedUnitType, selectedItemUnitConfig, isFormulaEditMode]);
+
+  // Parse custom formula when in edit mode to update quantity
+  useEffect(() => {
+    if (isFormulaEditMode && customFormula) {
+      // Try to extract quantity from formula
+      // Formats: "10 Nos", "5 Box = 50 Nos", "2 Kgs 500 Gms"
+
+      let qty = 0;
+
+      // Check for " = X Unit" pattern (common for additional units)
+      const equalsMatch = customFormula.match(/=\s*([\d.]+)\s+\w+/);
+      if (equalsMatch) {
+        qty = parseFloat(equalsMatch[1]) || 0;
+      } else {
+        // Check for simple "X Unit" pattern at start
+        const startMatch = customFormula.match(/^([\d.]+)\s+\w+/);
+        if (startMatch) {
+          qty = parseFloat(startMatch[1]) || 0;
+        }
+      }
+
+      if (qty > 0) {
+        setItemQuantity(qty);
+      }
+    }
+  }, [customFormula, isFormulaEditMode]);
+
+  // Auto-calculate amount whenever quantity, rate, or discount changes
+  useEffect(() => {
+    const calculatedAmount = itemQuantity * itemRate * (1 - (itemDiscountPercent || 0) / 100);
+    setItemAmount(calculatedAmount);
+  }, [itemQuantity, itemRate, itemDiscountPercent]);
 
   const selectStyle = {
     width: '100%',
@@ -1220,7 +1500,7 @@ function PlaceOrder() {
     e.preventDefault();
     const currentCompany = filteredCompanies.find(c => c.guid === company);
     const selectedCustomerObj = customerOptions.find(c => c.NAME === selectedCustomer);
-    
+
     if (!currentCompany || !selectedCustomerObj || orderItems.length === 0) {
       console.error('Missing required data for order submission');
       return;
@@ -1257,10 +1537,10 @@ function PlaceOrder() {
         now.getHours().toString().padStart(2, '0') +
         now.getMinutes().toString().padStart(2, '0') +
         now.getSeconds().toString().padStart(2, '0');
-      
+
       // Find the selected voucher type to get PREFIX and SUFFIX
       const selectedVoucherTypeObj = voucherTypes.find(vt => vt.NAME === selectedVoucherType);
-      const voucherNumber = selectedVoucherTypeObj 
+      const voucherNumber = selectedVoucherTypeObj
         ? `${selectedVoucherTypeObj.PREFIX}${timestamp}${selectedVoucherTypeObj.SUFFIX}`
         : '';
 
@@ -1283,28 +1563,28 @@ function PlaceOrder() {
         isoptional: (() => {
           // Default logic
           if (canSaveOptional) return "Yes";
-          
+
           // Credit limit logic for show_creditdayslimit
           if (canShowCreditLimit && creditLimitData) {
             const hasOverdueBills = creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0;
-            
+
             // Check for overdue bills first (regardless of credit limit)
             if (hasOverdueBills) {
               return "Yes";
             }
-            
+
             // Check for credit limit exceed only if credit limit is set (> 0)
             if (Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) > 0) {
               const totalOrderAmount = orderItems.reduce((sum, item) => sum + item.amount, 0);
               const availableCredit = Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) - Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE);
               const exceedsCreditLimit = totalOrderAmount > availableCredit;
-              
+
               if (exceedsCreditLimit) {
                 return "Yes";
               }
             }
           }
-          
+
           return "No";
         })(),
         ...(canShowPayTerms && { basicduedateofpymt: paymentTerms || '' }),
@@ -1342,7 +1622,7 @@ function PlaceOrder() {
           tallyResponse: result.tallyResponse
         });
         setShowOrderResultModal(true);
-        
+
         // Reset the form
         setSelectedItem('');
         setItemQuantity(1);
@@ -1362,7 +1642,7 @@ function PlaceOrder() {
         setEditablePincode('');
         setItemDescription('');
         setShowDescription(false);
-        
+
         // No need to refresh data since we're using cache
       } else {
         // Order creation failed
@@ -1383,10 +1663,21 @@ function PlaceOrder() {
   };
 
   const addOrderItem = () => {
-    if (!selectedItem || itemQuantity <= 0) return;
-    
-    const amount = itemQuantity * itemRate * (1 - (itemDiscountPercent || 0)/100);
-    
+    // Validate formula exists
+    const finalFormula = isFormulaEditMode ? customFormula : autoGeneratedFormula;
+
+    if (!selectedItem) {
+      alert('Please select an item');
+      return;
+    }
+
+    if (!finalFormula || !finalFormula.trim()) {
+      alert('Please enter quantity');
+      return;
+    }
+
+    const amount = itemQuantity * itemRate * (1 - (itemDiscountPercent || 0) / 100);
+
     // Credit limit validation for ctrl_creditdayslimit
     if (canControlCreditLimit && creditLimitData) {
       // Check for overdue bills - block adding any items (regardless of credit limit)
@@ -1395,33 +1686,35 @@ function PlaceOrder() {
         alert(`Cannot add items: Customer has ${creditLimitData.overdueBills.length} overdue bill(s). Please clear overdue bills first.`);
         return;
       }
-      
+
       // Check credit limit - only if credit limit is set (> 0)
       if (Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) > 0) {
         const currentTotal = orderItems.reduce((sum, item) => sum + item.amount, 0);
         const newTotal = currentTotal + amount;
         const availableCredit = Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) - Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE);
-        
+
         if (newTotal > availableCredit) {
           alert(`Cannot add item: Total order amount (₹${newTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}) would exceed available credit limit (₹${availableCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}).\n\nCurrent total: ₹${currentTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\nItem amount: ₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+
           return;
         }
       }
     }
-    
+
     const newItem = {
       id: `item_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       name: selectedItem,
-      quantity: itemQuantity,
+      quantity: finalFormula, // Store formula instead of simple number
+      quantityDisplay: finalFormula, // For display in cart
       rate: itemRate,
       discountPercent: itemDiscountPercent || 0,
       gstPercent: itemGstPercent,
       description: itemDescription || '',
       amount: amount
     };
-    
+
     setOrderItems(prev => [...prev, newItem]);
-    
+
     // Reset form
     setSelectedItem('');
     setItemQuantity(1);
@@ -1429,13 +1722,23 @@ function PlaceOrder() {
     setItemDiscountPercent(0);
     setItemGstPercent(0);
     setItemDescription('');
+    setSelectedItemUnitConfig(null);
+    setBaseUnitQty('');
+    setBaseUnitAddlQty('');
+    setAdditionalUnitQty('');
+    setAdditionalUnitAddlQty('');
+    setDenominatorValue('');
+    setAutoGeneratedFormula('');
+    setCustomFormula('');
+    setIsFormulaEditMode(false);
+    setSelectedUnitType('base');
     // Don't reset showDescription - keep it on until order is saved
   };
-  
+
   // Add order item from cart (for E-commerce integration)
   const addOrderItemFromCart = (cartItem) => {
-    const amount = cartItem.amount || (parseFloat(cartItem.quantity || 0) * parseFloat(cartItem.rate || 0) * (1 - (parseFloat(cartItem.discountPercent || 0)/100)));
-    
+    const amount = cartItem.amount || (parseFloat(cartItem.quantity || 0) * parseFloat(cartItem.rate || 0) * (1 - (parseFloat(cartItem.discountPercent || 0) / 100)));
+
     // Credit limit validation for ctrl_creditdayslimit
     if (canControlCreditLimit && creditLimitData) {
       // Check for overdue bills - block adding any items (regardless of credit limit)
@@ -1444,20 +1747,21 @@ function PlaceOrder() {
         alert(`Cannot add items: Customer has ${creditLimitData.overdueBills.length} overdue bill(s). Please clear overdue bills first.`);
         return;
       }
-      
+
       // Check credit limit - only if credit limit is set (> 0)
       if (Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) > 0) {
         const currentTotal = orderItems.reduce((sum, item) => sum + item.amount, 0);
         const newTotal = currentTotal + amount;
         const availableCredit = Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) - Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE);
-        
+
         if (newTotal > availableCredit) {
           alert(`Cannot add item: Total order amount (₹${newTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}) would exceed available credit limit (₹${availableCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}).\n\nCurrent total: ₹${currentTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\nItem amount: ₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
+
           return;
         }
       }
     }
-    
+
     const newItem = {
       id: `cart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       name: cartItem.NAME,
@@ -1467,14 +1771,14 @@ function PlaceOrder() {
       gstPercent: parseFloat(cartItem.gstPercent || 0),
       amount: amount
     };
-    
+
     setOrderItems(prev => [...prev, newItem]);
   };
 
   const removeOrderItem = (id) => {
     console.log('🗑️ Removing order item with ID:', id);
     console.log('📊 Current order items before removal:', orderItems);
-    
+
     setOrderItems(prev => {
       const filtered = prev.filter(item => item.id !== id);
       console.log('✅ Order items after removal:', filtered);
@@ -1504,18 +1808,18 @@ function PlaceOrder() {
   // Save edited item
   const saveEditItem = () => {
     if (editingItemIndex === null) return;
-    
+
     const item = orderItems[editingItemIndex];
     const newRate = parseFloat(editRate) || 0;
     const newDiscountPercent = parseFloat(editDiscountPercent) || 0;
     const newQuantity = parseFloat(editQuantity) || 1;
-    
+
     // Calculate new amount
     const discountAmount = (newRate * newQuantity * newDiscountPercent) / 100;
     const taxableAmount = (newRate * newQuantity) - discountAmount;
     const gstAmount = (taxableAmount * item.gstPercent) / 100;
     const newAmount = taxableAmount + gstAmount;
-    
+
     const updatedItems = [...orderItems];
     updatedItems[editingItemIndex] = {
       ...item,
@@ -1525,7 +1829,7 @@ function PlaceOrder() {
       amount: newAmount,
       description: editDescription
     };
-    
+
     setOrderItems(updatedItems);
     setEditingItemIndex(null);
     setEditQuantity(1);
@@ -1552,16 +1856,16 @@ function PlaceOrder() {
   // Fetch stock breakdown data
   const fetchStockBreakdown = async (itemName) => {
     if (!selectedItem || !company) return;
-    
+
     const currentCompany = filteredCompanies.find(c => c.guid === company);
     if (!currentCompany) return;
-    
+
     setStockBreakdownLoading(true);
     setStockBreakdownError('');
-    
+
     try {
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
-      
+
       // Determine which endpoint to use based on permissions
       let endpoint;
       if (canShowGodownBrkup && canShowMulticoBrkup) {
@@ -1577,14 +1881,14 @@ function PlaceOrder() {
         setStockBreakdownError('No stock breakdown permissions available');
         return;
       }
-      
+
       const data = await apiPost(`${endpoint}?ts=${Date.now()}`, {
         tallyloc_id,
         company: companyVal,
         guid,
         item: itemName
       });
-      
+
       if (data) {
         setStockBreakdownData(data);
       } else {
@@ -1615,12 +1919,11 @@ function PlaceOrder() {
 
   return (
     <div style={{
-      width: '100vw',
-      minHeight: 'calc(100vh - 120px)',
-      background: '#f3f4f6',
+      width: '100%',
+      minHeight: '100%',
+      background: 'transparent',
       padding: 0,
       margin: 0,
-      paddingLeft: 220,
     }}>
       <style>
         {`
@@ -1645,19 +1948,19 @@ function PlaceOrder() {
           }
         `}
       </style>
-             {/* Feedback/Error */}
-       {customerError && (
-         <div style={{ background: '#fee2e2', color: '#b91c1c', borderRadius: 8, padding: '8px 16px', margin: '0 auto 18px auto', fontWeight: 600, fontSize: 15, maxWidth: 1200, display: 'flex', alignItems: 'center', gap: 8 }}>
-           <span className="material-icons" style={{ fontSize: 18 }}>error_outline</span>
-           {customerError}
-         </div>
-       )}
-       {stockItemsError && (
-         <div style={{ background: '#fee2e2', color: '#b91c1c', borderRadius: 8, padding: '8px 16px', margin: '0 auto 18px auto', fontWeight: 600, fontSize: 15, maxWidth: 1200, display: 'flex', alignItems: 'center', gap: 8 }}>
-           <span className="material-icons" style={{ fontSize: 18 }}>error_outline</span>
-           {stockItemsError}
-         </div>
-       )}
+      {/* Feedback/Error */}
+      {customerError && (
+        <div style={{ background: '#fee2e2', color: '#b91c1c', borderRadius: 8, padding: '8px 16px', margin: '0 auto 18px auto', fontWeight: 600, fontSize: 15, maxWidth: 1200, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="material-icons" style={{ fontSize: 18 }}>error_outline</span>
+          {customerError}
+        </div>
+      )}
+      {stockItemsError && (
+        <div style={{ background: '#fee2e2', color: '#b91c1c', borderRadius: 8, padding: '8px 16px', margin: '0 auto 18px auto', fontWeight: 600, fontSize: 15, maxWidth: 1200, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span className="material-icons" style={{ fontSize: 18 }}>error_outline</span>
+          {stockItemsError}
+        </div>
+      )}
 
 
       {/* Company, Customer, and Place Order Section */}
@@ -1675,28 +1978,28 @@ function PlaceOrder() {
         {/* Form - Place Order */}
         <form onSubmit={handleSubmit} style={{ padding: '12px', width: '98%', overflow: 'visible', position: 'relative' }}>
           {/* Header */}
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
             justifyContent: 'space-between',
             marginBottom: '6px',
             paddingBottom: '16px',
             borderBottom: '1px solid #f3f4f6',
             position: 'relative'
           }}>
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
               gap: '12px'
             }}>
               <div style={{
                 width: '40px',
                 height: '40px',
-                  borderRadius: '50%',
+                borderRadius: '50%',
                 background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
               }}>
                 <span className="material-icons" style={{ fontSize: '20px', color: '#fff' }}>
@@ -1712,22 +2015,22 @@ function PlaceOrder() {
                 Customer Details
               </h3>
             </div>
-              
-              {/* Optional text centered between Customer Details and customer count */}
-              {canSaveOptional && (
-                <div style={{
-                  position: 'absolute',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  fontSize: '14px',
-                  fontWeight: '400',
-                  color: '#6b7280',
-                  fontStyle: 'italic'
-                }}>
-                  (Optional)
-                </div>
-              )}
-            
+
+            {/* Optional text centered between Customer Details and customer count */}
+            {canSaveOptional && (
+              <div style={{
+                position: 'absolute',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                fontSize: '14px',
+                fontWeight: '400',
+                color: '#6b7280',
+                fontStyle: 'italic'
+              }}>
+                (Optional)
+              </div>
+            )}
+
             {/* Customer Count Display */}
             <div style={{
               display: 'flex',
@@ -1769,7 +2072,7 @@ function PlaceOrder() {
             position: 'relative'
           }}>
             {/* VoucherType */}
-            <div style={{ 
+            <div style={{
               position: 'relative',
               flex: '0 0 300px'
             }}>
@@ -1793,7 +2096,7 @@ function PlaceOrder() {
                     if (!inputValue.trim()) {
                       setVoucherTypes(voucherTypes);
                     } else {
-                      const filtered = voucherTypes.filter(vt => 
+                      const filtered = voucherTypes.filter(vt =>
                         vt.NAME.toLowerCase().includes(inputValue.toLowerCase())
                       );
                       setVoucherTypes(filtered);
@@ -1901,12 +2204,12 @@ function PlaceOrder() {
                   {voucherTypes.map((voucherType, index) => (
                     <div
                       key={voucherType.NAME}
-                  onClick={() => {
-                    setSelectedVoucherType(voucherType.NAME);
-                    setShowVoucherTypeDropdown(false);
-                    // Save the selected voucher type for future use
-                    sessionStorage.setItem('selectedVoucherType', voucherType.NAME);
-                  }}
+                      onClick={() => {
+                        setSelectedVoucherType(voucherType.NAME);
+                        setShowVoucherTypeDropdown(false);
+                        // Save the selected voucher type for future use
+                        sessionStorage.setItem('selectedVoucherType', voucherType.NAME);
+                      }}
                       style={{
                         padding: '12px 16px',
                         cursor: 'pointer',
@@ -1941,7 +2244,7 @@ function PlaceOrder() {
             </div>
 
             {/* Customer */}
-            <div style={{ 
+            <div style={{
               position: 'relative',
               flex: '0 0 500px'
             }}>
@@ -2017,11 +2320,11 @@ function PlaceOrder() {
                   }}
                   placeholder={customerLoading ? 'Loading...' : customerError ? customerError : ''}
                 />
-                
+
                 {/* Search Icon or Dropdown Arrow */}
                 {!selectedCustomer && (
-                  <span 
-                    className="material-icons" 
+                  <span
+                    className="material-icons"
                     style={{
                       position: 'absolute',
                       right: '16px',
@@ -2036,7 +2339,7 @@ function PlaceOrder() {
                     {showCustomerDropdown ? 'expand_less' : 'search'}
                   </span>
                 )}
-                
+
                 {/* Clear Button for Customer */}
                 {selectedCustomer && (
                   <button
@@ -2076,7 +2379,7 @@ function PlaceOrder() {
                     ×
                   </button>
                 )}
-                
+
                 <label style={{
                   position: 'absolute',
                   left: '20px',
@@ -2091,7 +2394,7 @@ function PlaceOrder() {
                 }}>
                   Customer
                 </label>
-                
+
                 {customerLoading && (
                   <div style={{
                     position: 'absolute',
@@ -2106,10 +2409,10 @@ function PlaceOrder() {
                     animation: 'spin 1s linear infinite'
                   }} />
                 )}
-                
+
                 {/* Custom Customer Dropdown */}
                 {showCustomerDropdown && (
-                  <div 
+                  <div
                     className="dropdown-animation"
                     onMouseDown={(e) => {
                       console.log('🖱️ Dropdown container mousedown');
@@ -2156,9 +2459,9 @@ function PlaceOrder() {
                         Searching {customerOptions.length.toLocaleString()} customers...
                       </div>
                     )}
-                    
 
-                    
+
+
                     {/* Results */}
                     {filteredCustomers.map((customer, index) => (
                       <div
@@ -2221,7 +2524,7 @@ function PlaceOrder() {
                         </div>
                       </div>
                     ))}
-                    
+
                     {/* Show more results indicator */}
                     {filteredCustomers.length === 50 && (
                       <div style={{
@@ -2238,7 +2541,7 @@ function PlaceOrder() {
                     )}
                   </div>
                 )}
-                
+
                 {/* No Results Message */}
                 {showCustomerDropdown && customerSearchTerm.trim() && filteredCustomers.length === 0 && (
                   <div style={{
@@ -2261,40 +2564,40 @@ function PlaceOrder() {
                   </div>
                 )}
               </div>
-              
-                 
-                 {/* Edit Customer Button */}
-                 {selectedCustomer && (
-                   <button
-                     type="button"
-                     onClick={() => setShowEditModal(true)}
-                     style={{
-                       position: 'absolute',
-                       right: 36,
-                       top: '50%',
-                       transform: 'translateY(-50%)',
-                       background: 'none',
-                       border: 'none',
-                       cursor: 'pointer',
-                       padding: 0,
-                       margin: 0,
-                       fontSize: 16,
-                       color: '#3b82f6',
-                       zIndex: 2
-                     }}
-                     tabIndex={-1}
-                     aria-label="Party Details"
-                     title="Party Details"
-                   >
-                     ✏️
-                   </button>
-                 )}
-             </div>
+
+
+              {/* Edit Customer Button */}
+              {selectedCustomer && (
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(true)}
+                  style={{
+                    position: 'absolute',
+                    right: 36,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 0,
+                    margin: 0,
+                    fontSize: 16,
+                    color: '#3b82f6',
+                    zIndex: 2
+                  }}
+                  tabIndex={-1}
+                  aria-label="Party Details"
+                  title="Party Details"
+                >
+                  ✏️
+                </button>
+              )}
+            </div>
 
             {/* Submit Button */}
-            <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
               gap: '10px',
               flex: '0 0 180px'
             }}>
@@ -2332,14 +2635,14 @@ function PlaceOrder() {
                   </>
                 ) : (
                   <>
-                <span className="material-icons" style={{ fontSize: '18px' }}>shopping_cart</span>
-                Place Order
+                    <span className="material-icons" style={{ fontSize: '18px' }}>shopping_cart</span>
+                    Place Order
                   </>
                 )}
               </button>
             </div>
           </div>
-          
+
           {/* Credit Limit Information Line - Below the main row */}
           {(canShowCreditLimit || canControlCreditLimit) && selectedCustomer && (
             <div style={{
@@ -2351,74 +2654,74 @@ function PlaceOrder() {
               fontSize: '14px',
               fontWeight: '500'
             }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="material-icons" style={{ fontSize: '16px', color: '#6b7280' }}>
-                    account_balance_wallet
-                  </span>
-                  <span style={{ color: '#374151', fontWeight: '500' }}>Credit Info:</span>
-                </div>
-                
-                {creditLimitLoading ? (
-                  <span style={{ color: '#6b7280', fontSize: '13px' }}>Loading...</span>
-                ) : creditLimitData ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ color: '#6b7280', fontSize: '13px' }}>Closing Balance:</span>
-                      <span style={{ 
-                        fontWeight: '600', 
-                        color: creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? '#dc2626' : '#059669', 
-                        fontSize: '13px' 
-                      }}>
-                        ₹{Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        {creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? ' Dr' : ' Cr'}
-                      </span>
-                    </div>
-                    
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ color: '#6b7280', fontSize: '13px' }}>Credit Limit:</span>
-                      <span style={{ 
-                        fontWeight: '600', 
-                        color: creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? '#dc2626' : '#059669', 
-                        fontSize: '13px' 
-                      }}>
-                        ₹{Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                        {creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? ' Dr' : ' Cr'}
-                      </span>
-                    </div>
-                    
-                    <div 
-                      style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        gap: '6px',
-                        cursor: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? 'pointer' : 'default',
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        background: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '#fef2f2' : '#f0fdf4',
-                        border: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '1px solid #fecaca' : '1px solid #bbf7d0'
-                      }}
-                      onClick={() => {
-                        if (creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0) {
-                          setShowOverdueBills(!showOverdueBills);
-                        }
-                      }}
-                    >
-                      <span style={{ color: '#6b7280', fontSize: '13px' }}>Overdue:</span>
-                      <span style={{ 
-                        fontWeight: '600', 
-                        color: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '#dc2626' : '#059669',
-                        fontSize: '13px'
-                      }}>
-                        {creditLimitData.overdueBills ? creditLimitData.overdueBills.length : 0}
-                      </span>
-                    </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <span className="material-icons" style={{ fontSize: '16px', color: '#6b7280' }}>
+                  account_balance_wallet
+                </span>
+                <span style={{ color: '#374151', fontWeight: '500' }}>Credit Info:</span>
+              </div>
+
+              {creditLimitLoading ? (
+                <span style={{ color: '#6b7280', fontSize: '13px' }}>Loading...</span>
+              ) : creditLimitData ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>Closing Balance:</span>
+                    <span style={{
+                      fontWeight: '600',
+                      color: creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? '#dc2626' : '#059669',
+                      fontSize: '13px'
+                    }}>
+                      ₹{Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      {creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? ' Dr' : ' Cr'}
+                    </span>
                   </div>
-                ) : (
-                  <span style={{ color: '#6b7280', fontSize: '13px' }}>No credit info</span>
-                )}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>Credit Limit:</span>
+                    <span style={{
+                      fontWeight: '600',
+                      color: creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? '#dc2626' : '#059669',
+                      fontSize: '13px'
+                    }}>
+                      ₹{Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      {creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? ' Dr' : ' Cr'}
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      cursor: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? 'pointer' : 'default',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      background: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '#fef2f2' : '#f0fdf4',
+                      border: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '1px solid #fecaca' : '1px solid #bbf7d0'
+                    }}
+                    onClick={() => {
+                      if (creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0) {
+                        setShowOverdueBills(!showOverdueBills);
+                      }
+                    }}
+                  >
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>Overdue:</span>
+                    <span style={{
+                      fontWeight: '600',
+                      color: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '#dc2626' : '#059669',
+                      fontSize: '13px'
+                    }}>
+                      {creditLimitData.overdueBills ? creditLimitData.overdueBills.length : 0}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <span style={{ color: '#6b7280', fontSize: '13px' }}>No credit info</span>
+              )}
             </div>
           )}
-       </form>
+        </form>
       </div>
 
       {/* Order Items Section */}
@@ -2433,53 +2736,59 @@ function PlaceOrder() {
         border: '1px solid #e5e7eb'
       }}>
         {/* Add Item Form */}
-        <div style={{ 
-          padding: '16px 32px', 
+        <div style={{
+          padding: '16px 32px',
           paddingBottom: '24px',
           borderBottom: '1px solid #f3f4f6',
           background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
           position: 'relative'
         }}>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-              justifyContent: 'space-between',
-              marginBottom: '6px'
-            }}>
-              <div style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-            gap: '12px'
-          }}>
-
-
-              </div>
-              
-              {/* Total Items Counter */}
-              <div style={{
-                fontSize: '14px',
-                color: '#64748b',
-                fontWeight: '500',
-                padding: '8px 16px',
-                backgroundColor: '#f8fafc',
-                borderRadius: '20px',
-                border: '1px solid #e2e8f0'
-              }}>
-                📦 {stockItems.length.toLocaleString()} items available
-              </div>
-          </div>
-          
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: getGridTemplateColumns(),
-            gap: '24px',
-            alignItems: 'end',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            marginBottom: '6px'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}>
+
+
+            </div>
+
+            {/* Total Items Counter */}
+            <div style={{
+              fontSize: '14px',
+              color: '#64748b',
+              fontWeight: '500',
+              padding: '8px 16px',
+              backgroundColor: '#f8fafc',
+              borderRadius: '20px',
+              border: '1px solid #e2e8f0'
+            }}>
+              📦 {stockItems.length.toLocaleString()} items available
+            </div>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '12px',
+            alignItems: 'flex-end',
             position: 'relative',
-            minHeight: '30px'
+            minHeight: '30px',
+            padding: '20px',
+            background: '#f8fafc',
+            borderRadius: '16px',
+            border: '1px solid #e2e8f0'
           }}>
             {/* Item Name */}
-            <div style={{ 
-              position: 'relative'
+            <div style={{
+              position: 'relative',
+              flex: '1 1 300px',
+              minWidth: '300px'
             }}>
               <div style={{
                 position: 'relative',
@@ -2521,7 +2830,7 @@ function PlaceOrder() {
                     }
                   }}
                   disabled={!selectedCustomer}
-                  style={{ 
+                  style={{
                     width: '100%',
                     padding: '16px 20px',
                     paddingRight: selectedItem ? '50px' : '20px',
@@ -2535,11 +2844,11 @@ function PlaceOrder() {
                   }}
                   placeholder=""
                 />
-                
+
                 {/* Search Icon or Dropdown Arrow */}
                 {!selectedItem && (
-                  <span 
-                    className="material-icons" 
+                  <span
+                    className="material-icons"
                     style={{
                       position: 'absolute',
                       right: '16px',
@@ -2554,9 +2863,9 @@ function PlaceOrder() {
                     {showItemDropdown ? 'expand_less' : 'search'}
                   </span>
                 )}
-                
 
-                
+
+
                 {/* Clear Button for Item */}
                 {selectedItem && (
                   <button
@@ -2590,7 +2899,7 @@ function PlaceOrder() {
                     ×
                   </button>
                 )}
-                
+
                 <label style={{
                   position: 'absolute',
                   left: '20px',
@@ -2605,10 +2914,10 @@ function PlaceOrder() {
                 }}>
                   Item Name
                 </label>
-                
+
                 {/* Custom Dropdown */}
                 {showItemDropdown && (
-                  <div 
+                  <div
                     className="dropdown-animation"
                     style={{
                       position: 'absolute',
@@ -2645,9 +2954,9 @@ function PlaceOrder() {
                           margin: '0 auto 8px auto'
                         }} />
                         Searching {stockItems.length.toLocaleString()} items...
-              </div>
+                      </div>
                     )}
-                    
+
                     {/* Results */}
                     {filteredItems.map((item, index) => (
                       <div
@@ -2693,14 +3002,14 @@ function PlaceOrder() {
                                   return stockValue > 0 ? 'Yes' : 'No';
                                 }
                                 return stockValue;
-                              })()} | 
+                              })()} |
                             </>
                           )}
                           {canShowRateAmtColumn && `Rate: ₹${computeRateForItem(item)}`}
                         </div>
                       </div>
                     ))}
-                    
+
                     {/* Show more results indicator */}
                     {filteredItems.length === 100 && (
                       <div style={{
@@ -2717,7 +3026,7 @@ function PlaceOrder() {
                     )}
                   </div>
                 )}
-                
+
                 {/* No Results Message */}
                 {showItemDropdown && itemSearchTerm.trim() && filteredItems.length === 0 && (
                   <div style={{
@@ -2743,54 +3052,528 @@ function PlaceOrder() {
             </div>
 
 
-            {/* Quantity */}
-            <div style={{ position: 'relative' }}>
-              <div style={{
-                position: 'relative',
-                background: 'white',
-                borderRadius: '12px',
-                border: '2px solid #e2e8f0',
-                transition: 'all 0.2s ease',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-              }}>
-                <input
-                  type="number"
-                  value={itemQuantity}
-                  onChange={(e) => setItemQuantity(parseFloat(e.target.value) || 0)}
-                  onFocus={() => setQuantityFocused(true)}
-                  onBlur={() => setQuantityFocused(false)}
-                  disabled={!selectedItem}
-                  min="1"
-                  style={{ 
-                    width: '100%',
-                    padding: '16px 20px',
-                    border: 'none',
-                    borderRadius: '12px',
-                    fontSize: '15px',
-                    color: selectedItem ? '#1e293b' : '#9ca3af',
-                    outline: 'none',
-                    background: selectedItem ? 'transparent' : '#f1f5f9',
-                    textAlign: 'left',
-                    cursor: selectedItem ? 'text' : 'not-allowed'
-                  }}
-                  placeholder="Qty"
-                />
-                <label style={{
-                  position: 'absolute',
-                  left: '20px',
-                  top: quantityFocused || itemQuantity > 0 ? '-10px' : '16px',
-                  fontSize: quantityFocused || itemQuantity > 0 ? '12px' : '15px',
-                  fontWeight: '600',
-                  color: '#3b82f6',
-                  backgroundColor: 'white',
-                  padding: '0 8px',
+            {/* Unit Type Dropdown */}
+            {selectedItemUnitConfig && (
+              <div style={{ position: 'relative', width: '160px' }}>
+                <div style={{
+                  position: 'relative',
+                  background: 'white',
+                  borderRadius: '10px',
+                  border: '1.5px solid #e2e8f0',
                   transition: 'all 0.2s ease',
-                  pointerEvents: 'none'
-                }}>
-                  Qty
-                </label>
+                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                  cursor: 'pointer'
+                }}
+                  onClick={() => setShowUnitTypeDropdown(!showUnitTypeDropdown)}
+                >
+                  <input
+                    type="text"
+                    value={selectedUnitType === 'base' ? selectedItemUnitConfig.BASEUNITS : selectedItemUnitConfig.ADDITIONALUNITS || selectedItemUnitConfig.BASEUNITS}
+                    readOnly
+                    onFocus={() => setUnitTypeFocused(true)}
+                    onBlur={() => setTimeout(() => setUnitTypeFocused(false), 200)}
+                    style={{
+                      width: '100%',
+                      padding: '12px 36px 12px 16px',
+                      border: 'none',
+                      borderRadius: '10px',
+                      fontSize: '14px',
+                      color: '#1e293b',
+                      outline: 'none',
+                      background: 'transparent',
+                      cursor: 'pointer',
+                      pointerEvents: 'none',
+                      fontWeight: '500'
+                    }}
+                  />
+                  <span className="material-icons" style={{
+                    position: 'absolute',
+                    right: '10px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    fontSize: '18px',
+                    color: showUnitTypeDropdown ? '#3b82f6' : '#64748b',
+                    transition: 'color 0.2s ease',
+                    pointerEvents: 'none'
+                  }}>
+                    {showUnitTypeDropdown ? 'expand_less' : 'expand_more'}
+                  </span>
+                  <label style={{
+                    position: 'absolute',
+                    left: '16px',
+                    top: '-9px',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    color: '#3b82f6',
+                    backgroundColor: 'white',
+                    padding: '0 6px',
+                    pointerEvents: 'none',
+                    letterSpacing: '0.3px'
+                  }}>
+                    Unit Type
+                  </label>
+
+                  {/* Dropdown Menu */}
+                  {showUnitTypeDropdown && (
+                    <div
+                      className="dropdown-animation"
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 8px)',
+                        left: 0,
+                        right: 0,
+                        backgroundColor: 'white',
+                        border: '2px solid #3b82f6',
+                        borderRadius: '8px',
+                        maxHeight: '200px',
+                        overflowY: 'auto',
+                        zIndex: 9999,
+                        boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)'
+                      }}
+                    >
+                      {/* Base Unit Option */}
+                      <div
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleUnitTypeChange('base')}
+                        style={{
+                          padding: '12px 16px',
+                          cursor: 'pointer',
+                          borderBottom: selectedItemUnitConfig.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
+                          transition: 'background-color 0.2s ease',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                      >
+                        <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                          {selectedItemUnitConfig.BASEUNITS}
+                        </span>
+                        <span style={{
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          padding: '2px 8px',
+                          borderRadius: '4px',
+                          backgroundColor: '#dbeafe',
+                          color: '#1e40af'
+                        }}>
+                          Base
+                        </span>
+                      </div>
+
+                      {/* Additional Unit Option (if exists) */}
+                      {selectedItemUnitConfig.ADDITIONALUNITS && (
+                        <div
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => handleUnitTypeChange('additional')}
+                          style={{
+                            padding: '12px 16px',
+                            cursor: 'pointer',
+                            transition: 'background-color 0.2s ease',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'white'}
+                        >
+                          <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                            {selectedItemUnitConfig.ADDITIONALUNITS}
+                          </span>
+                          <span style={{
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            padding: '2px 8px',
+                            borderRadius: '4px',
+                            backgroundColor: '#dbeafe',
+                            color: '#1e40af'
+                          }}>
+                            Additional
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
+
+            {/* Dynamic Quantity Inputs */}
+            {selectedItemUnitConfig && (() => {
+              const isCompound = selectedUnitType === 'base'
+                ? selectedItemUnitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes'
+                : selectedItemUnitConfig.ADDITIONALUNITHASCOMPOUNDUNIT === 'Yes';
+
+              if (isCompound) {
+                // Compound unit - show two inputs
+                const baseUnitName = selectedUnitType === 'base'
+                  ? selectedItemUnitConfig.BASEUNITCOMP_BASEUNIT
+                  : selectedItemUnitConfig.ADDLUNITCOMP_BASEUNIT;
+                const addlUnitName = selectedUnitType === 'base'
+                  ? selectedItemUnitConfig.BASEUNITCOMP_ADDLUNIT
+                  : selectedItemUnitConfig.ADDLUNITCOMP_ADDLUNIT;
+                const baseDecimals = selectedUnitType === 'base'
+                  ? selectedItemUnitConfig.BASEUNITCOMP_BASEUNIT_DECIMAL
+                  : 0;
+                const addlDecimals = selectedUnitType === 'base'
+                  ? selectedItemUnitConfig.BASEUNITCOMP_ADDLUNIT_DECIMAL
+                  : selectedItemUnitConfig.ADDLUNITCOMP_ADDLUNIT_DECIMAL;
+
+                return (
+                  <>
+                    {/* First component of compound unit */}
+                    <div style={{ position: 'relative', width: '110px' }}>
+                      <div style={{
+                        position: 'relative',
+                        background: 'white',
+                        borderRadius: '10px',
+                        border: '1.5px solid #e2e8f0',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                      }}>
+                        <input
+                          type="number"
+                          value={selectedUnitType === 'base' ? baseUnitQty : additionalUnitQty}
+                          onChange={(e) => {
+                            const validated = validateDecimalPlaces(e.target.value, baseDecimals);
+                            if (selectedUnitType === 'base') {
+                              setBaseUnitQty(validated);
+                            } else {
+                              setAdditionalUnitQty(validated);
+                            }
+                          }}
+                          onFocus={() => setBaseQtyFocused(true)}
+                          onBlur={() => setBaseQtyFocused(false)}
+                          style={{
+                            width: '100%',
+                            padding: '12px 14px',
+                            border: 'none',
+                            borderRadius: '12px',
+                            fontSize: '15px',
+                            color: '#1e293b',
+                            outline: 'none',
+                            background: 'transparent',
+                            textAlign: 'center'
+                          }}
+                        />
+                        <label style={{
+                          position: 'absolute',
+                          left: '20px',
+                          top: '-10px',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          color: '#3b82f6',
+                          backgroundColor: 'white',
+                          padding: '0 8px',
+                          pointerEvents: 'none'
+                        }}>
+                          {baseUnitName}
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* Second component of compound unit */}
+                    <div style={{ position: 'relative', width: '120px' }}>
+                      <div style={{
+                        position: 'relative',
+                        background: 'white',
+                        borderRadius: '12px',
+                        border: '2px solid #e2e8f0',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                      }}>
+                        <input
+                          type="number"
+                          value={selectedUnitType === 'base' ? baseUnitAddlQty : additionalUnitAddlQty}
+                          onChange={(e) => {
+                            const validated = validateDecimalPlaces(e.target.value, addlDecimals);
+                            if (selectedUnitType === 'base') {
+                              setBaseUnitAddlQty(validated);
+                            } else {
+                              setAdditionalUnitAddlQty(validated);
+                            }
+                          }}
+                          onFocus={() => setBaseAddlQtyFocused(true)}
+                          onBlur={() => setBaseAddlQtyFocused(false)}
+                          style={{
+                            width: '100%',
+                            padding: '16px 20px',
+                            border: 'none',
+                            borderRadius: '12px',
+                            fontSize: '15px',
+                            color: '#1e293b',
+                            outline: 'none',
+                            background: 'transparent',
+                            textAlign: 'center'
+                          }}
+                        />
+                        <label style={{
+                          position: 'absolute',
+                          left: '20px',
+                          top: '-10px',
+                          fontSize: '12px',
+                          fontWeight: '600',
+                          color: '#3b82f6',
+                          backgroundColor: 'white',
+                          padding: '0 8px',
+                          pointerEvents: 'none'
+                        }}>
+                          {addlUnitName}
+                        </label>
+                      </div>
+                    </div>
+                  </>
+                );
+              } else {
+                // Simple unit - show one input
+                const unitName = selectedUnitType === 'base'
+                  ? selectedItemUnitConfig.BASEUNITS
+                  : selectedItemUnitConfig.ADDITIONALUNITS;
+                const decimals = selectedUnitType === 'base'
+                  ? selectedItemUnitConfig.BASEUNIT_DECIMAL
+                  : selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL;
+
+                return (
+                  <div style={{ position: 'relative', width: '120px' }}>
+                    <div style={{
+                      position: 'relative',
+                      background: 'white',
+                      borderRadius: '12px',
+                      border: '2px solid #e2e8f0',
+                      transition: 'all 0.2s ease',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                    }}>
+                      <input
+                        type="number"
+                        value={selectedUnitType === 'base' ? baseUnitQty : additionalUnitQty}
+                        onChange={(e) => {
+                          const validated = validateDecimalPlaces(e.target.value, decimals);
+                          if (selectedUnitType === 'base') {
+                            setBaseUnitQty(validated);
+                          } else {
+                            setAdditionalUnitQty(validated);
+                          }
+                        }}
+                        onFocus={() => setQuantityFocused(true)}
+                        onBlur={() => setQuantityFocused(false)}
+                        style={{
+                          width: '100%',
+                          padding: '16px 20px',
+                          border: 'none',
+                          borderRadius: '12px',
+                          fontSize: '15px',
+                          color: '#1e293b',
+                          outline: 'none',
+                          background: 'transparent',
+                          textAlign: 'center'
+                        }}
+                      />
+                      <label style={{
+                        position: 'absolute',
+                        left: '20px',
+                        top: '-10px',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        color: '#3b82f6',
+                        backgroundColor: 'white',
+                        padding: '0 8px',
+                        pointerEvents: 'none'
+                      }}>
+                        Qty ({unitName})
+                      </label>
+                    </div>
+                  </div>
+                );
+              }
+            })()}
+
+            {/* Denominator field (for additional units with denominator) */}
+            {selectedItemUnitConfig && selectedUnitType === 'additional' && selectedItemUnitConfig.DENOMINATOR && (
+              <div style={{ position: 'relative', width: '120px' }}>
+                <div style={{
+                  position: 'relative',
+                  background: 'white',
+                  borderRadius: '12px',
+                  border: '2px solid #e2e8f0',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                }}>
+                  <input
+                    type="number"
+                    value={denominatorValue}
+                    onChange={(e) => setDenominatorValue(e.target.value)}
+                    onFocus={() => setDenominatorFocused(true)}
+                    onBlur={() => setDenominatorFocused(false)}
+                    placeholder={selectedItemUnitConfig.DENOMINATOR}
+                    style={{
+                      width: '100%',
+                      padding: '16px 20px',
+                      border: 'none',
+                      borderRadius: '12px',
+                      fontSize: '15px',
+                      color: '#1e293b',
+                      outline: 'none',
+                      background: 'transparent',
+                      textAlign: 'center'
+                    }}
+                  />
+                  <label style={{
+                    position: 'absolute',
+                    left: '20px',
+                    top: '-10px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: '#3b82f6',
+                    backgroundColor: 'white',
+                    padding: '0 8px',
+                    pointerEvents: 'none'
+                  }}>
+                    Per Unit
+                  </label>
+                  <span className="material-icons" style={{
+                    position: 'absolute',
+                    right: '12px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    fontSize: '16px',
+                    color: '#64748b'
+                  }}>
+                    edit
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Formula Display/Edit Field */}
+            {selectedItemUnitConfig && (
+              <div style={{ position: 'relative', flex: '1 1 220px', minWidth: '220px' }}>
+                <div style={{
+                  position: 'relative',
+                  background: isFormulaEditMode ? 'white' : '#f8fafc',
+                  borderRadius: '10px',
+                  border: '1.5px solid #e2e8f0',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                }}>
+                  <input
+                    type="text"
+                    value={isFormulaEditMode ? customFormula : autoGeneratedFormula}
+                    onChange={isFormulaEditMode ? (e) => setCustomFormula(e.target.value) : undefined}
+                    onFocus={() => setFormulaFocused(true)}
+                    onBlur={() => setFormulaFocused(false)}
+                    readOnly={!isFormulaEditMode}
+                    style={{
+                      width: '100%',
+                      padding: '12px 44px 12px 16px',
+                      border: 'none',
+                      borderRadius: '10px',
+                      fontSize: '14px',
+                      color: isFormulaEditMode ? '#1e293b' : '#64748b',
+                      outline: 'none',
+                      background: 'transparent',
+                      cursor: isFormulaEditMode ? 'text' : 'default',
+                      fontWeight: '600'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isFormulaEditMode) {
+                        setCustomFormula(autoGeneratedFormula);
+                      }
+                      setIsFormulaEditMode(!isFormulaEditMode);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      right: '10px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '6px',
+                      borderRadius: '4px',
+                      fontSize: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'background-color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e2e8f0'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    title={isFormulaEditMode ? 'Switch to auto mode' : 'Edit formula manually'}
+                  >
+                    {isFormulaEditMode ? '🔄' : '✏️'}
+                  </button>
+                  <label style={{
+                    position: 'absolute',
+                    left: '16px',
+                    top: '-9px',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    color: '#3b82f6',
+                    backgroundColor: isFormulaEditMode ? 'white' : '#f8fafc',
+                    padding: '0 6px',
+                    pointerEvents: 'none',
+                    letterSpacing: '0.3px'
+                  }}>
+                    {isFormulaEditMode ? 'Formula (Custom)' : 'Formula'}
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Fallback - Old Quantity Input (when no item selected) */}
+            {!selectedItemUnitConfig && (
+              <div style={{ position: 'relative' }}>
+                <div style={{
+                  position: 'relative',
+                  background: 'white',
+                  borderRadius: '12px',
+                  border: '2px solid #e2e8f0',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                }}>
+                  <input
+                    type="number"
+                    value={itemQuantity}
+                    onChange={(e) => setItemQuantity(parseFloat(e.target.value) || 0)}
+                    onFocus={() => setQuantityFocused(true)}
+                    onBlur={() => setQuantityFocused(false)}
+                    disabled={!selectedItem}
+                    min="1"
+                    style={{
+                      width: '100%',
+                      padding: '16px 20px',
+                      border: 'none',
+                      borderRadius: '12px',
+                      fontSize: '15px',
+                      color: selectedItem ? '#1e293b' : '#9ca3af',
+                      outline: 'none',
+                      background: selectedItem ? 'transparent' : '#f1f5f9',
+                      textAlign: 'left',
+                      cursor: selectedItem ? 'text' : 'not-allowed'
+                    }}
+                    placeholder="Qty"
+                  />
+                  <label style={{
+                    position: 'absolute',
+                    left: '20px',
+                    top: quantityFocused || itemQuantity > 0 ? '-10px' : '16px',
+                    fontSize: quantityFocused || itemQuantity > 0 ? '12px' : '15px',
+                    fontWeight: '600',
+                    color: '#3b82f6',
+                    backgroundColor: 'white',
+                    padding: '0 8px',
+                    transition: 'all 0.2s ease',
+                    pointerEvents: 'none'
+                  }}>
+                    Qty
+                  </label>
+                </div>
+              </div>
+            )}
 
             {/* Available Stock - Only show if user has show_clsstck_Column permission */}
             {canShowClosingStock && (
@@ -2818,7 +3601,7 @@ function PlaceOrder() {
                       }
                       return '';
                     })()}
-                    style={{ 
+                    style={{
                       width: '100%',
                       padding: '16px 20px',
                       border: 'none',
@@ -2857,159 +3640,159 @@ function PlaceOrder() {
 
             {/* Rate */}
             {canShowRateAmtColumn && (
-            <div style={{ position: 'relative' }}>
-              <div style={{
-                position: 'relative',
-                background: canEditRate ? 'white' : '#f8fafc',
-                borderRadius: '12px',
-                border: '2px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-              }}>
-                <input
-                  type="number"
-                  value={itemRate}
-                  onChange={canEditRate ? (e) => setItemRate(parseFloat(e.target.value) || 0) : undefined}
-                  readOnly={!canEditRate}
-                  style={{ 
-                    width: '100%',
-                    padding: '16px 20px',
-                    border: 'none',
-                    borderRadius: '12px',
-                    fontSize: '15px',
-                    color: canEditRate ? '#1e293b' : '#64748b',
-                    outline: 'none',
-                    background: 'transparent',
-                    textAlign: 'center',
-                    fontWeight: '600',
-                    cursor: canEditRate ? 'text' : 'not-allowed'
-                  }}
-                  placeholder="Rate"
-                />
-                <label style={{
-                  position: 'absolute',
-                  left: '20px',
-                  top: '-10px',
-                  fontSize: '12px',
-                  fontWeight: '600',
-                  color: '#64748b',
-                  backgroundColor: canEditRate ? 'white' : '#f8fafc',
-                  padding: '0 8px',
-                  pointerEvents: 'none'
+              <div style={{ position: 'relative' }}>
+                <div style={{
+                  position: 'relative',
+                  background: canEditRate ? 'white' : '#f8fafc',
+                  borderRadius: '12px',
+                  border: '2px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
-                  Rate
-                </label>
+                  <input
+                    type="number"
+                    value={itemRate}
+                    onChange={canEditRate ? (e) => setItemRate(parseFloat(e.target.value) || 0) : undefined}
+                    readOnly={!canEditRate}
+                    style={{
+                      width: '100%',
+                      padding: '16px 20px',
+                      border: 'none',
+                      borderRadius: '12px',
+                      fontSize: '15px',
+                      color: canEditRate ? '#1e293b' : '#64748b',
+                      outline: 'none',
+                      background: 'transparent',
+                      textAlign: 'center',
+                      fontWeight: '600',
+                      cursor: canEditRate ? 'text' : 'not-allowed'
+                    }}
+                    placeholder="Rate"
+                  />
+                  <label style={{
+                    position: 'absolute',
+                    left: '20px',
+                    top: '-10px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: '#64748b',
+                    backgroundColor: canEditRate ? 'white' : '#f8fafc',
+                    padding: '0 8px',
+                    pointerEvents: 'none'
+                  }}>
+                    Rate
+                  </label>
+                </div>
               </div>
-            </div>
             )}
 
             {/* Discount */}
             {canShowRateAmtColumn && canShowDiscColumn && (
-            <div style={{ position: 'relative' }}>
-              <div style={{
-                position: 'relative',
-                background: canEditDiscount ? 'white' : '#f8fafc',
-                borderRadius: '12px',
-                border: '2px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-              }}>
-                <input
-                  type="number"
-                  value={itemDiscountPercent}
-                  onChange={canEditDiscount ? (e) => setItemDiscountPercent(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))) : undefined}
-                  readOnly={!canEditDiscount}
-                  style={{ 
-                    width: '100%',
-                    padding: '16px 20px',
-                    border: 'none',
-                    borderRadius: '12px',
-                    fontSize: '15px',
-                    color: canEditDiscount ? '#1e293b' : '#64748b',
-                    outline: 'none',
-                    background: 'transparent',
-                    textAlign: 'center',
-                    fontWeight: '600',
-                    cursor: canEditDiscount ? 'text' : 'not-allowed'
-                  }}
-                  placeholder="Disc %"
-                />
-                <label style={{
-                  position: 'absolute',
-                  left: '20px',
-                  top: '-10px',
-                  fontSize: '12px',
-                  fontWeight: '600',
-                  color: '#64748b',
-                  backgroundColor: canEditDiscount ? 'white' : '#f8fafc',
-                  padding: '0 8px',
-                  pointerEvents: 'none'
+              <div style={{ position: 'relative' }}>
+                <div style={{
+                  position: 'relative',
+                  background: canEditDiscount ? 'white' : '#f8fafc',
+                  borderRadius: '12px',
+                  border: '2px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
-                  Disc %
-                </label>
+                  <input
+                    type="number"
+                    value={itemDiscountPercent}
+                    onChange={canEditDiscount ? (e) => setItemDiscountPercent(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))) : undefined}
+                    readOnly={!canEditDiscount}
+                    style={{
+                      width: '100%',
+                      padding: '16px 20px',
+                      border: 'none',
+                      borderRadius: '12px',
+                      fontSize: '15px',
+                      color: canEditDiscount ? '#1e293b' : '#64748b',
+                      outline: 'none',
+                      background: 'transparent',
+                      textAlign: 'center',
+                      fontWeight: '600',
+                      cursor: canEditDiscount ? 'text' : 'not-allowed'
+                    }}
+                    placeholder="Disc %"
+                  />
+                  <label style={{
+                    position: 'absolute',
+                    left: '20px',
+                    top: '-10px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: '#64748b',
+                    backgroundColor: canEditDiscount ? 'white' : '#f8fafc',
+                    padding: '0 8px',
+                    pointerEvents: 'none'
+                  }}>
+                    Disc %
+                  </label>
+                </div>
               </div>
-            </div>
             )}
 
             {/* GST */}
             {canShowRateAmtColumn && (
-            <div style={{ position: 'relative' }}>
-              <div style={{
-                position: 'relative',
-                background: '#f8fafc',
-                borderRadius: '12px',
-                border: '2px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-              }}>
-                <input
-                  type="number"
-                  value={itemGstPercent}
-                  style={{ 
-                    width: '100%',
-                    padding: '16px 20px',
-                    border: 'none',
-                    borderRadius: '12px',
-                    fontSize: '15px',
-                    color: '#64748b',
-                    outline: 'none',
-                    background: 'transparent',
-                    textAlign: 'center',
-                    fontWeight: '600'
-                  }}
-                  placeholder="GST %"
-                  readOnly
-                />
-                <label style={{
-                  position: 'absolute',
-                  left: '20px',
-                  top: '-10px',
-                  fontSize: '12px',
-                  fontWeight: '600',
-                  color: '#64748b',
-                  backgroundColor: '#f8fafc',
-                  padding: '0 8px',
-                  pointerEvents: 'none'
+              <div style={{ position: 'relative' }}>
+                <div style={{
+                  position: 'relative',
+                  background: '#f8fafc',
+                  borderRadius: '12px',
+                  border: '2px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
-                  GST %
-                </label>
+                  <input
+                    type="number"
+                    value={itemGstPercent}
+                    style={{
+                      width: '100%',
+                      padding: '16px 20px',
+                      border: 'none',
+                      borderRadius: '12px',
+                      fontSize: '15px',
+                      color: '#64748b',
+                      outline: 'none',
+                      background: 'transparent',
+                      textAlign: 'center',
+                      fontWeight: '600'
+                    }}
+                    placeholder="GST %"
+                    readOnly
+                  />
+                  <label style={{
+                    position: 'absolute',
+                    left: '20px',
+                    top: '-10px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    color: '#64748b',
+                    backgroundColor: '#f8fafc',
+                    padding: '0 8px',
+                    pointerEvents: 'none'
+                  }}>
+                    GST %
+                  </label>
+                </div>
               </div>
-            </div>
             )}
 
             {/* Amount Display */}
             {canShowRateAmtColumn && (
-            <div style={{
-              padding: '16px 20px',
-              background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-              borderRadius: '12px',
-              border: '2px solid #0ea5e9',
-              fontSize: '16px',
-              fontWeight: '700',
-              color: '#0369a1',
-              textAlign: 'center',
-              minWidth: '110px',
-              boxShadow: '0 2px 4px rgba(14, 165, 233, 0.2)'
-            }}>
-              ₹{(itemQuantity * itemRate * (1 - (itemDiscountPercent || 0)/100)).toFixed(2)}
-            </div>
+              <div style={{
+                padding: '16px 20px',
+                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                borderRadius: '12px',
+                border: '2px solid #0ea5e9',
+                fontSize: '16px',
+                fontWeight: '700',
+                color: '#0369a1',
+                textAlign: 'center',
+                minWidth: '110px',
+                boxShadow: '0 2px 4px rgba(14, 165, 233, 0.2)'
+              }}>
+                ₹{itemAmount.toFixed(2)}
+              </div>
             )}
 
             {/* Add Button */}
@@ -3045,7 +3828,7 @@ function PlaceOrder() {
 
           {/* Description Field - Below the entire item line */}
           {selectedItem && (
-            <div style={{ 
+            <div style={{
               marginTop: '16px',
               display: 'flex',
               alignItems: 'center',
@@ -3064,13 +3847,13 @@ function PlaceOrder() {
                   cursor: 'pointer',
                   transition: 'all 0.2s ease'
                 }}
-                onClick={() => setShowDescription(!showDescription)}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#f1f5f9';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#f8fafc';
-                }}>
+                  onClick={() => setShowDescription(!showDescription)}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f1f5f9';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#f8fafc';
+                  }}>
                   <div style={{
                     width: '20px',
                     height: '12px',
@@ -3104,7 +3887,7 @@ function PlaceOrder() {
 
               {/* Description Field - Show always if permission exists, or when toggle is on */}
               {(canShowItemDesc || showDescription) && (
-                <div style={{ 
+                <div style={{
                   width: '34%',
                   maxWidth: '600px'
                 }}>
@@ -3159,9 +3942,9 @@ function PlaceOrder() {
 
         {/* Order Items Table */}
         {orderItems.length > 0 && (
-                      <div style={{ padding: '2px 2px' }}>
+          <div style={{ padding: '2px 2px' }}>
 
-            
+
             <div style={{
               background: 'white',
               borderRadius: '2px',
@@ -3207,7 +3990,7 @@ function PlaceOrder() {
                     backgroundColor: '#f8fafc'
                   }
                 }}>
-                  <div style={{ 
+                  <div style={{
                     fontWeight: '600',
                     color: '#1e293b',
                     fontSize: '15px'
@@ -3247,7 +4030,7 @@ function PlaceOrder() {
                       )
                     )}
                   </div>
-                  <div style={{ 
+                  <div style={{
                     textAlign: 'center',
                     fontWeight: '600',
                     color: '#059669'
@@ -3275,7 +4058,7 @@ function PlaceOrder() {
                     )}
                   </div>
                   {canShowClosingStock && (
-                    <div style={{ 
+                    <div style={{
                       textAlign: 'center',
                       fontWeight: '600',
                       color: '#7c3aed'
@@ -3295,82 +4078,82 @@ function PlaceOrder() {
                     </div>
                   )}
                   {canShowRateAmtColumn && (
-                  <div style={{ 
-                    textAlign: 'right',
-                    fontWeight: '600',
-                    color: '#dc2626'
-                  }}>
-                    {editingItemIndex === index && canEditRate ? (
-                      <input
-                        type="number"
-                        value={editRate}
-                        onChange={(e) => setEditRate(e.target.value)}
-                        style={{
-                          width: '80px',
-                          padding: '4px 8px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '4px',
-                          textAlign: 'right',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          color: '#dc2626'
-                        }}
-                        min="0"
-                        step="0.01"
-                      />
-                    ) : (
-                      `₹${item.rate.toFixed(2)}`
-                    )}
-                  </div>
+                    <div style={{
+                      textAlign: 'right',
+                      fontWeight: '600',
+                      color: '#dc2626'
+                    }}>
+                      {editingItemIndex === index && canEditRate ? (
+                        <input
+                          type="number"
+                          value={editRate}
+                          onChange={(e) => setEditRate(e.target.value)}
+                          style={{
+                            width: '80px',
+                            padding: '4px 8px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '4px',
+                            textAlign: 'right',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#dc2626'
+                          }}
+                          min="0"
+                          step="0.01"
+                        />
+                      ) : (
+                        `₹${item.rate.toFixed(2)}`
+                      )}
+                    </div>
                   )}
                   {canShowRateAmtColumn && canShowDiscColumn && (
-                  <div style={{ 
-                    textAlign: 'center',
-                    fontWeight: '600',
-                    color: '#0ea5e9'
-                  }}>
-                    {editingItemIndex === index && canEditDiscount ? (
-                      <input
-                        type="number"
-                        value={editDiscountPercent}
-                        onChange={(e) => setEditDiscountPercent(e.target.value)}
-                        style={{
-                          width: '60px',
-                          padding: '4px 8px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '4px',
-                          textAlign: 'center',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          color: '#0ea5e9'
-                        }}
-                        min="0"
-                        max="100"
-                        step="0.01"
-                      />
-                    ) : (
-                      `${item.discountPercent || 0}%`
-                    )}
-                  </div>
+                    <div style={{
+                      textAlign: 'center',
+                      fontWeight: '600',
+                      color: '#0ea5e9'
+                    }}>
+                      {editingItemIndex === index && canEditDiscount ? (
+                        <input
+                          type="number"
+                          value={editDiscountPercent}
+                          onChange={(e) => setEditDiscountPercent(e.target.value)}
+                          style={{
+                            width: '60px',
+                            padding: '4px 8px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '4px',
+                            textAlign: 'center',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#0ea5e9'
+                          }}
+                          min="0"
+                          max="100"
+                          step="0.01"
+                        />
+                      ) : (
+                        `${item.discountPercent || 0}%`
+                      )}
+                    </div>
                   )}
                   {canShowRateAmtColumn && (
-                  <div style={{ 
-                    textAlign: 'center',
-                    fontWeight: '600',
-                    color: '#ea580c'
-                  }}>
-                    {item.gstPercent}%
-                  </div>
+                    <div style={{
+                      textAlign: 'center',
+                      fontWeight: '600',
+                      color: '#ea580c'
+                    }}>
+                      {item.gstPercent}%
+                    </div>
                   )}
                   {canShowRateAmtColumn && (
-                  <div style={{ 
-                    textAlign: 'right',
-                    fontWeight: '700', 
-                    color: '#059669',
-                    fontSize: '15px'
-                  }}>
-                    ₹{item.amount.toFixed(2)}
-                  </div>
+                    <div style={{
+                      textAlign: 'right',
+                      fontWeight: '700',
+                      color: '#059669',
+                      fontSize: '15px'
+                    }}>
+                      ₹{item.amount.toFixed(2)}
+                    </div>
                   )}
                   <div style={{ textAlign: 'center', display: 'flex', gap: '8px', justifyContent: 'center' }}>
                     {editingItemIndex === index ? (
@@ -3490,9 +4273,9 @@ function PlaceOrder() {
                     {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center' }}>-</div>}
                     {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>-</div>}
                     {canShowRateAmtColumn && (
-                    <div style={{ textAlign: 'right', fontSize: '20px', color: '#fbbf24' }}>
-                      ₹{totals.totalAmount.toFixed(2)}
-                    </div>
+                      <div style={{ textAlign: 'right', fontSize: '20px', color: '#fbbf24' }}>
+                        ₹{totals.totalAmount.toFixed(2)}
+                      </div>
                     )}
                     <div></div>
                   </div>
@@ -3502,686 +4285,430 @@ function PlaceOrder() {
           </div>
         )}
       </div>
-      
+
       {/* Edit Customer Modal */}
-      {showEditModal && (
-        <div style={modalOverlayStyle} onClick={handleCloseModal}>
-          <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
-            <div style={modalHeaderStyle}>
-              <h2 style={modalTitleStyle}>Party Details</h2>
-                              <button 
-                  style={closeButtonStyle} 
+      {
+        showEditModal && (
+          <div style={modalOverlayStyle} onClick={handleCloseModal}>
+            <div style={modalStyle} onClick={(e) => e.stopPropagation()}>
+              <div style={modalHeaderStyle}>
+                <h2 style={modalTitleStyle}>Party Details</h2>
+                <button
+                  style={closeButtonStyle}
                   onClick={handleCloseModal}
                   title="Close"
                 >
-                ×
-              </button>
-            </div>
-            
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>Customer Name</label>
-              <input 
-                type="text" 
-                value={selectedCustomer} 
-                style={readonlyInputStyle} 
-                readOnly 
-              />
-            </div>
-            
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>Address</label>
-              <textarea
-                value={tempCustomerData.address ? tempCustomerData.address.replace(/\|/g, '\n') : ''}
-                onChange={(e) => {
-                  const newValue = e.target.value;
-                  setTempCustomerData(prev => ({ ...prev, address: newValue }));
-                  setEditableAddress(newValue);
-                }}
-                style={{
-                  ...textareaStyle,
-                  lineHeight: '1.2'
-                }}
-                placeholder="Enter address"
-              />
-            </div>
-            
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>Pincode</label>
-              <input
-                type="text"
-                value={tempCustomerData.pincode}
-                onChange={(e) => {
-                  const newValue = e.target.value;
-                  setTempCustomerData(prev => ({ ...prev, pincode: newValue }));
-                  setEditablePincode(newValue);
-                }}
-                style={inputStyle}
-                placeholder="Enter pincode"
-              />
-            </div>
-            
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>State</label>
-              <input
-                type="text"
-                value={tempCustomerData.state}
-                onChange={(e) => {
-                  const newValue = e.target.value;
-                  setTempCustomerData(prev => ({ ...prev, state: newValue }));
-                  setEditableState(newValue);
-                }}
-                style={inputStyle}
-                placeholder="Enter state"
-              />
-            </div>
-            
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>Country</label>
-              <input
-                type="text"
-                value={tempCustomerData.country}
-                onChange={(e) => {
-                  const newValue = e.target.value;
-                  setTempCustomerData(prev => ({ ...prev, country: newValue }));
-                  setEditableCountry(newValue);
-                }}
-                style={inputStyle}
-                placeholder="Enter country"
-              />
-            </div>
-            
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>GST NO</label>
-              <input
-                type="text"
-                value={tempCustomerData.gstno}
-                onChange={(e) => {
-                  const newValue = e.target.value;
-                  setTempCustomerData(prev => ({ ...prev, gstno: newValue }));
-                  setEditableGstNo(newValue);
-                }}
-                style={inputStyle}
-                placeholder="Enter GST number"
-              />
-            </div>
-            
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>Email</label>
-              <input
-                type="email"
-                value={tempCustomerData.email}
-                onChange={(e) => setTempCustomerData(prev => ({ ...prev, email: e.target.value }))}
-                style={inputStyle}
-                placeholder="Enter email"
-              />
-            </div>
-            
-            {canShowPriceLevel && (
+                  ×
+                </button>
+              </div>
+
               <div style={formGroupStyle}>
-                <label style={labelStyle}>Price Level</label>
+                <label style={labelStyle}>Customer Name</label>
                 <input
                   type="text"
-                  value={customerOptions.find(c => c.NAME === selectedCustomer)?.PRICELEVEL || ''}
+                  value={selectedCustomer}
                   style={readonlyInputStyle}
                   readOnly
                 />
               </div>
-            )}
-            
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>Buyer Order Ref</label>
-              <input
-                type="text"
-                value={buyerOrderRef}
-                onChange={(e) => setBuyerOrderRef(e.target.value)}
-                style={inputStyle}
-                placeholder="Enter buyer order reference"
-              />
-            </div>
-            
-            {canShowPayTerms && (
-              <div style={formGroupStyle}>
-                <label style={labelStyle}>Payment Terms</label>
-                <input
-                  type="text"
-                  value={paymentTerms}
-                  onChange={(e) => setPaymentTerms(e.target.value)}
-                  onFocus={() => setPaymentTermsFocused(true)}
-                  onBlur={() => setPaymentTermsFocused(false)}
-                  style={inputStyle}
-                  placeholder="Enter payment terms"
-                />
-              </div>
-            )}
-            
-            {canShowDelvTerms && (
-              <div style={formGroupStyle}>
-                <label style={labelStyle}>Delivery Terms</label>
-                <input
-                  type="text"
-                  value={deliveryTerms}
-                  onChange={(e) => setDeliveryTerms(e.target.value)}
-                  onFocus={() => setDeliveryTermsFocused(true)}
-                  onBlur={() => setDeliveryTermsFocused(false)}
-                  style={inputStyle}
-                  placeholder="Enter delivery terms"
-                />
-              </div>
-            )}
-            
-            <div style={formGroupStyle}>
-              <label style={labelStyle}>Narration</label>
-              <textarea
-                value={narration}
-                onChange={(e) => setNarration(e.target.value)}
-                style={textareaStyle}
-                placeholder="Enter narration"
-              />
-            </div>
-            
 
-          </div>
-        </div>
-      )}
-      
-      {/* Overdue Bills Modal */}
-      {showOverdueBills && creditLimitData && creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 && (
-        <div style={modalOverlayStyle} onClick={() => setShowOverdueBills(false)}>
-          <div style={{
-            ...modalStyle,
-            maxWidth: '800px',
-            maxHeight: '80vh',
-            overflow: 'hidden'
-          }} onClick={(e) => e.stopPropagation()}>
-            <div style={modalHeaderStyle}>
-              <h2 style={modalTitleStyle}>Overdue Bills Details</h2>
-              <button 
-                style={closeButtonStyle} 
-                onClick={() => setShowOverdueBills(false)}
-                title="Close"
-              >
-                ×
-              </button>
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>Address</label>
+                <textarea
+                  value={tempCustomerData.address ? tempCustomerData.address.replace(/\|/g, '\n') : ''}
+                  onChange={(e) => {
+                    const newValue = e.target.value;
+                    setTempCustomerData(prev => ({ ...prev, address: newValue }));
+                    setEditableAddress(newValue);
+                  }}
+                  style={{
+                    ...textareaStyle,
+                    lineHeight: '1.2'
+                  }}
+                  placeholder="Enter address"
+                />
+              </div>
+
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>Pincode</label>
+                <input
+                  type="text"
+                  value={tempCustomerData.pincode}
+                  onChange={(e) => {
+                    const newValue = e.target.value;
+                    setTempCustomerData(prev => ({ ...prev, pincode: newValue }));
+                    setEditablePincode(newValue);
+                  }}
+                  style={inputStyle}
+                  placeholder="Enter pincode"
+                />
+              </div>
+
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>State</label>
+                <input
+                  type="text"
+                  value={tempCustomerData.state}
+                  onChange={(e) => {
+                    const newValue = e.target.value;
+                    setTempCustomerData(prev => ({ ...prev, state: newValue }));
+                    setEditableState(newValue);
+                  }}
+                  style={inputStyle}
+                  placeholder="Enter state"
+                />
+              </div>
+
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>Country</label>
+                <input
+                  type="text"
+                  value={tempCustomerData.country}
+                  onChange={(e) => {
+                    const newValue = e.target.value;
+                    setTempCustomerData(prev => ({ ...prev, country: newValue }));
+                    setEditableCountry(newValue);
+                  }}
+                  style={inputStyle}
+                  placeholder="Enter country"
+                />
+              </div>
+
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>GST NO</label>
+                <input
+                  type="text"
+                  value={tempCustomerData.gstno}
+                  onChange={(e) => {
+                    const newValue = e.target.value;
+                    setTempCustomerData(prev => ({ ...prev, gstno: newValue }));
+                    setEditableGstNo(newValue);
+                  }}
+                  style={inputStyle}
+                  placeholder="Enter GST number"
+                />
+              </div>
+
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>Email</label>
+                <input
+                  type="email"
+                  value={tempCustomerData.email}
+                  onChange={(e) => setTempCustomerData(prev => ({ ...prev, email: e.target.value }))}
+                  style={inputStyle}
+                  placeholder="Enter email"
+                />
+              </div>
+
+              {canShowPriceLevel && (
+                <div style={formGroupStyle}>
+                  <label style={labelStyle}>Price Level</label>
+                  <input
+                    type="text"
+                    value={customerOptions.find(c => c.NAME === selectedCustomer)?.PRICELEVEL || ''}
+                    style={readonlyInputStyle}
+                    readOnly
+                  />
+                </div>
+              )}
+
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>Buyer Order Ref</label>
+                <input
+                  type="text"
+                  value={buyerOrderRef}
+                  onChange={(e) => setBuyerOrderRef(e.target.value)}
+                  style={inputStyle}
+                  placeholder="Enter buyer order reference"
+                />
+              </div>
+
+              {canShowPayTerms && (
+                <div style={formGroupStyle}>
+                  <label style={labelStyle}>Payment Terms</label>
+                  <input
+                    type="text"
+                    value={paymentTerms}
+                    onChange={(e) => setPaymentTerms(e.target.value)}
+                    onFocus={() => setPaymentTermsFocused(true)}
+                    onBlur={() => setPaymentTermsFocused(false)}
+                    style={inputStyle}
+                    placeholder="Enter payment terms"
+                  />
+                </div>
+              )}
+
+              {canShowDelvTerms && (
+                <div style={formGroupStyle}>
+                  <label style={labelStyle}>Delivery Terms</label>
+                  <input
+                    type="text"
+                    value={deliveryTerms}
+                    onChange={(e) => setDeliveryTerms(e.target.value)}
+                    onFocus={() => setDeliveryTermsFocused(true)}
+                    onBlur={() => setDeliveryTermsFocused(false)}
+                    style={inputStyle}
+                    placeholder="Enter delivery terms"
+                  />
+                </div>
+              )}
+
+              <div style={formGroupStyle}>
+                <label style={labelStyle}>Narration</label>
+                <textarea
+                  value={narration}
+                  onChange={(e) => setNarration(e.target.value)}
+                  style={textareaStyle}
+                  placeholder="Enter narration"
+                />
+              </div>
+
+
             </div>
-            
+          </div>
+        )
+      }
+
+      {/* Overdue Bills Modal */}
+      {
+        showOverdueBills && creditLimitData && creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 && (
+          <div style={modalOverlayStyle} onClick={() => setShowOverdueBills(false)}>
             <div style={{
-              padding: '20px',
-              maxHeight: '60vh',
-              overflowY: 'auto'
-            }}>
+              ...modalStyle,
+              maxWidth: '800px',
+              maxHeight: '80vh',
+              overflow: 'hidden'
+            }} onClick={(e) => e.stopPropagation()}>
+              <div style={modalHeaderStyle}>
+                <h2 style={modalTitleStyle}>Overdue Bills Details</h2>
+                <button
+                  style={closeButtonStyle}
+                  onClick={() => setShowOverdueBills(false)}
+                  title="Close"
+                >
+                  ×
+                </button>
+              </div>
+
               <div style={{
-                background: '#fef2f2',
-                border: '1px solid #fecaca',
-                borderRadius: '8px',
-                padding: '16px',
-                marginBottom: '20px'
+                padding: '20px',
+                maxHeight: '60vh',
+                overflowY: 'auto'
               }}>
                 <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  marginBottom: '8px'
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  marginBottom: '20px'
                 }}>
-                  <span className="material-icons" style={{ fontSize: '20px', color: '#dc2626' }}>
-                    warning
-                  </span>
-                  <span style={{ color: '#dc2626', fontWeight: '600', fontSize: '16px' }}>
-                    {creditLimitData.overdueBills.length} Overdue Bill(s) Found
-                  </span>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    marginBottom: '8px'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: '20px', color: '#dc2626' }}>
+                      warning
+                    </span>
+                    <span style={{ color: '#dc2626', fontWeight: '600', fontSize: '16px' }}>
+                      {creditLimitData.overdueBills.length} Overdue Bill(s) Found
+                    </span>
+                  </div>
+                  <p style={{ color: '#7f1d1d', fontSize: '14px', margin: 0 }}>
+                    Customer has outstanding bills that are past their due date. Please review the details below.
+                  </p>
                 </div>
-                <p style={{ color: '#7f1d1d', fontSize: '14px', margin: 0 }}>
-                  Customer has outstanding bills that are past their due date. Please review the details below.
-                </p>
-              </div>
-              
-              <div style={{
-                overflowX: 'auto',
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px'
-              }}>
-                <table style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  fontSize: '14px'
+
+                <div style={{
+                  overflowX: 'auto',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '8px'
                 }}>
-                  <thead>
-                    <tr style={{
-                      background: '#f8fafc',
-                      borderBottom: '2px solid #e5e7eb'
-                    }}>
-                      <th style={{
-                        padding: '12px 16px',
-                        textAlign: 'left',
-                        fontWeight: '600',
-                        color: '#374151',
-                        borderRight: '1px solid #e5e7eb',
-                        width: '200px'
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: '14px'
+                  }}>
+                    <thead>
+                      <tr style={{
+                        background: '#f8fafc',
+                        borderBottom: '2px solid #e5e7eb'
                       }}>
-                        Bill Reference
-                      </th>
-                      <th style={{
-                        padding: '12px 16px',
-                        textAlign: 'right',
-                        fontWeight: '600',
-                        color: '#374151',
-                        borderRight: '1px solid #e5e7eb',
-                        width: '120px'
-                      }}>
-                        Bill Date
-                      </th>
-                      <th style={{
-                        padding: '12px 16px',
-                        textAlign: 'right',
-                        fontWeight: '600',
-                        color: '#374151',
-                        borderRight: '1px solid #e5e7eb',
-                        width: '150px'
-                      }}>
-                        Opening Balance
-                      </th>
-                      <th style={{
-                        padding: '12px 16px',
-                        textAlign: 'right',
-                        fontWeight: '600',
-                        color: '#374151',
-                        borderRight: '1px solid #e5e7eb',
-                        width: '150px'
-                      }}>
-                        Closing Balance
-                      </th>
-                      <th style={{
-                        padding: '12px 16px',
-                        textAlign: 'right',
-                        fontWeight: '600',
-                        color: '#374151',
-                        borderRight: '1px solid #e5e7eb',
-                        width: '120px'
-                      }}>
-                        Due Date
-                      </th>
-                      <th style={{
-                        padding: '12px 16px',
-                        textAlign: 'center',
-                        fontWeight: '600',
-                        color: '#374151'
-                      }}>
-                        Days Overdue
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {creditLimitData.overdueBills.map((bill, index) => (
-                      <tr key={index} style={{
-                        borderBottom: '1px solid #f3f4f6',
-                        '&:hover': {
-                          background: '#f9fafb'
-                        }
-                      }}>
-                        <td style={{
+                        <th style={{
                           padding: '12px 16px',
+                          textAlign: 'left',
                           fontWeight: '600',
-                          color: '#1f2937',
+                          color: '#374151',
                           borderRight: '1px solid #e5e7eb',
                           width: '200px'
                         }}>
-                          {bill.REFNO}
-                        </td>
-                        <td style={{
-                          padding: '12px 16px',
-                          textAlign: 'right',
-                          color: '#6b7280',
-                          borderRight: '1px solid #e5e7eb',
-                          width: '120px'
-                        }}>
-                          {bill.DATE}
-                        </td>
-                        <td style={{
+                          Bill Reference
+                        </th>
+                        <th style={{
                           padding: '12px 16px',
                           textAlign: 'right',
                           fontWeight: '600',
-                          color: bill.OPENINGBALANCE < 0 ? '#dc2626' : '#059669',
-                          borderRight: '1px solid #e5e7eb',
-                          width: '150px'
-                        }}>
-                          ₹{Math.abs(bill.OPENINGBALANCE).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          {bill.OPENINGBALANCE < 0 ? ' Dr' : ' Cr'}
-                        </td>
-                        <td style={{
-                          padding: '12px 16px',
-                          textAlign: 'right',
-                          fontWeight: '600',
-                          color: bill.CLOSINGBALANCE < 0 ? '#dc2626' : '#059669',
-                          borderRight: '1px solid #e5e7eb',
-                          width: '150px'
-                        }}>
-                          ₹{Math.abs(bill.CLOSINGBALANCE).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                          {bill.CLOSINGBALANCE < 0 ? ' Dr' : ' Cr'}
-                        </td>
-                        <td style={{
-                          padding: '12px 16px',
-                          textAlign: 'right',
-                          color: '#6b7280',
+                          color: '#374151',
                           borderRight: '1px solid #e5e7eb',
                           width: '120px'
                         }}>
-                          {bill.DUEON}
-                        </td>
-                        <td style={{
+                          Bill Date
+                        </th>
+                        <th style={{
+                          padding: '12px 16px',
+                          textAlign: 'right',
+                          fontWeight: '600',
+                          color: '#374151',
+                          borderRight: '1px solid #e5e7eb',
+                          width: '150px'
+                        }}>
+                          Opening Balance
+                        </th>
+                        <th style={{
+                          padding: '12px 16px',
+                          textAlign: 'right',
+                          fontWeight: '600',
+                          color: '#374151',
+                          borderRight: '1px solid #e5e7eb',
+                          width: '150px'
+                        }}>
+                          Closing Balance
+                        </th>
+                        <th style={{
+                          padding: '12px 16px',
+                          textAlign: 'right',
+                          fontWeight: '600',
+                          color: '#374151',
+                          borderRight: '1px solid #e5e7eb',
+                          width: '120px'
+                        }}>
+                          Due Date
+                        </th>
+                        <th style={{
                           padding: '12px 16px',
                           textAlign: 'center',
                           fontWeight: '600',
-                          color: '#dc2626'
+                          color: '#374151'
                         }}>
-                          {bill.OVERDUEDAYS} days
-                        </td>
+                          Days Overdue
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              
-              <div style={{
-                marginTop: '20px',
-                padding: '16px',
-                background: '#f0f9ff',
-                border: '1px solid #bae6fd',
-                borderRadius: '8px'
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  marginBottom: '8px'
-                }}>
-                  <span className="material-icons" style={{ fontSize: '18px', color: '#0369a1' }}>
-                    info
-                  </span>
-                  <span style={{ color: '#0369a1', fontWeight: '600', fontSize: '14px' }}>
-                    Total Overdue Amount
-                  </span>
+                    </thead>
+                    <tbody>
+                      {creditLimitData.overdueBills.map((bill, index) => (
+                        <tr key={index} style={{
+                          borderBottom: '1px solid #f3f4f6',
+                          '&:hover': {
+                            background: '#f9fafb'
+                          }
+                        }}>
+                          <td style={{
+                            padding: '12px 16px',
+                            fontWeight: '600',
+                            color: '#1f2937',
+                            borderRight: '1px solid #e5e7eb',
+                            width: '200px'
+                          }}>
+                            {bill.REFNO}
+                          </td>
+                          <td style={{
+                            padding: '12px 16px',
+                            textAlign: 'right',
+                            color: '#6b7280',
+                            borderRight: '1px solid #e5e7eb',
+                            width: '120px'
+                          }}>
+                            {bill.DATE}
+                          </td>
+                          <td style={{
+                            padding: '12px 16px',
+                            textAlign: 'right',
+                            fontWeight: '600',
+                            color: bill.OPENINGBALANCE < 0 ? '#dc2626' : '#059669',
+                            borderRight: '1px solid #e5e7eb',
+                            width: '150px'
+                          }}>
+                            ₹{Math.abs(bill.OPENINGBALANCE).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            {bill.OPENINGBALANCE < 0 ? ' Dr' : ' Cr'}
+                          </td>
+                          <td style={{
+                            padding: '12px 16px',
+                            textAlign: 'right',
+                            fontWeight: '600',
+                            color: bill.CLOSINGBALANCE < 0 ? '#dc2626' : '#059669',
+                            borderRight: '1px solid #e5e7eb',
+                            width: '150px'
+                          }}>
+                            ₹{Math.abs(bill.CLOSINGBALANCE).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            {bill.CLOSINGBALANCE < 0 ? ' Dr' : ' Cr'}
+                          </td>
+                          <td style={{
+                            padding: '12px 16px',
+                            textAlign: 'right',
+                            color: '#6b7280',
+                            borderRight: '1px solid #e5e7eb',
+                            width: '120px'
+                          }}>
+                            {bill.DUEON}
+                          </td>
+                          <td style={{
+                            padding: '12px 16px',
+                            textAlign: 'center',
+                            fontWeight: '600',
+                            color: '#dc2626'
+                          }}>
+                            {bill.OVERDUEDAYS} days
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
+
                 <div style={{
-                  fontSize: '18px',
-                  fontWeight: '700',
-                  color: '#dc2626'
+                  marginTop: '20px',
+                  padding: '16px',
+                  background: '#f0f9ff',
+                  border: '1px solid #bae6fd',
+                  borderRadius: '8px'
                 }}>
-                  ₹{creditLimitData.overdueBills.reduce((sum, bill) => sum + Math.abs(bill.CLOSINGBALANCE), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    marginBottom: '8px'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: '18px', color: '#0369a1' }}>
+                      info
+                    </span>
+                    <span style={{ color: '#0369a1', fontWeight: '600', fontSize: '14px' }}>
+                      Total Overdue Amount
+                    </span>
+                  </div>
+                  <div style={{
+                    fontSize: '18px',
+                    fontWeight: '700',
+                    color: '#dc2626'
+                  }}>
+                    ₹{creditLimitData.overdueBills.reduce((sum, bill) => sum + Math.abs(bill.CLOSINGBALANCE), 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
-      
+        )
+      }
+
       {/* Custom Confirmation Modal */}
-      {showConfirmModal && (
-        <div style={modalOverlayStyle}>
-          <div style={{
-            ...modalStyle,
-            maxWidth: '400px',
-            textAlign: 'center'
-          }}>
+      {
+        showConfirmModal && (
+          <div style={modalOverlayStyle}>
             <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: '20px',
-              gap: '12px'
+              ...modalStyle,
+              maxWidth: '400px',
+              textAlign: 'center'
             }}>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '50%',
-                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '24px'
-              }}>
-                ⚠️
-              </div>
-              <h3 style={{
-                margin: 0,
-                color: '#1f2937',
-                fontSize: '18px',
-                fontWeight: '600'
-              }}>
-                Customer Change Warning
-              </h3>
-            </div>
-            
-            <p style={{
-              margin: '0 0 24px 0',
-              color: '#374151',
-              fontSize: '14px',
-              lineHeight: '1.5'
-            }}>
-              {confirmMessage}
-            </p>
-            
-            <div style={{
-              display: 'flex',
-              gap: '12px',
-              justifyContent: 'center'
-            }}>
-              <button
-                onClick={() => {
-                  if (confirmAction) {
-                    confirmAction();
-                  }
-                  setShowConfirmModal(false);
-                }}
-                style={{
-                  background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '10px 20px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  minWidth: '80px'
-                }}
-              >
-                Continue
-              </button>
-              <button
-                onClick={() => setShowConfirmModal(false)}
-                style={{
-                  background: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '10px 20px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  minWidth: '80px'
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Order Result Modal */}
-      {showOrderResultModal && (
-        <div style={modalOverlayStyle}>
-          <div style={{
-            ...modalStyle,
-            maxWidth: '500px',
-            textAlign: 'center'
-          }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: '20px',
-              gap: '12px'
-            }}>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '50%',
-                background: orderResult.success 
-                  ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                  : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '24px',
-                color: 'white'
-              }}>
-                {orderResult.success ? '✅' : '❌'}
-              </div>
-              <h3 style={{
-                margin: 0,
-                color: '#1f2937',
-                fontSize: '18px',
-                fontWeight: '600'
-              }}>
-                {orderResult.success ? 'Order Success' : 'Order Failed'}
-              </h3>
-            </div>
-            
-            <p style={{
-              margin: '0 0 20px 0',
-              color: '#374151',
-              fontSize: '16px',
-              lineHeight: '1.5',
-              fontWeight: '500'
-            }}>
-              {orderResult.message}
-            </p>
-            
-            {/* Tally Response Details for Failed Orders */}
-            {!orderResult.success && orderResult.tallyResponse && (
-              <div style={{
-                background: '#f3f4f6',
-                borderRadius: '8px',
-                padding: '16px',
-                margin: '0 0 20px 0',
-                textAlign: 'left'
-              }}>
-                <h4 style={{
-                  margin: '0 0 12px 0',
-                  color: '#374151',
-                  fontSize: '14px',
-                  fontWeight: '600'
-                }}>
-                  Tally Response Details:
-                </h4>
-                <div style={{
-                  fontSize: '13px',
-                  color: '#6b7280',
-                  lineHeight: '1.4'
-                }}>
-                  <div><strong>Voucher Number:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.VCHNUMBER || 'N/A'}</div>
-                  <div><strong>Status:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.STATUS || 'N/A'}</div>
-                  <div><strong>Created:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.CREATED || 'N/A'}</div>
-                  <div><strong>Altered:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.ALTERED || 'N/A'}</div>
-                  <div><strong>Errors:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.ERRORS || 'N/A'}</div>
-                  <div><strong>Exceptions:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.EXCEPTIONS || 'N/A'}</div>
-                </div>
-              </div>
-            )}
-            
-            <div style={{
-              display: 'flex',
-              justifyContent: 'center'
-            }}>
-              <button
-                onClick={() => setShowOrderResultModal(false)}
-                style={{
-                  background: orderResult.success 
-                    ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                    : 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '12px 24px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  minWidth: '100px'
-                }}
-              >
-                {orderResult.success ? 'Great!' : 'Close'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Stock Breakdown Modal */}
-      {showStockModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 10000
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '12px',
-            padding: '24px',
-            maxWidth: '600px',
-            width: '90%',
-            maxHeight: '80vh',
-            overflow: 'auto',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
-          }}>
-            {/* Header */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: '20px',
-              paddingBottom: '16px',
-              borderBottom: '1px solid #e5e7eb'
-            }}>
-              <h3 style={{
-                margin: 0,
-                fontSize: '18px',
-                fontWeight: '600',
-                color: '#1f2937'
-              }}>
-                {(() => {
-                  if (canShowGodownBrkup && canShowMulticoBrkup) {
-                    return showGodownStock ? 'Godown-wise' : 'Company-wise';
-                  } else if (canShowGodownBrkup) {
-                    return 'Godown-wise';
-                  } else if (canShowMulticoBrkup) {
-                    return 'Company-wise';
-                  }
-                  return 'Stock Breakdown';
-                })()} Stock Breakdown - {selectedItem}
-              </h3>
-              <button
-                onClick={() => setShowStockModal(false)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  fontSize: '24px',
-                  cursor: 'pointer',
-                  color: '#6b7280',
-                  padding: '4px'
-                }}
-              >
-                ×
-              </button>
-            </div>
-
-            {/* Toggle Switch - Only show if both permissions are enabled */}
-            {canShowGodownBrkup && canShowMulticoBrkup && (
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -4189,179 +4716,445 @@ function PlaceOrder() {
                 marginBottom: '20px',
                 gap: '12px'
               }}>
-                <span style={{
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: showGodownStock ? '#1f2937' : '#6b7280'
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '24px'
                 }}>
-                  By Godown
-                </span>
+                  ⚠️
+                </div>
+                <h3 style={{
+                  margin: 0,
+                  color: '#1f2937',
+                  fontSize: '18px',
+                  fontWeight: '600'
+                }}>
+                  Customer Change Warning
+                </h3>
+              </div>
+
+              <p style={{
+                margin: '0 0 24px 0',
+                color: '#374151',
+                fontSize: '14px',
+                lineHeight: '1.5'
+              }}>
+                {confirmMessage}
+              </p>
+
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'center'
+              }}>
                 <button
-                  onClick={() => setShowGodownStock(!showGodownStock)}
+                  onClick={() => {
+                    if (confirmAction) {
+                      confirmAction();
+                    }
+                    setShowConfirmModal(false);
+                  }}
                   style={{
-                    width: '50px',
-                    height: '24px',
-                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                    color: '#fff',
                     border: 'none',
-                    background: showGodownStock ? '#3b82f6' : '#d1d5db',
-                    position: 'relative',
+                    borderRadius: '8px',
+                    padding: '10px 20px',
                     cursor: 'pointer',
-                    transition: 'all 0.2s ease'
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    minWidth: '80px'
                   }}
                 >
-                  <div style={{
-                    width: '20px',
-                    height: '20px',
-                    borderRadius: '50%',
-                    background: 'white',
-                    position: 'absolute',
-                    top: '2px',
-                    left: showGodownStock ? '28px' : '2px',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
-                  }} />
+                  Continue
                 </button>
-                <span style={{
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  color: !showGodownStock ? '#1f2937' : '#6b7280'
-                }}>
-                  By Company
-                </span>
+                <button
+                  onClick={() => setShowConfirmModal(false)}
+                  style={{
+                    background: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '10px 20px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    minWidth: '80px'
+                  }}
+                >
+                  Cancel
+                </button>
               </div>
-            )}
-
-            {/* Content */}
-            {stockBreakdownLoading ? (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                padding: '40px',
-                color: '#6b7280'
-              }}>
-                Loading...
-              </div>
-            ) : stockBreakdownError ? (
-              <div style={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                padding: '40px',
-                color: '#ef4444'
-              }}>
-                {stockBreakdownError}
-              </div>
-            ) : stockBreakdownData ? (
-              <div>
-                {/* Summary */}
-                <div style={{
-                  backgroundColor: '#f8fafc',
-                  padding: '16px',
-                  borderRadius: '8px',
-                  marginBottom: '20px'
-                }}>
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'center',
-                    alignItems: 'center'
-                  }}>
-                    <span style={{
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      color: '#374151'
-                    }}>
-                      {(() => {
-                        if (canShowGodownBrkup && canShowMulticoBrkup) {
-                          return showGodownStock ? 'Total Godowns' : 'Total Companies';
-                        } else if (canShowGodownBrkup) {
-                          return 'Total Godowns';
-                        } else if (canShowMulticoBrkup) {
-                          return 'Total Companies';
-                        }
-                        return 'Total Items';
-                      })()}: {stockBreakdownData.totalGodowns || stockBreakdownData.totalCompanies || 0}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Stock List */}
-                <div style={{
-                  maxHeight: '300px',
-                  overflowY: 'auto',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '8px'
-                }}>
-                  {(stockBreakdownData.godownStocks || stockBreakdownData.companyStocks || []).map((item, index) => {
-                    // Check if this is the current company (for company-wise view)
-                    const isCurrentCompany = !showGodownStock && company && item.GUID === company;
-                    
-                    // Determine stock display value
-                    const stockValue = item.CLOSINGSTOCK || 0;
-                    const displayValue = canShowClosingStockYesNo ? (stockValue > 0 ? 'Yes' : 'No') : stockValue;
-                    
-                    return (
-                      <div
-                        key={index}
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'center',
-                          padding: '12px 16px',
-                          borderBottom: index < (stockBreakdownData.godownStocks || stockBreakdownData.companyStocks || []).length - 1 ? '1px solid #f3f4f6' : 'none',
-                          backgroundColor: index % 2 === 0 ? 'white' : '#f9fafb'
-                        }}
-                      >
-                        <span style={{
-                          fontSize: '14px',
-                          fontWeight: '500',
-                          color: isCurrentCompany ? '#6b7280' : '#1f2937',
-                          fontStyle: isCurrentCompany ? 'italic' : 'normal'
-                        }}>
-                          {item.NAME}
-                        </span>
-                        <span style={{
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          color: stockValue > 0 ? '#059669' : '#6b7280'
-                        }}>
-                          {displayValue}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            {/* Footer */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'flex-end',
-              marginTop: '20px',
-              paddingTop: '16px',
-              borderTop: '1px solid #e5e7eb'
-            }}>
-              <button
-                onClick={() => setShowStockModal(false)}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#6b7280',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: '500'
-                }}
-              >
-                Close
-              </button>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+
+      {/* Order Result Modal */}
+      {
+        showOrderResultModal && (
+          <div style={modalOverlayStyle}>
+            <div style={{
+              ...modalStyle,
+              maxWidth: '500px',
+              textAlign: 'center'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginBottom: '20px',
+                gap: '12px'
+              }}>
+                <div style={{
+                  width: '48px',
+                  height: '48px',
+                  borderRadius: '50%',
+                  background: orderResult.success
+                    ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                    : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '24px',
+                  color: 'white'
+                }}>
+                  {orderResult.success ? '✅' : '❌'}
+                </div>
+                <h3 style={{
+                  margin: 0,
+                  color: '#1f2937',
+                  fontSize: '18px',
+                  fontWeight: '600'
+                }}>
+                  {orderResult.success ? 'Order Success' : 'Order Failed'}
+                </h3>
+              </div>
+
+              <p style={{
+                margin: '0 0 20px 0',
+                color: '#374151',
+                fontSize: '16px',
+                lineHeight: '1.5',
+                fontWeight: '500'
+              }}>
+                {orderResult.message}
+              </p>
+
+              {/* Tally Response Details for Failed Orders */}
+              {!orderResult.success && orderResult.tallyResponse && (
+                <div style={{
+                  background: '#f3f4f6',
+                  borderRadius: '8px',
+                  padding: '16px',
+                  margin: '0 0 20px 0',
+                  textAlign: 'left'
+                }}>
+                  <h4 style={{
+                    margin: '0 0 12px 0',
+                    color: '#374151',
+                    fontSize: '14px',
+                    fontWeight: '600'
+                  }}>
+                    Tally Response Details:
+                  </h4>
+                  <div style={{
+                    fontSize: '13px',
+                    color: '#6b7280',
+                    lineHeight: '1.4'
+                  }}>
+                    <div><strong>Voucher Number:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.VCHNUMBER || 'N/A'}</div>
+                    <div><strong>Status:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.STATUS || 'N/A'}</div>
+                    <div><strong>Created:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.CREATED || 'N/A'}</div>
+                    <div><strong>Altered:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.ALTERED || 'N/A'}</div>
+                    <div><strong>Errors:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.ERRORS || 'N/A'}</div>
+                    <div><strong>Exceptions:</strong> {orderResult.tallyResponse.BODY?.DATA?.IMPORTRESULT?.EXCEPTIONS || 'N/A'}</div>
+                  </div>
+                </div>
+              )}
+
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center'
+              }}>
+                <button
+                  onClick={() => setShowOrderResultModal(false)}
+                  style={{
+                    background: orderResult.success
+                      ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                      : 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '12px 24px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    minWidth: '100px'
+                  }}
+                >
+                  {orderResult.success ? 'Great!' : 'Close'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      {/* Stock Breakdown Modal */}
+      {
+        showStockModal && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000
+          }}>
+            <div style={{
+              backgroundColor: 'white',
+              borderRadius: '12px',
+              padding: '24px',
+              maxWidth: '600px',
+              width: '90%',
+              maxHeight: '80vh',
+              overflow: 'auto',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+            }}>
+              {/* Header */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: '20px',
+                paddingBottom: '16px',
+                borderBottom: '1px solid #e5e7eb'
+              }}>
+                <h3 style={{
+                  margin: 0,
+                  fontSize: '18px',
+                  fontWeight: '600',
+                  color: '#1f2937'
+                }}>
+                  {(() => {
+                    if (canShowGodownBrkup && canShowMulticoBrkup) {
+                      return showGodownStock ? 'Godown-wise' : 'Company-wise';
+                    } else if (canShowGodownBrkup) {
+                      return 'Godown-wise';
+                    } else if (canShowMulticoBrkup) {
+                      return 'Company-wise';
+                    }
+                    return 'Stock Breakdown';
+                  })()} Stock Breakdown - {selectedItem}
+                </h3>
+                <button
+                  onClick={() => setShowStockModal(false)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '24px',
+                    cursor: 'pointer',
+                    color: '#6b7280',
+                    padding: '4px'
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Toggle Switch - Only show if both permissions are enabled */}
+              {canShowGodownBrkup && canShowMulticoBrkup && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginBottom: '20px',
+                  gap: '12px'
+                }}>
+                  <span style={{
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: showGodownStock ? '#1f2937' : '#6b7280'
+                  }}>
+                    By Godown
+                  </span>
+                  <button
+                    onClick={() => setShowGodownStock(!showGodownStock)}
+                    style={{
+                      width: '50px',
+                      height: '24px',
+                      borderRadius: '12px',
+                      border: 'none',
+                      background: showGodownStock ? '#3b82f6' : '#d1d5db',
+                      position: 'relative',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    <div style={{
+                      width: '20px',
+                      height: '20px',
+                      borderRadius: '50%',
+                      background: 'white',
+                      position: 'absolute',
+                      top: '2px',
+                      left: showGodownStock ? '28px' : '2px',
+                      transition: 'all 0.2s ease',
+                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
+                    }} />
+                  </button>
+                  <span style={{
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    color: !showGodownStock ? '#1f2937' : '#6b7280'
+                  }}>
+                    By Company
+                  </span>
+                </div>
+              )}
+
+              {/* Content */}
+              {stockBreakdownLoading ? (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  padding: '40px',
+                  color: '#6b7280'
+                }}>
+                  Loading...
+                </div>
+              ) : stockBreakdownError ? (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  padding: '40px',
+                  color: '#ef4444'
+                }}>
+                  {stockBreakdownError}
+                </div>
+              ) : stockBreakdownData ? (
+                <div>
+                  {/* Summary */}
+                  <div style={{
+                    backgroundColor: '#f8fafc',
+                    padding: '16px',
+                    borderRadius: '8px',
+                    marginBottom: '20px'
+                  }}>
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'center',
+                      alignItems: 'center'
+                    }}>
+                      <span style={{
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        color: '#374151'
+                      }}>
+                        {(() => {
+                          if (canShowGodownBrkup && canShowMulticoBrkup) {
+                            return showGodownStock ? 'Total Godowns' : 'Total Companies';
+                          } else if (canShowGodownBrkup) {
+                            return 'Total Godowns';
+                          } else if (canShowMulticoBrkup) {
+                            return 'Total Companies';
+                          }
+                          return 'Total Items';
+                        })()}: {stockBreakdownData.totalGodowns || stockBreakdownData.totalCompanies || 0}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Stock List */}
+                  <div style={{
+                    maxHeight: '300px',
+                    overflowY: 'auto',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px'
+                  }}>
+                    {(stockBreakdownData.godownStocks || stockBreakdownData.companyStocks || []).map((item, index) => {
+                      // Check if this is the current company (for company-wise view)
+                      const isCurrentCompany = !showGodownStock && company && item.GUID === company;
+
+                      // Determine stock display value
+                      const stockValue = item.CLOSINGSTOCK || 0;
+                      const displayValue = canShowClosingStockYesNo ? (stockValue > 0 ? 'Yes' : 'No') : stockValue;
+
+                      return (
+                        <div
+                          key={index}
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            padding: '12px 16px',
+                            borderBottom: index < (stockBreakdownData.godownStocks || stockBreakdownData.companyStocks || []).length - 1 ? '1px solid #f3f4f6' : 'none',
+                            backgroundColor: index % 2 === 0 ? 'white' : '#f9fafb'
+                          }}
+                        >
+                          <span style={{
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            color: isCurrentCompany ? '#6b7280' : '#1f2937',
+                            fontStyle: isCurrentCompany ? 'italic' : 'normal'
+                          }}>
+                            {item.NAME}
+                          </span>
+                          <span style={{
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: stockValue > 0 ? '#059669' : '#6b7280'
+                          }}>
+                            {displayValue}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Footer */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                marginTop: '20px',
+                paddingTop: '16px',
+                borderTop: '1px solid #e5e7eb'
+              }}>
+                <button
+                  onClick={() => setShowStockModal(false)}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#6b7280',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: '500'
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      }
+    </div >
   );
 }
 
