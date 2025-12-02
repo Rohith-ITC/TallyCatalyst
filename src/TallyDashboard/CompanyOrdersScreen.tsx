@@ -2388,7 +2388,8 @@ ${inventoryEntriesStr}
                 } else {
                   setFilters({...filters, customer: value});
                 }
-              }}>
+              }}
+             >
               <option value="all">All Customers</option>
               {uniqueCustomers.map((customer) => (
                 <option key={customer} value={customer}>
@@ -2409,6 +2410,7 @@ ${inventoryEntriesStr}
               placeholder="Filter by order qty..."
               value={filters.orderQty}
               onChange={(e) => setFilters({...filters, orderQty: e.target.value})}
+             
             />
           </div>
           <div className="filter-group">
@@ -2420,6 +2422,7 @@ ${inventoryEntriesStr}
               placeholder="Filter by pending qty..."
               value={filters.pendingQty}
               onChange={(e) => setFilters({...filters, pendingQty: e.target.value})}
+             
             />
           </div>
         </div>
@@ -2433,6 +2436,7 @@ ${inventoryEntriesStr}
               placeholder="Filter by rate..."
               value={filters.rate}
               onChange={(e) => setFilters({...filters, rate: e.target.value})}
+             
             />
           </div>
           <div className="filter-group">
@@ -2444,6 +2448,7 @@ ${inventoryEntriesStr}
               placeholder="Filter by value..."
               value={filters.value}
               onChange={(e) => setFilters({...filters, value: e.target.value})}
+             
             />
           </div>
           <div className="filter-group">
@@ -2455,12 +2460,14 @@ ${inventoryEntriesStr}
               placeholder="Filter by due date or overdue..."
               value={filters.dueDate}
               onChange={(e) => setFilters({...filters, dueDate: e.target.value})}
+             
             />
           </div>
           {(filters.date || filters.orderNo || filters.stockItem || filters.customer || filters.orderQty || filters.pendingQty || filters.rate || filters.value || filters.dueDate) && (
             <button
               onClick={() => setFilters({...INITIAL_FILTERS})}
-              className="clear-filters-button">
+              className="clear-filters-button"
+             >
               Clear Filters
             </button>
           )}
@@ -2774,12 +2781,14 @@ ${inventoryEntriesStr}
                 <button
                   type="button"
                   className={`zero-availability-toggle ${showZeroAvailabilityItems ? 'active' : ''}`}
-                  onClick={() => setShowZeroAvailabilityItems((prev) => !prev)}>
+                  onClick={() => setShowZeroAvailabilityItems((prev) => !prev)}
+                 >
                   {showZeroAvailabilityItems ? 'Hide 0 Qty Items' : 'Show 0 Qty Items'}
                 </button>
                 <button
                   className="close-modal-button"
-                    onClick={closeDeliveryModal}>
+                    onClick={closeDeliveryModal}
+                   >
                   ✕
                 </button>
               </div>
@@ -3015,7 +3024,8 @@ ${inventoryEntriesStr}
               <button
                 className="cancel-button"
                 onClick={closeDeliveryModal}
-                disabled={saving}>
+                disabled={saving}
+               >
                 Cancel
               </button>
               <div className="delivery-date-group-modal">
@@ -3027,12 +3037,14 @@ ${inventoryEntriesStr}
                   value={deliveryDate}
                   onChange={(e) => setDeliveryDate(e.target.value)}
                   disabled={saving}
+                 
                 />
               </div>
               <button
                 className="save-order-button"
                 onClick={handleSaveDelivery}
-                disabled={saving || loading}>
+                disabled={saving || loading}
+               >
                 {saving ? `Saving… (${formatDuration(saveElapsedSeconds)})` : 'Save'}
               </button>
               {saving && (
@@ -3053,6 +3065,7 @@ ${inventoryEntriesStr}
                 className="close-modal-button"
                 onClick={handleCloseBatchSelection}
                 disabled={saving}
+               
               >
                 ✕
               </button>
@@ -3241,6 +3254,7 @@ ${inventoryEntriesStr}
                 className="cancel-button"
                 onClick={handleCloseBatchSelection}
                 disabled={saving}
+               
               >
                 Close
               </button>
@@ -3269,7 +3283,8 @@ ${inventoryEntriesStr}
                   setTempAgeingBuckets(ageingBuckets);
                   setTempBatchXmlFormat(batchXmlFormat);
                   setShowConfigModal(false);
-                }}>
+                }}
+               >
                 ✕
               </button>
             </div>
@@ -3414,6 +3429,7 @@ ${inventoryEntriesStr}
                 className="save-order-button"
                 type="button"
                 onClick={() => setSuccessDialogMessage(null)}
+               
               >
                 OK
               </button>
