@@ -10,6 +10,7 @@ import ReceivablesTable from './components/ReceivablesTable';
 import './ReceivablesPage.css';
 import { getApiUrl } from '../config';
 import { getCompanyConfigValue, clearCompanyConfigCache } from '../utils/companyConfigUtils';
+import { useIsMobile } from '../TallyDashboard/MobileViewConfig';
 import {
   escapeForXML,
   cleanAndEscapeForXML,
@@ -182,6 +183,7 @@ const DEFAULT_AGING_BUCKETS = [
 const ReceivablesPage = ({ company, onBack }) => {
   const canGoBack = typeof onBack === 'function';
   const handleBack = canGoBack ? onBack : () => {};
+  const isMobile = useIsMobile();
   const [receivables, setReceivables] = useState([]);
   const [columns, setColumns] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1325,28 +1327,28 @@ const ReceivablesPage = ({ company, onBack }) => {
   return (
     <div className="receivables-page">
       <div className="page-header">
-        <div className="page-header-left">
+        <div className="page-header-left" style={{ width: isMobile ? '100%' : 'auto' }}>
           {canGoBack && (
             <button onClick={handleBack} className="back-button">
           ← Back to Companies
         </button>
           )}
           <div className="page-header-titles">
-        <h1>Customer Receivables</h1>
-            <p className="subtitle">{company?.company || ''}</p>
+        <h1 style={{ fontSize: isMobile ? '1.375rem' : '2.5rem', marginBottom: isMobile ? '0.25rem' : '0.5rem' }}>Customer Receivables</h1>
+            <p className="subtitle" style={{ fontSize: isMobile ? '0.875rem' : '1.1rem' }}>{company?.company || ''}</p>
           </div>
         </div>
-        <div className="page-header-actions">
+        <div className="page-header-actions" style={{ width: isMobile ? '100%' : 'auto' }}>
           <button
             onClick={() => setShowSettings(!showSettings)}
             className="settings-button"
             title="Settings"
             style={{
-              padding: '8px 12px',
-              fontSize: '14px',
+              padding: isMobile ? '0.75rem' : '8px 12px',
+              fontSize: '0.875rem',
               fontWeight: '500',
               border: '1px solid #d1d5db',
-              borderRadius: '6px',
+              borderRadius: isMobile ? '0.5rem' : '6px',
               backgroundColor: showSettings ? '#3b82f6' : '#fff',
               color: showSettings ? '#fff' : '#374151',
               cursor: 'pointer',
@@ -1354,7 +1356,10 @@ const ReceivablesPage = ({ company, onBack }) => {
               fontFamily: 'system-ui, -apple-system, sans-serif',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '6px',
+              width: isMobile ? '100%' : 'auto',
+              WebkitTapHighlightColor: 'transparent',
             }}
           >
             <span className="material-icons" style={{ fontSize: '18px' }}>settings</span>
@@ -1364,8 +1369,15 @@ const ReceivablesPage = ({ company, onBack }) => {
             onClick={() => fetchReceivables({ forceRefresh: true })}
             className="refresh-button"
             title="Reload receivables data"
+            style={{ 
+              width: isMobile ? '100%' : 'auto', 
+              padding: isMobile ? '0.75rem' : '0.65rem 1.25rem', 
+              fontSize: isMobile ? '0.875rem' : '0.95rem', 
+              borderRadius: isMobile ? '0.5rem' : '999px',
+              WebkitTapHighlightColor: 'transparent',
+            }}
           >
-            <span className="material-icons">refresh</span>
+            <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>refresh</span>
             <span>Refresh Data</span>
           </button>
         </div>
@@ -1382,60 +1394,99 @@ const ReceivablesPage = ({ company, onBack }) => {
                 backgroundColor: 'rgba(0, 0, 0, 0.5)',
                 zIndex: 1000,
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: isMobile ? 'flex-start' : 'center',
                 justifyContent: 'center',
+                padding: isMobile ? '0' : '1rem',
+                overflowY: isMobile ? 'auto' : 'hidden',
+                WebkitOverflowScrolling: 'touch',
               }}
               onClick={() => setShowSettings(false)}
             >
               <div
                 style={{
                   backgroundColor: '#fff',
-                  borderRadius: '8px',
-                  padding: '24px',
-                  maxWidth: '600px',
-                  width: '90%',
-                  maxHeight: '90vh',
-                  overflow: 'auto',
-                  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)',
+                  borderRadius: isMobile ? '0' : '12px',
+                  padding: isMobile ? '1rem' : '1.5rem',
+                  maxWidth: isMobile ? '100%' : '600px',
+                  width: isMobile ? '100%' : '90%',
+                  minHeight: isMobile ? '100vh' : 'auto',
+                  maxHeight: isMobile ? 'none' : '90vh',
+                  overflow: isMobile ? 'visible' : 'auto',
+                  boxShadow: isMobile ? 'none' : '0 20px 25px rgba(0, 0, 0, 0.15)',
+                  margin: isMobile ? '0' : 'auto',
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                  <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#1f2937' }}>Settings</h2>
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  marginBottom: isMobile ? '1rem' : '1.5rem',
+                  position: isMobile ? 'sticky' : 'static',
+                  top: isMobile ? '0' : 'auto',
+                  backgroundColor: '#fff',
+                  paddingTop: isMobile ? '0.5rem' : '0',
+                  paddingBottom: isMobile ? '0.75rem' : '0',
+                  borderBottom: isMobile ? '1px solid #e5e7eb' : 'none',
+                  marginLeft: isMobile ? '-1rem' : '0',
+                  marginRight: isMobile ? '-1rem' : '0',
+                  paddingLeft: isMobile ? '1rem' : '0',
+                  paddingRight: isMobile ? '1rem' : '0',
+                  zIndex: 10,
+                }}>
+                  <h2 style={{ margin: 0, fontSize: isMobile ? '1.125rem' : '1.25rem', fontWeight: '600', color: '#1f2937' }}>Settings</h2>
                   <button
                     onClick={() => setShowSettings(false)}
                     style={{
                       background: 'none',
                       border: 'none',
                       cursor: 'pointer',
-                      padding: '4px',
+                      padding: isMobile ? '0.5rem' : '0.25rem',
                       display: 'flex',
                       alignItems: 'center',
                       color: '#6b7280',
+                      borderRadius: '0.375rem',
+                      transition: 'background-color 0.2s',
+                      WebkitTapHighlightColor: 'transparent',
                     }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
-                    <span className="material-icons">close</span>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '20px' }}>close</span>
                   </button>
                 </div>
 
                 {/* Currency Scale Section */}
-                <div style={{ marginBottom: '32px' }}>
-                  <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '600', color: '#374151' }}>Currency Scale</h3>
+                <div style={{ marginBottom: isMobile ? '1.5rem' : '2rem' }}>
+                  <h3 style={{ 
+                    margin: '0 0 0.75rem 0', 
+                    fontSize: isMobile ? '0.9375rem' : '1rem', 
+                    fontWeight: '600', 
+                    color: '#374151' 
+                  }}>Currency Scale</h3>
                   <select
                     value={currencyScale}
                     onChange={(e) => setCurrencyScale(e.target.value)}
                     style={{
-                      padding: '8px 12px',
-                      fontSize: '14px',
+                      padding: isMobile ? '0.75rem 0.875rem' : '0.625rem 0.75rem',
+                      fontSize: isMobile ? '0.9375rem' : '0.875rem',
                       fontWeight: '400',
                       border: '1px solid #d1d5db',
-                      borderRadius: '6px',
+                      borderRadius: '0.5rem',
                       backgroundColor: '#fff',
                       color: '#374151',
                       cursor: 'pointer',
                       transition: 'all 0.2s',
                       fontFamily: 'system-ui, -apple-system, sans-serif',
                       width: '100%',
+                      WebkitAppearance: 'none',
+                      MozAppearance: 'none',
+                      appearance: 'none',
+                      backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3e%3cpolyline points=\'6 9 12 15 18 9\'%3e%3c/polyline%3e%3c/svg%3e")',
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 0.75rem center',
+                      backgroundSize: '1.25rem',
+                      paddingRight: '2.5rem',
                     }}
                   >
                     <option value="auto">Auto</option>
@@ -1448,23 +1499,35 @@ const ReceivablesPage = ({ company, onBack }) => {
 
                 {/* Ageing Buckets Section */}
                 <div>
-                  <h3 style={{ margin: '0 0 12px 0', fontSize: '16px', fontWeight: '600', color: '#374151' }}>Ageing Buckets</h3>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <h3 style={{ 
+                    margin: '0 0 0.75rem 0', 
+                    fontSize: isMobile ? '0.9375rem' : '1rem', 
+                    fontWeight: '600', 
+                    color: '#374151' 
+                  }}>Ageing Buckets</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '0.75rem' : '0.875rem' }}>
                     {agingBucketsConfig.map((bucket, index) => (
                       <div
                         key={index}
                         style={{
                           display: 'flex',
-                          gap: '12px',
-                          alignItems: 'center',
-                          padding: '12px',
+                          flexDirection: isMobile ? 'column' : 'row',
+                          gap: isMobile ? '0.625rem' : '0.75rem',
+                          alignItems: isMobile ? 'stretch' : 'center',
+                          padding: isMobile ? '0.875rem' : '0.75rem',
                           border: '1px solid #e5e7eb',
-                          borderRadius: '6px',
+                          borderRadius: '0.5rem',
                           backgroundColor: '#f9fafb',
                         }}
                       >
                         <div style={{ flex: 1 }}>
-                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px', fontWeight: '500', color: '#6b7280' }}>
+                          <label style={{ 
+                            display: 'block', 
+                            marginBottom: isMobile ? '0.375rem' : '0.25rem', 
+                            fontSize: isMobile ? '0.8125rem' : '0.75rem', 
+                            fontWeight: '500', 
+                            color: '#6b7280' 
+                          }}>
                             Label
                           </label>
                           <input
@@ -1476,16 +1539,23 @@ const ReceivablesPage = ({ company, onBack }) => {
                               setAgingBucketsConfig(newConfig);
                             }}
                             style={{
-                              padding: '6px 8px',
-                              fontSize: '14px',
+                              padding: isMobile ? '0.625rem 0.75rem' : '0.5rem 0.625rem',
+                              fontSize: isMobile ? '0.9375rem' : '0.875rem',
                               border: '1px solid #d1d5db',
-                              borderRadius: '4px',
+                              borderRadius: '0.375rem',
                               width: '100%',
+                              boxSizing: 'border-box',
                             }}
                           />
                         </div>
                         <div style={{ flex: 1 }}>
-                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px', fontWeight: '500', color: '#6b7280' }}>
+                          <label style={{ 
+                            display: 'block', 
+                            marginBottom: isMobile ? '0.375rem' : '0.25rem', 
+                            fontSize: isMobile ? '0.8125rem' : '0.75rem', 
+                            fontWeight: '500', 
+                            color: '#6b7280' 
+                          }}>
                             Max Days {bucket.maxDays === null ? '(No limit)' : ''}
                           </label>
                           <input
@@ -1498,19 +1568,26 @@ const ReceivablesPage = ({ company, onBack }) => {
                             }}
                             placeholder="No limit"
                             style={{
-                              padding: '6px 8px',
-                              fontSize: '14px',
+                              padding: isMobile ? '0.625rem 0.75rem' : '0.5rem 0.625rem',
+                              fontSize: isMobile ? '0.9375rem' : '0.875rem',
                               border: '1px solid #d1d5db',
-                              borderRadius: '4px',
+                              borderRadius: '0.375rem',
                               width: '100%',
+                              boxSizing: 'border-box',
                             }}
                           />
                         </div>
                         <div style={{ flex: 1 }}>
-                          <label style={{ display: 'block', marginBottom: '4px', fontSize: '12px', fontWeight: '500', color: '#6b7280' }}>
+                          <label style={{ 
+                            display: 'block', 
+                            marginBottom: isMobile ? '0.375rem' : '0.25rem', 
+                            fontSize: isMobile ? '0.8125rem' : '0.75rem', 
+                            fontWeight: '500', 
+                            color: '#6b7280' 
+                          }}>
                             Color
                           </label>
-                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                             <input
                               type="color"
                               value={bucket.color}
@@ -1520,10 +1597,10 @@ const ReceivablesPage = ({ company, onBack }) => {
                                 setAgingBucketsConfig(newConfig);
                               }}
                               style={{
-                                width: '40px',
-                                height: '36px',
+                                width: isMobile ? '48px' : '40px',
+                                height: isMobile ? '44px' : '38px',
                                 border: '1px solid #d1d5db',
-                                borderRadius: '4px',
+                                borderRadius: '0.375rem',
                                 cursor: 'pointer',
                               }}
                             />
@@ -1536,11 +1613,12 @@ const ReceivablesPage = ({ company, onBack }) => {
                                 setAgingBucketsConfig(newConfig);
                               }}
                               style={{
-                                padding: '6px 8px',
-                                fontSize: '14px',
+                                padding: isMobile ? '0.625rem 0.75rem' : '0.5rem 0.625rem',
+                                fontSize: isMobile ? '0.9375rem' : '0.875rem',
                                 border: '1px solid #d1d5db',
-                                borderRadius: '4px',
+                                borderRadius: '0.375rem',
                                 flex: 1,
+                                boxSizing: 'border-box',
                               }}
                             />
                           </div>
@@ -1552,22 +1630,33 @@ const ReceivablesPage = ({ company, onBack }) => {
                               setAgingBucketsConfig(newConfig);
                             }}
                             style={{
-                              padding: '8px',
+                              padding: isMobile ? '0.625rem' : '0.5rem',
                               background: 'none',
                               border: 'none',
                               cursor: 'pointer',
                               color: '#ef4444',
                               display: 'flex',
                               alignItems: 'center',
+                              justifyContent: 'center',
+                              borderRadius: '0.375rem',
+                              transition: 'background-color 0.2s',
+                              alignSelf: isMobile ? 'flex-end' : 'center',
+                              WebkitTapHighlightColor: 'transparent',
                             }}
                             title="Remove bucket"
+                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#fee2e2'}
+                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                           >
-                            <span className="material-icons" style={{ fontSize: '20px' }}>delete</span>
+                            <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '20px' }}>delete</span>
                           </button>
                         )}
                       </div>
                     ))}
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ 
+                      display: 'flex', 
+                      flexDirection: isMobile ? 'column' : 'row', 
+                      gap: isMobile ? '0.625rem' : '0.5rem' 
+                    }}>
                       <button
                         onClick={() => {
                           setAgingBucketsConfig([
@@ -1576,19 +1665,29 @@ const ReceivablesPage = ({ company, onBack }) => {
                           ]);
                         }}
                         style={{
-                          padding: '8px 12px',
-                          fontSize: '14px',
+                          padding: isMobile ? '0.75rem' : '0.625rem 0.875rem',
+                          fontSize: isMobile ? '0.9375rem' : '0.875rem',
                           fontWeight: '500',
                           border: '1px solid #d1d5db',
-                          borderRadius: '6px',
+                          borderRadius: '0.5rem',
                           backgroundColor: '#fff',
                           color: '#374151',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '6px',
+                          gap: '0.5rem',
                           justifyContent: 'center',
                           flex: 1,
+                          transition: 'all 0.2s',
+                          WebkitTapHighlightColor: 'transparent',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb';
+                          e.currentTarget.style.borderColor = '#9ca3af';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#fff';
+                          e.currentTarget.style.borderColor = '#d1d5db';
                         }}
                       >
                         <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
@@ -1601,24 +1700,34 @@ const ReceivablesPage = ({ company, onBack }) => {
                           }
                         }}
                         style={{
-                          padding: '8px 12px',
-                          fontSize: '14px',
+                          padding: isMobile ? '0.75rem' : '0.625rem 0.875rem',
+                          fontSize: isMobile ? '0.9375rem' : '0.875rem',
                           fontWeight: '500',
                           border: '1px solid #d1d5db',
-                          borderRadius: '6px',
+                          borderRadius: '0.5rem',
                           backgroundColor: '#fff',
                           color: '#374151',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: '6px',
+                          gap: '0.5rem',
                           justifyContent: 'center',
                           flex: 1,
+                          transition: 'all 0.2s',
+                          WebkitTapHighlightColor: 'transparent',
                         }}
                         title="Reset to default ageing buckets"
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = '#f9fafb';
+                          e.currentTarget.style.borderColor = '#9ca3af';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = '#fff';
+                          e.currentTarget.style.borderColor = '#d1d5db';
+                        }}
                       >
                         <span className="material-icons" style={{ fontSize: '18px' }}>restore</span>
-                        Reset to Defaults
+                        {isMobile ? 'Reset' : 'Reset to Defaults'}
                       </button>
                     </div>
                   </div>
@@ -1629,24 +1738,44 @@ const ReceivablesPage = ({ company, onBack }) => {
 
       <div className="receivables-content">
           {error ? (
-            <div className="error-container" style={{ padding: '24px', margin: '24px', backgroundColor: '#fee2e2', border: '1px solid #fecaca', borderRadius: '8px' }}>
-              <h2 style={{ margin: '0 0 12px 0', fontSize: '18px', fontWeight: '600', color: '#dc2626' }}>Error loading receivables</h2>
-              <p style={{ margin: '0 0 16px 0', fontSize: '14px', color: '#991b1b' }}>{error}</p>
+            <div className="error-container" style={{ 
+              padding: isMobile ? '1rem' : '1.5rem', 
+              margin: isMobile ? '0.75rem' : '1.5rem', 
+              backgroundColor: '#fee2e2', 
+              border: '1px solid #fecaca', 
+              borderRadius: isMobile ? '0.5rem' : '0.625rem' 
+            }}>
+              <h2 style={{ 
+                margin: '0 0 0.75rem 0', 
+                fontSize: isMobile ? '1rem' : '1.125rem', 
+                fontWeight: '600', 
+                color: '#dc2626' 
+              }}>Error loading receivables</h2>
+              <p style={{ 
+                margin: '0 0 1rem 0', 
+                fontSize: isMobile ? '0.875rem' : '0.875rem', 
+                color: '#991b1b',
+                lineHeight: '1.5',
+              }}>{error}</p>
               <button
                 onClick={() => {
                   setError(null);
                   fetchReceivables({ forceRefresh: true });
                 }}
                 style={{
-                  padding: '8px 16px',
-                  fontSize: '14px',
+                  padding: isMobile ? '0.75rem 1.25rem' : '0.625rem 1rem',
+                  fontSize: isMobile ? '0.9375rem' : '0.875rem',
                   fontWeight: '500',
                   border: 'none',
-                  borderRadius: '6px',
+                  borderRadius: '0.5rem',
                   backgroundColor: '#dc2626',
                   color: '#fff',
                   cursor: 'pointer',
+                  transition: 'background-color 0.2s',
+                  WebkitTapHighlightColor: 'transparent',
                 }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#b91c1c'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#dc2626'}
               >
                 Retry
               </button>
@@ -1710,7 +1839,11 @@ const ReceivablesPage = ({ company, onBack }) => {
                 {selectedAgingBucket && (
                   <span className="filter-badge">
                     Aging: {selectedAgingBucket}
-                    <button onClick={() => setSelectedAgingBucket(null)} className="filter-remove">
+                    <button 
+                      onClick={() => setSelectedAgingBucket(null)} 
+                      className="filter-remove"
+                      style={{ WebkitTapHighlightColor: 'transparent' }}
+                    >
                       ×
                     </button>
                   </span>
@@ -1718,7 +1851,11 @@ const ReceivablesPage = ({ company, onBack }) => {
                 {selectedSalesperson && (
                   <span className="filter-badge">
                     Salesperson: {selectedSalesperson}
-                    <button onClick={() => setSelectedSalesperson(null)} className="filter-remove">
+                    <button 
+                      onClick={() => setSelectedSalesperson(null)} 
+                      className="filter-remove"
+                      style={{ WebkitTapHighlightColor: 'transparent' }}
+                    >
                       ×
                     </button>
                   </span>
@@ -1730,6 +1867,7 @@ const ReceivablesPage = ({ company, onBack }) => {
                   setSelectedAgingBucket(null);
                   setSelectedSalesperson(null);
                 }}
+                style={{ WebkitTapHighlightColor: 'transparent' }}
               >
                 Clear All Filters
               </button>
