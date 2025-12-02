@@ -432,12 +432,17 @@ export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
                 }
             }
             mergedData = { vouchers: allVouchers };
-        } else {
-            if (response && response.vouchers && Array.isArray(response.vouchers)) {
-                if (isUpdate) {
+            
+            // If this is an update, merge with existing cache data
+            if (isUpdate && allVouchers.length > 0) {
+                try {
+                    console.log(`🔄 Update mode: Merging ${allVouchers.length} new vouchers with existing cache...`);
                     const existingData = await hybridCache.getCompleteSalesData(companyInfo);
-                    if (existingData && existingData.data && existingData.data.vouchers) {
+                    if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
                         const existingVouchers = existingData.data.vouchers;
+                        console.log(`📦 Found ${existingVouchers.length} existing vouchers in cache`);
+                        
+                        // Create set of existing voucher IDs for deduplication
                         const existingIds = new Set(existingVouchers.map(v => {
                             const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
                             const alterid = v.alterid || v.ALTERID;
@@ -449,7 +454,8 @@ export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
                             return JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
                         }));
 
-                        const newVouchers = response.vouchers.filter(v => {
+                        // Filter out duplicates from new vouchers
+                        const newVouchers = allVouchers.filter(v => {
                             const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
                             const alterid = v.alterid || v.ALTERID;
                             const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
@@ -461,15 +467,118 @@ export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
                             else id = JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
                             return !existingIds.has(id);
                         });
+                        
+                        console.log(`✅ After deduplication: ${newVouchers.length} new vouchers to add`);
                         allVouchers = [...existingVouchers, ...newVouchers];
+                        mergedData = { vouchers: allVouchers };
+                        console.log(`📊 Final merged count: ${allVouchers.length} vouchers (${existingVouchers.length} existing + ${newVouchers.length} new)`);
                     } else {
+                        console.log(`⚠️ No existing cache found or empty, using only new vouchers`);
+                        // Keep mergedData as is (only new vouchers)
+                    }
+                } catch (error) {
+                    console.error('⚠️ Error loading existing cache for merge, using only new vouchers:', error);
+                    // Continue with only new vouchers if merge fails
+                }
+            }
+        } else {
+            if (response && response.vouchers && Array.isArray(response.vouchers)) {
+                if (isUpdate) {
+                    try {
+                        console.log(`🔄 Update mode: Merging ${response.vouchers.length} new vouchers with existing cache...`);
+                        const existingData = await hybridCache.getCompleteSalesData(companyInfo);
+                        if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
+                            const existingVouchers = existingData.data.vouchers;
+                            console.log(`📦 Found ${existingVouchers.length} existing vouchers in cache`);
+                            
+                            const existingIds = new Set(existingVouchers.map(v => {
+                                const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
+                                const alterid = v.alterid || v.ALTERID;
+                                const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
+                                const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
+                                if (mstid && alterid) return `${mstid}_${alterid}`;
+                                if (vchno && date) return `${vchno}_${date}`;
+                                if (mstid) return mstid.toString();
+                                return JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
+                            }));
+
+                            const newVouchers = response.vouchers.filter(v => {
+                                const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
+                                const alterid = v.alterid || v.ALTERID;
+                                const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
+                                const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
+                                let id;
+                                if (mstid && alterid) id = `${mstid}_${alterid}`;
+                                else if (vchno && date) id = `${vchno}_${date}`;
+                                else if (mstid) id = mstid.toString();
+                                else id = JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
+                                return !existingIds.has(id);
+                            });
+                            
+                            console.log(`✅ After deduplication: ${newVouchers.length} new vouchers to add`);
+                            allVouchers = [...existingVouchers, ...newVouchers];
+                            mergedData = { vouchers: allVouchers };
+                            console.log(`📊 Final merged count: ${allVouchers.length} vouchers (${existingVouchers.length} existing + ${newVouchers.length} new)`);
+                        } else {
+                            console.log(`⚠️ No existing cache found or empty, using only new vouchers`);
+                            allVouchers = response.vouchers;
+                            mergedData = { vouchers: allVouchers };
+                        }
+                    } catch (error) {
+                        console.error('⚠️ Error loading existing cache for merge, using only new vouchers:', error);
+                        // Fallback: use only new vouchers if merge fails
                         allVouchers = response.vouchers;
+                        mergedData = { vouchers: allVouchers };
                     }
                 } else {
                     allVouchers = response.vouchers;
+                    mergedData = { vouchers: allVouchers };
                 }
-                mergedData = { vouchers: allVouchers };
+            } else {
+                // Response structure is unexpected - for updates, preserve existing data
+                if (isUpdate) {
+                    console.warn('⚠️ Unexpected response structure in update mode, attempting to preserve existing cache...');
+                    try {
+                        const existingData = await hybridCache.getCompleteSalesData(companyInfo);
+                        if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
+                            console.log(`✅ Preserving existing cache with ${existingData.data.vouchers.length} vouchers`);
+                            mergedData = existingData.data;
+                        } else {
+                            console.error('❌ No existing cache to preserve, update will result in empty cache');
+                            mergedData = { vouchers: [] };
+                        }
+                    } catch (error) {
+                        console.error('❌ Error preserving existing cache:', error);
+                        mergedData = { vouchers: [] };
+                    }
+                } else {
+                    console.warn('⚠️ Unexpected response structure, no data to cache');
+                    mergedData = { vouchers: [] };
+                }
             }
+        }
+
+        // Final validation: Ensure we don't overwrite cache with empty data for updates
+        if (isUpdate && (!mergedData.vouchers || !Array.isArray(mergedData.vouchers) || mergedData.vouchers.length === 0)) {
+            console.error('❌ Update mode: Attempted to store empty data, preserving existing cache instead');
+            try {
+                const existingData = await hybridCache.getCompleteSalesData(companyInfo);
+                if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
+                    console.log(`✅ Preserving existing cache with ${existingData.data.vouchers.length} vouchers`);
+                    mergedData = existingData.data;
+                } else {
+                    throw new Error('No existing cache to preserve and update resulted in empty data');
+                }
+            } catch (error) {
+                console.error('❌ Cannot preserve existing cache:', error);
+                throw new Error('Update failed: No data to store and no existing cache to preserve');
+            }
+        }
+
+        // Validate mergedData structure before storing
+        if (!mergedData || !mergedData.vouchers || !Array.isArray(mergedData.vouchers)) {
+            console.error('❌ Invalid mergedData structure:', mergedData);
+            throw new Error('Invalid data structure: mergedData must have vouchers array');
         }
 
         const maxAlterId = calculateMaxAlterId(mergedData);
@@ -478,7 +587,16 @@ export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
             lastaltid: maxAlterId
         };
 
+        // Log what we're about to store
+        console.log(`💾 Storing complete sales data:`, {
+            voucherCount: mergedData.vouchers.length,
+            isUpdate,
+            lastAlterId: maxAlterId,
+            booksfrom: metadata.booksfrom
+        });
+
         await hybridCache.setCompleteSalesData(companyInfo, mergedData, metadata);
+        console.log(`✅ Successfully stored ${mergedData.vouchers.length} vouchers in cache`);
         return { success: true, count: mergedData.vouchers.length, lastAlterId: maxAlterId };
 
     } catch (error) {

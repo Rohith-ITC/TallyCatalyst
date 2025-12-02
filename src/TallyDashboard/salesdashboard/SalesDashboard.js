@@ -1361,6 +1361,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               gstno: voucher.gstno || '',
               pincode: voucher.pincode || '',
               reference: voucher.reference || '',
+              vchtype: voucher.vchtype || '',
               
               // Additional inventory fields
               itemid: inventoryItem.itemid || '',
@@ -2614,7 +2615,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   const transactionColumns = useMemo(() => ([
     { key: 'date', label: 'Date' },
-    { key: 'voucherNo', label: 'Voucher No' },
+    { key: 'vchno', label: 'Voucher No' },
+    { key: 'vchtype', label: 'Voucher Type' },
     { key: 'customer', label: 'Customer' },
     { key: 'item', label: 'Item' },
     { key: 'category', label: 'Category' },
@@ -2626,20 +2628,36 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   ]), []);
 
   const buildTransactionRows = useCallback((salesList) => (
-    salesList.map((sale) => ({
-      date: sale.cp_date || sale.date,
-      voucherNo: sale.vchno || '',
-      customer: sale.customer || '-',
-      item: sale.item || '-',
-      category: sale.category || '-',
-      region: sale.region || '-',
-      country: sale.country || 'Unknown',
-      salesperson: sale.salesperson || 'Unassigned',
-      quantity: Number.isFinite(sale.quantity) ? sale.quantity : parseFloat(sale.quantity) || 0,
-      amount: sale.amount || 0,
-      masterid: sale.masterid, // Include masterid for direct voucher details access
-      masterId: sale.masterid, // Also include as masterId for compatibility
-    }))
+    salesList.map((sale) => {
+      // Ensure vchtype is a string, not an object
+      let vchtypeValue = '';
+      if (sale.vchtype) {
+        if (typeof sale.vchtype === 'string') {
+          vchtypeValue = sale.vchtype;
+        } else if (typeof sale.vchtype === 'object') {
+          // If it's an object, try to extract a meaningful value or convert to string
+          vchtypeValue = JSON.stringify(sale.vchtype);
+        } else {
+          vchtypeValue = String(sale.vchtype);
+        }
+      }
+      
+      return {
+        date: sale.cp_date || sale.date,
+        vchno: sale.vchno || '',
+        vchtype: vchtypeValue,
+        customer: sale.customer || '-',
+        item: sale.item || '-',
+        category: sale.category || '-',
+        region: sale.region || '-',
+        country: sale.country || 'Unknown',
+        salesperson: sale.salesperson || 'Unassigned',
+        quantity: Number.isFinite(sale.quantity) ? sale.quantity : parseFloat(sale.quantity) || 0,
+        amount: sale.amount || 0,
+        masterid: sale.masterid, // Include masterid for direct voucher details access
+        masterId: sale.masterid, // Also include as masterId for compatibility
+      };
+    })
   ), []);
 
   // NOTE: This function ONLY filters existing sales data - NO API calls are made
@@ -3142,7 +3160,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     } else {
       // Fallback: try to find by customer and voucher number
       const customer = row.customer || '';
-      const voucherNo = row.voucherNo || '';
+      const voucherNo = row.vchno || row.voucherNo || '';
       
       if (customer && voucherNo) {
         // Find the first transaction matching customer and voucher number
@@ -4492,6 +4510,29 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     const value = row[column.key];
     if (value === null || value === undefined || value === '') {
       return '-';
+    }
+
+    // Handle objects - convert to string representation
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      // If it's an object, try to extract a meaningful string representation
+      if (value.BILLNAME) {
+        return value.BILLNAME;
+      }
+      // Otherwise, convert to JSON string (truncated if too long)
+      const jsonStr = JSON.stringify(value);
+      return jsonStr.length > 50 ? jsonStr.substring(0, 50) + '...' : jsonStr;
+    }
+
+    // Handle arrays - convert to string representation
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return '-';
+      }
+      // If array contains objects, try to extract meaningful info
+      if (value.length > 0 && typeof value[0] === 'object') {
+        return `${value.length} item(s)`;
+      }
+      return value.join(', ');
     }
 
     if (column.format === 'currency') {
