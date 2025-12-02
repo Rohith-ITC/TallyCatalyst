@@ -19,6 +19,17 @@ module.exports = function setupProxy(app) {
   // Log the proxy target for debugging
   console.log('🔧 Proxy configured to target:', DEFAULT_TARGET);
   
+  // Handle OPTIONS preflight requests first
+  app.options('/api/*', (req, res) => {
+    const origin = req.headers.origin;
+    res.header('Access-Control-Allow-Origin', origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-tallyloc-id, x-company, x-guid, X-Requested-With');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Max-Age', '86400'); // 24 hours
+    res.sendStatus(200);
+  });
+  
   // Only proxy /api requests, ignore webpack hot-update files and other assets
   app.use(
     '/api',
@@ -31,15 +42,19 @@ module.exports = function setupProxy(app) {
       proxyTimeout: 300000,
       // Add CORS headers to response
       onProxyRes: (proxyRes, req, res) => {
-        // Add CORS headers if not already present
+        const origin = req.headers.origin;
+        // Add CORS headers - use the request origin if present, otherwise allow all
         if (!proxyRes.headers['access-control-allow-origin']) {
-          proxyRes.headers['access-control-allow-origin'] = '*';
+          proxyRes.headers['access-control-allow-origin'] = origin || '*';
         }
         if (!proxyRes.headers['access-control-allow-methods']) {
-          proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+          proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH';
         }
         if (!proxyRes.headers['access-control-allow-headers']) {
-          proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, x-tallyloc-id, x-company, x-guid';
+          proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, x-tallyloc-id, x-company, x-guid, X-Requested-With';
+        }
+        if (!proxyRes.headers['access-control-allow-credentials']) {
+          proxyRes.headers['access-control-allow-credentials'] = 'true';
         }
       },
       // Filter out non-API requests

@@ -11,6 +11,8 @@
   background-color: #fff;
   border-bottom: 1px solid #ddd;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .back-button {
@@ -74,6 +76,7 @@
   gap: 16px;
   align-items: flex-end;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .date-input-group {
@@ -589,6 +592,8 @@
   overflow: hidden;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
 }
 
 .receipts-table {
@@ -860,25 +865,464 @@
 }
 
 @media (max-width: 768px) {
+  .receipt-list-container {
+    overflow-x: hidden;
+    width: 100vw;
+    max-width: 100vw;
+  }
+
+  .receipt-list-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+    padding: 12px 16px !important;
+  }
+
+  .back-button {
+    width: 100% !important;
+    padding: 10px 16px !important;
+    font-size: 14px !important;
+    margin-bottom: 0 !important;
+  }
+
+  .header-title {
+    font-size: 18px !important;
+    text-align: left !important;
+    width: 100% !important;
+    margin: 0 !important;
+  }
+
+  .header-actions {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+
+  .config-button {
+    flex: 1 !important;
+    min-width: 0 !important;
+    font-size: 12px !important;
+    padding: 8px 10px !important;
+  }
+
+  .receipt-list-content {
+    padding: 12px !important;
+    max-width: 100% !important;
+  }
+
+  .date-filter-section {
+    padding: 16px !important;
+    margin-bottom: 16px !important;
+    border-radius: 8px !important;
+  }
+
+  .date-filter-section h3 {
+    font-size: 14px !important;
+    margin-bottom: 12px !important;
+  }
+
   .date-inputs {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+
+  .date-input-group {
+    width: 100% !important;
+  }
+
+  .date-label {
+    font-size: 13px !important;
+    margin-bottom: 4px !important;
   }
 
   .date-input {
-    width: 100%;
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 10px 12px !important;
+    font-size: 16px !important;
+    box-sizing: border-box !important;
   }
 
-  .search-button {
-    width: 100%;
+  .search-button,
+  .download-button,
+  .load-cache-button,
+  .clear-cache-button {
+    width: 100% !important;
+    padding: 12px 16px !important;
+    font-size: 14px !important;
+    justify-content: center !important;
+  }
+
+  .cache-info {
+    padding: 12px !important;
+    font-size: 12px !important;
+    line-height: 1.5 !important;
+  }
+
+  .receipts-summary {
+    padding: 12px !important;
+    margin-bottom: 12px !important;
+  }
+
+  .receipts-summary > div {
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  .receipts-summary p {
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+  }
+
+  .find-all-button,
+  .clear-find-all-button {
+    width: 100% !important;
+    padding: 10px 16px !important;
+    font-size: 14px !important;
+  }
+
+  .filters-section {
+    padding: 16px !important;
+    margin-bottom: 12px !important;
+  }
+
+  .filter-row {
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  .filter-group {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .filter-label {
+    font-size: 12px !important;
+    margin-bottom: 4px !important;
+  }
+
+  .filter-input,
+  .filter-select {
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 10px 12px !important;
+    font-size: 14px !important;
+    box-sizing: border-box !important;
+  }
+
+  .clear-filters-button {
+    width: 100% !important;
+    padding: 10px 16px !important;
+    font-size: 14px !important;
   }
 
   .receipts-table-container {
-    overflow-x: auto;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    border-radius: 8px !important;
   }
 
   .receipts-table {
-    min-width: 600px;
+    min-width: 700px !important;
+    font-size: 13px !important;
+  }
+
+  .receipts-table th {
+    padding: 10px 8px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+  }
+
+  .receipts-table td {
+    padding: 10px 8px !important;
+    font-size: 12px !important;
+  }
+
+  .amount-cell {
+    font-size: 12px !important;
+  }
+
+  .narration-cell {
+    max-width: 200px !important;
+    font-size: 11px !important;
+    line-height: 1.4 !important;
+  }
+
+  .find-matches-button {
+    padding: 8px 12px !important;
+    font-size: 11px !important;
+    white-space: nowrap !important;
+    min-width: 70px !important;
+  }
+
+  .matches-container {
+    padding: 0 !important;
+  }
+
+  .matches-header {
+    padding: 10px 12px !important;
+    font-size: 13px !important;
+  }
+
+  .matches-table-wrapper {
+    padding: 12px !important;
+    max-height: 300px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .matches-table {
+    min-width: 600px !important;
+    font-size: 12px !important;
+  }
+
+  .matches-table th {
+    padding: 8px 6px !important;
+    font-size: 10px !important;
+  }
+
+  .matches-table td {
+    padding: 8px 6px !important;
+    font-size: 11px !important;
+  }
+
+  .matches-table .narration-cell {
+    max-width: 150px !important;
+    font-size: 10px !important;
+  }
+
+  .pagination {
+    flex-direction: column !important;
+    gap: 12px !important;
+    padding: 12px !important;
+  }
+
+  .pagination-button {
+    width: 100% !important;
+    padding: 10px 16px !important;
+    font-size: 14px !important;
+  }
+
+  .pagination-info {
+    text-align: center !important;
+    font-size: 13px !important;
+  }
+
+  .modal-overlay {
+    padding: 0 !important;
+    align-items: flex-start !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+  }
+
+  .modal-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 100vh !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+  }
+
+  .modal-header {
+    padding: 16px !important;
+    position: sticky !important;
+    top: 0 !important;
+    background: white !important;
+    z-index: 10 !important;
+    border-bottom: 1px solid #dee2e6 !important;
+  }
+
+  .modal-header h2 {
+    font-size: 18px !important;
+  }
+
+  .modal-close-button {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 20px !important;
+  }
+
+  .modal-body {
+    padding: 16px !important;
+    max-height: calc(100vh - 120px) !important;
+    overflow-y: auto !important;
+  }
+
+  .modal-footer {
+    padding: 16px !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    position: sticky !important;
+    bottom: 0 !important;
+    background: white !important;
+    border-top: 1px solid #dee2e6 !important;
+  }
+
+  .close-modal-button,
+  .reset-excluded-button {
+    width: 100% !important;
+    padding: 12px 16px !important;
+    font-size: 14px !important;
+  }
+
+  .excluded-strings-input-section {
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  .excluded-string-input {
+    width: 100% !important;
+    padding: 10px 12px !important;
+    font-size: 14px !important;
+  }
+
+  .add-excluded-button {
+    width: 100% !important;
+    padding: 10px 16px !important;
+    font-size: 14px !important;
+  }
+
+  .excluded-strings-list {
+    max-height: 300px !important;
+    padding: 10px !important;
+  }
+
+  .excluded-string-item {
+    padding: 12px !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    align-items: flex-start !important;
+  }
+
+  .excluded-string-text {
+    width: 100% !important;
+    font-size: 13px !important;
+  }
+
+  .remove-excluded-button {
+    align-self: flex-end !important;
+    width: 32px !important;
+    height: 32px !important;
+    margin-left: 0 !important;
+  }
+
+  .loading-progress {
+    padding: 12px !important;
+    margin-top: 12px !important;
+  }
+
+  .loading-progress p {
+    font-size: 13px !important;
+  }
+
+  .progress-bar {
+    height: 6px !important;
+  }
+
+  .error-message {
+    padding: 12px !important;
+    margin-bottom: 16px !important;
+    font-size: 13px !important;
+  }
+
+  .empty-state {
+    padding: 24px 16px !important;
+    font-size: 14px !important;
+  }
+
+  .no-results {
+    padding: 24px 16px !important;
+    font-size: 14px !important;
+  }
+
+  .no-matches {
+    padding: 16px !important;
+    font-size: 13px !important;
+  }
+
+  .highlighted-word {
+    font-size: 11px !important;
+    padding: 2px 3px !important;
+  }
+
+  .clickable-highlight {
+    min-height: 24px !important;
+    display: inline-block !important;
+  }
+
+  /* Improve touch targets */
+  button,
+  .find-matches-button,
+  .pagination-button {
+    min-height: 44px !important;
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: transparent !important;
+  }
+
+  /* Better spacing for mobile */
+  .date-filter-section > div {
+    margin-top: 10px !important;
+    font-size: 12px !important;
+  }
+
+  /* Cache info mobile optimization */
+  .cache-info br {
+    display: block !important;
+    margin: 4px 0 !important;
+  }
+}
+
+/* Additional styles for very small screens */
+@media (max-width: 375px) {
+  .receipt-list-header {
+    padding: 10px 12px !important;
+  }
+
+  .header-title {
+    font-size: 16px !important;
+  }
+
+  .config-button {
+    font-size: 11px !important;
+    padding: 6px 8px !important;
+  }
+
+  .receipt-list-content {
+    padding: 8px !important;
+  }
+
+  .date-filter-section {
+    padding: 12px !important;
+  }
+
+  .date-filter-section h3 {
+    font-size: 13px !important;
+  }
+
+  .receipts-table {
+    min-width: 650px !important;
+    font-size: 12px !important;
+  }
+
+  .receipts-table th {
+    padding: 8px 6px !important;
+    font-size: 10px !important;
+  }
+
+  .receipts-table td {
+    padding: 8px 6px !important;
+    font-size: 11px !important;
+  }
+
+  .find-matches-button {
+    font-size: 10px !important;
+    padding: 6px 10px !important;
+    min-width: 60px !important;
+  }
+
+  .matches-table {
+    min-width: 550px !important;
+    font-size: 11px !important;
   }
 }
 

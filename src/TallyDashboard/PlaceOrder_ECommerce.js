@@ -4,8 +4,12 @@ import { apiGet, apiPost } from '../utils/apiUtils';
 import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
 import { getGoogleTokenFromConfigs, getGoogleDriveImageUrl } from '../utils/googleDriveUtils';
+import { useIsMobile } from './MobileViewConfig';
 
 function PlaceOrder_ECommerce() {
+  // Detect mobile view
+  const isMobile = useIsMobile();
+
   // Get all companies from sessionStorage - moved outside to prevent recreation
   const companies = useMemo(() => {
     try {
@@ -1036,6 +1040,9 @@ function PlaceOrder_ECommerce() {
       background: 'transparent',
       padding: 0,
       margin: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center'
     }}>
       <style>
         {`
@@ -1064,49 +1071,59 @@ function PlaceOrder_ECommerce() {
       {/* Company, Customer, and Cart Section */}
       <div style={{
         background: '#fff',
-        margin: '24px 24px 16px 24px',
+        margin: isMobile ? '12px 8px 8px 8px' : '24px auto 16px auto',
         maxWidth: '1400px',
-        width: 'auto',
-        borderRadius: '16px',
+        width: isMobile ? 'calc(100% - 16px)' : 'calc(100% - 48px)',
+        borderRadius: isMobile ? '12px' : '16px',
         boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
         overflow: 'visible',
         border: '1px solid #e5e7eb',
         position: 'relative'
       }}>
         {/* Form */}
-        <div style={{ padding: '12px', width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
+        <div style={{ 
+          padding: isMobile ? '12px' : '20px', 
+          width: '100%', 
+          overflow: 'visible', 
+          position: 'relative', 
+          boxSizing: 'border-box' 
+        }}>
           {/* Header */}
           <div style={{
             display: 'flex',
-            alignItems: 'center',
+            flexDirection: isMobile ? 'column' : 'row',
+            alignItems: isMobile ? 'flex-start' : 'center',
             justifyContent: 'space-between',
-            marginBottom: '6px',
-            paddingBottom: '16px',
+            marginBottom: isMobile ? '12px' : '16px',
+            paddingBottom: isMobile ? '12px' : '16px',
             borderBottom: '1px solid #f3f4f6',
-            position: 'relative'
+            position: 'relative',
+            gap: isMobile ? '12px' : '0'
           }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px'
+              gap: isMobile ? '8px' : '12px',
+              width: isMobile ? '100%' : 'auto'
             }}>
               <div style={{
-                width: '40px',
-                height: '40px',
+                width: isMobile ? '32px' : '40px',
+                height: isMobile ? '32px' : '40px',
                 borderRadius: '50%',
                 background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
+                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)',
+                flexShrink: 0
               }}>
-                <span className="material-icons" style={{ fontSize: '20px', color: '#fff' }}>
+                <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px', color: '#fff' }}>
                   storefront
                 </span>
               </div>
               <h3 style={{
                 margin: 0,
-                fontSize: '20px',
+                fontSize: isMobile ? '16px' : '20px',
                 fontWeight: '600',
                 color: '#1f2937'
               }}>
@@ -1115,7 +1132,7 @@ function PlaceOrder_ECommerce() {
             </div>
 
             {/* Optional text centered between E-Commerce Place Order and customer count */}
-            {canSaveOptional && (
+            {canSaveOptional && !isMobile && (
               <div style={{
                 position: 'absolute',
                 left: '50%',
@@ -1131,24 +1148,25 @@ function PlaceOrder_ECommerce() {
 
             {/* Customer Count Display */}
             <div style={{
-              fontSize: '14px',
+              fontSize: isMobile ? '12px' : '14px',
               color: '#64748b',
               fontWeight: '500',
-              padding: '8px 16px',
+              padding: isMobile ? '6px 12px' : '8px 16px',
               backgroundColor: '#f8fafc',
               borderRadius: '20px',
               border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
+              gap: isMobile ? '6px' : '8px',
               position: 'relative',
               zIndex: 1,
-              maxWidth: '200px',
+              maxWidth: isMobile ? '100%' : '200px',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap'
+              whiteSpace: 'nowrap',
+              width: isMobile ? '100%' : 'auto'
             }}>
-              <span style={{ fontSize: '16px', flexShrink: 0 }}>👥</span>
+              <span style={{ fontSize: isMobile ? '14px' : '16px', flexShrink: 0 }}>👥</span>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {customerLoading ? 'Loading...' : `${customerOptions.length.toLocaleString()} customers available`}
               </span>
@@ -1158,15 +1176,19 @@ function PlaceOrder_ECommerce() {
           {/* Customer Selection */}
           <div style={{
             display: 'flex',
-            gap: '20px',
-            alignItems: 'end',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? '12px' : '16px',
+            alignItems: isMobile ? 'stretch' : 'end',
             minHeight: '60px',
-            position: 'relative'
+            position: 'relative',
+            marginTop: isMobile ? '8px' : '0'
           }}>
             {/* VoucherType */}
             <div style={{
               position: 'relative',
-              flex: '0 0 300px'
+              flex: isMobile ? '1 1 100%' : '0 0 280px',
+              width: isMobile ? '100%' : 'auto',
+              minWidth: isMobile ? '0' : '200px'
             }}>
               <div style={{
                 position: 'relative',
@@ -1213,10 +1235,10 @@ function PlaceOrder_ECommerce() {
                   disabled={voucherTypesLoading}
                   style={{
                     width: '100%',
-                    padding: '16px 20px',
+                    padding: isMobile ? '12px 16px' : '16px 20px',
                     border: 'none',
                     borderRadius: '12px',
-                    fontSize: '15px',
+                    fontSize: isMobile ? '14px' : '15px',
                     color: '#1e293b',
                     outline: 'none',
                     background: 'transparent',
@@ -1226,9 +1248,9 @@ function PlaceOrder_ECommerce() {
                 />
                 <label style={{
                   position: 'absolute',
-                  left: '20px',
-                  top: voucherTypeFocused || selectedVoucherType ? '-10px' : '16px',
-                  fontSize: voucherTypeFocused || selectedVoucherType ? '12px' : '15px',
+                  left: isMobile ? '16px' : '20px',
+                  top: voucherTypeFocused || selectedVoucherType ? '-10px' : (isMobile ? '12px' : '16px'),
+                  fontSize: voucherTypeFocused || selectedVoucherType ? '11px' : (isMobile ? '14px' : '15px'),
                   fontWeight: '600',
                   color: '#3b82f6',
                   backgroundColor: 'white',
@@ -1338,7 +1360,9 @@ function PlaceOrder_ECommerce() {
             {/* Customer */}
             <div style={{
               position: 'relative',
-              flex: '0 0 500px'
+              flex: isMobile ? '1 1 100%' : '1 1 auto',
+              width: isMobile ? '100%' : 'auto',
+              minWidth: isMobile ? '0' : '250px'
             }} data-customer-dropdown>
               <div style={{
                 position: 'relative',
@@ -1386,11 +1410,11 @@ function PlaceOrder_ECommerce() {
                   disabled={customerLoading}
                   style={{
                     width: '100%',
-                    padding: '16px 20px',
-                    paddingRight: selectedCustomer ? '50px' : '20px',
+                    padding: isMobile ? '12px 16px' : '16px 20px',
+                    paddingRight: selectedCustomer ? (isMobile ? '45px' : '50px') : (isMobile ? '16px' : '20px'),
                     border: 'none',
                     borderRadius: '12px',
-                    fontSize: '15px',
+                    fontSize: isMobile ? '14px' : '15px',
                     color: '#374151',
                     outline: 'none',
                     background: 'transparent',
@@ -1453,9 +1477,9 @@ function PlaceOrder_ECommerce() {
 
                 <label style={{
                   position: 'absolute',
-                  left: '20px',
-                  top: customerFocused || !!selectedCustomer ? '-10px' : '16px',
-                  fontSize: customerFocused || !!selectedCustomer ? '12px' : '15px',
+                  left: isMobile ? '16px' : '20px',
+                  top: customerFocused || !!selectedCustomer ? '-10px' : (isMobile ? '12px' : '16px'),
+                  fontSize: customerFocused || !!selectedCustomer ? '11px' : (isMobile ? '14px' : '15px'),
                   fontWeight: '600',
                   color: customerFocused || !!selectedCustomer ? '#3b82f6' : '#6b7280',
                   backgroundColor: '#fff',
@@ -1549,7 +1573,9 @@ function PlaceOrder_ECommerce() {
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
-              flex: '0 0 180px'
+              flex: isMobile ? '1 1 100%' : '0 0 160px',
+              width: isMobile ? '100%' : 'auto',
+              minWidth: isMobile ? '0' : '140px'
             }}>
               <button
                 onClick={navigateToPlaceOrder}
@@ -1559,7 +1585,7 @@ function PlaceOrder_ECommerce() {
                   color: 'white',
                   border: 'none',
                   borderRadius: '12px',
-                  fontSize: '16px',
+                  fontSize: isMobile ? '14px' : '16px',
                   fontWeight: '600',
                   cursor: (!company || !selectedCustomer || cart.length === 0) ? 'not-allowed' : 'pointer',
                   opacity: (!company || !selectedCustomer || cart.length === 0) ? 0.5 : 1,
@@ -1567,13 +1593,15 @@ function PlaceOrder_ECommerce() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: '8px',
-                  padding: '12px 20px'
+                  gap: isMobile ? '6px' : '8px',
+                  padding: isMobile ? '10px 16px' : '12px 20px',
+                  width: isMobile ? '100%' : 'auto',
+                  flex: isMobile ? '1 1 100%' : '0 0 auto'
                 }}
                 title={cart.length === 0 ? "Add items to cart first" : "Proceed to Place Order"}
               >
-                <span className="material-icons" style={{ fontSize: '18px' }}>shopping_cart</span>
-                {cart.length === 0 ? 'Cart Empty' : `Cart (${cart.length})`}
+                <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px' }}>shopping_cart</span>
+                {cart.length === 0 ? (isMobile ? 'Empty' : 'Cart Empty') : (isMobile ? `Cart (${cart.length})` : `Cart (${cart.length})`)}
               </button>
 
             </div>
@@ -1583,11 +1611,12 @@ function PlaceOrder_ECommerce() {
           {(canShowCreditLimit || canControlCreditLimit) && selectedCustomer && (
             <div style={{
               display: 'flex',
-              alignItems: 'center',
+              flexDirection: isMobile ? 'column' : 'row',
+              alignItems: isMobile ? 'flex-start' : 'center',
               justifyContent: 'flex-start',
-              gap: '20px',
-              padding: '8px 0',
-              fontSize: '14px',
+              gap: isMobile ? '12px' : '20px',
+              padding: isMobile ? '12px 0' : '8px 0',
+              fontSize: isMobile ? '12px' : '14px',
               fontWeight: '500'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1598,9 +1627,9 @@ function PlaceOrder_ECommerce() {
               </div>
 
               {creditLimitLoading ? (
-                <span style={{ color: '#6b7280', fontSize: '13px' }}>Loading...</span>
+                <span style={{ color: '#6b7280', fontSize: isMobile ? '12px' : '13px' }}>Loading...</span>
               ) : creditLimitData ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '20px', width: isMobile ? '100%' : 'auto' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ color: '#6b7280', fontSize: '13px' }}>Closing Balance:</span>
                     <span style={{
@@ -1664,36 +1693,38 @@ function PlaceOrder_ECommerce() {
       {selectedCustomer && (
         <div style={{
           background: '#fff',
-          margin: '0px 24px 24px 24px',
+          margin: isMobile ? '0px 8px 12px 8px' : '0px auto 24px auto',
           maxWidth: '1400px',
-          width: 'auto',
-          borderRadius: '16px',
+          width: isMobile ? 'calc(100% - 16px)' : 'calc(100% - 48px)',
+          borderRadius: isMobile ? '12px' : '16px',
           boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
           border: '1px solid #e5e7eb',
-          padding: '24px',
+          padding: isMobile ? '16px' : '24px',
           boxSizing: 'border-box'
         }}>
           <div style={{
             display: 'flex',
-            alignItems: 'center',
+            flexDirection: isMobile ? 'column' : 'row',
+            alignItems: isMobile ? 'flex-start' : 'center',
             justifyContent: 'space-between',
-            marginBottom: '24px'
+            marginBottom: isMobile ? '16px' : '24px',
+            gap: isMobile ? '12px' : '0'
           }}>
-            <h2 style={{ margin: 0, fontSize: '24px', fontWeight: '600', color: '#1f2937' }}>
+            <h2 style={{ margin: 0, fontSize: isMobile ? '18px' : '24px', fontWeight: '600', color: '#1f2937' }}>
               Available Products ({filteredStockItems.length.toLocaleString()})
             </h2>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: isMobile ? '100%' : 'auto' }}>
               <input
                 type="text"
                 value={productSearchTerm}
                 onChange={(e) => setProductSearchTerm(e.target.value)}
                 placeholder="Search item or part no..."
                 style={{
-                  width: 340,
-                  padding: '10px 36px 10px 14px',
+                  width: isMobile ? '100%' : 340,
+                  padding: isMobile ? '8px 32px 8px 12px' : '10px 36px 10px 14px',
                   border: '1px solid #e2e8f0',
                   borderRadius: 8,
-                  fontSize: 14
+                  fontSize: isMobile ? 13 : 14
                 }}
               />
               {productSearchTerm && (
@@ -1720,10 +1751,10 @@ function PlaceOrder_ECommerce() {
           <div style={{
             width: '100%',
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-            gap: '24px',
-            padding: '20px 0',
-            maxHeight: '800px',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(280px, 1fr))',
+            gap: isMobile ? '16px' : '20px',
+            padding: isMobile ? '8px 0' : '16px 0',
+            maxHeight: isMobile ? '600px' : '800px',
             overflowY: 'auto'
           }}>
             {filteredStockItems.map((item, index) => {
@@ -1733,16 +1764,17 @@ function PlaceOrder_ECommerce() {
                 <div key={item.NAME || index} style={{
                   background: '#fff',
                   borderRadius: 12,
-                  padding: '16px 12px',
+                  padding: isMobile ? '14px' : '18px',
                   boxShadow: '0 2px 8px 0 rgba(31,38,135,0.08)',
                   border: '1px solid #e2e8f0',
                   transition: 'all 0.2s ease',
                   cursor: 'pointer',
                   position: 'relative',
                   overflow: 'hidden',
-                  minHeight: canShowImage ? '320px' : '260px',
+                  minHeight: canShowImage ? (isMobile ? '280px' : '320px') : (isMobile ? '220px' : '260px'),
                   display: 'flex',
-                  flexDirection: 'column'
+                  flexDirection: 'column',
+                  width: '100%'
                 }} onMouseEnter={(e) => {
                   e.currentTarget.style.transform = 'translateY(-2px)';
                   e.currentTarget.style.boxShadow = '0 4px 16px 0 rgba(31,38,135,0.12)';
@@ -1755,8 +1787,8 @@ function PlaceOrder_ECommerce() {
                     {/* Product Image or Placeholder Icon */}
                     <div style={{
                       width: '100%',
-                      height: '120px',
-                      marginBottom: '12px',
+                      height: isMobile ? '100px' : '120px',
+                      marginBottom: isMobile ? '10px' : '12px',
                       borderRadius: '8px',
                       overflow: 'hidden',
                       backgroundColor: '#f8fafc',
@@ -1782,7 +1814,7 @@ function PlaceOrder_ECommerce() {
                     }}>
                       {/* Item Name */}
                       <h3 style={{
-                        fontSize: 16,
+                        fontSize: isMobile ? 14 : 16,
                         fontWeight: 600,
                         color: '#1e293b',
                         margin: 0,
@@ -1802,7 +1834,7 @@ function PlaceOrder_ECommerce() {
                         gap: '8px'
                       }}>
                         <span style={{
-                          fontSize: 13,
+                          fontSize: isMobile ? 12 : 13,
                           color: '#64748b',
                           fontWeight: 500
                         }}>
@@ -1811,10 +1843,10 @@ function PlaceOrder_ECommerce() {
                         {canShowClosingStock && (
                           <span
                             style={{
-                              fontSize: 12,
+                              fontSize: isMobile ? 11 : 12,
                               color: '#64748b',
                               background: '#f1f5f9',
-                              padding: '4px 8px',
+                              padding: isMobile ? '3px 6px' : '4px 8px',
                               borderRadius: 4,
                               cursor: canShowStockBreakdown ? 'pointer' : 'default',
                               textDecoration: canShowStockBreakdown ? 'underline' : 'none',
@@ -1841,7 +1873,7 @@ function PlaceOrder_ECommerce() {
                       {/* Price */}
                       {canShowRateAmtColumn && (
                         <div style={{
-                          fontSize: 18,
+                          fontSize: isMobile ? 16 : 18,
                           fontWeight: 700,
                           color: '#059669',
                           marginTop: '4px'
@@ -1859,15 +1891,15 @@ function PlaceOrder_ECommerce() {
                         return (
                           <div style={{
                             width: 'calc(88% - 8px)',
-                            height: '36px',
+                            height: isMobile ? '32px' : '36px',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
                             background: '#fef3c7',
                             border: '2px solid #f59e0b',
                             borderRadius: '8px',
-                            padding: '0 12px',
-                            gap: '8px',
+                            padding: isMobile ? '0 10px' : '0 12px',
+                            gap: isMobile ? '6px' : '8px',
                             margin: '0 4px'
                           }}>
                             <button
@@ -1882,10 +1914,10 @@ function PlaceOrder_ECommerce() {
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 color: '#374151',
-                                fontSize: '14px',
+                                fontSize: isMobile ? '12px' : '14px',
                                 transition: 'all 0.2s ease',
-                                minWidth: '20px',
-                                minHeight: '20px'
+                                minWidth: isMobile ? '24px' : '20px',
+                                minHeight: isMobile ? '24px' : '20px'
                               }}
                               onMouseEnter={(e) => {
                                 e.currentTarget.style.backgroundColor = '#fbbf24';
@@ -1901,7 +1933,7 @@ function PlaceOrder_ECommerce() {
                             </button>
 
                             <span style={{
-                              fontSize: '16px',
+                              fontSize: isMobile ? '14px' : '16px',
                               fontWeight: '600',
                               color: '#374151',
                               minWidth: '24px',
@@ -1923,11 +1955,11 @@ function PlaceOrder_ECommerce() {
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 color: '#374151',
-                                fontSize: '16px',
+                                fontSize: isMobile ? '14px' : '16px',
                                 fontWeight: 'bold',
                                 transition: 'all 0.2s ease',
-                                minWidth: '20px',
-                                minHeight: '20px'
+                                minWidth: isMobile ? '24px' : '20px',
+                                minHeight: isMobile ? '24px' : '20px'
                               }}
                               onMouseEnter={(e) => {
                                 e.currentTarget.style.backgroundColor = '#fbbf24';
@@ -1949,20 +1981,20 @@ function PlaceOrder_ECommerce() {
                             onClick={() => addToCart(item)}
                             style={{
                               width: 'calc(100% - 8px)',
-                              height: '36px',
-                              padding: '0 12px',
+                              height: isMobile ? '32px' : '36px',
+                              padding: isMobile ? '0 10px' : '0 12px',
                               background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
                               color: '#fff',
                               border: 'none',
                               borderRadius: 8,
                               fontWeight: 600,
-                              fontSize: 14,
+                              fontSize: isMobile ? 13 : 14,
                               cursor: 'pointer',
                               transition: 'all 0.2s ease',
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'center',
-                              gap: 8,
+                              gap: isMobile ? 6 : 8,
                               margin: '0 4px'
                             }}
                             onMouseEnter={(e) => {
@@ -1974,8 +2006,8 @@ function PlaceOrder_ECommerce() {
                               e.currentTarget.style.boxShadow = 'none';
                             }}
                           >
-                            <span className="material-icons" style={{ fontSize: 16 }}>add_shopping_cart</span>
-                            Add to Cart
+                            <span className="material-icons" style={{ fontSize: isMobile ? 14 : 16 }}>add_shopping_cart</span>
+                            {isMobile ? 'Add' : 'Add to Cart'}
                           </button>
                         );
                       }
@@ -2006,9 +2038,9 @@ function PlaceOrder_ECommerce() {
           <div style={{
             backgroundColor: 'white',
             borderRadius: '12px',
-            padding: '24px',
-            maxWidth: '600px',
-            width: '90%',
+            padding: isMobile ? '16px' : '24px',
+            maxWidth: isMobile ? '95%' : '600px',
+            width: isMobile ? '95%' : '90%',
             maxHeight: '80vh',
             overflow: 'auto',
             boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
@@ -2018,13 +2050,13 @@ function PlaceOrder_ECommerce() {
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              marginBottom: '20px',
-              paddingBottom: '16px',
+              marginBottom: isMobile ? '16px' : '20px',
+              paddingBottom: isMobile ? '12px' : '16px',
               borderBottom: '1px solid #e5e7eb'
             }}>
               <h3 style={{
                 margin: 0,
-                fontSize: '18px',
+                fontSize: isMobile ? '16px' : '18px',
                 fontWeight: '600',
                 color: '#1f2937'
               }}>
@@ -2044,10 +2076,15 @@ function PlaceOrder_ECommerce() {
                 style={{
                   background: 'none',
                   border: 'none',
-                  fontSize: '24px',
+                  fontSize: isMobile ? '20px' : '24px',
                   cursor: 'pointer',
                   color: '#6b7280',
-                  padding: '4px'
+                  padding: '4px',
+                  minWidth: isMobile ? '32px' : 'auto',
+                  minHeight: isMobile ? '32px' : 'auto',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
                 }}
               >
                 ×
@@ -2060,11 +2097,12 @@ function PlaceOrder_ECommerce() {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                marginBottom: '20px',
-                gap: '12px'
+                marginBottom: isMobile ? '16px' : '20px',
+                gap: isMobile ? '8px' : '12px',
+                flexWrap: 'wrap'
               }}>
                 <span style={{
-                  fontSize: '14px',
+                  fontSize: isMobile ? '12px' : '14px',
                   fontWeight: '500',
                   color: showGodownStock ? '#1f2937' : '#6b7280'
                 }}>
@@ -2096,7 +2134,7 @@ function PlaceOrder_ECommerce() {
                   }} />
                 </button>
                 <span style={{
-                  fontSize: '14px',
+                  fontSize: isMobile ? '12px' : '14px',
                   fontWeight: '500',
                   color: !showGodownStock ? '#1f2937' : '#6b7280'
                 }}>
@@ -2131,9 +2169,9 @@ function PlaceOrder_ECommerce() {
                 {/* Summary */}
                 <div style={{
                   backgroundColor: '#f8fafc',
-                  padding: '16px',
+                  padding: isMobile ? '12px' : '16px',
                   borderRadius: '8px',
-                  marginBottom: '20px'
+                  marginBottom: isMobile ? '16px' : '20px'
                 }}>
                   <div style={{
                     display: 'flex',
@@ -2141,7 +2179,7 @@ function PlaceOrder_ECommerce() {
                     alignItems: 'center'
                   }}>
                     <span style={{
-                      fontSize: '14px',
+                      fontSize: isMobile ? '12px' : '14px',
                       fontWeight: '500',
                       color: '#374151'
                     }}>
@@ -2161,7 +2199,7 @@ function PlaceOrder_ECommerce() {
 
                 {/* Stock List */}
                 <div style={{
-                  maxHeight: '300px',
+                  maxHeight: isMobile ? '250px' : '300px',
                   overflowY: 'auto',
                   border: '1px solid #e5e7eb',
                   borderRadius: '8px'
@@ -2187,7 +2225,7 @@ function PlaceOrder_ECommerce() {
                         }}
                       >
                         <span style={{
-                          fontSize: '14px',
+                          fontSize: isMobile ? '12px' : '14px',
                           fontWeight: '500',
                           color: isCurrentCompany ? '#6b7280' : '#1f2937',
                           fontStyle: isCurrentCompany ? 'italic' : 'normal'
@@ -2195,7 +2233,7 @@ function PlaceOrder_ECommerce() {
                           {item.NAME}
                         </span>
                         <span style={{
-                          fontSize: '14px',
+                          fontSize: isMobile ? '12px' : '14px',
                           fontWeight: '600',
                           color: stockValue > 0 ? '#059669' : '#6b7280'
                         }}>
@@ -2212,21 +2250,22 @@ function PlaceOrder_ECommerce() {
             <div style={{
               display: 'flex',
               justifyContent: 'flex-end',
-              marginTop: '20px',
-              paddingTop: '16px',
+              marginTop: isMobile ? '16px' : '20px',
+              paddingTop: isMobile ? '12px' : '16px',
               borderTop: '1px solid #e5e7eb'
             }}>
               <button
                 onClick={() => setShowStockModal(false)}
                 style={{
-                  padding: '8px 16px',
+                  padding: isMobile ? '8px 14px' : '8px 16px',
                   backgroundColor: '#6b7280',
                   color: 'white',
                   border: 'none',
                   borderRadius: '6px',
                   cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: '500'
+                  fontSize: isMobile ? '13px' : '14px',
+                  fontWeight: '500',
+                  width: isMobile ? '100%' : 'auto'
                 }}
               >
                 Close
@@ -2254,13 +2293,14 @@ function PlaceOrder_ECommerce() {
             background: 'white',
             borderRadius: '12px',
             padding: '0',
-            maxWidth: '800px',
+            maxWidth: isMobile ? '95%' : '800px',
+            width: isMobile ? '95%' : 'auto',
             maxHeight: '80vh',
             overflow: 'hidden',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
           }} onClick={(e) => e.stopPropagation()}>
             <div style={{
-              padding: '20px 24px',
+              padding: isMobile ? '16px' : '20px 24px',
               borderBottom: '1px solid #e5e7eb',
               display: 'flex',
               justifyContent: 'space-between',
@@ -2268,7 +2308,7 @@ function PlaceOrder_ECommerce() {
             }}>
               <h2 style={{
                 margin: 0,
-                fontSize: '18px',
+                fontSize: isMobile ? '16px' : '18px',
                 fontWeight: '600',
                 color: '#1f2937'
               }}>Overdue Bills Details</h2>
@@ -2276,7 +2316,7 @@ function PlaceOrder_ECommerce() {
                 style={{
                   background: 'none',
                   border: 'none',
-                  fontSize: '24px',
+                  fontSize: isMobile ? '20px' : '24px',
                   cursor: 'pointer',
                   color: '#6b7280',
                   padding: '4px',
@@ -2284,8 +2324,8 @@ function PlaceOrder_ECommerce() {
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: '32px',
-                  height: '32px'
+                  width: isMobile ? '28px' : '32px',
+                  height: isMobile ? '28px' : '32px'
                 }}
                 onClick={() => setShowOverdueBills(false)}
                 title="Close"
@@ -2295,7 +2335,7 @@ function PlaceOrder_ECommerce() {
             </div>
 
             <div style={{
-              padding: '20px',
+              padding: isMobile ? '12px' : '20px',
               maxHeight: '60vh',
               overflowY: 'auto'
             }}>
@@ -2303,23 +2343,24 @@ function PlaceOrder_ECommerce() {
                 background: '#fef2f2',
                 border: '1px solid #fecaca',
                 borderRadius: '8px',
-                padding: '16px',
-                marginBottom: '20px'
+                padding: isMobile ? '12px' : '16px',
+                marginBottom: isMobile ? '16px' : '20px'
               }}>
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  marginBottom: '8px'
+                  gap: isMobile ? '6px' : '8px',
+                  marginBottom: isMobile ? '6px' : '8px',
+                  flexWrap: 'wrap'
                 }}>
-                  <span className="material-icons" style={{ fontSize: '20px', color: '#dc2626' }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px', color: '#dc2626' }}>
                     warning
                   </span>
-                  <span style={{ color: '#dc2626', fontWeight: '600', fontSize: '16px' }}>
+                  <span style={{ color: '#dc2626', fontWeight: '600', fontSize: isMobile ? '14px' : '16px' }}>
                     {creditLimitData.overdueBills.length} Overdue Bill(s) Found
                   </span>
                 </div>
-                <p style={{ color: '#7f1d1d', fontSize: '14px', margin: 0 }}>
+                <p style={{ color: '#7f1d1d', fontSize: isMobile ? '12px' : '14px', margin: 0 }}>
                   Customer has outstanding bills that are past their due date. Please review the details below.
                 </p>
               </div>
@@ -2327,12 +2368,14 @@ function PlaceOrder_ECommerce() {
               <div style={{
                 overflowX: 'auto',
                 border: '1px solid #e5e7eb',
-                borderRadius: '8px'
+                borderRadius: '8px',
+                WebkitOverflowScrolling: 'touch'
               }}>
                 <table style={{
                   width: '100%',
                   borderCollapse: 'collapse',
-                  fontSize: '14px'
+                  fontSize: isMobile ? '12px' : '14px',
+                  minWidth: isMobile ? '600px' : 'auto'
                 }}>
                   <thead>
                     <tr style={{
@@ -2340,60 +2383,66 @@ function PlaceOrder_ECommerce() {
                       borderBottom: '2px solid #e5e7eb'
                     }}>
                       <th style={{
-                        padding: '12px 16px',
+                        padding: isMobile ? '8px 10px' : '12px 16px',
                         textAlign: 'left',
                         fontWeight: '600',
                         color: '#374151',
                         borderRight: '1px solid #e5e7eb',
-                        width: '200px'
+                        width: isMobile ? '150px' : '200px',
+                        fontSize: isMobile ? '11px' : '14px'
                       }}>
                         Bill Reference
                       </th>
                       <th style={{
-                        padding: '12px 16px',
+                        padding: isMobile ? '8px 10px' : '12px 16px',
                         textAlign: 'right',
                         fontWeight: '600',
                         color: '#374151',
                         borderRight: '1px solid #e5e7eb',
-                        width: '120px'
+                        width: isMobile ? '100px' : '120px',
+                        fontSize: isMobile ? '11px' : '14px'
                       }}>
                         Bill Date
                       </th>
                       <th style={{
-                        padding: '12px 16px',
+                        padding: isMobile ? '8px 10px' : '12px 16px',
                         textAlign: 'right',
                         fontWeight: '600',
                         color: '#374151',
                         borderRight: '1px solid #e5e7eb',
-                        width: '150px'
+                        width: isMobile ? '120px' : '150px',
+                        fontSize: isMobile ? '11px' : '14px'
                       }}>
                         Opening Balance
                       </th>
                       <th style={{
-                        padding: '12px 16px',
+                        padding: isMobile ? '8px 10px' : '12px 16px',
                         textAlign: 'right',
                         fontWeight: '600',
                         color: '#374151',
                         borderRight: '1px solid #e5e7eb',
-                        width: '150px'
+                        width: isMobile ? '120px' : '150px',
+                        fontSize: isMobile ? '11px' : '14px'
                       }}>
                         Closing Balance
                       </th>
                       <th style={{
-                        padding: '12px 16px',
+                        padding: isMobile ? '8px 10px' : '12px 16px',
                         textAlign: 'right',
                         fontWeight: '600',
                         color: '#374151',
                         borderRight: '1px solid #e5e7eb',
-                        width: '120px'
+                        width: isMobile ? '100px' : '120px',
+                        fontSize: isMobile ? '11px' : '14px'
                       }}>
                         Due Date
                       </th>
                       <th style={{
-                        padding: '12px 16px',
+                        padding: isMobile ? '8px 10px' : '12px 16px',
                         textAlign: 'center',
                         fontWeight: '600',
-                        color: '#374151'
+                        color: '#374151',
+                        fontSize: isMobile ? '11px' : '14px'
                       }}>
                         Days Overdue
                       </th>
@@ -2408,59 +2457,65 @@ function PlaceOrder_ECommerce() {
                         }
                       }}>
                         <td style={{
-                          padding: '12px 16px',
+                          padding: isMobile ? '8px 10px' : '12px 16px',
                           fontWeight: '600',
                           color: '#1f2937',
                           borderRight: '1px solid #e5e7eb',
-                          width: '200px'
+                          width: isMobile ? '150px' : '200px',
+                          fontSize: isMobile ? '11px' : '14px'
                         }}>
                           {bill.REFNO}
                         </td>
                         <td style={{
-                          padding: '12px 16px',
+                          padding: isMobile ? '8px 10px' : '12px 16px',
                           textAlign: 'right',
                           color: '#6b7280',
                           borderRight: '1px solid #e5e7eb',
-                          width: '120px'
+                          width: isMobile ? '100px' : '120px',
+                          fontSize: isMobile ? '11px' : '14px'
                         }}>
                           {bill.DATE}
                         </td>
                         <td style={{
-                          padding: '12px 16px',
+                          padding: isMobile ? '8px 10px' : '12px 16px',
                           textAlign: 'right',
                           fontWeight: '600',
                           color: bill.OPENINGBALANCE < 0 ? '#dc2626' : '#059669',
                           borderRight: '1px solid #e5e7eb',
-                          width: '150px'
+                          width: isMobile ? '120px' : '150px',
+                          fontSize: isMobile ? '11px' : '14px'
                         }}>
                           ₹{Math.abs(bill.OPENINGBALANCE).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           {bill.OPENINGBALANCE < 0 ? ' Dr' : ' Cr'}
                         </td>
                         <td style={{
-                          padding: '12px 16px',
+                          padding: isMobile ? '8px 10px' : '12px 16px',
                           textAlign: 'right',
                           fontWeight: '600',
                           color: bill.CLOSINGBALANCE < 0 ? '#dc2626' : '#059669',
                           borderRight: '1px solid #e5e7eb',
-                          width: '150px'
+                          width: isMobile ? '120px' : '150px',
+                          fontSize: isMobile ? '11px' : '14px'
                         }}>
                           ₹{Math.abs(bill.CLOSINGBALANCE).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                           {bill.CLOSINGBALANCE < 0 ? ' Dr' : ' Cr'}
                         </td>
                         <td style={{
-                          padding: '12px 16px',
+                          padding: isMobile ? '8px 10px' : '12px 16px',
                           textAlign: 'right',
                           color: '#6b7280',
                           borderRight: '1px solid #e5e7eb',
-                          width: '120px'
+                          width: isMobile ? '100px' : '120px',
+                          fontSize: isMobile ? '11px' : '14px'
                         }}>
                           {bill.DUEON}
                         </td>
                         <td style={{
-                          padding: '12px 16px',
+                          padding: isMobile ? '8px 10px' : '12px 16px',
                           textAlign: 'center',
                           fontWeight: '600',
-                          color: '#dc2626'
+                          color: '#dc2626',
+                          fontSize: isMobile ? '11px' : '14px'
                         }}>
                           {bill.OVERDUEDAYS} days
                         </td>
@@ -2471,8 +2526,8 @@ function PlaceOrder_ECommerce() {
               </div>
 
               <div style={{
-                marginTop: '20px',
-                padding: '16px',
+                marginTop: isMobile ? '16px' : '20px',
+                padding: isMobile ? '12px' : '16px',
                 background: '#f0f9ff',
                 border: '1px solid #bae6fd',
                 borderRadius: '8px'
@@ -2480,18 +2535,19 @@ function PlaceOrder_ECommerce() {
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  marginBottom: '8px'
+                  gap: isMobile ? '6px' : '8px',
+                  marginBottom: isMobile ? '6px' : '8px',
+                  flexWrap: 'wrap'
                 }}>
-                  <span className="material-icons" style={{ fontSize: '18px', color: '#0369a1' }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#0369a1' }}>
                     info
                   </span>
-                  <span style={{ color: '#0369a1', fontWeight: '600', fontSize: '14px' }}>
+                  <span style={{ color: '#0369a1', fontWeight: '600', fontSize: isMobile ? '12px' : '14px' }}>
                     Total Overdue Amount
                   </span>
                 </div>
                 <div style={{
-                  fontSize: '18px',
+                  fontSize: isMobile ? '16px' : '18px',
                   fontWeight: '700',
                   color: '#dc2626'
                 }}>
