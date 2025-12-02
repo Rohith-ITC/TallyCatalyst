@@ -282,9 +282,11 @@ class EncryptionUtils {
     }
   }
 
-  // Encrypt data
+  // Encrypt data with compression and optimized processing
   async encryptData(data) {
     try {
+      const startTime = performance.now();
+      
       // Check if crypto is available
       if (!this.isCryptoAvailable()) {
         const isSecureContext = window.isSecureContext || 
@@ -302,6 +304,13 @@ class EncryptionUtils {
         }
       }
 
+      // Step 1: Compress data first (reduces size significantly for JSON)
+      const compressStart = performance.now();
+      const compressedBuffer = await this.compressData(data);
+      const compressTime = performance.now() - compressStart;
+      console.log(`📦 Compression: ${(compressedBuffer.byteLength / 1024).toFixed(2)} KB in ${compressTime.toFixed(2)}ms`);
+
+      // Step 2: Get encryption key
       const keyBuffer = await this.getEncryptionKey();
       const key = await crypto.subtle.importKey(
         'raw',
@@ -311,50 +320,147 @@ class EncryptionUtils {
         ['encrypt']
       );
 
-      const encoder = new TextEncoder();
-      const jsonString = JSON.stringify(data);
-      const dataBuffer = encoder.encode(jsonString);
-      
+      // Step 3: Encrypt compressed data
+      const encryptStart = performance.now();
       const iv = crypto.getRandomValues(new Uint8Array(12));
       const encrypted = await crypto.subtle.encrypt(
         { name: 'AES-GCM', iv: iv },
         key,
-        dataBuffer
+        compressedBuffer
       );
+      const encryptTime = performance.now() - encryptStart;
+      console.log(`🔐 Encryption: ${(encrypted.byteLength / 1024).toFixed(2)} KB in ${encryptTime.toFixed(2)}ms`);
 
-      // Combine IV and encrypted data
+      // Step 4: Combine IV and encrypted data
       const combined = new Uint8Array(iv.length + encrypted.byteLength);
       combined.set(iv);
       combined.set(new Uint8Array(encrypted), iv.length);
 
-      // Convert to base64 for storage - use chunked approach to avoid stack overflow
-      return this.arrayBufferToBase64(combined.buffer);
+      // Step 5: Convert to base64 (yield to browser periodically for large data)
+      const base64Start = performance.now();
+      let result;
+      if (combined.length > 1024 * 1024) { // > 1MB, use chunked base64
+        result = await this.arrayBufferToBase64Chunked(combined.buffer);
+      } else {
+        result = this.arrayBufferToBase64(combined.buffer);
+      }
+      const base64Time = performance.now() - base64Start;
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`📝 Base64 encoding: ${(result.length / 1024).toFixed(2)} KB in ${base64Time.toFixed(2)}ms`);
+      console.log(`⚡ Total encryption time: ${totalTime.toFixed(2)}ms (${(combined.length / 1024 / 1024).toFixed(2)} MB)`);
+      
+      return result;
     } catch (error) {
       console.error('Encryption error:', error);
       throw error;
     }
   }
 
-  // Helper function to convert ArrayBuffer to base64 efficiently
-  arrayBufferToBase64(buffer) {
+  // Chunked base64 encoding with yield points for large data
+  async arrayBufferToBase64Chunked(buffer) {
     const bytes = new Uint8Array(buffer);
-    let binary = '';
-    const chunkSize = 8192; // Process in 8KB chunks to avoid stack overflow
+    const chunkSize = 1024 * 1024; // 1MB chunks
+    const chunks = [];
     
     for (let i = 0; i < bytes.length; i += chunkSize) {
       const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
-      // Build binary string in chunks
-      for (let j = 0; j < chunk.length; j++) {
-        binary += String.fromCharCode(chunk[j]);
+      chunks.push(this.arrayBufferToBase64(chunk.buffer));
+      
+      // Yield to browser every chunk to prevent blocking
+      if (i + chunkSize < bytes.length) {
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
+    }
+    
+    return chunks.join('');
+  }
+
+  // Helper function to convert ArrayBuffer to base64 efficiently
+  // Optimized version using Uint8Array directly with chunked processing
+  arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 16384; // Increased chunk size for better performance (16KB)
+    let binary = '';
+    
+    // Use chunked processing to avoid blocking the main thread
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
+      // Use String.fromCharCode.apply for better performance on large chunks
+      binary += String.fromCharCode.apply(null, chunk);
     }
     
     return btoa(binary);
   }
 
-  // Decrypt data
+  // Compress data using native CompressionStream API (available in modern browsers)
+  async compressData(data) {
+    try {
+      // Check if CompressionStream is available
+      if (typeof CompressionStream === 'undefined') {
+        console.warn('CompressionStream not available, skipping compression');
+        // Fallback to uncompressed
+        const jsonString = JSON.stringify(data);
+        const encoder = new TextEncoder();
+        return encoder.encode(jsonString).buffer;
+      }
+
+      const jsonString = JSON.stringify(data);
+      const encoder = new TextEncoder();
+      const dataStream = new Blob([encoder.encode(jsonString)]).stream();
+      
+      const compressedStream = dataStream.pipeThrough(new CompressionStream('gzip'));
+      const compressedBlob = await new Response(compressedStream).blob();
+      const compressedArrayBuffer = await compressedBlob.arrayBuffer();
+      
+      const originalSize = new TextEncoder().encode(jsonString).length;
+      const compressedSize = compressedArrayBuffer.byteLength;
+      const compressionRatio = ((1 - compressedSize / originalSize) * 100).toFixed(1);
+      console.log(`📦 Compression: ${(originalSize / 1024).toFixed(2)} KB → ${(compressedSize / 1024).toFixed(2)} KB (${compressionRatio}% reduction)`);
+      
+      return compressedArrayBuffer;
+    } catch (error) {
+      console.warn('Compression failed, using uncompressed data:', error);
+      // Fallback to uncompressed
+      const jsonString = JSON.stringify(data);
+      const encoder = new TextEncoder();
+      return encoder.encode(jsonString).buffer;
+    }
+  }
+
+  // Decompress data using native DecompressionStream API
+  async decompressData(compressedBuffer) {
+    try {
+      // Check if DecompressionStream is available
+      if (typeof DecompressionStream === 'undefined') {
+        console.warn('DecompressionStream not available, assuming uncompressed');
+        const decoder = new TextDecoder();
+        return JSON.parse(decoder.decode(new Uint8Array(compressedBuffer)));
+      }
+
+      const compressedStream = new Blob([compressedBuffer]).stream();
+      const decompressedStream = compressedStream.pipeThrough(new DecompressionStream('gzip'));
+      const decompressedBlob = await new Response(decompressedStream).blob();
+      const decompressedArrayBuffer = await decompressedBlob.arrayBuffer();
+      const decoder = new TextDecoder();
+      return JSON.parse(decoder.decode(decompressedArrayBuffer));
+    } catch (error) {
+      // Try as uncompressed data
+      try {
+        const decoder = new TextDecoder();
+        return JSON.parse(decoder.decode(new Uint8Array(compressedBuffer)));
+      } catch (e) {
+        console.error('Decompression failed:', error);
+        throw error;
+      }
+    }
+  }
+
+  // Decrypt data with decompression support
   async decryptData(encryptedBase64) {
     try {
+      const startTime = performance.now();
+      
       // Check if crypto is available
       if (!this.isCryptoAvailable()) {
         const isSecureContext = window.isSecureContext || 
@@ -387,12 +493,20 @@ class EncryptionUtils {
         ['decrypt']
       );
 
-      // Decode from base64 - use chunked approach for large data
-      const binaryString = atob(encryptedBase64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      // Decode from base64 - optimized for large data
+      const base64Start = performance.now();
+      let bytes;
+      if (encryptedBase64.length > 1024 * 1024) { // > 1MB, use chunked decoding
+        bytes = await this.base64ToArrayBufferChunked(encryptedBase64);
+      } else {
+        const binaryString = atob(encryptedBase64);
+        bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
       }
+      const base64Time = performance.now() - base64Start;
+      console.log(`📝 Base64 decoding: ${(bytes.length / 1024).toFixed(2)} KB in ${base64Time.toFixed(2)}ms`);
       
       // Check if this looks like encrypted data (has IV) or unencrypted base64
       // Encrypted data starts with 12-byte IV, so if length < 12, it's probably unencrypted
@@ -410,14 +524,26 @@ class EncryptionUtils {
       const iv = bytes.slice(0, 12);
       const encrypted = bytes.slice(12);
 
+      // Decrypt
+      const decryptStart = performance.now();
       const decrypted = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: iv },
         key,
         encrypted
       );
+      const decryptTime = performance.now() - decryptStart;
+      console.log(`🔓 Decryption: ${(decrypted.byteLength / 1024).toFixed(2)} KB in ${decryptTime.toFixed(2)}ms`);
 
-      const decoder = new TextDecoder();
-      return JSON.parse(decoder.decode(decrypted));
+      // Decompress (handles both compressed and uncompressed data)
+      const decompressStart = performance.now();
+      const decompressed = await this.decompressData(decrypted);
+      const decompressTime = performance.now() - decompressStart;
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`📦 Decompression: ${decompressTime.toFixed(2)}ms`);
+      console.log(`⚡ Total decryption time: ${totalTime.toFixed(2)}ms`);
+      
+      return decompressed;
     } catch (error) {
       console.error('Decryption error:', error);
       // If decryption fails (e.g., wrong user or unencrypted data), try as unencrypted
@@ -429,6 +555,32 @@ class EncryptionUtils {
       }
     }
   }
+
+  // Chunked base64 to ArrayBuffer conversion with yield points
+  async base64ToArrayBufferChunked(base64) {
+    const chunkSize = 1024 * 1024; // 1MB chunks
+    const totalLength = Math.ceil(base64.length * 3 / 4);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    
+    for (let i = 0; i < base64.length; i += chunkSize) {
+      const chunk = base64.slice(i, Math.min(i + chunkSize, base64.length));
+      const binaryString = atob(chunk);
+      const chunkBytes = new Uint8Array(binaryString.length);
+      for (let j = 0; j < binaryString.length; j++) {
+        chunkBytes[j] = binaryString.charCodeAt(j);
+      }
+      result.set(chunkBytes, offset);
+      offset += chunkBytes.length;
+      
+      // Yield to browser every chunk
+      if (i + chunkSize < base64.length) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+    
+    return result;
+  }
 }
 
 // OPFS Backend - stores encrypted data in Origin Private File System
@@ -438,6 +590,7 @@ class OPFSBackend {
     this.root = null;
     this.initialized = false;
     this.metadataCache = new Map(); // In-memory cache for metadata
+    this.metadataSaveTimer = null; // Timer for deferred metadata saves
   }
 
   // Load metadata from OPFS
@@ -593,8 +746,10 @@ class OPFSBackend {
         console.warn(`⚠️ Large data write on mobile: ${(dataSize / (1024 * 1024)).toFixed(2)} MB`);
       }
       
+      const syncStart = performance.now();
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
+      console.log(`💾 Cache write started for: ${cacheKey}`);
       
       // Parse date range from cache key if not provided
       let dateRange = null;
@@ -653,7 +808,7 @@ class OPFSBackend {
         await writable.close();
       }
       
-      // Store metadata in OPFS
+      // Store metadata in memory (defer file write to batch operations)
       const salesMap = this.metadataCache.get('sales') || new Map();
       const metadata = {
         cacheKey,
@@ -663,7 +818,18 @@ class OPFSBackend {
       };
       salesMap.set(cacheKey, metadata);
       this.metadataCache.set('sales', salesMap);
-      await this.saveMetadata();
+      
+      // Defer metadata save to avoid blocking (use setTimeout to batch writes)
+      if (this.metadataSaveTimer) {
+        clearTimeout(this.metadataSaveTimer);
+      }
+      this.metadataSaveTimer = setTimeout(async () => {
+        await this.saveMetadata();
+        this.metadataSaveTimer = null;
+      }, 100); // Batch metadata saves within 100ms
+      
+      const syncTime = performance.now() - syncStart;
+      console.log(`✅ Cache write completed in ${syncTime.toFixed(2)}ms: ${cacheKey}`);
       
       // Clean up old entries only if expiry is set (not null/never)
       if (maxAgeDays !== null && maxAgeDays !== undefined) {
@@ -1192,8 +1358,10 @@ class OPFSBackend {
   // Store complete sales data with metadata
   async setCompleteSalesData(companyInfo, data, metadata = {}) {
     try {
+      const syncStart = performance.now();
       await this.init();
       const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      console.log(`💾 Complete sales data cache write started for: ${cacheKey}`);
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
       
@@ -1291,9 +1459,12 @@ class OPFSBackend {
       };
       salesMap.set(cacheKey, metadataEntry);
       this.metadataCache.set('sales', salesMap);
+      
+      // For complete sales data, save metadata immediately (important for sync tracking)
       await this.saveMetadata();
       
-      console.log(`✅ Cached complete sales data in OPFS: ${cacheKey}, lastaltid: ${lastaltid}`);
+      const syncTime = performance.now() - syncStart;
+      console.log(`✅ Cached complete sales data in OPFS: ${cacheKey}, lastaltid: ${lastaltid} (${syncTime.toFixed(2)}ms)`);
     } catch (error) {
       console.error('Error storing complete sales data in OPFS:', error);
       throw error;
