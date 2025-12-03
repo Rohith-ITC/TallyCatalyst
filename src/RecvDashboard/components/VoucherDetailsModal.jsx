@@ -359,7 +359,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                             const { displayDebit, displayCredit } = getDisplayAmounts(bill.DEBITAMT, bill.CREDITAMT);
                             return (
                               <div key={bIdx} style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(100px, 2fr) minmax(70px, 1fr) minmax(70px, 1fr)' : '2fr 1fr 1fr', padding: isMobile ? '4px 0' : '6px 0', fontSize: isMobile ? 11 : 13, color: '#475569', gap: isMobile ? 8 : 0, minWidth: isMobile ? '300px' : 'auto' }}>
-                                <div style={{ wordBreak: 'break-word' }}>{bill.BILLNAME || bill || '-'}</div>
+                                <div style={{ wordBreak: 'break-word' }}>{bill.BILLNAME || '-'}</div>
                                 <div style={{ textAlign: 'right' }}>
                                   {displayDebit}
                                 </div>
@@ -384,7 +384,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                           </div>
                           {inventoryAllocations.map((inv, invIndex) => (
                             <div key={invIndex} style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(80px, 2fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(60px, 1fr)' : '2fr 1fr 1fr 1fr 1fr', gap: isMobile ? 8 : 12, padding: isMobile ? '4px 0' : '6px 0', fontSize: isMobile ? 11 : 13, color: '#1e293b', minWidth: isMobile ? '500px' : 'auto' }}>
-                              <div style={{ wordBreak: 'break-word' }}>{inv.STOCKITEMNAME || inv || '-'}</div>
+                              <div style={{ wordBreak: 'break-word' }}>{inv.STOCKITEMNAME || '-'}</div>
                               <div style={{ textAlign: 'right' }}>{inv.BILLEQTY || inv.ACTUALQTY || '-'}</div>
                               <div style={{ textAlign: 'right' }}>{inv.RATE || '-'}</div>
                               <div style={{ textAlign: 'right' }}>{inv.DISCOUNT || '0'}</div>

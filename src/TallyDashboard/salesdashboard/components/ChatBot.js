@@ -1894,82 +1894,187 @@ const ChatBot = ({ salesData, metrics }) => {
         const sampleSize = Math.min(10, salesData.length);
         const sampleData = salesData.slice(0, sampleSize);
         
-        // Check for explicit currency indicators in data (if any field contains currency info)
-        const dataStr = JSON.stringify(sampleData).toLowerCase();
-        
-        // Look for currency indicators in the data
-        if (dataStr.includes('rupee') || dataStr.includes('inr') || dataStr.includes('₹')) {
-          detectedCurrency = '₹';
-          currencyName = 'Indian Rupees';
-          currencySymbol = '₹';
-        } else if (dataStr.includes('dollar') || dataStr.includes('usd') || dataStr.includes('$')) {
-          detectedCurrency = '$';
-          currencyName = 'US Dollars';
-          currencySymbol = '$';
-        } else {
-          // Analyze amount patterns - typical rupee amounts vs dollar amounts
-          // Indian rupee amounts often have different scales and patterns
-          const avgAmount = sampleData.reduce((sum, s) => sum + (s.amount || 0), 0) / sampleData.length;
-          const maxAmount = Math.max(...sampleData.map(s => s.amount || 0));
-          
-          // If amounts are very large (typical of Indian numbering), likely rupees
-          // If amounts are in typical dollar ranges, likely dollars
-          // Default to rupees if uncertain (since Tally is primarily Indian software)
-          if (maxAmount > 1000000 || avgAmount > 100000) {
-            // Very large numbers suggest Indian numbering system (lakhs/crores)
-            detectedCurrency = '₹';
-            currencyName = 'Indian Rupees';
-            currencySymbol = '₹';
-          } else {
-            // Default to rupees for Tally data, but let LLM verify from actual data
-            detectedCurrency = '₹';
-            currencyName = 'Indian Rupees';
-            currencySymbol = '₹';
+        // FIRST: Check the "country" field in salesData - this is the most reliable indicator
+        // API data structure shows country="India" or "INDIA" for Indian Rupees
+        let countryFound = null;
+        for (const record of sampleData) {
+          if (record.country) {
+            const countryLower = String(record.country).toLowerCase();
+            if (countryLower.includes('india')) {
+              countryFound = 'India';
+              break;
+            } else if (countryLower.includes('usa') || countryLower.includes('united states')) {
+              countryFound = 'USA';
+              break;
+            }
           }
         }
         
-        console.log(`💰 Detected currency from data: ${currencySymbol} (${currencyName})`);
+        // If country field indicates India, use ₹ (most reliable)
+        if (countryFound === 'India') {
+          detectedCurrency = '₹';
+          currencyName = 'Indian Rupees';
+          currencySymbol = '₹';
+          console.log(`💰 Detected currency from country field: ${currencySymbol} (${currencyName})`);
+        } else if (countryFound === 'USA') {
+          detectedCurrency = '$';
+          currencyName = 'US Dollars';
+          currencySymbol = '$';
+          console.log(`💰 Detected currency from country field: ${currencySymbol} (${currencyName})`);
+        } else {
+          // Fallback: Check for explicit currency indicators in data (if any field contains currency info)
+          const dataStr = JSON.stringify(sampleData).toLowerCase();
+          
+          // Look for currency indicators in the data
+          if (dataStr.includes('rupee') || dataStr.includes('inr') || dataStr.includes('₹')) {
+            detectedCurrency = '₹';
+            currencyName = 'Indian Rupees';
+            currencySymbol = '₹';
+          } else if (dataStr.includes('dollar') || dataStr.includes('usd') || dataStr.includes('$')) {
+            detectedCurrency = '$';
+            currencyName = 'US Dollars';
+            currencySymbol = '$';
+          } else {
+            // Since Tally is Indian accounting software, default strongly to ₹
+            // The app's formatCurrency function also uses ₹ (see SalesDashboard.js line 2151)
+            detectedCurrency = '₹';
+            currencyName = 'Indian Rupees';
+            currencySymbol = '₹';
+            console.log(`💰 Defaulting to ₹ (Tally is Indian software, app uses ₹ format)`);
+          }
+        }
+        
+        console.log(`💰 Final detected currency: ${currencySymbol} (${currencyName})`);
         console.log(`📊 Sample analysis - Avg amount: ${sampleData.reduce((sum, s) => sum + (s.amount || 0), 0) / sampleData.length}, Max: ${Math.max(...sampleData.map(s => s.amount || 0))}`);
       } else {
-        // Default fallback
+        // Default fallback - Tally is Indian software, so default to ₹
         detectedCurrency = '₹';
         currencyName = 'Indian Rupees';
         currencySymbol = '₹';
+        console.log(`💰 No data available, defaulting to ₹ (Tally is Indian software)`);
       }
 
-      const systemPrompt = `You are a helpful AI assistant analyzing sales data. You have access to complete sales data, metrics, and conversation context.
+      const systemPrompt = `You are a helpful AI assistant analyzing sales data from Tally (Indian accounting software). You have access to complete sales data, metrics, and conversation context.
 
-⚠️ CRITICAL CURRENCY REQUIREMENT:
-YOU MUST ANALYZE THE ACTUAL DATA BELOW TO DETERMINE THE CORRECT CURRENCY.
+⚠️ CRITICAL CURRENCY REQUIREMENT - READ CAREFULLY:
+The data comes from Tally, which is Indian accounting software. ALL amounts in the data are in ${currencyName} (${currencySymbol}).
 
-CURRENCY DETECTION INSTRUCTIONS:
-1. Look at the "amount" and "profit" values in the sales data
-2. Check if the data contains any currency indicators (₹, $, rupee, dollar, INR, USD, etc.)
-3. Analyze the scale and pattern of amounts:
-   - If amounts are in typical Indian rupee ranges (e.g., 8200, 31697, 100000+) and follow Indian numbering patterns, use ₹ (Indian Rupees)
-   - If amounts are in typical US dollar ranges (e.g., 82.00, 316.97, 1000+) and follow US numbering patterns, use $ (US Dollars)
-   - If you see currency symbols or text in the data itself, use that currency
-4. The currency in your output MUST MATCH the currency in the data - if data shows rupees, output rupees; if data shows dollars, output dollars
+DETECTED CURRENCY FROM DATA ANALYSIS: ${currencySymbol} (${currencyName})
+- This was determined by checking the "country" field in the data (which shows "India"/"INDIA")
+- The application uses ${currencySymbol} for all currency formatting
+- Tally software is Indian accounting software that uses ${currencySymbol}
 
-CURRENCY TO USE: Based on the data analysis above, use the currency that matches the data:
-- If data is in rupees: Use ₹ (Indian Rupees) for ALL monetary values
-- If data is in dollars: Use $ (US Dollars) for ALL monetary values
-- DO NOT mix currencies - use the SAME currency as in the data
-- ALL amounts must be prefixed with the correct currency symbol
-- When mentioning currency in text, use the correct currency name
+KEY FACTS ABOUT THE DATA:
+1. The API returns amounts as plain numbers (e.g., "385.00", "2,300.00") WITHOUT currency symbols
+2. The "country" field in the data is "India" or "INDIA" - this confirms ${currencySymbol} currency
+3. Tally software is used primarily in India and uses ${currencyName}
+4. The application's currency formatting function uses ${currencySymbol} (${currencyName})
+
+CURRENCY RULES - STRICTLY ENFORCE:
+- You MUST use ₹ (Indian Rupee symbol) for ALL monetary values
+- NEVER use $ (dollar sign) or "dollars" or "USD" - these are WRONG
+- NEVER use any currency other than ₹
+- ALL amounts must be prefixed with ₹ symbol
+- When mentioning currency in text, say "rupees" or "₹", NEVER "dollars" or "$"
 
 📊 DATA FIELD EXPLANATIONS:
 - "amount": The sales/revenue amount for each transaction (use this as the primary value)
 - "profit": The profit amount for each transaction (if you mention profit, clearly label it as "profit")
 - "quantity": The number of units sold
-- When showing values, be clear: "Amount: [CURRENCY]X, Profit: [CURRENCY]Y" NOT "[CURRENCY]X ([CURRENCY]Y)"
-- NEVER use confusing formats like "[CURRENCY]2000 ([CURRENCY]31697)" - instead say "Amount: [CURRENCY]2,000, Profit: [CURRENCY]31,697" or just show the amount if profit isn't relevant
+- "country": The country field (typically "India" or "INDIA") - confirms ₹ currency
+- When showing values, be clear: "Amount: ₹X, Profit: ₹Y" NOT "₹X (₹Y)"
+- NEVER use confusing formats like "₹2000 (₹31697)" - instead say "Amount: ₹2,000, Profit: ₹31,697" or just show the amount if profit isn't relevant
 
 FORMATTING RULES:
 - Indian Rupees (₹): Use Indian numbering (₹1,00,000 for one lakh, ₹10,00,000 for ten lakhs)
-- US Dollars ($): Use US numbering ($1,000,000 for one million)
-- Always format numbers with appropriate commas based on currency
-- When showing multiple values, use clear labels: "Revenue: [CURRENCY]X, Profit: [CURRENCY]Y"
+- Always format numbers with appropriate commas using Indian numbering system
+- When showing multiple values, use clear labels: "Revenue: ₹X, Profit: ₹Y"
+
+⚠️ RESPONSE STYLE REQUIREMENTS - USER-FRIENDLY & CONCISE:
+- Answer ONLY what is asked - do not provide unnecessary background or explanations
+- Be EXTREMELY direct and to the point - NO long stories, NO verbose introductions, NO rambling
+- STOP immediately after answering the question - do not continue with unrelated topics
+- If you don't understand the question, ask for clarification - DO NOT generate unrelated content
+- Use NATURAL, BUSINESS-FRIENDLY language - write as if talking to a business owner, NOT a developer
+- NEVER show technical details like: IDs, GST numbers, pincodes, JSON formats, raw data structures, or technical identifiers
+- Format responses in a clean, readable way that common users can understand
+- Use simple, conversational language - avoid technical jargon
+- Keep responses SHORT - typically 1-3 sentences or a simple list
+- If asked "What is total sales?", answer: "Total sales: ₹X" (NOT "Based on my comprehensive analysis of your sales data, I can tell you that the total sales amount comes to approximately ₹X...")
+- Do not add context, explanations, or stories unless specifically requested
+- NEVER generate content about unrelated topics (academic papers, research studies, SQLAlchemy, Python, etc.) - ONLY answer questions about the sales data
+- If the question is unclear or seems unrelated to sales data, simply say "I can help you analyze your sales data. Could you clarify your question?"
+
+📊 TABLE FORMAT FOR STRUCTURED DATA:
+- When showing lists (top customers, top products, regional sales, etc.), ALWAYS use TABLE format
+- Tables should be simple and clean with clear column headers
+- Use markdown table format: | Column 1 | Column 2 | Column 3 |
+- For "top 5 customers" questions, show: Customer Name | Revenue | Orders (or similar relevant columns)
+- Keep tables concise - only show essential information
+- NEVER write paragraph-style descriptions for lists - ALWAYS use table format
+- Example format for top customers:
+  | Customer | Revenue | Orders |
+  |----------|---------|--------|
+  | Customer A | ₹2,300 | 3 |
+  | Customer B | ₹1,900 | 2 |
+
+WHAT TO AVOID (Technical/Developer Language):
+- ❌ "Customer A with ID: 206, GST No.: 29ABCDE1234F1ZR, Pincode: 560061"
+- ❌ "{category: "Other", item: "Item D", quantity: 1, amount: 230, region: "Karnataka"}"
+- ❌ "Total Profit: ₹52,806.76 for December 3rd to ACCEPTED_JSON"
+- ❌ Showing any technical identifiers, codes, or raw data structures
+
+WHAT TO USE (User-Friendly Language):
+- ✅ "Customer A - ₹2,300"
+- ✅ "Karnataka: Item D, 1 unit, ₹230"
+- ✅ "Total profit: ₹52,806.76"
+- ✅ Simple, natural business language
+
+EXAMPLES:
+GOOD: "Total sales: ₹3,850"
+BAD: "Based on the comprehensive analysis of your sales data, I can tell you that the total sales amount comes to approximately $3,850..."
+
+GOOD: "Top 5 customers in November 2025:
+| Customer | Revenue | Orders |
+|----------|---------|--------|
+| Customer A | ₹2,300 | 3 |
+| Customer B | ₹1,900 | 2 |
+| Customer C | ₹1,500 | 1 |
+| Customer D | ₹1,200 | 2 |
+| Customer E | ₹800 | 1 |"
+
+BAD: "1. Customer A with ID: 206, GST No.: 29ABCDE1234F1ZR, Pincode: 560061"
+
+BAD: "- Customer A with revenue of ₹83,076.42 in total profit and orders placed on December 1st and March 3rd. Customer B generating a steady stream since their first recorded sale..."
+
+GOOD: "Regional sales:
+- Karnataka: ₹5,200
+- Maharashtra: ₹3,100"
+BAD: "{category: "Other", item: "Item D", quantity: 1, amount: 230, region: "Karnataka"}"
+
+CRITICAL - STOP GENERATING UNRELATED CONTENT:
+- If asked "top 5 customers", answer with ONLY a TABLE showing the list - do NOT write paragraphs or verbose descriptions
+- Use TABLE format for any list: top customers, top products, regional sales, etc.
+- If the question seems unclear or contains multiple unrelated parts, answer ONLY the sales data question and ignore the rest
+- NEVER generate content about: SQLAlchemy, Python code, academic research, educational studies, or any topic unrelated to sales data
+- If you see unrelated content in the question, IGNORE it and answer ONLY the sales data part
+- STOP immediately after providing the answer - do not continue with explanations, examples, or other topics
+- Maximum response length: Keep responses under 200 words. If the answer is a table or simple list, it should be much shorter
+- If the user's question contains unrelated text (like academic papers, research questions, etc.), extract ONLY the sales data question and answer that
+- Example: If user asks "top 5 customers" followed by unrelated text, answer ONLY a table with "Top 5 customers" and STOP
+- NEVER write paragraph-style descriptions for lists - ALWAYS use table format for structured data
+
+GOOD: "Top 5 customers:
+1. Customer A - ₹2,300
+2. Customer B - ₹1,900
+3. Customer C - ₹1,500
+4. Customer D - ₹1,200
+5. Customer E - ₹800"
+BAD: "1. Customer A and Bharathi (9)
+2. D-Link Technologies Pvt. Ltd.
+3. How many different types of items were sold? What is the total revenue from each customer, summed over all regions for a given period in FY 2024 was Rs. 15 lakh; how can I retrieve this information using SQLAlchemy..."
+
+CRITICAL: If the question is unclear or seems unrelated to sales data, respond with: "I can help you analyze your sales data. Could you clarify your question?" DO NOT generate long, rambling responses about unrelated topics.
 
 COMPLETE SALES DATA (${salesData?.length || 0} records):
 ${salesDataStr}
@@ -1980,14 +2085,19 @@ ${JSON.stringify(metrics, null, 2)}
 CONVERSATION CONTEXT:
 ${JSON.stringify(conversationContext, null, 2)}
 
-Analyze the user's query and provide helpful insights based on the complete data provided above. 
+Analyze the user's query and provide a CONCISE, USER-FRIENDLY answer based on the data above. 
 
-IMPORTANT:
-1. FIRST, analyze the data to determine what currency is being used (look at amount values, any currency indicators, etc.)
-2. THEN, use that SAME currency in your response - if data is in rupees, use ₹; if data is in dollars, use $
-3. Be clear and explicit when showing amounts - use labels like "Amount:", "Revenue:", "Profit:"
-4. Never use confusing formats like "[CURRENCY]X ([CURRENCY]Y)" without clear labels
-5. The currency in your output MUST match the currency in the data exactly`;
+CRITICAL REMINDERS:
+1. Use ₹ for ALL monetary values - NEVER use $ or dollars
+2. Answer ONLY what is asked - be EXTREMELY concise and direct (typically 1-3 sentences or a simple list)
+3. STOP immediately after answering - do not continue with unrelated topics
+4. If the question is unclear or unrelated to sales data, say: "I can help you analyze your sales data. Could you clarify your question?"
+5. Do not add unnecessary explanations or stories
+6. The currency is ALWAYS ₹ (Indian Rupees) - the country field confirms this
+7. Use NATURAL, BUSINESS-FRIENDLY language - write for business users, NOT developers
+8. NEVER show technical details: IDs, GST numbers, pincodes, JSON formats, or raw data structures
+9. Format responses in a clean, readable way that common users can easily understand
+10. NEVER generate content about unrelated topics (academic research, SQLAlchemy, Python, etc.) - ONLY answer questions about the sales data provided`;
 
       // Build conversation history
       const conversationHistory = payload.messages.slice(-10); // Last 10 messages for context
@@ -2065,24 +2175,36 @@ IMPORTANT:
                     throw new Error('Unexpected LLM response format');
                   }
 
-                  // Correct currency only if there's a clear mismatch in retry response
+                  // Aggressively correct currency in retry response to match detected currency
                   const hasRupeeSymbolRetry = responseText.includes('₹');
                   const hasDollarSymbolRetry = responseText.includes('$');
                   
-                  if (detectedCurrency === '₹' && hasDollarSymbolRetry && !hasRupeeSymbolRetry) {
-                    console.log('⚠️ Currency correction in retry: Data is in ₹ but LLM used only $. Correcting...');
+                  if (detectedCurrency === '₹' && hasDollarSymbolRetry) {
+                    console.log('⚠️ Currency correction in retry: Data is in ₹ but LLM used $. Correcting all $ to ₹...');
+                    // Replace $ symbols with ₹ (handle various formats)
                     responseText = responseText.replace(/\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g, '₹$1');
                     responseText = responseText.replace(/\$(\d+)/g, '₹$1');
                     responseText = responseText.replace(/\$\s*(\d)/g, '₹$1');
+                    // Replace dollar text with rupee/₹
                     responseText = responseText.replace(/(\d+)\s*dollars?/gi, '$1 rupees');
-                    responseText = responseText.replace(/dollars?\s*(\d+)/gi, 'rupees $1');
-                  } else if (detectedCurrency === '$' && hasRupeeSymbolRetry && !hasDollarSymbolRetry) {
-                    console.log('⚠️ Currency correction in retry: Data is in $ but LLM used only ₹. Correcting...');
+                    responseText = responseText.replace(/dollars?\s*(\d+)/gi, '₹$1');
+                    responseText = responseText.replace(/\bdollars?\b/gi, 'rupees');
+                    // Replace USD with INR or ₹
+                    responseText = responseText.replace(/\bUSD\b/gi, 'INR');
+                    responseText = responseText.replace(/\bUS\s*Dollars?\b/gi, 'Indian Rupees');
+                  } else if (detectedCurrency === '$' && hasRupeeSymbolRetry) {
+                    console.log('⚠️ Currency correction in retry: Data is in $ but LLM used ₹. Correcting all ₹ to $...');
+                    // Replace ₹ symbols with $ (handle various formats)
                     responseText = responseText.replace(/₹(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g, '$$1');
                     responseText = responseText.replace(/₹(\d+)/g, '$$1');
                     responseText = responseText.replace(/₹\s*(\d)/g, '$$1');
+                    // Replace rupee text with dollar
                     responseText = responseText.replace(/(\d+)\s*rupees?/gi, '$1 dollars');
-                    responseText = responseText.replace(/rupees?\s*(\d+)/gi, 'dollars $1');
+                    responseText = responseText.replace(/rupees?\s*(\d+)/gi, '$$1');
+                    responseText = responseText.replace(/\brupees?\b/gi, 'dollars');
+                    // Replace INR with USD
+                    responseText = responseText.replace(/\bINR\b/gi, 'USD');
+                    responseText = responseText.replace(/\bIndian\s*Rupees?\b/gi, 'US Dollars');
                   }
 
                   // Clean up confusing currency formats in retry response
@@ -2115,6 +2237,40 @@ IMPORTANT:
                       return `${detectedCurrency}${formatted1}`;
                     }
                   });
+
+                  // Post-process to remove unrelated content and ensure concise responses (retry)
+                  const unrelatedKeywordsRetry = ['sqlalchemy', 'python', 'academic', 'research paper', 'study', 'abstract', 'methodology', 'literature review', 'peer-reviewed', 'scholarly', 'university', 'phd', 'dissertation', 'thesis'];
+                  const responseLowerRetry = responseText.toLowerCase();
+                  const hasUnrelatedContentRetry = unrelatedKeywordsRetry.some(keyword => responseLowerRetry.includes(keyword));
+                  
+                  if (hasUnrelatedContentRetry) {
+                    console.log('⚠️ Detected unrelated content in retry response, truncating...');
+                    let truncateIndexRetry = responseText.length;
+                    for (const keyword of unrelatedKeywordsRetry) {
+                      const index = responseLowerRetry.indexOf(keyword);
+                      if (index !== -1 && index < truncateIndexRetry) {
+                        truncateIndexRetry = index;
+                      }
+                    }
+                    const truncatedRetry = responseText.substring(0, truncateIndexRetry);
+                    const lastSentenceEndRetry = Math.max(
+                      truncatedRetry.lastIndexOf('.'),
+                      truncatedRetry.lastIndexOf('\n'),
+                      truncatedRetry.lastIndexOf('!'),
+                      truncatedRetry.lastIndexOf('?')
+                    );
+                    if (lastSentenceEndRetry > 50) {
+                      responseText = truncatedRetry.substring(0, lastSentenceEndRetry + 1).trim();
+                      console.log('✅ Truncated retry response to remove unrelated content');
+                    }
+                  }
+                  
+                  // Enforce maximum length (200 words) for retry response
+                  const wordsRetry = responseText.split(/\s+/);
+                  if (wordsRetry.length > 200) {
+                    console.log('⚠️ Retry response too long, truncating to 200 words...');
+                    responseText = wordsRetry.slice(0, 200).join(' ') + '...';
+                  }
 
                   const botMessage = {
                     type: 'bot',
@@ -2176,30 +2332,40 @@ IMPORTANT:
 
       console.log('💬 LLM response text:', responseText);
 
-      // Correct currency only if LLM uses wrong currency compared to detected currency from data
+      // Aggressively correct currency to match detected currency from data
       // This is a safety net - the LLM should already be using the correct currency from data analysis
       const hasRupeeSymbol = responseText.includes('₹');
       const hasDollarSymbol = responseText.includes('$');
       
-      // Only correct if there's a clear mismatch
-      // If detected currency is ₹ but response only has $ (and no ₹), correct it
-      // If detected currency is $ but response only has ₹ (and no $), correct it
-      if (detectedCurrency === '₹' && hasDollarSymbol && !hasRupeeSymbol) {
-        console.log('⚠️ Currency correction: Data is in ₹ but LLM used only $. Correcting...');
+      // If detected currency is ₹, aggressively replace ALL $ with ₹ (even if ₹ also appears)
+      if (detectedCurrency === '₹' && hasDollarSymbol) {
+        console.log('⚠️ Currency correction: Data is in ₹ but LLM used $. Correcting all $ to ₹...');
+        // Replace $ symbols with ₹ (handle various formats)
         responseText = responseText.replace(/\$(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g, '₹$1');
         responseText = responseText.replace(/\$(\d+)/g, '₹$1');
         responseText = responseText.replace(/\$\s*(\d)/g, '₹$1');
+        // Replace dollar text with rupee/₹
         responseText = responseText.replace(/(\d+)\s*dollars?/gi, '$1 rupees');
-        responseText = responseText.replace(/dollars?\s*(\d+)/gi, 'rupees $1');
-      } else if (detectedCurrency === '$' && hasRupeeSymbol && !hasDollarSymbol) {
-        console.log('⚠️ Currency correction: Data is in $ but LLM used only ₹. Correcting...');
+        responseText = responseText.replace(/dollars?\s*(\d+)/gi, '₹$1');
+        responseText = responseText.replace(/\bdollars?\b/gi, 'rupees');
+        // Replace USD with INR or ₹
+        responseText = responseText.replace(/\bUSD\b/gi, 'INR');
+        responseText = responseText.replace(/\bUS\s*Dollars?\b/gi, 'Indian Rupees');
+      } else if (detectedCurrency === '$' && hasRupeeSymbol) {
+        console.log('⚠️ Currency correction: Data is in $ but LLM used ₹. Correcting all ₹ to $...');
+        // Replace ₹ symbols with $ (handle various formats)
         responseText = responseText.replace(/₹(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/g, '$$1');
         responseText = responseText.replace(/₹(\d+)/g, '$$1');
         responseText = responseText.replace(/₹\s*(\d)/g, '$$1');
+        // Replace rupee text with dollar
         responseText = responseText.replace(/(\d+)\s*rupees?/gi, '$1 dollars');
-        responseText = responseText.replace(/rupees?\s*(\d+)/gi, 'dollars $1');
+        responseText = responseText.replace(/rupees?\s*(\d+)/gi, '$$1');
+        responseText = responseText.replace(/\brupees?\b/gi, 'dollars');
+        // Replace INR with USD
+        responseText = responseText.replace(/\bINR\b/gi, 'USD');
+        responseText = responseText.replace(/\bIndian\s*Rupees?\b/gi, 'US Dollars');
       } else {
-        // LLM is using the correct currency or mixed (which might be intentional)
+        // LLM is using the correct currency
         console.log(`✅ Currency check: LLM response uses ${hasRupeeSymbol ? '₹' : ''}${hasDollarSymbol ? '$' : ''} (detected: ${detectedCurrency})`);
       }
 
@@ -2237,6 +2403,43 @@ IMPORTANT:
           return `${detectedCurrency}${formatted1}`;
         }
       });
+
+      // Post-process to remove unrelated content and ensure concise responses
+      // Check for unrelated topics and truncate if found
+      const unrelatedKeywords = ['sqlalchemy', 'python', 'academic', 'research paper', 'study', 'abstract', 'methodology', 'literature review', 'peer-reviewed', 'scholarly', 'university', 'phd', 'dissertation', 'thesis'];
+      const responseLower = responseText.toLowerCase();
+      const hasUnrelatedContent = unrelatedKeywords.some(keyword => responseLower.includes(keyword));
+      
+      if (hasUnrelatedContent) {
+        console.log('⚠️ Detected unrelated content in response, truncating...');
+        // Find the first occurrence of unrelated content and truncate there
+        let truncateIndex = responseText.length;
+        for (const keyword of unrelatedKeywords) {
+          const index = responseLower.indexOf(keyword);
+          if (index !== -1 && index < truncateIndex) {
+            truncateIndex = index;
+          }
+        }
+        // Truncate at the last sentence before unrelated content
+        const truncated = responseText.substring(0, truncateIndex);
+        const lastSentenceEnd = Math.max(
+          truncated.lastIndexOf('.'),
+          truncated.lastIndexOf('\n'),
+          truncated.lastIndexOf('!'),
+          truncated.lastIndexOf('?')
+        );
+        if (lastSentenceEnd > 50) { // Only truncate if we have enough content
+          responseText = truncated.substring(0, lastSentenceEnd + 1).trim();
+          console.log('✅ Truncated response to remove unrelated content');
+        }
+      }
+      
+      // Enforce maximum length (200 words)
+      const words = responseText.split(/\s+/);
+      if (words.length > 200) {
+        console.log('⚠️ Response too long, truncating to 200 words...');
+        responseText = words.slice(0, 200).join(' ') + '...';
+      }
 
       console.log('💬 Final response text:', responseText);
 

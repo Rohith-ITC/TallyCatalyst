@@ -10802,6 +10802,12 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   const [fieldBeingConfigured, setFieldBeingConfigured] = useState(null);
   const [isDateSettingsModal, setIsDateSettingsModal] = useState(false);
 
+  // AI mode state
+  const [activeTab, setActiveTab] = useState('manual'); // 'manual' or 'ai'
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
+
   // Update form when editingCard changes
   useEffect(() => {
     if (editingCard) {
@@ -10982,6 +10988,318 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     const uniqueFields = Array.from(fieldsMap.values());
     return uniqueFields.sort((a, b) => a.label.localeCompare(b.label));
   }, [salesData]);
+  
+  // AI card generation function
+  const generateCardWithAI = async (prompt) => {
+    if (!prompt.trim()) {
+      throw new Error('Please enter a prompt');
+    }
+    
+    // Extract category and value fields for the LLM
+    const categoryFields = allFields
+      .filter(f => f.type === 'category')
+      .map(f => ({ value: f.value, label: f.label }));
+    
+    const valueFields = allFields
+      .filter(f => f.type === 'value')
+      .map(f => ({ value: f.value, label: f.label, aggregation: f.aggregation }));
+    
+    // Build system prompt
+    const systemPrompt = `You are an AI assistant that helps create data visualization configurations for a sales dashboard.
+
+The sales data has already been transformed into flat records. Each record represents one inventory item from a sales voucher.
+
+AVAILABLE FIELDS:
+
+Category Fields (for groupBy - use to group/categorize data):
+${categoryFields.map(f => `- ${f.value}: ${f.label}`).join('\n')}
+
+Value Fields (for valueField - numeric data to aggregate):
+${valueFields.map(f => `- ${f.value}: ${f.label}${f.aggregation ? ` (default: ${f.aggregation})` : ''}`).join('\n')}
+
+CARD CONFIGURATION FORMAT:
+You must return ONLY ONE valid JSON object with this exact structure.
+- NO markdown code blocks (no \`\`\`json or \`\`\`)
+- NO explanations before or after the JSON
+- NO multiple objects
+- ONLY the JSON object itself
+
+Required structure:
+{
+  "title": "Card Title",
+  "groupBy": "field_name",
+  "dateGrouping": "month",
+  "aggregation": "sum",
+  "valueField": "amount",
+  "chartType": "bar",
+  "topN": 10
+}
+
+FIELD DESCRIPTIONS:
+- title: A descriptive title for the card (string)
+- groupBy: One of the category field values listed above (string, required)
+- dateGrouping: ONLY if groupBy is "date", use "day", "week", "month", or "year" (string, optional)
+- aggregation: "sum", "average", "count", "min", or "max" (string, required)
+- valueField: One of the value field values listed above (string, required)
+- chartType: "bar", "pie", "treemap", or "line" (string, required)
+- topN: Limit to top N items (number, optional - only include if user specifically asks for "top X")
+
+CHART TYPE SELECTION GUIDE:
+- "bar": Best for comparing values across categories (most common)
+- "pie": Best for showing proportions/percentages of a whole
+- "line": Best for trends over time (especially with date grouping)
+- "treemap": Best for hierarchical data with many categories
+
+EXAMPLE MAPPINGS:
+- "top 10 customers by revenue" → {"title":"Top 10 Customers by Revenue","groupBy":"customer","aggregation":"sum","valueField":"amount","chartType":"bar","topN":10}
+- "sales by region" → {"title":"Sales by Region","groupBy":"region","aggregation":"sum","valueField":"amount","chartType":"bar"}
+- "profit by item" → {"title":"Profit by Item","groupBy":"item","aggregation":"sum","valueField":"profit","chartType":"bar"}
+- "monthly revenue trend" → {"title":"Monthly Revenue Trend","groupBy":"date","dateGrouping":"month","aggregation":"sum","valueField":"amount","chartType":"line"}
+- "average order value by customer" → {"title":"Average Order Value by Customer","groupBy":"customer","aggregation":"average","valueField":"amount","chartType":"bar"}
+- "item sales distribution" → {"title":"Item Sales Distribution","groupBy":"item","aggregation":"sum","valueField":"amount","chartType":"pie"}
+
+IMPORTANT RULES:
+1. Return ONLY the JSON object - no markdown code blocks, no explanations, no extra text
+2. Use field values exactly as listed above (case-sensitive)
+3. Always include: title, groupBy, aggregation, valueField, chartType
+4. Only include dateGrouping if groupBy is "date"
+5. Only include topN if the user explicitly asks for "top X" or "first N"
+6. Choose aggregation wisely: "sum" for totals, "average" for means, "count" for counts
+7. If the user's request is unclear, make reasonable assumptions based on common business needs`;
+
+    try {
+      const llmUrl = 'http://127.0.0.1:11434/api/chat';
+      
+      // Try to detect available model
+      const modelsToTry = ['llama2', 'llama3', 'mistral', 'phi', 'gemma'];
+      let requestBody = {
+        model: modelsToTry[0],
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        stream: false,
+        temperature: 0, // Make output more deterministic and reduce corruption
+        format: 'json' // Request JSON format if supported by the model
+      };
+
+      console.log('🤖 Sending card generation request to LLM...');
+      const response = await fetch(llmUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ LLM API error:', errorText);
+        
+        // Try to get available models and retry
+        if (response.status === 404 || errorText.includes('model') || errorText.includes('not found')) {
+          try {
+            const modelsResponse = await fetch('http://127.0.0.1:11434/api/tags');
+            if (modelsResponse.ok) {
+              const modelsData = await modelsResponse.json();
+              if (modelsData.models && modelsData.models.length > 0) {
+                const firstModel = modelsData.models[0].name;
+                console.log(`🔄 Retrying with model: ${firstModel}`);
+                requestBody.model = firstModel;
+                const retryResponse = await fetch(llmUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(requestBody)
+                });
+                
+                if (retryResponse.ok) {
+                  const retryData = await retryResponse.json();
+                  return parseAIResponse(retryData);
+                }
+              }
+            }
+          } catch (modelsError) {
+            console.error('Failed to fetch models:', modelsError);
+          }
+        }
+        
+        throw new Error(`LLM API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return parseAIResponse(data);
+    } catch (error) {
+      console.error('AI generation error:', error);
+      throw error;
+    }
+  };
+
+  // Parse LLM response and extract cardConfig
+  const parseAIResponse = (data) => {
+    let responseText = '';
+    
+    // Extract response text from various possible formats
+    if (data.message && data.message.content) {
+      responseText = data.message.content;
+    } else if (data.response) {
+      responseText = data.response;
+    } else if (typeof data === 'string') {
+      responseText = data;
+    } else {
+      throw new Error('Unexpected LLM response format');
+    }
+
+    console.log('📥 LLM raw response:', responseText);
+
+    // Try to extract JSON from response
+    let jsonStr = responseText.trim();
+    
+    // Remove markdown code blocks (both ```json and ``` or just ```)
+    jsonStr = jsonStr.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+    
+    // Clean up common issues
+    jsonStr = jsonStr.trim();
+    
+    // Try to find the first complete JSON object with balanced braces
+    // This handles cases where LLM returns multiple objects or corrupted data
+    let braceCount = 0;
+    let startIndex = -1;
+    let endIndex = -1;
+    
+    for (let i = 0; i < jsonStr.length; i++) {
+      if (jsonStr[i] === '{') {
+        if (braceCount === 0) {
+          startIndex = i;
+        }
+        braceCount++;
+      } else if (jsonStr[i] === '}') {
+        braceCount--;
+        if (braceCount === 0 && startIndex !== -1) {
+          endIndex = i;
+          break;
+        }
+      }
+    }
+    
+    if (startIndex !== -1 && endIndex !== -1) {
+      jsonStr = jsonStr.substring(startIndex, endIndex + 1);
+    } else {
+      // Fallback to original regex approach
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      }
+    }
+    
+    // Remove any trailing commas before closing braces (common LLM error)
+    jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+    
+    // Remove any line breaks within string values that might break JSON
+    // This is a cautious approach - only fix obvious issues
+    jsonStr = jsonStr.replace(/"\s*\n\s*"/g, '" "');
+
+    try {
+      const cardConfig = JSON.parse(jsonStr);
+      
+      // Validate required fields
+      if (!cardConfig.title || !cardConfig.groupBy || !cardConfig.aggregation || 
+          !cardConfig.valueField || !cardConfig.chartType) {
+        throw new Error('Invalid card configuration: missing required fields');
+      }
+      
+      // Validate field values
+      const validChartTypes = ['bar', 'pie', 'treemap', 'line'];
+      if (!validChartTypes.includes(cardConfig.chartType)) {
+        cardConfig.chartType = 'bar'; // Default to bar if invalid
+      }
+      
+      const validAggregations = ['sum', 'average', 'count', 'min', 'max'];
+      if (!validAggregations.includes(cardConfig.aggregation)) {
+        cardConfig.aggregation = 'sum'; // Default to sum if invalid
+      }
+      
+      // Validate dateGrouping if present
+      if (cardConfig.dateGrouping) {
+        const validDateGroupings = ['day', 'week', 'month', 'year'];
+        if (!validDateGroupings.includes(cardConfig.dateGrouping)) {
+          delete cardConfig.dateGrouping;
+        }
+      }
+      
+      // Validate topN if present
+      if (cardConfig.topN !== undefined) {
+        cardConfig.topN = parseInt(cardConfig.topN, 10);
+        if (isNaN(cardConfig.topN) || cardConfig.topN <= 0) {
+          delete cardConfig.topN;
+        }
+      }
+      
+      console.log('✅ Parsed card config:', cardConfig);
+      return cardConfig;
+    } catch (parseError) {
+      console.error('Failed to parse JSON:', parseError);
+      console.error('Attempted to parse:', jsonStr);
+      console.error('Original response:', responseText);
+      
+      // Provide more helpful error message
+      throw new Error('Failed to parse AI response. The LLM returned invalid JSON. Please try again with a simpler prompt.');
+    }
+  };
+
+  // Handle AI generation
+  const handleAIGenerate = async () => {
+    setAiError(null);
+    setAiLoading(true);
+    
+    try {
+      const cardConfig = await generateCardWithAI(aiPrompt);
+      
+      // Auto-populate form fields with AI-generated config
+      setCardTitle(cardConfig.title);
+      
+      // Set selected fields
+      const fields = new Set();
+      fields.add(cardConfig.groupBy === 'date' ? 'date' : cardConfig.groupBy);
+      fields.add(cardConfig.valueField);
+      setSelectedFields(fields);
+      
+      // Set aggregation
+      setFieldAggregations({
+        [cardConfig.valueField]: cardConfig.aggregation
+      });
+      
+      // Set date grouping if applicable
+      if (cardConfig.groupBy === 'date' && cardConfig.dateGrouping) {
+        setDateGroupings({
+          date: cardConfig.dateGrouping
+        });
+      }
+      
+      // Set topN if present
+      if (cardConfig.topN) {
+        setTopN(String(cardConfig.topN));
+      }
+      
+      // Switch to manual tab for review
+      setActiveTab('manual');
+      setAiPrompt(''); // Clear prompt
+      
+      alert('✅ Card configuration generated! Review and adjust the settings below, then click "Create Card".');
+    } catch (error) {
+      console.error('AI generation failed:', error);
+      setAiError(error.message || 'Failed to generate card configuration');
+    } finally {
+      setAiLoading(false);
+    }
+  };
   
   // Filter fields based on search term
   const filteredFields = useMemo(() => {
@@ -11195,7 +11513,273 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
         </button>
       </div>
 
-      {/* Form Content */}
+      {/* Tab Navigation */}
+      <div style={{
+        display: 'flex',
+        borderBottom: '2px solid #e2e8f0',
+        background: '#fafbfc',
+        padding: '0 24px'
+      }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('manual')}
+          style={{
+            padding: '12px 20px',
+            border: 'none',
+            background: 'transparent',
+            color: activeTab === 'manual' ? '#7c3aed' : '#64748b',
+            fontWeight: activeTab === 'manual' ? '600' : '500',
+            fontSize: '14px',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'manual' ? '2px solid #7c3aed' : '2px solid transparent',
+            marginBottom: '-2px',
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={(e) => {
+            if (activeTab !== 'manual') {
+              e.currentTarget.style.color = '#475569';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (activeTab !== 'manual') {
+              e.currentTarget.style.color = '#64748b';
+            }
+          }}
+        >
+          Manual
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('ai')}
+          style={{
+            padding: '12px 20px',
+            border: 'none',
+            background: 'transparent',
+            color: activeTab === 'ai' ? '#7c3aed' : '#64748b',
+            fontWeight: activeTab === 'ai' ? '600' : '500',
+            fontSize: '14px',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'ai' ? '2px solid #7c3aed' : '2px solid transparent',
+            marginBottom: '-2px',
+            transition: 'all 0.2s ease',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+          onMouseEnter={(e) => {
+            if (activeTab !== 'ai') {
+              e.currentTarget.style.color = '#475569';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (activeTab !== 'ai') {
+              e.currentTarget.style.color = '#64748b';
+            }
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: '16px' }}>auto_awesome</span>
+          Generate with AI
+        </button>
+      </div>
+
+      {/* AI Mode Content */}
+      {activeTab === 'ai' && (
+        <div style={{
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '20px',
+          overflowY: 'auto',
+          flex: 1
+        }}>
+          <div style={{
+            background: '#eff6ff',
+            border: '1px solid #bfdbfe',
+            borderRadius: '8px',
+            padding: '14px 16px',
+            display: 'flex',
+            gap: '10px'
+          }}>
+            <span className="material-icons" style={{ 
+              fontSize: '20px', 
+              color: '#3b82f6',
+              marginTop: '1px'
+            }}>
+              info
+            </span>
+            <p style={{
+              margin: 0,
+              fontSize: '13px',
+              lineHeight: '1.5',
+              color: '#1e40af',
+              fontWeight: '500'
+            }}>
+              Describe the card you want to create. For example: "Top 10 customers by revenue", "Monthly sales trend", "Profit by region", etc.
+            </p>
+          </div>
+
+          <div>
+            <label style={{
+              display: 'block',
+              fontSize: '13px',
+              fontWeight: '500',
+              color: '#475569',
+              marginBottom: '6px',
+              letterSpacing: '0.01em'
+            }}>
+              Describe your card <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <textarea
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="e.g., Show me top 10 customers by revenue, or Create a monthly sales trend chart..."
+              rows={4}
+              style={{
+                width: '100%',
+                padding: '11px 14px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                transition: 'all 0.15s ease',
+                background: '#ffffff',
+                color: '#1e293b',
+                boxSizing: 'border-box',
+                fontFamily: 'inherit',
+                resize: 'vertical'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#3b82f6';
+                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#e2e8f0';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+          </div>
+
+          {aiError && (
+            <div style={{
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '8px',
+              padding: '14px 16px',
+              display: 'flex',
+              gap: '10px'
+            }}>
+              <span className="material-icons" style={{ 
+                fontSize: '20px', 
+                color: '#ef4444',
+                marginTop: '1px'
+              }}>
+                error
+              </span>
+              <p style={{
+                margin: 0,
+                fontSize: '13px',
+                lineHeight: '1.5',
+                color: '#991b1b',
+                fontWeight: '500'
+              }}>
+                {aiError}
+              </p>
+            </div>
+          )}
+
+          <div style={{
+            display: 'flex',
+            gap: '10px',
+            justifyContent: 'flex-end',
+            marginTop: 'auto',
+            paddingTop: '20px',
+            borderTop: '1px solid #f1f5f9'
+          }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '10px 20px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                background: '#ffffff',
+                color: '#64748b',
+                fontSize: '14px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                minWidth: '80px'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = '#f8fafc';
+                e.target.style.borderColor = '#cbd5e1';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = '#ffffff';
+                e.target.style.borderColor = '#e2e8f0';
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleAIGenerate}
+              disabled={aiLoading || !aiPrompt.trim()}
+              style={{
+                padding: '10px 24px',
+                border: 'none',
+                borderRadius: '8px',
+                background: (aiLoading || !aiPrompt.trim()) ? '#cbd5e1' : 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: (aiLoading || !aiPrompt.trim()) ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s ease',
+                boxShadow: (aiLoading || !aiPrompt.trim()) ? 'none' : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                minWidth: '110px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                justifyContent: 'center'
+              }}
+              onMouseEnter={(e) => {
+                if (!aiLoading && aiPrompt.trim()) {
+                  e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
+                  e.target.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!aiLoading && aiPrompt.trim()) {
+                  e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
+                  e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+                }
+              }}
+            >
+              {aiLoading ? (
+                <>
+                  <span className="material-icons" style={{ fontSize: '16px', animation: 'spin 1s linear infinite' }}>refresh</span>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>auto_awesome</span>
+                  Generate
+                </>
+              )}
+            </button>
+          </div>
+
+          <style>{`
+            @keyframes spin {
+              from { transform: rotate(0deg); }
+              to { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      )}
+
+      {/* Manual Mode Content */}
+      {activeTab === 'manual' && (
       <form onSubmit={handleSubmit} style={{ 
         padding: '24px',
         display: 'flex',
@@ -11687,6 +12271,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
           </button>
         </div>
       </form>
+      )}
       
       {/* Settings Modal (Value Field or Date Field) */}
       {settingsModalOpen && fieldBeingConfigured && (
