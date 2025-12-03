@@ -802,12 +802,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const dateMatch =
         (!dateRange.start || sale.date >= dateRange.start) &&
         (!dateRange.end || sale.date <= dateRange.end);
-      const customerMatch = selectedCustomer === 'all' || sale.customer === selectedCustomer;
-      const itemMatch = selectedItem === 'all' || sale.item === selectedItem;
-      const stockGroupMatch = selectedStockGroup === 'all' || sale.category === selectedStockGroup;
-      const ledgerGroupMatch = selectedLedgerGroup === 'all' || sale.ledgerGroup === selectedLedgerGroup;
-      const regionMatch = selectedRegion === 'all' || sale.region === selectedRegion;
-      const countryMatch = selectedCountry === 'all' || sale.country === selectedCountry;
+      const customerMatch = selectedCustomer === 'all' || (sale.customer && String(sale.customer).trim().toLowerCase() === String(selectedCustomer).trim().toLowerCase());
+      const itemMatch = selectedItem === 'all' || (sale.item && String(sale.item).trim().toLowerCase() === String(selectedItem).trim().toLowerCase());
+      const stockGroupMatch = selectedStockGroup === 'all' || (sale.category && String(sale.category).trim().toLowerCase() === String(selectedStockGroup).trim().toLowerCase());
+      const ledgerGroupMatch = selectedLedgerGroup === 'all' || (sale.ledgerGroup && String(sale.ledgerGroup).trim().toLowerCase() === String(selectedLedgerGroup).trim().toLowerCase());
+      const regionMatch = selectedRegion === 'all' || (sale.region && String(sale.region).trim().toLowerCase() === String(selectedRegion).trim().toLowerCase());
+      const countryMatch = selectedCountry === 'all' || (sale.country && String(sale.country).trim().toLowerCase() === String(selectedCountry).trim().toLowerCase());
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -932,12 +932,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const dateMatch =
         (!dateRange.start || sale.date >= dateRange.start) &&
         (!dateRange.end || sale.date <= dateRange.end);
-      const customerMatch = selectedCustomer === 'all' || sale.customer === selectedCustomer;
-      const itemMatch = selectedItem === 'all' || sale.item === selectedItem;
-      const stockGroupMatch = selectedStockGroup === 'all' || sale.category === selectedStockGroup;
-      const ledgerGroupMatch = selectedLedgerGroup === 'all' || sale.ledgerGroup === selectedLedgerGroup;
-      const regionMatch = selectedRegion === 'all' || sale.region === selectedRegion;
-      const countryMatch = selectedCountry === 'all' || sale.country === selectedCountry;
+      const customerMatch = selectedCustomer === 'all' || (sale.customer && String(sale.customer).trim().toLowerCase() === String(selectedCustomer).trim().toLowerCase());
+      const itemMatch = selectedItem === 'all' || (sale.item && String(sale.item).trim().toLowerCase() === String(selectedItem).trim().toLowerCase());
+      const stockGroupMatch = selectedStockGroup === 'all' || (sale.category && String(sale.category).trim().toLowerCase() === String(selectedStockGroup).trim().toLowerCase());
+      const ledgerGroupMatch = selectedLedgerGroup === 'all' || (sale.ledgerGroup && String(sale.ledgerGroup).trim().toLowerCase() === String(selectedLedgerGroup).trim().toLowerCase());
+      const regionMatch = selectedRegion === 'all' || (sale.region && String(sale.region).trim().toLowerCase() === String(selectedRegion).trim().toLowerCase());
+      const countryMatch = selectedCountry === 'all' || (sale.country && String(sale.country).trim().toLowerCase() === String(selectedCountry).trim().toLowerCase());
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -1557,13 +1557,41 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     avgProfitPerOrder
   } = metrics;
 
+  // Helper function for case-insensitive grouping
+  // Groups by lowercase key but preserves the original case for display
+  const groupByCaseInsensitive = (items, getKey, getValue) => {
+    const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, value: number }>
+    
+    items.forEach(item => {
+      const key = getKey(item);
+      if (!key) return;
+      
+      const normalizedKey = String(key).trim().toLowerCase();
+      const originalKey = String(key).trim();
+      
+      if (!grouped.has(normalizedKey)) {
+        grouped.set(normalizedKey, { originalKey, value: 0 });
+      }
+      
+      const entry = grouped.get(normalizedKey);
+      entry.value += getValue(item);
+      // Keep the most common casing (or first encountered) as the original
+      // For now, we'll use the first encountered casing
+    });
+    
+    return grouped;
+  };
+
   // Category chart data
   const categoryChartData = useMemo(() => {
-    const categoryData = filteredSales.reduce((acc, sale) => {
-      const category = sale.category;
-      acc[category] = (acc[category] || 0) + sale.amount;
-      return acc;
-    }, {});
+    const grouped = groupByCaseInsensitive(
+      filteredSales,
+      (sale) => sale.category,
+      (sale) => sale.amount || 0
+    );
+    const categoryData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, value }]) => [originalKey, value])
+    );
 
     // Extended color palette for dynamic categories
     const colors = [
@@ -1600,11 +1628,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Ledger Group chart data
   const ledgerGroupChartData = useMemo(() => {
-    const ledgerGroupData = filteredSales.reduce((acc, sale) => {
-      const ledgerGroup = sale.ledgerGroup;
-      acc[ledgerGroup] = (acc[ledgerGroup] || 0) + sale.amount;
-      return acc;
-    }, {});
+    const grouped = groupByCaseInsensitive(
+      filteredSales,
+      (sale) => sale.ledgerGroup,
+      (sale) => sale.amount || 0
+    );
+    const ledgerGroupData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, value }]) => [originalKey, value])
+    );
 
     // Extended color palette for dynamic ledger groups
     const colors = [
@@ -1641,11 +1672,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Region chart data
   const regionChartData = useMemo(() => {
-    const regionData = filteredSales.reduce((acc, sale) => {
-      const region = sale.region;
-      acc[region] = (acc[region] || 0) + sale.amount;
-      return acc;
-    }, {});
+    const grouped = groupByCaseInsensitive(
+      filteredSales,
+      (sale) => sale.region,
+      (sale) => sale.amount || 0
+    );
+    const regionData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, value }]) => [originalKey, value])
+    );
 
     // Extended color palette for regions
     const regionColors = [
@@ -1673,13 +1707,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Country chart data - uses existing sales data, NO API calls
   // Country data is extracted from the initial loadSales() response
   const countryChartData = useMemo(() => {
-    const countryData = filteredSales.reduce((acc, sale) => {
-      const country = sale.country || 'Unknown';
-      // Ensure country is a valid string
-      const countryKey = String(country).trim() || 'Unknown';
-      acc[countryKey] = (acc[countryKey] || 0) + sale.amount;
-      return acc;
-    }, {});
+    const grouped = groupByCaseInsensitive(
+      filteredSales,
+      (sale) => sale.country || 'Unknown',
+      (sale) => sale.amount || 0
+    );
+    const countryData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, value }]) => [originalKey || 'Unknown', value])
+    );
 
     // Extended color palette for countries
     const countryColors = [
@@ -1783,11 +1818,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Top customers data
   const topCustomersData = useMemo(() => {
-    const customerData = filteredSales.reduce((acc, sale) => {
-      const customer = sale.customer;
-      acc[customer] = (acc[customer] || 0) + sale.amount;
-      return acc;
-    }, {});
+    const grouped = groupByCaseInsensitive(
+      filteredSales,
+      (sale) => sale.customer,
+      (sale) => sale.amount || 0
+    );
+    const customerData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, value }]) => [originalKey, value])
+    );
 
     // Extended color palette for customers
     const customerColors = [
@@ -1815,15 +1853,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Top items by revenue data
   const topItemsByRevenueData = useMemo(() => {
-    const itemData = filteredSales.reduce((acc, sale) => {
+    const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, revenue: number, quantity: number }>
+    
+    filteredSales.forEach(sale => {
       const item = sale.item;
-      if (!acc[item]) {
-        acc[item] = { revenue: 0, quantity: 0 };
+      if (!item) return;
+      
+      const normalizedKey = String(item).trim().toLowerCase();
+      const originalKey = String(item).trim();
+      
+      if (!grouped.has(normalizedKey)) {
+        grouped.set(normalizedKey, { originalKey, revenue: 0, quantity: 0 });
       }
-      acc[item].revenue += sale.amount;
-      acc[item].quantity += sale.quantity;
-      return acc;
-    }, {});
+      
+      const entry = grouped.get(normalizedKey);
+      entry.revenue += sale.amount || 0;
+      entry.quantity += sale.quantity || 0;
+    });
+    
+    const itemData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, revenue, quantity }]) => [
+        originalKey,
+        { revenue, quantity }
+      ])
+    );
 
     // Extended color palette for items
     const itemColors = [
@@ -1851,15 +1904,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Top items by quantity data
   const topItemsByQuantityData = useMemo(() => {
-    const itemData = filteredSales.reduce((acc, sale) => {
+    const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, revenue: number, quantity: number }>
+    
+    filteredSales.forEach(sale => {
       const item = sale.item;
-      if (!acc[item]) {
-        acc[item] = { revenue: 0, quantity: 0 };
+      if (!item) return;
+      
+      const normalizedKey = String(item).trim().toLowerCase();
+      const originalKey = String(item).trim();
+      
+      if (!grouped.has(normalizedKey)) {
+        grouped.set(normalizedKey, { originalKey, revenue: 0, quantity: 0 });
       }
-      acc[item].revenue += sale.amount;
-      acc[item].quantity += sale.quantity;
-      return acc;
-    }, {});
+      
+      const entry = grouped.get(normalizedKey);
+      entry.revenue += sale.amount || 0;
+      entry.quantity += sale.quantity || 0;
+    });
+    
+    const itemData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, revenue, quantity }]) => [
+        originalKey,
+        { revenue, quantity }
+      ])
+    );
 
     // Extended color palette for quantity items
     const quantityColors = [
@@ -1985,15 +2053,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Top 10 profitable items chart data
   const topProfitableItemsData = useMemo(() => {
-    const itemData = filteredSales.reduce((acc, sale) => {
+    const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, profit: number, revenue: number }>
+    
+    filteredSales.forEach(sale => {
       const item = sale.item;
-      if (!acc[item]) {
-        acc[item] = { profit: 0, revenue: 0 };
+      if (!item) return;
+      
+      const normalizedKey = String(item).trim().toLowerCase();
+      const originalKey = String(item).trim();
+      
+      if (!grouped.has(normalizedKey)) {
+        grouped.set(normalizedKey, { originalKey, profit: 0, revenue: 0 });
       }
-      acc[item].profit += sale.profit || 0;
-      acc[item].revenue += sale.amount;
-      return acc;
-    }, {});
+      
+      const entry = grouped.get(normalizedKey);
+      entry.profit += sale.profit || 0;
+      entry.revenue += sale.amount || 0;
+    });
+    
+    const itemData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, profit, revenue }]) => [
+        originalKey,
+        { profit, revenue }
+      ])
+    );
 
     const profitColors = [
       '#10b981', // Green
@@ -2021,15 +2104,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Top 10 loss items chart data (items with negative profit)
   const topLossItemsData = useMemo(() => {
-    const itemData = filteredSales.reduce((acc, sale) => {
+    const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, profit: number, revenue: number }>
+    
+    filteredSales.forEach(sale => {
       const item = sale.item;
-      if (!acc[item]) {
-        acc[item] = { profit: 0, revenue: 0 };
+      if (!item) return;
+      
+      const normalizedKey = String(item).trim().toLowerCase();
+      const originalKey = String(item).trim();
+      
+      if (!grouped.has(normalizedKey)) {
+        grouped.set(normalizedKey, { originalKey, profit: 0, revenue: 0 });
       }
-      acc[item].profit += sale.profit || 0;
-      acc[item].revenue += sale.amount;
-      return acc;
-    }, {});
+      
+      const entry = grouped.get(normalizedKey);
+      entry.profit += sale.profit || 0;
+      entry.revenue += sale.amount || 0;
+    });
+    
+    const itemData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, profit, revenue }]) => [
+        originalKey,
+        { profit, revenue }
+      ])
+    );
 
     const lossColors = [
       '#ef4444', // Red
@@ -2124,6 +2222,501 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     selectedSalesperson !== null ||
     (genericFilters && Object.keys(genericFilters).length > 0 && Object.values(genericFilters).some(v => v !== null && v !== 'all' && v !== ''));
 
+  // Helper function to render filter badges for a specific card
+  const renderCardFilterBadges = (cardType, cardId = null) => {
+    const badges = [];
+    
+    // Map card types to their relevant filters
+    const filterMap = {
+      'customer': ['selectedCustomer'],
+      'item': ['selectedItem'],
+      'stockGroup': ['selectedStockGroup'],
+      'region': ['selectedRegion'],
+      'country': ['selectedCountry'],
+      'period': ['selectedPeriod'],
+      'salesperson': ['selectedSalesperson'],
+      'ledgerGroup': ['selectedLedgerGroup'],
+      'topCustomers': ['selectedCustomer'],
+      'topItems': ['selectedItem'],
+      'custom': cardId ? [`generic_${cardId}`] : []
+    };
+    
+    const relevantFilters = filterMap[cardType] || [];
+    
+    // Add customer filter badge
+    if (relevantFilters.includes('selectedCustomer') && selectedCustomer !== 'all') {
+      badges.push(
+        <div
+          key="customer-filter"
+          style={{
+            background: '#dbeafe',
+            border: '1px solid #93c5fd',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#1e40af',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>person</span>
+          {isMobile ? 'Customer' : `Customer: ${selectedCustomer}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedCustomer('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#1e40af',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#93c5fd';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add item filter badge
+    if (relevantFilters.includes('selectedItem') && selectedItem !== 'all') {
+      badges.push(
+        <div
+          key="item-filter"
+          style={{
+            background: '#dcfce7',
+            border: '1px solid #86efac',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#166534',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>inventory_2</span>
+          {isMobile ? 'Item' : `Item: ${selectedItem}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedItem('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#166534',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#86efac';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add stock group filter badge
+    if (relevantFilters.includes('selectedStockGroup') && selectedStockGroup !== 'all') {
+      badges.push(
+        <div
+          key="stockGroup-filter"
+          style={{
+            background: '#fef3c7',
+            border: '1px solid #fcd34d',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#92400e',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>category</span>
+          {isMobile ? 'Stock Group' : `Stock Group: ${selectedStockGroup}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedStockGroup('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#92400e',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#fcd34d';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add region filter badge
+    if (relevantFilters.includes('selectedRegion') && selectedRegion !== 'all') {
+      badges.push(
+        <div
+          key="region-filter"
+          style={{
+            background: '#e0e7ff',
+            border: '1px solid #a5b4fc',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#3730a3',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>location_on</span>
+          {isMobile ? 'State' : `State: ${selectedRegion}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedRegion('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#3730a3',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#a5b4fc';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add country filter badge
+    if (relevantFilters.includes('selectedCountry') && selectedCountry !== 'all') {
+      badges.push(
+        <div
+          key="country-filter"
+          style={{
+            background: '#fef3c7',
+            border: '1px solid #fcd34d',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#92400e',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>public</span>
+          {isMobile ? 'Country' : `Country: ${selectedCountry}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedCountry('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#92400e',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#fcd34d';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add period filter badge
+    if (relevantFilters.includes('selectedPeriod') && selectedPeriod !== null) {
+      badges.push(
+        <div
+          key="period-filter"
+          style={{
+            background: '#fce7f3',
+            border: '1px solid #f9a8d4',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#9d174d',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>calendar_month</span>
+          {isMobile ? 'Period' : `Period: ${formatPeriodLabel(selectedPeriod)}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedPeriod(null);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#9d174d',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#f9a8d4';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add salesperson filter badge
+    if (relevantFilters.includes('selectedSalesperson') && selectedSalesperson !== null) {
+      badges.push(
+        <div
+          key="salesperson-filter"
+          style={{
+            background: '#fff7ed',
+            border: '1px solid #fed7aa',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#c2410c',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>person_outline</span>
+          {isMobile ? 'Salesperson' : `Salesperson: ${selectedSalesperson}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedSalesperson(null);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#c2410c',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#fed7aa';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add ledger group filter badge
+    if (relevantFilters.includes('selectedLedgerGroup') && selectedLedgerGroup !== 'all') {
+      badges.push(
+        <div
+          key="ledgerGroup-filter"
+          style={{
+            background: '#f3e8ff',
+            border: '1px solid #c084fc',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#6b21a8',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>group</span>
+          {isMobile ? 'Ledger Group' : `Ledger Group: ${selectedLedgerGroup}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedLedgerGroup('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#6b21a8',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#c084fc';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add generic filters for custom cards
+    if (cardId && genericFilters) {
+      Object.entries(genericFilters).forEach(([filterKey, filterValue]) => {
+        if (filterKey.startsWith(`${cardId}_`) && filterValue && filterValue !== 'all' && filterValue !== '') {
+          const fieldName = filterKey.replace(`${cardId}_`, '');
+          const fieldLabel = fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
+          const card = customCards.find(c => c.id === cardId);
+          
+          badges.push(
+            <div
+              key={filterKey}
+              style={{
+                background: '#f0f9ff',
+                border: '1px solid #7dd3fc',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#0c4a6e',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>filter_alt</span>
+              {isMobile ? fieldLabel : `${fieldLabel}: ${filterValue}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setGenericFilters(prev => {
+                    const updated = { ...prev };
+                    delete updated[filterKey];
+                    try {
+                      sessionStorage.setItem('customCardGenericFilters', JSON.stringify(updated));
+                    } catch (e) {
+                      console.warn('Failed to update generic filters:', e);
+                    }
+                    return updated;
+                  });
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#0c4a6e',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#7dd3fc';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+      });
+    }
+    
+    return badges.length > 0 ? (
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+        {badges}
+      </div>
+    ) : null;
+  };
+
   const clearAllFilters = () => {
     // Only clear interactive filters - do NOT touch cache or date range
     console.log('🧹 Clearing interactive filters only (preserving cache and date range)...');
@@ -2174,19 +2767,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     // Apply custom card filters (if specified)
     if (cardConfig.filters) {
       if (cardConfig.filters.customer && cardConfig.filters.customer !== 'all') {
-        filteredData = filteredData.filter(s => s.customer === cardConfig.filters.customer);
+        filteredData = filteredData.filter(s => s.customer && String(s.customer).trim().toLowerCase() === String(cardConfig.filters.customer).trim().toLowerCase());
       }
       if (cardConfig.filters.item && cardConfig.filters.item !== 'all') {
-        filteredData = filteredData.filter(s => s.item === cardConfig.filters.item);
+        filteredData = filteredData.filter(s => s.item && String(s.item).trim().toLowerCase() === String(cardConfig.filters.item).trim().toLowerCase());
       }
       if (cardConfig.filters.stockGroup && cardConfig.filters.stockGroup !== 'all') {
-        filteredData = filteredData.filter(s => s.category === cardConfig.filters.stockGroup);
+        filteredData = filteredData.filter(s => s.category && String(s.category).trim().toLowerCase() === String(cardConfig.filters.stockGroup).trim().toLowerCase());
       }
       if (cardConfig.filters.region && cardConfig.filters.region !== 'all') {
-        filteredData = filteredData.filter(s => s.region === cardConfig.filters.region);
+        filteredData = filteredData.filter(s => s.region && String(s.region).trim().toLowerCase() === String(cardConfig.filters.region).trim().toLowerCase());
       }
       if (cardConfig.filters.country && cardConfig.filters.country !== 'all') {
-        filteredData = filteredData.filter(s => s.country === cardConfig.filters.country);
+        filteredData = filteredData.filter(s => s.country && String(s.country).trim().toLowerCase() === String(cardConfig.filters.country).trim().toLowerCase());
       }
       if (cardConfig.filters.salesperson && cardConfig.filters.salesperson !== 'all') {
         filteredData = filteredData.filter(s => s.salesperson === cardConfig.filters.salesperson);
@@ -2205,6 +2798,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     const grouped = {};
     filteredData.forEach(sale => {
       let groupKey = '';
+      let originalKey = '';
       
       if (cardConfig.groupBy === 'date') {
         const saleDate = sale.cp_date || sale.date;
@@ -2222,11 +2816,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         } else {
           groupKey = saleDate;
         }
+        originalKey = groupKey;
       } else if (cardConfig.groupBy === 'profit_margin') {
         const amount = parseFloat(getFieldValue(sale, 'amount') || 0);
         const profit = parseFloat(getFieldValue(sale, 'profit') || 0);
         const margin = amount > 0 ? ((profit / amount) * 100).toFixed(0) : '0';
         groupKey = `${margin}%`;
+        originalKey = groupKey;
       } else if (cardConfig.groupBy === 'order_value') {
         // Group by order value ranges
         const value = parseFloat(getFieldValue(sale, 'amount') || 0);
@@ -2235,21 +2831,35 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         else if (value < 10000) groupKey = '₹5K - ₹10K';
         else if (value < 50000) groupKey = '₹10K - ₹50K';
         else groupKey = '> ₹50K';
+        originalKey = groupKey;
       } else {
         // Generic field access - use helper function for case-insensitive search
         const fieldValue = getFieldValue(sale, cardConfig.groupBy);
-        groupKey = fieldValue || 'Unknown';
+        // Normalize to lowercase for grouping, but preserve original for display
+        const normalizedValue = fieldValue ? String(fieldValue).trim() : 'Unknown';
+        groupKey = normalizedValue.toLowerCase();
+        originalKey = normalizedValue;
       }
-
+      
+      // Initialize group if needed
       if (!grouped[groupKey]) {
-        grouped[groupKey] = [];
+        grouped[groupKey] = { items: [], originalKey: originalKey };
+      } else {
+        // For case-insensitive fields, keep the most common casing (use first encountered)
+        if (cardConfig.groupBy !== 'date' && cardConfig.groupBy !== 'profit_margin' && cardConfig.groupBy !== 'order_value') {
+          if (grouped[groupKey].originalKey === 'Unknown' && originalKey !== 'Unknown') {
+            grouped[groupKey].originalKey = originalKey;
+          }
+        }
       }
-      grouped[groupKey].push(sale);
+      grouped[groupKey].items.push(sale);
     });
 
     // Calculate aggregated values
     const result = Object.keys(grouped).map(key => {
-      const items = grouped[key];
+      const groupData = grouped[key];
+      const items = groupData.items || groupData; // Support both old and new format
+      const displayKey = groupData.originalKey || key; // Use original key for display
       let value = 0;
 
       if (cardConfig.aggregation === 'sum') {
@@ -6261,6 +6871,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Sales by Ledger Group
                 </h3>
+                {renderCardFilterBadges('ledgerGroup')}
                 </div>
                 <select
                   value={ledgerGroupChartType}
@@ -6314,6 +6925,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Ledger Group
                         </h3>
+                        {renderCardFilterBadges('ledgerGroup')}
                       </div>
                       <select
                         value={ledgerGroupChartType}
@@ -6367,6 +6979,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Ledger Group
                         </h3>
+                        {renderCardFilterBadges('ledgerGroup')}
                       </div>
                       <select
                         value={ledgerGroupChartType}
@@ -6420,6 +7033,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Ledger Group
                         </h3>
+                        {renderCardFilterBadges('ledgerGroup')}
                       </div>
                       <select
                         value={ledgerGroupChartType}
@@ -6493,6 +7107,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                       Salesperson Totals
                     </h3>
+                    {renderCardFilterBadges('salesperson')}
                   </div>
                   <button
                     type="button"
@@ -6766,6 +7381,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Sales by State
                 </h3>
+                  {renderCardFilterBadges('region')}
                 </div>
                 <select
                   value={regionChartType}
@@ -6795,7 +7411,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.region === item.label
+                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -6823,6 +7439,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by State
                         </h3>
+                        {renderCardFilterBadges('region')}
                       </div>
                       <select
                         value={regionChartType}
@@ -6843,7 +7460,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onSliceClick={(region) => setSelectedRegion(region)}
+                    onSliceClick={(region) => setSelectedRegion(region)}
                   onBackClick={() => setSelectedRegion('all')}
                   showBackButton={selectedRegion !== 'all'}
                   rowAction={{
@@ -6852,7 +7469,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.region === item.label
+                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -6880,6 +7497,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by State
                         </h3>
+                        {renderCardFilterBadges('region')}
                       </div>
                       <select
                         value={regionChartType}
@@ -6900,7 +7518,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onBoxClick={(region) => setSelectedRegion(region)}
+                    onBoxClick={(region) => setSelectedRegion(region)}
                   onBackClick={() => setSelectedRegion('all')}
                   showBackButton={selectedRegion !== 'all'}
                   rowAction={{
@@ -6909,7 +7527,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.region === item.label
+                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -6937,6 +7555,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by State
                         </h3>
+                        {renderCardFilterBadges('region')}
                       </div>
                       <select
                         value={regionChartType}
@@ -6957,7 +7576,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onPointClick={(region) => setSelectedRegion(region)}
+                    onPointClick={(region) => setSelectedRegion(region)}
                   onBackClick={() => setSelectedRegion('all')}
                   showBackButton={selectedRegion !== 'all'}
                   rowAction={{
@@ -6966,7 +7585,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.region === item.label
+                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -7003,6 +7622,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Sales by Country
                 </h3>
+                  {renderCardFilterBadges('country')}
                 </div>
                 <select
                   value={countryChartType}
@@ -7064,6 +7684,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Country
                         </h3>
+                        {renderCardFilterBadges('country')}
                       </div>
                       <select
                         value={countryChartType}
@@ -7084,7 +7705,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onSliceClick={(country) => setSelectedCountry(country)}
+                    onSliceClick={(country) => setSelectedCountry(country)}
                   onBackClick={() => setSelectedCountry('all')}
                   showBackButton={selectedCountry !== 'all'}
                   rowAction={{
@@ -7125,6 +7746,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Country
                         </h3>
+                        {renderCardFilterBadges('country')}
                       </div>
                       <select
                         value={countryChartType}
@@ -7145,7 +7767,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onBoxClick={(country) => setSelectedCountry(country)}
+                    onBoxClick={(country) => setSelectedCountry(country)}
                   onBackClick={() => setSelectedCountry('all')}
                   showBackButton={selectedCountry !== 'all'}
                   rowAction={{
@@ -7186,6 +7808,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Country
                         </h3>
+                        {renderCardFilterBadges('country')}
                       </div>
                       <select
                         value={countryChartType}
@@ -7206,7 +7829,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onPointClick={(country) => setSelectedCountry(country)}
+                    onPointClick={(country) => setSelectedCountry(country)}
                   onBackClick={() => setSelectedCountry('all')}
                   showBackButton={selectedCountry !== 'all'}
                   rowAction={{
@@ -7264,6 +7887,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                   Period Chart
                 </h3>
+                  {renderCardFilterBadges('period')}
                 </div>
                 <select
                   value={periodChartType}
@@ -7549,6 +8173,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                   Top Customers Chart
                 </h3>
+                  {renderCardFilterBadges('topCustomers')}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
@@ -7603,7 +8228,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.customer === item.label
+                        (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -7631,6 +8256,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Customers Chart
                         </h3>
+                        {renderCardFilterBadges('topCustomers')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -7676,7 +8302,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onSliceClick={(customer) => setSelectedCustomer(customer)}
+                    onSliceClick={(customer) => setSelectedCustomer(customer)}
                   onBackClick={() => setSelectedCustomer('all')}
                   showBackButton={selectedCustomer !== 'all'}
                   rowAction={{
@@ -7685,7 +8311,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.customer === item.label
+                        (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -7713,6 +8339,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Customers Chart
                         </h3>
+                        {renderCardFilterBadges('topCustomers')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -7758,7 +8385,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onBoxClick={(customer) => setSelectedCustomer(customer)}
+                    onBoxClick={(customer) => setSelectedCustomer(customer)}
                   onBackClick={() => setSelectedCustomer('all')}
                   showBackButton={selectedCustomer !== 'all'}
                   rowAction={{
@@ -7767,7 +8394,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.customer === item.label
+                        (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -7795,6 +8422,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Customers Chart
                         </h3>
+                        {renderCardFilterBadges('topCustomers')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -7840,7 +8468,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onPointClick={(customer) => setSelectedCustomer(customer)}
+                    onPointClick={(customer) => setSelectedCustomer(customer)}
                   onBackClick={() => setSelectedCustomer('all')}
                   showBackButton={selectedCustomer !== 'all'}
                   rowAction={{
@@ -7849,7 +8477,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.customer === item.label
+                        (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -7893,6 +8521,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                   Top Items by Revenue Chart
                 </h3>
+                  {renderCardFilterBadges('topItems')}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
@@ -7947,7 +8576,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -7975,6 +8604,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Revenue Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -8020,7 +8650,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onSliceClick={(item) => setSelectedItem(item)}
+                    onSliceClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                   rowAction={{
@@ -8029,7 +8659,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8057,6 +8687,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Revenue Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -8102,7 +8733,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onBoxClick={(item) => setSelectedItem(item)}
+                    onBoxClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                   rowAction={{
@@ -8111,7 +8742,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8139,6 +8770,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Revenue Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -8184,7 +8816,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onPointClick={(item) => setSelectedItem(item)}
+                    onPointClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                   rowAction={{
@@ -8193,7 +8825,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8228,6 +8860,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                   Top Items by Quantity Chart
                 </h3>
+                  {renderCardFilterBadges('topItems')}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
@@ -8283,7 +8916,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8311,6 +8944,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Quantity Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -8366,7 +9000,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8394,6 +9028,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Quantity Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -8449,7 +9084,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8477,6 +9112,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Quantity Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -8532,7 +9168,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8584,6 +9220,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                       Revenue vs Profit (Monthly)
                     </h3>
+                    {renderCardFilterBadges('period')}
           </div>
                   <select
                     value={revenueVsProfitChartType}
@@ -8737,6 +9374,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Revenue vs Profit (Monthly)
                         </h3>
+                        {renderCardFilterBadges('period')}
                       </div>
                       <select
                         value={revenueVsProfitChartType}
@@ -8753,7 +9391,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <option value="line">Line</option>
                         <option value="bar">Bar</option>
                       </select>
-                    </div>
+        </div>
                     <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px' }}>
                       {revenueVsProfitChartData.map((item, index) => {
                         const maxRevenue = Math.max(...revenueVsProfitChartData.map(d => d.revenue));
@@ -8897,6 +9535,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                       Month-wise Profit
                     </h3>
+                    {renderCardFilterBadges('period')}
                   </div>
                   <select
                     value={monthWiseProfitChartType}
@@ -8966,6 +9605,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                              Month-wise Profit
                            </h3>
+                           {renderCardFilterBadges('period')}
                          </div>
                          <select
                            value={monthWiseProfitChartType}
@@ -9035,6 +9675,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                              Month-wise Profit
                            </h3>
+                           {renderCardFilterBadges('period')}
                          </div>
                          <select
                            value={monthWiseProfitChartType}
@@ -9104,6 +9745,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                              Month-wise Profit
                            </h3>
+                           {renderCardFilterBadges('period')}
                          </div>
                          <select
                            value={monthWiseProfitChartType}
@@ -9192,6 +9834,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Top 10 Profitable Items
                   </h3>
+                  {renderCardFilterBadges('topItems')}
                 </div>
                 <select
                   value={topProfitableItemsChartType}
@@ -9222,7 +9865,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -9250,6 +9893,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Profitable Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topProfitableItemsChartType}
@@ -9279,7 +9923,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -9307,6 +9951,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Profitable Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topProfitableItemsChartType}
@@ -9336,7 +9981,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -9364,6 +10009,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Profitable Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topProfitableItemsChartType}
@@ -9393,7 +10039,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -9430,6 +10076,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Top 10 Loss Items
                   </h3>
+                  {renderCardFilterBadges('topItems')}
                 </div>
                 <select
                   value={topLossItemsChartType}
@@ -9460,7 +10107,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -9488,6 +10135,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Loss Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topLossItemsChartType}
@@ -9508,7 +10156,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onSliceClick={(item) => setSelectedItem(item)}
+                    onSliceClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                 />
@@ -9536,6 +10184,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Loss Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topLossItemsChartType}
@@ -9556,7 +10205,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onBoxClick={(item) => setSelectedItem(item)}
+                    onBoxClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                 />
@@ -9584,6 +10233,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Loss Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topLossItemsChartType}
@@ -9604,7 +10254,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onPointClick={(item) => setSelectedItem(item)}
+                    onPointClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                 />
@@ -9636,7 +10286,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 alignItems: 'center',
                       justifyContent: 'space-between'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <button
                     type="button"
                     onClick={() => openRawData('stockGroup')}
@@ -9650,6 +10300,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Sales by Stock Group
                 </h3>
+                  {renderCardFilterBadges('stockGroup')}
         </div>
                 <select
                   value={categoryChartType}
@@ -9870,6 +10521,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   selectedLedgerGroup={selectedLedgerGroup}
                   genericFilters={genericFilters}
                   setGenericFilters={setGenericFilters}
+                  renderCardFilterBadges={renderCardFilterBadges}
+                  customCards={customCards}
+                  isMobile={isMobile}
+                  formatPeriodLabel={formatPeriodLabel}
                 />
               </div>
             )}
@@ -9913,6 +10568,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     selectedCountry={selectedCountry}
                     selectedPeriod={selectedPeriod}
                     selectedLedgerGroup={selectedLedgerGroup}
+                    genericFilters={genericFilters}
+                    setGenericFilters={setGenericFilters}
+                    renderCardFilterBadges={renderCardFilterBadges}
+                    customCards={customCards}
+                    isMobile={isMobile}
+                    formatPeriodLabel={formatPeriodLabel}
                   />
                 </div>
               ))}
@@ -12535,7 +13196,11 @@ const CustomCard = React.memo(({
   selectedPeriod,
   selectedLedgerGroup,
   genericFilters,
-  setGenericFilters
+  setGenericFilters,
+  renderCardFilterBadges,
+  customCards,
+  isMobile,
+  formatPeriodLabel
 }) => {
   const cardData = useMemo(() => generateCustomCardData(card, salesData), [card, salesData, generateCustomCardData]);
 
@@ -12816,6 +13481,7 @@ const CustomCard = React.memo(({
         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
           {card.title} (Custom Card)
         </h3>
+        {renderCardFilterBadges('custom', card.id)}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <select

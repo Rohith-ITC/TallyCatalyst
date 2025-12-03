@@ -4,6 +4,8 @@ import { apiGet, apiPost } from '../utils/apiUtils';
 import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
 import { getGoogleTokenFromConfigs, getGoogleDriveImageUrl } from '../utils/googleDriveUtils';
+import { useIsMobile } from './MobileViewConfig';
+import { isGoogleDriveLink, convertGoogleDriveToImageUrl, detectGoogleDriveFileType } from '../utils/googleDriveImageUtils';
 
 function PlaceOrder_ECommerce() {
   // Detect mobile view
