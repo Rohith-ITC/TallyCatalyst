@@ -3,6 +3,7 @@ import { hybridCache } from '../utils/hybridCache';
 
 import { apiPost, apiGet } from '../utils/apiUtils';
 import { syncSalesData, syncCustomers, syncItems } from './utils/dataSync';
+import { useIsMobile } from './MobileViewConfig';
 
 const CacheManagement = () => {
   const [cacheStats, setCacheStats] = useState(null);
@@ -21,6 +22,9 @@ const CacheManagement = () => {
   const [timeRange, setTimeRange] = useState('all');
   const [selectedFinancialYear, setSelectedFinancialYear] = useState('');
   const [financialYearOptions, setFinancialYearOptions] = useState([]);
+  
+  // Detect if running on mobile
+  const isMobile = useIsMobile();
 
   // Session Cache State
   const [sessionCacheStats, setSessionCacheStats] = useState({
@@ -543,17 +547,77 @@ const CacheManagement = () => {
 
   // Download complete sales data
   const downloadCompleteData = async (isUpdate = false) => {
+    console.log('='.repeat(60));
+    console.log('🎯 DOWNLOAD COMPLETE DATA CALLED');
+    console.log('='.repeat(60));
+    
     if (!selectedCompany) {
+      console.error('❌ No company selected');
       setMessage({ type: 'error', text: 'No company selected' });
       return;
     }
+
+    console.log('✅ Company selected:', selectedCompany);
+
+    // Check network connectivity before starting
+    if (!navigator.onLine) {
+      console.error('❌ No internet connection (navigator.onLine = false)');
+      setMessage({ type: 'error', text: 'No internet connection. Please check your network and try again.' });
+      return;
+    }
+
+    console.log('✅ Network is online');
+
+    // Check sessionStorage for required data
+    const sessionData = {
+      token: sessionStorage.getItem('token'),
+      email: sessionStorage.getItem('email'),
+      booksfrom: sessionStorage.getItem('booksfrom'),
+      allConnections: sessionStorage.getItem('allConnections'),
+      selectedCompanyGuid: sessionStorage.getItem('selectedCompanyGuid')
+    };
+
+    console.log('📦 SessionStorage check:', {
+      hasToken: !!sessionData.token,
+      tokenLength: sessionData.token?.length || 0,
+      hasEmail: !!sessionData.email,
+      email: sessionData.email,
+      hasBooksfrom: !!sessionData.booksfrom,
+      booksfrom: sessionData.booksfrom,
+      hasAllConnections: !!sessionData.allConnections,
+      connectionsCount: sessionData.allConnections ? JSON.parse(sessionData.allConnections).length : 0,
+      hasSelectedGuid: !!sessionData.selectedCompanyGuid,
+      selectedGuid: sessionData.selectedCompanyGuid
+    });
+
+    // Log network info for debugging
+    console.log('📱 Network diagnostics:', {
+      online: navigator.onLine,
+      userAgent: navigator.userAgent,
+      connection: navigator.connection ? {
+        effectiveType: navigator.connection.effectiveType,
+        downlink: navigator.connection.downlink,
+        rtt: navigator.connection.rtt,
+        saveData: navigator.connection.saveData
+      } : 'not available',
+      isMobile: /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent),
+      location: {
+        href: window.location.href,
+        origin: window.location.origin,
+        protocol: window.location.protocol,
+        hostname: window.location.hostname
+      }
+    });
 
     setDownloadingComplete(true);
     setMessage({ type: '', text: '' });
     setDownloadProgress({ current: 0, total: 0, message: 'Starting download...' });
 
+    console.log('🚀 Calling syncSalesData...');
+    
     try {
       const result = await syncSalesData(selectedCompany, (progress) => {
+        console.log('📊 Progress update:', progress);
         setDownloadProgress(progress);
       });
 
@@ -564,8 +628,28 @@ const CacheManagement = () => {
       await loadCacheStats();
 
     } catch (error) {
-      console.error('Error downloading complete data:', error);
-      setMessage({ type: 'error', text: 'Failed to download data: ' + error.message });
+      console.error('❌ Error downloading complete data:', error);
+      
+      // Provide more helpful error messages
+      let errorMsg = error.message || 'Unknown error occurred';
+      
+      if (!navigator.onLine) {
+        errorMsg = 'Lost internet connection during download. Please check your network and try again.';
+      } else if (error.message.includes('Failed to fetch')) {
+        errorMsg = 'Cannot reach the server. Please check if you have internet access and the server is available.';
+      } else if (error.message.includes('timeout')) {
+        errorMsg = 'Request timed out. Your connection might be too slow. Try using WiFi or reducing the data range.';
+      } else if (error.message.includes('CORS')) {
+        errorMsg = 'Security error (CORS). This usually means the server configuration needs updating.';
+      } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
+        errorMsg = 'Your session has expired. Please log in again.';
+      } else if (error.message.includes('404')) {
+        errorMsg = 'API endpoint not found. The server might be misconfigured.';
+      } else if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
+        errorMsg = 'Server error. Please try again later or contact support.';
+      }
+      
+      setMessage({ type: 'error', text: 'Failed to download data: ' + errorMsg });
     } finally {
       setDownloadingComplete(false);
       setDownloadProgress({ current: 0, total: 0, message: '' });
@@ -589,7 +673,7 @@ const CacheManagement = () => {
 
   return (
     <div style={{
-      padding: '24px',
+      padding: isMobile ? '16px 12px' : '24px',
       maxWidth: '1200px',
       margin: '0 auto',
       fontFamily: 'Segoe UI, Roboto, Arial, sans-serif'
@@ -600,28 +684,74 @@ const CacheManagement = () => {
         paddingBottom: '24px'
       }}>
         <h1 style={{
-          fontSize: '28px',
+          fontSize: isMobile ? '22px' : '28px',
           fontWeight: 700,
           color: '#1e293b',
           margin: 0,
           display: 'flex',
           alignItems: 'center',
-          gap: '12px'
+          gap: isMobile ? '8px' : '12px',
+          flexWrap: isMobile ? 'wrap' : 'nowrap'
         }}>
-          <span className="material-icons" style={{ fontSize: '32px', color: '#3b82f6' }}>
+          <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '32px', color: '#3b82f6' }}>
             storage
           </span>
           Cache Management
         </h1>
         <p style={{
-          fontSize: '16px',
+          fontSize: isMobile ? '14px' : '16px',
           color: '#64748b',
           marginTop: '8px',
-          marginLeft: '44px'
+          marginLeft: isMobile ? '0' : '44px'
         }}>
           Manage and clear cached data stored in OPFS (Origin Private File System)
         </p>
       </div>
+
+      {/* Mobile Information Banner */}
+      {isMobile && (
+        <div style={{
+          background: '#dbeafe',
+          border: '1px solid #93c5fd',
+          borderRadius: '12px',
+          padding: '12px 16px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: '10px'
+        }}>
+          <span className="material-icons" style={{
+            fontSize: '20px',
+            color: '#2563eb',
+            flexShrink: 0
+          }}>
+            phone_android
+          </span>
+          <div style={{ flex: 1 }}>
+            <div style={{
+              fontSize: '14px',
+              fontWeight: 600,
+              color: '#1e40af',
+              marginBottom: '6px'
+            }}>
+              Mobile Device Detected
+            </div>
+            <div style={{
+              fontSize: '12px',
+              color: '#1e40af',
+              lineHeight: '1.5'
+            }}>
+              Data downloads may take longer on mobile devices. Please ensure:
+              <ul style={{ margin: '6px 0 0 18px', paddingLeft: 0, fontSize: '12px' }}>
+                <li>You have a stable internet connection (WiFi recommended)</li>
+                <li>Your device has sufficient storage space</li>
+                <li>Keep this browser tab active during download</li>
+                <li>If download fails, try downloading in smaller chunks by selecting a Financial Year</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Message Display */}
       {message.text && (
@@ -629,23 +759,25 @@ const CacheManagement = () => {
           background: message.type === 'success' ? '#d1fae5' : '#fee2e2',
           border: `1px solid ${message.type === 'success' ? '#6ee7b7' : '#fca5a5'}`,
           borderRadius: '12px',
-          padding: '16px 20px',
-          marginBottom: '24px',
+          padding: isMobile ? '12px 16px' : '16px 20px',
+          marginBottom: isMobile ? '16px' : '24px',
           display: 'flex',
           alignItems: 'center',
-          gap: '12px'
+          gap: isMobile ? '10px' : '12px'
         }}>
           <span className="material-icons" style={{
-            fontSize: '24px',
-            color: message.type === 'success' ? '#059669' : '#dc2626'
+            fontSize: isMobile ? '20px' : '24px',
+            color: message.type === 'success' ? '#059669' : '#dc2626',
+            flexShrink: 0
           }}>
             {message.type === 'success' ? 'check_circle' : 'error'}
           </span>
           <div style={{
-            fontSize: '15px',
+            fontSize: isMobile ? '13px' : '15px',
             fontWeight: 500,
             color: message.type === 'success' ? '#065f46' : '#991b1b',
-            flex: 1
+            flex: 1,
+            wordBreak: 'break-word'
           }}>
             {message.text}
           </div>
@@ -658,38 +790,42 @@ const CacheManagement = () => {
           background: '#f0f9ff',
           border: '1px solid #bae6fd',
           borderRadius: '12px',
-          padding: '20px',
-          marginBottom: '24px'
+          padding: isMobile ? '16px' : '20px',
+          marginBottom: isMobile ? '16px' : '24px'
         }}>
           <h3 style={{
-            fontSize: '16px',
+            fontSize: isMobile ? '14px' : '16px',
             fontWeight: 600,
             color: '#0369a1',
-            marginBottom: '12px',
+            marginBottom: isMobile ? '10px' : '12px',
             display: 'flex',
             alignItems: 'center',
-            gap: '8px'
+            gap: isMobile ? '6px' : '8px'
           }}>
-            <span className="material-icons" style={{ fontSize: '20px' }}>business</span>
+            <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>business</span>
             Current Company
           </h3>
-          <div style={{ fontSize: '15px', color: '#0c4a6e' }}>
+          <div style={{ fontSize: isMobile ? '14px' : '15px', color: '#0c4a6e' }}>
             <strong>{selectedCompany.company}</strong>
-            <div style={{ fontSize: '13px', color: '#075985', marginTop: '4px' }}>
+            <div style={{ fontSize: isMobile ? '12px' : '13px', color: '#075985', marginTop: '4px', wordBreak: 'break-word' }}>
               ID: {selectedCompany.tallyloc_id} | GUID: {selectedCompany.guid.substring(0, 8)}...
             </div>
           </div>
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '24px', marginBottom: '24px' }}>
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(400px, 1fr))', 
+        gap: isMobile ? '16px' : '24px', 
+        marginBottom: isMobile ? '16px' : '24px' 
+      }}>
         {/* Download Complete Sales Data */}
         <div style={{
           background: '#fff',
           border: '1px solid #e2e8f0',
           borderRadius: '12px',
-          padding: '24px',
-
+          padding: isMobile ? '16px' : '24px',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
         }}>
           <div style={{
@@ -702,7 +838,7 @@ const CacheManagement = () => {
               download
             </span>
             <h3 style={{
-              fontSize: '18px',
+              fontSize: isMobile ? '16px' : '18px',
               fontWeight: 600,
               color: '#1e293b',
               margin: 0
@@ -711,9 +847,9 @@ const CacheManagement = () => {
             </h3>
           </div>
           <p style={{
-            fontSize: '14px',
+            fontSize: isMobile ? '13px' : '14px',
             color: '#64748b',
-            marginBottom: '20px',
+            marginBottom: isMobile ? '16px' : '20px',
             lineHeight: '1.6'
           }}>
             Download and cache complete sales data from the beginning of your books. Update to fetch only new records since last download.
@@ -767,9 +903,15 @@ const CacheManagement = () => {
             flexDirection: 'column'
           }}>
             {/* Time Range Selection */}
-            <div style={{ marginBottom: '8px', display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-              <div style={{ flex: '1 1 200px' }}>
-                <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#475569', marginBottom: '6px' }}>
+            <div style={{ 
+              marginBottom: '8px', 
+              display: 'flex', 
+              gap: isMobile ? '8px' : '12px', 
+              flexWrap: 'wrap',
+              flexDirection: isMobile ? 'column' : 'row'
+            }}>
+              <div style={{ flex: isMobile ? '1 1 100%' : '1 1 200px', width: isMobile ? '100%' : 'auto' }}>
+                <label style={{ display: 'block', fontSize: isMobile ? '13px' : '14px', fontWeight: 500, color: '#475569', marginBottom: '6px' }}>
                   Time Range
                 </label>
                 <select
@@ -777,10 +919,10 @@ const CacheManagement = () => {
                   onChange={(e) => setTimeRange(e.target.value)}
                   style={{
                     width: '100%',
-                    padding: '10px',
+                    padding: isMobile ? '12px' : '10px',
                     borderRadius: '8px',
                     border: '1px solid #cbd5e1',
-                    fontSize: '14px',
+                    fontSize: isMobile ? '15px' : '14px',
                     color: '#1e293b',
                     outline: 'none',
                     cursor: 'pointer',
@@ -797,8 +939,8 @@ const CacheManagement = () => {
               </div>
 
               {timeRange === 'fy' && (
-                <div style={{ flex: '1 1 200px' }}>
-                  <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#475569', marginBottom: '6px' }}>
+                <div style={{ flex: isMobile ? '1 1 100%' : '1 1 200px', width: isMobile ? '100%' : 'auto' }}>
+                  <label style={{ display: 'block', fontSize: isMobile ? '13px' : '14px', fontWeight: 500, color: '#475569', marginBottom: '6px' }}>
                     Financial Year
                   </label>
                   <select
@@ -806,10 +948,10 @@ const CacheManagement = () => {
                     onChange={(e) => setSelectedFinancialYear(e.target.value)}
                     style={{
                       width: '100%',
-                      padding: '10px',
+                      padding: isMobile ? '12px' : '10px',
                       borderRadius: '8px',
                       border: '1px solid #cbd5e1',
-                      fontSize: '14px',
+                      fontSize: isMobile ? '15px' : '14px',
                       color: '#1e293b',
                       outline: 'none',
                       cursor: 'pointer',
@@ -824,20 +966,27 @@ const CacheManagement = () => {
               )}
             </div>
 
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', width: '100%' }}>
+            <div style={{ 
+              display: 'flex', 
+              gap: isMobile ? '8px' : '12px', 
+              flexWrap: 'wrap', 
+              width: '100%',
+              flexDirection: isMobile ? 'column' : 'row'
+            }}>
               <button
                 onClick={() => downloadCompleteData(false)}
                 disabled={downloadingComplete || !selectedCompany}
                 style={{
-                  flex: '1 1 calc(50% - 6px)',
-                  minWidth: '150px',
-                  padding: '12px 16px',
+                  flex: isMobile ? '1 1 100%' : '1 1 calc(50% - 6px)',
+                  minWidth: isMobile ? '100%' : '150px',
+                  width: isMobile ? '100%' : 'auto',
+                  padding: isMobile ? '14px 16px' : '12px 16px',
                   background: (downloadingComplete || !selectedCompany) ? '#94a3b8' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                   color: '#fff',
                   border: 'none',
                   borderRadius: '8px',
                   fontWeight: 600,
-                  fontSize: '14px',
+                  fontSize: isMobile ? '15px' : '14px',
                   cursor: (downloadingComplete || !selectedCompany) ? 'not-allowed' : 'pointer',
                   boxShadow: (downloadingComplete || !selectedCompany) ? 'none' : '0 2px 8px rgba(16, 185, 129, 0.25)',
                   transition: 'all 0.2s',
@@ -852,14 +1001,14 @@ const CacheManagement = () => {
               >
                 {downloadingComplete ? (
                   <>
-                    <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite', flexShrink: 0 }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '18px', animation: 'spin 1s linear infinite', flexShrink: 0 }}>
                       refresh
                     </span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Downloading...</span>
                   </>
                 ) : (
                   <>
-                    <span className="material-icons" style={{ fontSize: '18px', flexShrink: 0 }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '18px', flexShrink: 0 }}>
                       download
                     </span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Download Complete Data</span>
@@ -870,15 +1019,16 @@ const CacheManagement = () => {
                 onClick={() => downloadCompleteData(true)}
                 disabled={downloadingComplete || !selectedCompany}
                 style={{
-                  flex: '1 1 calc(50% - 6px)',
-                  minWidth: '150px',
-                  padding: '12px 16px',
+                  flex: isMobile ? '1 1 100%' : '1 1 calc(50% - 6px)',
+                  minWidth: isMobile ? '100%' : '150px',
+                  width: isMobile ? '100%' : 'auto',
+                  padding: isMobile ? '14px 16px' : '12px 16px',
                   background: (downloadingComplete || !selectedCompany) ? '#94a3b8' : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
                   color: '#fff',
                   border: 'none',
                   borderRadius: '8px',
                   fontWeight: 600,
-                  fontSize: '14px',
+                  fontSize: isMobile ? '15px' : '14px',
                   cursor: (downloadingComplete || !selectedCompany) ? 'not-allowed' : 'pointer',
                   boxShadow: (downloadingComplete || !selectedCompany) ? 'none' : '0 2px 8px rgba(139, 92, 246, 0.25)',
                   transition: 'all 0.2s',
@@ -893,14 +1043,14 @@ const CacheManagement = () => {
               >
                 {downloadingComplete ? (
                   <>
-                    <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite', flexShrink: 0 }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '18px', animation: 'spin 1s linear infinite', flexShrink: 0 }}>
                       refresh
                     </span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Updating...</span>
                   </>
                 ) : (
                   <>
-                    <span className="material-icons" style={{ fontSize: '18px', flexShrink: 0 }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '18px', flexShrink: 0 }}>
                       update
                     </span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Update Data</span>
@@ -916,20 +1066,20 @@ const CacheManagement = () => {
           background: '#fff',
           border: '1px solid #e2e8f0',
           borderRadius: '12px',
-          padding: '24px',
+          padding: isMobile ? '16px' : '24px',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
         }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
-            marginBottom: '16px'
+            gap: isMobile ? '8px' : '12px',
+            marginBottom: isMobile ? '12px' : '16px'
           }}>
-            <span className="material-icons" style={{ fontSize: '28px', color: '#10b981' }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '28px', color: '#10b981' }}>
               memory
             </span>
             <h3 style={{
-              fontSize: '18px',
+              fontSize: isMobile ? '16px' : '18px',
               fontWeight: 600,
               color: '#1e293b',
               margin: 0
@@ -938,9 +1088,9 @@ const CacheManagement = () => {
             </h3>
           </div>
           <p style={{
-            fontSize: '14px',
+            fontSize: isMobile ? '13px' : '14px',
             color: '#64748b',
-            marginBottom: '20px',
+            marginBottom: isMobile ? '16px' : '20px',
             lineHeight: '1.6'
           }}>
             Manage temporary session cache for customers and items. This data is refreshed automatically every 30 minutes.
@@ -1063,29 +1213,32 @@ const CacheManagement = () => {
       {/* View Cache Section */}
       <div style={{
         marginTop: '0',
-        marginBottom: '32px',
+        marginBottom: isMobile ? '20px' : '32px',
         background: '#fff',
         border: '1px solid #e2e8f0',
         borderRadius: '12px',
-        padding: '24px',
+        padding: isMobile ? '16px' : '24px',
         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
       }}>
         <div style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginBottom: '20px'
+          marginBottom: isMobile ? '16px' : '20px',
+          flexWrap: isMobile ? 'wrap' : 'nowrap',
+          gap: isMobile ? '12px' : '0'
         }}>
           <h3 style={{
-            fontSize: '18px',
+            fontSize: isMobile ? '16px' : '18px',
             fontWeight: 600,
             color: '#1e293b',
             margin: 0,
             display: 'flex',
             alignItems: 'center',
-            gap: '12px'
+            gap: isMobile ? '8px' : '12px',
+            flex: isMobile ? '1 1 100%' : 'auto'
           }}>
-            <span className="material-icons" style={{ fontSize: '24px', color: '#3b82f6' }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>
               folder_open
             </span>
             View Cache Contents
@@ -1094,17 +1247,19 @@ const CacheManagement = () => {
             onClick={loadCacheEntries}
             disabled={loadingEntries}
             style={{
-              padding: '10px 20px',
+              padding: isMobile ? '10px 16px' : '10px 20px',
+              width: isMobile ? '100%' : 'auto',
               background: loadingEntries ? '#94a3b8' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
               color: '#fff',
               border: 'none',
               borderRadius: '8px',
               fontWeight: 600,
-              fontSize: '14px',
+              fontSize: isMobile ? '14px' : '14px',
               cursor: loadingEntries ? 'not-allowed' : 'pointer',
               boxShadow: loadingEntries ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.25)',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '8px',
               transition: 'all 0.2s'
             }}
@@ -1144,9 +1299,9 @@ const CacheManagement = () => {
             {/* Summary */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-              gap: '12px',
-              marginBottom: '20px'
+              gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: isMobile ? '8px' : '12px',
+              marginBottom: isMobile ? '16px' : '20px'
             }}>
               <div style={{
                 background: '#f8fafc',
@@ -1200,13 +1355,20 @@ const CacheManagement = () => {
                 border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 overflow: 'hidden',
-                maxHeight: '600px',
-                overflowY: 'auto'
+                maxHeight: isMobile ? '400px' : '600px',
+                overflowY: 'auto',
+                overflowX: isMobile ? 'auto' : 'hidden',
+                WebkitOverflowScrolling: 'touch'
               }}>
+                <div style={{
+                  overflowX: 'auto',
+                  width: '100%'
+                }}>
                 <table style={{
                   width: '100%',
                   borderCollapse: 'collapse',
-                  fontSize: '14px'
+                  fontSize: isMobile ? '12px' : '14px',
+                  minWidth: isMobile ? '600px' : 'auto'
                 }}>
                   <thead style={{
                     background: '#f8fafc',
@@ -1215,55 +1377,62 @@ const CacheManagement = () => {
                     zIndex: 10
                   }}>
                     <tr>
-                      <th style={{
-                        padding: '12px',
-                        textAlign: 'left',
-                        fontWeight: 600,
-                        color: '#1e293b',
-                        borderBottom: '2px solid #e2e8f0'
-                      }}>Type</th>
-                      <th style={{
-                        padding: '12px',
-                        textAlign: 'left',
-                        fontWeight: 600,
-                        color: '#1e293b',
-                        borderBottom: '2px solid #e2e8f0'
-                      }}>Cache Key</th>
-                      <th style={{
-                        padding: '12px',
-                        textAlign: 'left',
-                        fontWeight: 600,
-                        color: '#1e293b',
-                        borderBottom: '2px solid #e2e8f0'
-                      }}>Date Range</th>
-                      <th style={{
-                        padding: '12px',
-                        textAlign: 'left',
-                        fontWeight: 600,
-                        color: '#1e293b',
-                        borderBottom: '2px solid #e2e8f0'
-                      }}>Size</th>
-                      <th style={{
-                        padding: '12px',
-                        textAlign: 'left',
-                        fontWeight: 600,
-                        color: '#1e293b',
-                        borderBottom: '2px solid #e2e8f0'
-                      }}>Age</th>
-                      <th style={{
-                        padding: '12px',
-                        textAlign: 'left',
-                        fontWeight: 600,
-                        color: '#1e293b',
-                        borderBottom: '2px solid #e2e8f0'
-                      }}>Cached Date</th>
-                      <th style={{
-                        padding: '12px',
-                        textAlign: 'left',
-                        fontWeight: 600,
-                        color: '#1e293b',
-                        borderBottom: '2px solid #e2e8f0'
-                      }}>Actions</th>
+                    <th style={{
+                      padding: isMobile ? '8px' : '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: '#1e293b',
+                      borderBottom: '2px solid #e2e8f0',
+                      fontSize: isMobile ? '11px' : '14px'
+                    }}>Type</th>
+                    <th style={{
+                      padding: isMobile ? '8px' : '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: '#1e293b',
+                      borderBottom: '2px solid #e2e8f0',
+                      fontSize: isMobile ? '11px' : '14px'
+                    }}>Cache Key</th>
+                    <th style={{
+                      padding: isMobile ? '8px' : '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: '#1e293b',
+                      borderBottom: '2px solid #e2e8f0',
+                      fontSize: isMobile ? '11px' : '14px'
+                    }}>Date Range</th>
+                    <th style={{
+                      padding: isMobile ? '8px' : '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: '#1e293b',
+                      borderBottom: '2px solid #e2e8f0',
+                      fontSize: isMobile ? '11px' : '14px'
+                    }}>Size</th>
+                    <th style={{
+                      padding: isMobile ? '8px' : '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: '#1e293b',
+                      borderBottom: '2px solid #e2e8f0',
+                      fontSize: isMobile ? '11px' : '14px'
+                    }}>Age</th>
+                    <th style={{
+                      padding: isMobile ? '8px' : '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: '#1e293b',
+                      borderBottom: '2px solid #e2e8f0',
+                      fontSize: isMobile ? '11px' : '14px'
+                    }}>Cached Date</th>
+                    <th style={{
+                      padding: isMobile ? '8px' : '12px',
+                      textAlign: 'left',
+                      fontWeight: 600,
+                      color: '#1e293b',
+                      borderBottom: '2px solid #e2e8f0',
+                      fontSize: isMobile ? '11px' : '14px'
+                    }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1275,11 +1444,11 @@ const CacheManagement = () => {
                           background: index % 2 === 0 ? '#fff' : '#f8fafc'
                         }}
                       >
-                        <td style={{ padding: '12px' }}>
+                        <td style={{ padding: isMobile ? '8px' : '12px' }}>
                           <span style={{
-                            padding: '4px 8px',
+                            padding: isMobile ? '3px 6px' : '4px 8px',
                             borderRadius: '4px',
-                            fontSize: '12px',
+                            fontSize: isMobile ? '10px' : '12px',
                             fontWeight: 600,
                             background: entry.type === 'sales' ? '#dbeafe' : '#dcfce7',
                             color: entry.type === 'sales' ? '#1e40af' : '#166534'
@@ -1288,16 +1457,16 @@ const CacheManagement = () => {
                           </span>
                         </td>
                         <td style={{
-                          padding: '12px',
+                          padding: isMobile ? '8px' : '12px',
                           fontFamily: 'monospace',
-                          fontSize: '12px',
+                          fontSize: isMobile ? '10px' : '12px',
                           color: '#475569',
                           wordBreak: 'break-all',
-                          maxWidth: '400px'
+                          maxWidth: isMobile ? '200px' : '400px'
                         }}>
                           {entry.cacheKey}
                         </td>
-                        <td style={{ padding: '12px', color: '#64748b', fontSize: '13px' }}>
+                        <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '13px' }}>
                           {entry.startDate && entry.endDate ? (
                             <div>
                               <div>{formatDateForDisplay(entry.startDate)}</div>
@@ -1308,13 +1477,13 @@ const CacheManagement = () => {
                             <span style={{ color: '#cbd5e1' }}>—</span>
                           )}
                         </td>
-                        <td style={{ padding: '12px', color: '#1e293b', fontWeight: 500 }}>
+                        <td style={{ padding: isMobile ? '8px' : '12px', color: '#1e293b', fontWeight: 500, fontSize: isMobile ? '11px' : '14px' }}>
                           {entry.sizeMB} MB
-                          <div style={{ fontSize: '12px', color: '#94a3b8' }}>
+                          <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#94a3b8' }}>
                             ({entry.sizeKB} KB)
                           </div>
                         </td>
-                        <td style={{ padding: '12px', color: '#64748b' }}>
+                        <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '14px' }}>
                           {entry.ageDays === 0 ? (
                             <span style={{ color: '#10b981', fontWeight: 600 }}>Today</span>
                           ) : entry.ageDays === 1 ? (
@@ -1323,34 +1492,36 @@ const CacheManagement = () => {
                             <span>{entry.ageDays} days ago</span>
                           )}
                         </td>
-                        <td style={{ padding: '12px', color: '#64748b', fontSize: '13px' }}>
+                        <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '13px' }}>
                           {entry.date}
                         </td>
-                        <td style={{ padding: '12px' }}>
+                        <td style={{ padding: isMobile ? '8px' : '12px' }}>
                           <button
                             onClick={() => viewCacheAsJson(entry.cacheKey)}
                             style={{
-                              padding: '6px 12px',
+                              padding: isMobile ? '5px 8px' : '6px 12px',
                               background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                               color: '#fff',
                               border: 'none',
                               borderRadius: '6px',
-                              fontSize: '12px',
+                              fontSize: isMobile ? '11px' : '12px',
                               fontWeight: 600,
                               cursor: 'pointer',
                               display: 'flex',
                               alignItems: 'center',
-                              gap: '4px'
+                              gap: '4px',
+                              whiteSpace: 'nowrap'
                             }}
                           >
-                            <span className="material-icons" style={{ fontSize: '16px' }}>code</span>
-                            View JSON
+                            <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>code</span>
+                            {isMobile ? 'JSON' : 'View JSON'}
                           </button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             ) : (
               <div style={{
@@ -1386,28 +1557,28 @@ const CacheManagement = () => {
         background: '#fff',
         border: '1px solid #e2e8f0',
         borderRadius: '12px',
-        padding: '24px',
-        marginBottom: '24px',
+        padding: isMobile ? '16px' : '24px',
+        marginBottom: isMobile ? '16px' : '24px',
         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
       }}>
         <h2 style={{
-          fontSize: '18px',
+          fontSize: isMobile ? '16px' : '18px',
           fontWeight: 600,
           color: '#1e293b',
-          marginBottom: '20px',
+          marginBottom: isMobile ? '16px' : '20px',
           display: 'flex',
           alignItems: 'center',
-          gap: '8px'
+          gap: isMobile ? '6px' : '8px'
         }}>
-          <span className="material-icons" style={{ fontSize: '20px', color: '#3b82f6' }}>
+          <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px', color: '#3b82f6' }}>
             schedule
           </span>
           Cache Expiry Period
         </h2>
         <p style={{
-          fontSize: '14px',
+          fontSize: isMobile ? '13px' : '14px',
           color: '#64748b',
-          marginBottom: '16px',
+          marginBottom: isMobile ? '12px' : '16px',
           lineHeight: '1.6'
         }}>
           Set how long cached data should be kept before automatically expiring. Set to "Never" to keep cache indefinitely.
@@ -1415,8 +1586,9 @@ const CacheManagement = () => {
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '16px',
-          flexWrap: 'wrap'
+          gap: isMobile ? '12px' : '16px',
+          flexWrap: 'wrap',
+          flexDirection: isMobile ? 'column' : 'row'
         }}>
           <select
             value={cacheExpiryDays || 'never'}
@@ -1438,14 +1610,15 @@ const CacheManagement = () => {
             }}
             disabled={savingExpiry}
             style={{
-              padding: '10px 16px',
-              fontSize: '15px',
+              padding: isMobile ? '12px' : '10px 16px',
+              fontSize: isMobile ? '15px' : '15px',
               border: '1px solid #d1d5db',
               borderRadius: '8px',
               background: '#fff',
               color: '#1e293b',
               cursor: savingExpiry ? 'not-allowed' : 'pointer',
-              minWidth: '200px',
+              minWidth: isMobile ? '100%' : '200px',
+              width: isMobile ? '100%' : 'auto',
               fontWeight: 500
             }}
           >
@@ -1469,9 +1642,11 @@ const CacheManagement = () => {
             </span>
           )}
           <div style={{
-            fontSize: '14px',
+            fontSize: isMobile ? '13px' : '14px',
             color: '#64748b',
-            fontStyle: 'italic'
+            fontStyle: 'italic',
+            width: isMobile ? '100%' : 'auto',
+            textAlign: isMobile ? 'center' : 'left'
           }}>
             {cacheExpiryDays === 'never'
               ? 'Cache will never expire automatically'
@@ -1483,28 +1658,28 @@ const CacheManagement = () => {
       {/* Cache Actions */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-        gap: '20px'
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(300px, 1fr))',
+        gap: isMobile ? '16px' : '20px'
       }}>
         {/* Clear All Cache */}
         <div style={{
           background: '#fff',
           border: '1px solid #e2e8f0',
           borderRadius: '12px',
-          padding: '24px',
+          padding: isMobile ? '16px' : '24px',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
         }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
-            marginBottom: '16px'
+            gap: isMobile ? '8px' : '12px',
+            marginBottom: isMobile ? '12px' : '16px'
           }}>
-            <span className="material-icons" style={{ fontSize: '28px', color: '#dc2626' }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '28px', color: '#dc2626' }}>
               delete_sweep
             </span>
             <h3 style={{
-              fontSize: '18px',
+              fontSize: isMobile ? '16px' : '18px',
               fontWeight: 600,
               color: '#1e293b',
               margin: 0
@@ -1513,9 +1688,9 @@ const CacheManagement = () => {
             </h3>
           </div>
           <p style={{
-            fontSize: '14px',
+            fontSize: isMobile ? '13px' : '14px',
             color: '#64748b',
-            marginBottom: '20px',
+            marginBottom: isMobile ? '16px' : '20px',
             lineHeight: '1.6'
           }}>
             Remove all cached data for all companies. This includes sales data, dashboard states, and metadata.
@@ -1576,20 +1751,20 @@ const CacheManagement = () => {
           background: '#fff',
           border: '1px solid #e2e8f0',
           borderRadius: '12px',
-          padding: '24px',
+          padding: isMobile ? '16px' : '24px',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
         }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
-            marginBottom: '16px'
+            gap: isMobile ? '8px' : '12px',
+            marginBottom: isMobile ? '12px' : '16px'
           }}>
-            <span className="material-icons" style={{ fontSize: '28px', color: '#f59e0b' }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '28px', color: '#f59e0b' }}>
               business_center
             </span>
             <h3 style={{
-              fontSize: '18px',
+              fontSize: isMobile ? '16px' : '18px',
               fontWeight: 600,
               color: '#1e293b',
               margin: 0
@@ -1598,9 +1773,9 @@ const CacheManagement = () => {
             </h3>
           </div>
           <p style={{
-            fontSize: '14px',
+            fontSize: isMobile ? '13px' : '14px',
             color: '#64748b',
-            marginBottom: '20px',
+            marginBottom: isMobile ? '16px' : '20px',
             lineHeight: '1.6'
           }}>
             Remove all cached data for the currently selected company. This includes sales data and dashboard states.
@@ -1660,20 +1835,21 @@ const CacheManagement = () => {
         <div style={{
           background: '#fff',
           borderRadius: '12px',
-          padding: '24px',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+          padding: isMobile ? '16px' : '24px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          border: '1px solid #e2e8f0'
         }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
-            marginBottom: '16px'
+            gap: isMobile ? '8px' : '12px',
+            marginBottom: isMobile ? '12px' : '16px'
           }}>
-            <span className="material-icons" style={{ fontSize: '28px', color: '#3b82f6' }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '28px', color: '#3b82f6' }}>
               analytics
             </span>
             <h3 style={{
-              fontSize: '18px',
+              fontSize: isMobile ? '16px' : '18px',
               fontWeight: 600,
               color: '#1e293b',
               margin: 0
@@ -1682,9 +1858,9 @@ const CacheManagement = () => {
             </h3>
           </div>
           <p style={{
-            fontSize: '14px',
+            fontSize: isMobile ? '13px' : '14px',
             color: '#64748b',
-            marginBottom: '20px',
+            marginBottom: isMobile ? '16px' : '20px',
             lineHeight: '1.6'
           }}>
             Remove only sales data cache for the currently selected company. Dashboard states will be preserved.
@@ -1763,10 +1939,10 @@ const CacheManagement = () => {
           <div style={{
             background: '#fff',
             borderRadius: '12px',
-            padding: '24px',
+            padding: isMobile ? '16px' : '24px',
             maxWidth: '90%',
             maxHeight: '90%',
-            width: '800px',
+            width: isMobile ? '95%' : '800px',
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)'
@@ -1775,10 +1951,10 @@ const CacheManagement = () => {
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
-              marginBottom: '20px'
+              marginBottom: isMobile ? '16px' : '20px'
             }}>
               <h3 style={{
-                fontSize: '20px',
+                fontSize: isMobile ? '18px' : '20px',
                 fontWeight: 600,
                 color: '#1e293b',
                 margin: 0
@@ -1810,9 +1986,10 @@ const CacheManagement = () => {
               background: '#f8fafc',
               border: '1px solid #e2e8f0',
               borderRadius: '8px',
-              padding: '16px',
+              padding: isMobile ? '12px' : '16px',
               fontFamily: 'monospace',
-              fontSize: '12px'
+              fontSize: isMobile ? '11px' : '12px',
+              WebkitOverflowScrolling: 'touch'
             }}>
               {jsonCacheData === null ? (
                 <div style={{ textAlign: 'center', color: '#64748b', padding: '40px' }}>

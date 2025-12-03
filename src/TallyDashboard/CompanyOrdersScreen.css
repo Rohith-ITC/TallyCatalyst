@@ -5,6 +5,7 @@
   margin: 0;
   min-height: 100vh;
   box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .company-orders-header {
@@ -12,7 +13,12 @@
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e2e8f0;
 }
 
 .company-orders-header .header-info {
@@ -136,22 +142,32 @@
 
 .summary-cards-section {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .summary-table-card {
-  padding: 16px;
-  border-radius: 10px;
+  padding: 20px;
+  border-radius: 12px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  overflow: hidden;
+}
+
+.summary-table-card:hover {
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  transform: translateY(-2px);
 }
 
 .summary-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: auto;
 }
 
 .summary-table th,
@@ -159,6 +175,7 @@
   padding: 12px;
   text-align: right;
   border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
 }
 
 .summary-table th:first-child,
@@ -170,18 +187,42 @@
   background: #f8fafc;
   font-weight: 600;
   color: #334155;
+  font-size: 14px;
+}
+
+.summary-table tbody tr {
+  transition: background-color 0.2s ease;
+}
+
+.summary-table tbody tr:hover {
+  background-color: #f8fafc;
 }
 
 .summary-table tbody tr:last-child td {
   border-bottom: none;
 }
 
+.summary-table td {
+  color: #1f2937;
+  font-size: 14px;
+}
+
 .ageing-chart-card {
-  padding: 16px;
-  border-radius: 10px;
+  padding: 20px;
+  border-radius: 12px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
-  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+}
+
+.ageing-chart-card:hover {
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  transform: translateY(-2px);
 }
 
 .chart-title {
@@ -189,11 +230,55 @@
   font-size: 16px;
   font-weight: 600;
   color: #1f2937;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #f1f5f9;
+  flex-shrink: 0;
 }
 
 .ageing-chart-wrapper {
   width: 100%;
   height: 260px;
+  overflow: visible;
+  position: relative;
+  min-height: 260px;
+}
+
+.ageing-chart-wrapper .recharts-legend-wrapper {
+  position: relative !important;
+  width: 100% !important;
+  height: auto !important;
+  max-width: 100%;
+  margin-top: 8px;
+}
+
+.ageing-chart-wrapper .recharts-default-legend {
+  display: flex !important;
+  justify-content: center !important;
+  flex-wrap: wrap !important;
+  gap: 12px !important;
+  padding: 8px 0 !important;
+  width: 100%;
+  max-width: 100%;
+}
+
+.ageing-chart-wrapper .recharts-wrapper {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+}
+
+.ageing-chart-wrapper .recharts-surface {
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+}
+
+.ageing-chart-wrapper .recharts-cartesian-axis {
+  font-size: 11px;
+}
+
+.ageing-chart-wrapper .recharts-bar {
+  overflow: visible;
 }
 
 .chart-tooltip {
@@ -228,13 +313,19 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
+  padding: 16px 20px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  border: 1px solid #e2e8f0;
 }
 
 .toolbar-left {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .delivery-date-group {
@@ -289,15 +380,16 @@
 }
 
 .save-error-message {
-  background-color: #fee;
-  border: 1px solid #fcc;
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 12px;
+  background: linear-gradient(135deg, #fee2e2 0%, #fef2f2 100%);
+  border: 1px solid #fca5a5;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 12px;
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.1);
 }
 
 .save-error-message p {
@@ -335,12 +427,16 @@
 }
 
 .filters-section {
-  background-color: #fff;
+  background-color: #ffffff;
   padding: 20px;
-  border-radius: 8px;
-  margin-bottom: 16px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border-radius: 12px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
   border: 1px solid #e2e8f0;
+}
+
+.filters-section:hover {
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
 }
 
 .filter-row {
@@ -430,6 +526,8 @@
   border-radius: 12px;
   border: 1px solid #e2e8f0;
   overflow: hidden;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  margin-bottom: 20px;
 }
 
 .orders-table {
@@ -629,7 +727,8 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -640,16 +739,16 @@
 }
 
 .delivery-modal-overlay-content {
-  background-color: #fff;
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  background-color: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.05);
   width: min(calc(100vw - 40px), 1400px);
   max-width: 1400px;
   height: calc(100vh - 160px);
   max-height: calc(100vh - 160px);
   display: flex;
   flex-direction: column;
-  padding: 20px;
+  padding: 24px;
 }
 
 .delivery-modal-header {
@@ -657,8 +756,8 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 16px;
+  border-bottom: 2px solid #f1f5f9;
 }
 
 .delivery-header-actions {
@@ -727,8 +826,10 @@
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 12px;
   padding: 16px;
-  background-color: #f8fafc;
-  border-radius: 6px;
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 
 .delivery-info p {
@@ -753,26 +854,30 @@
   flex: 1;
   overflow: auto;
   border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border-radius: 10px;
   margin-bottom: 20px;
   min-height: 0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  background: white;
 }
 
 .batch-error-message {
-  padding: 8px 12px;
-  border-radius: 6px;
+  padding: 10px 14px;
+  border-radius: 8px;
   border: 1px solid #fca5a5;
-  background-color: #fee2e2;
+  background: linear-gradient(135deg, #fee2e2 0%, #fef2f2 100%);
   color: #b91c1c;
+  box-shadow: 0 1px 3px rgba(220, 38, 38, 0.1);
 }
 
 .batch-loading-message {
-  padding: 8px 12px;
-  border-radius: 6px;
-  background-color: #eef2ff;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #eef2ff 0%, #f5f7ff 100%);
   border: 1px solid #c7d2fe;
   color: #4338ca;
   font-size: 13px;
+  box-shadow: 0 1px 3px rgba(99, 102, 241, 0.1);
 }
 
 .batch-info-wrapper {
@@ -1013,11 +1118,12 @@
 }
 
 .delivery-orders-expanded {
-  background-color: #f8fafc;
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border-radius: 10px;
   margin: 8px 0;
   padding: 16px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 
 .delivery-orders-expanded-header {
@@ -1041,18 +1147,20 @@
 
 .delivery-summary-table-wrapper {
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border-radius: 10px;
   overflow-x: auto;
   overflow-y: auto;
   flex: 1;
   min-height: 0;
   position: relative;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  background: white;
 }
 
 .delivery-summary-table {
   width: 100%;
   border-collapse: collapse;
-  background-color: #fff;
+  background-color: #ffffff;
 }
 
 .delivery-summary-table th,
@@ -1128,12 +1236,13 @@
 
 .delivery-summary-empty,
 .delivery-detail-empty {
-  padding: 24px;
-  border: 1px dashed #cbd5e1;
-  border-radius: 8px;
+  padding: 32px 24px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 10px;
   text-align: center;
   color: #475569;
-  background-color: #f8fafc;
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
 }
 
 .text-right {
@@ -1142,12 +1251,12 @@
 
 .message-dialog {
   background-color: #ffffff;
-  border-radius: 12px;
+  border-radius: 16px;
   padding: 28px 32px;
   width: 90%;
   max-width: 360px;
   text-align: center;
-  box-shadow: 0 10px 25px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.05);
 }
 
 .message-dialog h3 {
@@ -1237,33 +1346,32 @@
 }
 
 .section-title {
-  margin: 24px 0 16px 0;
+  margin: 32px 0 16px 0;
   font-size: 18px;
   font-weight: 600;
   color: #1f2937;
-  padding: 12px 16px;
-  background-color: #f8fafc;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
   border-left: 4px solid #6366f1;
-  border-radius: 4px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  border: 1px solid #e2e8f0;
+  border-left: 4px solid #6366f1;
 }
 
 .cleared-orders-section {
   margin-top: 32px;
-  padding-top: 24px;
-  border-top: 2px solid #e2e8f0;
 }
 
 .negative-pending-section {
   margin-top: 32px;
-  padding-top: 24px;
-  border-top: 2px solid #e2e8f0;
 }
 
 /* Config Modal Styles */
 .config-modal-content {
-  background-color: #fff;
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  background-color: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.05);
   width: 90vw;
   max-width: 500px;
   max-height: 90vh;
@@ -1429,13 +1537,29 @@
 .orders-loading,
 .orders-error,
 .orders-empty {
-  padding: 32px;
+  padding: 48px 32px;
   text-align: center;
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  margin: 20px 0;
+}
+
+.orders-error {
+  background: linear-gradient(135deg, #fee2e2 0%, #fef2f2 100%);
+  border-color: #fca5a5;
 }
 
 .orders-error p {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
   color: #b91c1c;
+  font-weight: 500;
+}
+
+.orders-empty {
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+  border: 2px dashed #cbd5e1;
 }
 
 .back-button,
@@ -1468,9 +1592,9 @@
 
 /* Batch Selection Modal Styles */
 .batch-selection-modal {
-  background-color: #fff;
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  background-color: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.3), 0 0 0 1px rgba(0, 0, 0, 0.05);
   width: 90vw;
   max-width: 800px;
   max-height: 90vh;
@@ -1502,10 +1626,12 @@
 }
 
 .batch-selection-order-info {
-  background-color: #f8fafc;
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
   padding: 16px;
-  border-radius: 6px;
+  border-radius: 10px;
   margin-bottom: 20px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 
 .batch-selection-order-info p {
@@ -1536,20 +1662,27 @@
 
 .batch-selection-error {
   color: #b91c1c;
-  background-color: #fee2e2;
-  border-radius: 6px;
+  background: linear-gradient(135deg, #fee2e2 0%, #fef2f2 100%);
+  border-radius: 10px;
   border: 1px solid #fca5a5;
+  box-shadow: 0 2px 4px rgba(220, 38, 38, 0.1);
 }
 
 .batch-selection-empty {
   color: #6b7280;
   font-style: italic;
+  background: linear-gradient(135deg, #f8fafc 0%, #ffffff 100%);
+  padding: 40px;
+  border-radius: 10px;
+  border: 1px dashed #cbd5e1;
 }
 
 .batch-selection-table-wrapper {
   overflow-x: auto;
   border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  background: white;
 }
 
 .batch-selection-table {
@@ -1638,5 +1771,928 @@
   justify-content: flex-end;
   padding: 16px 24px;
   border-top: 1px solid #e2e8f0;
+}
+
+/* Mobile Responsive Styles */
+@media (max-width: 768px) {
+  .company-orders-container {
+    padding: 12px 12px;
+    max-width: 100vw;
+    width: 100%;
+    overflow-x: hidden;
+    box-sizing: border-box;
+  }
+
+  .company-orders-header {
+    flex-direction: column;
+    gap: 14px;
+    align-items: flex-start;
+    width: 100%;
+    max-width: 100%;
+    padding: 16px;
+    margin: 0 0 16px 0;
+    box-sizing: border-box;
+    border-radius: 10px;
+  }
+
+  .header-title {
+    font-size: 20px;
+    margin: 0;
+  }
+
+  .header-subtitle {
+    font-size: 13px;
+    margin-top: 4px;
+  }
+
+  .header-info {
+    width: 100%;
+  }
+
+  .header-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-direction: row;
+    gap: 0;
+  }
+
+  .back-button {
+    padding: 6px 12px;
+    font-size: 14px;
+  }
+
+  .refresh-button {
+    padding: 10px 16px;
+    font-size: 15px;
+    width: 100%;
+    border-radius: 8px;
+  }
+
+  .summary-cards-section {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+    margin: 0 0 16px 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .summary-table-card {
+    padding: 18px;
+    border-radius: 10px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+  }
+
+  .ageing-chart-card {
+    padding: 16px 12px;
+    border-radius: 10px;
+    overflow: visible;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    min-height: 300px;
+  }
+
+  .ageing-chart-card .chart-title {
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+  }
+
+  .summary-table-card:hover,
+  .ageing-chart-card:hover {
+    transform: none;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  }
+
+  .chart-title {
+    font-size: 15px;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #f1f5f9;
+  }
+
+  .summary-table {
+    min-width: 100%;
+    width: 100%;
+  }
+
+  .summary-table th,
+  .summary-table td {
+    padding: 10px 8px;
+    font-size: 13px;
+  }
+
+  .summary-value {
+    font-size: 18px;
+  }
+
+  .ageing-chart-wrapper {
+    height: 240px;
+    min-height: 240px;
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+    position: relative;
+    padding: 0;
+    margin: 0;
+  }
+
+  .ageing-chart-wrapper .recharts-wrapper {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 240px !important;
+  }
+
+  .ageing-chart-wrapper .recharts-surface {
+    width: 100% !important;
+    height: 100% !important;
+    overflow: visible !important;
+  }
+
+  .ageing-chart-wrapper .recharts-cartesian-axis {
+    font-size: 10px !important;
+  }
+
+  .ageing-chart-wrapper .recharts-cartesian-axis-tick-value {
+    font-size: 10px !important;
+  }
+
+  .ageing-chart-wrapper .recharts-bar-rectangle {
+    overflow: visible !important;
+  }
+
+  .ageing-chart-wrapper .recharts-legend-wrapper {
+    margin-top: 12px !important;
+    padding: 0 !important;
+  }
+
+  .ageing-chart-wrapper .recharts-default-legend {
+    font-size: 11px !important;
+    gap: 10px !important;
+  }
+
+  .ageing-chart-wrapper .recharts-responsive-container {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 240px !important;
+  }
+
+  .ageing-chart-card .recharts-responsive-container {
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  .chart-tooltip {
+    font-size: 11px;
+    padding: 6px 8px;
+  }
+
+  .chart-value-label,
+  .chart-bucket-label {
+    font-size: 9px;
+  }
+
+  .ageing-chart-card .recharts-legend-wrapper {
+    position: relative !important;
+    margin-top: 10px;
+    width: 100% !important;
+  }
+
+  .ageing-chart-card .recharts-default-legend {
+    display: flex !important;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .ageing-chart-card .recharts-wrapper {
+    width: 100% !important;
+    height: 100% !important;
+  }
+
+  .ageing-chart-card .recharts-surface {
+    width: 100% !important;
+    height: 100% !important;
+    overflow: visible !important;
+  }
+
+  .ageing-chart-card .recharts-cartesian-grid {
+    width: 100% !important;
+  }
+
+  .ageing-chart-card .recharts-bar {
+    width: 100% !important;
+  }
+
+  .ageing-chart-card .recharts-cartesian-axis {
+    font-size: 10px !important;
+  }
+
+  .ageing-chart-card .recharts-cartesian-axis-ticks {
+    font-size: 9px !important;
+  }
+
+  .ageing-chart-card .recharts-yAxis {
+    width: 50px !important;
+  }
+
+  .ageing-chart-card .recharts-cartesian-axis-tick-value {
+    font-size: 9px !important;
+    transform: scale(0.9);
+  }
+
+  .ageing-chart-card .recharts-bar-rectangle {
+    rx: 4;
+    ry: 4;
+  }
+
+  .ageing-chart-card .recharts-label {
+    font-size: 9px !important;
+  }
+
+  .orders-toolbar {
+    flex-direction: column;
+    gap: 14px;
+    align-items: stretch;
+    padding: 16px;
+    margin: 0 0 16px 0;
+    box-sizing: border-box;
+    border-radius: 10px;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .toolbar-left {
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .customer-select-group {
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .customer-select-label {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .customer-select {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 15px;
+    min-width: unset;
+    border-radius: 8px;
+    box-sizing: border-box;
+  }
+
+  .view-controls {
+    display: flex;
+    flex-direction: row;
+    gap: 10px;
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .toggle-button {
+    flex: 1;
+    min-width: 120px;
+    padding: 10px 16px;
+    font-size: 14px;
+    border-radius: 8px;
+  }
+
+  .group-by-select {
+    flex: 1;
+    min-width: 150px;
+    padding: 10px 12px;
+    font-size: 14px;
+    border-radius: 8px;
+  }
+
+  .config-button,
+  .delivery-button-top {
+    width: 100%;
+    padding: 12px 20px;
+    font-size: 15px;
+    border-radius: 8px;
+    font-weight: 600;
+  }
+
+  .orders-count {
+    font-size: 13px;
+    text-align: center;
+    width: 100%;
+    padding: 10px 0;
+    font-weight: 500;
+  }
+
+  .filters-section {
+    padding: 16px;
+    margin: 0 0 16px 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .filters-section:hover {
+    transform: none;
+  }
+
+  .filter-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .filter-group {
+    width: 100%;
+    min-width: unset;
+  }
+
+  .filter-label {
+    font-size: 12px;
+    margin-bottom: 6px;
+  }
+
+  .filter-input,
+  .filter-select {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 14px;
+    box-sizing: border-box;
+  }
+
+  .filter-select {
+    min-width: unset;
+  }
+
+  .clear-filters-button {
+    width: 100%;
+    padding: 8px 16px;
+    font-size: 14px;
+    align-self: stretch;
+    margin-top: 4px;
+  }
+
+  .orders-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    margin: 0 0 20px 0;
+  }
+
+  .orders-table {
+    min-width: 800px;
+    font-size: 12px;
+  }
+
+  .orders-table th,
+  .orders-table td {
+    padding: 8px 6px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .orders-table .table-total-row td {
+    padding: 10px 6px;
+    font-size: 12px;
+  }
+
+  .section-title {
+    font-size: 16px;
+    padding: 10px 12px;
+    margin: 16px 0 12px 0;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .orders-loading,
+  .orders-error,
+  .orders-empty {
+    padding: 32px 20px;
+    font-size: 14px;
+    margin: 16px 0;
+  }
+
+  .orders-loading .spinner {
+    width: 32px;
+    height: 32px;
+  }
+
+  .orders-error .refresh-button {
+    width: 100%;
+    margin-top: 16px;
+    padding: 12px 16px;
+    font-size: 15px;
+  }
+
+  /* Modal Styles */
+  .modal-overlay {
+    padding: 10px;
+    align-items: center;
+    background-color: rgba(15, 23, 42, 0.7);
+  }
+
+  .delivery-modal-overlay-content {
+    width: calc(100vw - 20px);
+    max-width: 100%;
+    height: calc(100vh - 20px);
+    max-height: calc(100vh - 20px);
+    padding: 16px;
+    box-sizing: border-box;
+    border-radius: 12px;
+  }
+
+  .delivery-modal-header {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+  }
+
+  .delivery-modal-header h2 {
+    font-size: 18px;
+    margin: 0;
+    width: 100%;
+  }
+
+  .delivery-header-actions {
+    width: 100%;
+    flex-direction: row;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .zero-availability-toggle {
+    flex: 1;
+    min-width: 140px;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .close-modal-button {
+    padding: 8px 16px;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+
+  .delivery-modal-body {
+    padding: 12px 0;
+    gap: 16px;
+  }
+
+  .delivery-info {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .delivery-info p {
+    font-size: 13px;
+    word-break: break-word;
+  }
+
+  .delivery-date-group-modal {
+    width: 100%;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .delivery-date-label-modal {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .delivery-date-input-modal {
+    width: 100%;
+    padding: 10px 12px;
+    font-size: 14px;
+    box-sizing: border-box;
+  }
+
+  .save-error-message {
+    padding: 10px 12px;
+    font-size: 13px;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .batch-error-message,
+  .batch-loading-message {
+    font-size: 13px;
+    padding: 8px 12px;
+  }
+
+  .delivery-items-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .delivery-items-table {
+    min-width: 800px;
+    font-size: 12px;
+  }
+
+  .delivery-items-table th,
+  .delivery-items-table td {
+    padding: 6px 4px;
+    font-size: 12px;
+  }
+
+  .delivery-summary-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .delivery-summary-table {
+    min-width: 600px;
+    font-size: 12px;
+  }
+
+  .delivery-summary-table th,
+  .delivery-summary-table td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .delivery-modal-actions {
+    flex-direction: column-reverse;
+    gap: 8px;
+    padding-top: 12px;
+  }
+
+  .delivery-modal-actions .cancel-button,
+  .delivery-modal-actions .save-order-button {
+    width: 100%;
+    padding: 12px 20px;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .save-timer {
+    font-size: 13px;
+    text-align: center;
+    width: 100%;
+    order: -1;
+  }
+
+  .config-modal-content {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 20px);
+  }
+
+  .config-modal-header {
+    padding: 16px;
+  }
+
+  .config-modal-header h2 {
+    font-size: 18px;
+    margin: 0;
+  }
+
+  .config-modal-body {
+    padding: 16px;
+  }
+
+  .config-checkbox-label {
+    font-size: 14px;
+    padding: 12px;
+  }
+
+  .config-checkbox-label input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+  }
+
+  .config-modal-actions {
+    flex-direction: column-reverse;
+    gap: 8px;
+    padding: 16px;
+  }
+
+  .cancel-config-button,
+  .save-config-button {
+    width: 100%;
+    padding: 12px 20px;
+    font-size: 15px;
+  }
+
+  .batch-selection-modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 20px);
+  }
+
+  .batch-selection-modal-header {
+    padding: 16px;
+  }
+
+  .batch-selection-modal-header h2 {
+    font-size: 18px;
+    margin: 0;
+  }
+
+  .batch-selection-modal-body {
+    padding: 16px;
+  }
+
+  .batch-selection-order-info {
+    padding: 12px;
+  }
+
+  .batch-selection-order-info p {
+    font-size: 13px;
+    margin: 6px 0;
+    word-break: break-word;
+  }
+
+  .batch-selection-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .batch-selection-table {
+    min-width: 600px;
+    font-size: 12px;
+  }
+
+  .batch-selection-table th,
+  .batch-selection-table td {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .batch-selection-modal-actions {
+    flex-direction: column-reverse;
+    gap: 8px;
+    padding: 16px;
+  }
+
+  .batch-selection-modal-actions .cancel-button,
+  .batch-selection-modal-actions .save-order-button {
+    width: 100%;
+    padding: 12px 20px;
+    font-size: 15px;
+  }
+
+  .batch-info-row {
+    font-size: 11px;
+    gap: 4px;
+  }
+
+  .batch-delivery-qty-input {
+    width: 70px;
+    padding: 4px 6px;
+    font-size: 12px;
+  }
+
+  .batch-qty-button {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .message-dialog {
+    width: 90%;
+    max-width: 90%;
+    padding: 20px;
+  }
+
+  .message-dialog h3 {
+    font-size: 18px;
+    margin-bottom: 12px;
+  }
+
+  .message-dialog p {
+    font-size: 14px;
+  }
+
+  .message-dialog-actions {
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 20px;
+  }
+
+  .message-dialog-actions button {
+    width: 100%;
+    padding: 12px 20px;
+    font-size: 15px;
+  }
+
+  /* Additional mobile optimizations */
+  .delivery-qty-input,
+  .delivery-qty-input-modal {
+    min-width: 70px;
+    font-size: 13px;
+    padding: 8px;
+  }
+
+  .cell-subtext {
+    font-size: 11px;
+  }
+
+  .sortable-header {
+    font-size: 12px;
+  }
+
+  .sortable-header .sort-indicator {
+    font-size: 10px;
+  }
+
+  .summary-clickable-row {
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+
+  .config-checkbox-label,
+  .config-radio-label {
+    font-size: 14px;
+  }
+
+  .config-input {
+    padding: 10px 12px;
+    font-size: 14px;
+    box-sizing: border-box;
+  }
+
+  .config-label {
+    font-size: 13px;
+  }
+
+  .config-hint {
+    font-size: 11px;
+  }
+
+  .delivery-summary-empty,
+  .delivery-detail-empty {
+    padding: 20px;
+    font-size: 14px;
+  }
+
+  .summary-item-name {
+    font-size: 13px;
+  }
+
+  .summary-select-button {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  /* Ensure proper scrolling on mobile */
+  .company-orders-container {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Better touch targets */
+  button, 
+  select,
+  input {
+    min-height: 44px;
+  }
+
+  .delivery-qty-input,
+  .delivery-qty-input-modal,
+  .batch-delivery-qty-input {
+    min-height: 40px;
+  }
+
+  /* Ensure no horizontal overflow */
+  .company-orders-container * {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Better spacing for mobile */
+  .company-orders-summary {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+    width: 100%;
+  }
+
+  .summary-card {
+    padding: 12px;
+    width: 100%;
+  }
+
+  /* Ensure all direct children of container take full width */
+  .company-orders-container > * {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+}
+
+/* Extra small screens (phones < 400px) */
+@media (max-width: 400px) {
+  .company-orders-container {
+    padding: 10px;
+    width: 100%;
+  }
+
+  .company-orders-header,
+  .orders-toolbar,
+  .filters-section {
+    padding: 14px;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .summary-cards-section {
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .summary-table-card,
+  .ageing-chart-card {
+    padding: 16px;
+    border-radius: 8px;
+    width: 100%;
+    max-width: 100%;
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  .header-title {
+    font-size: 18px;
+  }
+
+  .header-subtitle {
+    font-size: 12px;
+  }
+
+  .company-orders-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .view-controls {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .toggle-button,
+  .group-by-select {
+    width: 100%;
+    padding: 10px 14px;
+    font-size: 14px;
+  }
+
+  .orders-count {
+    font-size: 12px;
+  }
+
+  .filter-label {
+    font-size: 12px;
+  }
+
+  .filter-input,
+  .filter-select {
+    font-size: 14px;
+    padding: 10px;
+  }
+
+  .ageing-chart-wrapper {
+    height: 220px;
+    min-height: 220px;
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+  }
+
+  .ageing-chart-wrapper .recharts-wrapper {
+    width: 100% !important;
+    height: 100% !important;
+    min-height: 220px !important;
+  }
+
+  .ageing-chart-card {
+    min-height: 280px;
+    overflow: visible;
+  }
+
+  .orders-table-wrapper {
+    width: 100%;
+    max-width: 100%;
+  }
 }
 

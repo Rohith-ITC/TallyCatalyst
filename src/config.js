@@ -1,35 +1,40 @@
 // Environment-based API Configuration
 const getBaseUrl = () => {
-  // Use .env value for development mode
+  // Default API URL
+  const DEFAULT_API_URL = 'https://itcatalystindia.com/Development/CustomerPortal_API';
+  
+    // Use .env value for development mode
   if (process.env.NODE_ENV === 'development') {
-    const devUrl = process.env.REACT_APP_DEV_API_URL || '';
-    
-    // Always use proxy (empty string) for localhost in development to avoid CORS issues
-    // The proxy in setupProxy.js will handle forwarding to the correct backend
-    if (!devUrl || devUrl.includes('localhost') || devUrl.includes('127.0.0.1')) {
-      return ''; // Use relative paths to go through proxy
-    }
-    
-    // Only use direct URL if it's a remote server (not localhost)
+    // Check if we're running from a local network IP (like 192.168.x.x)
+    // In this case, use relative paths to go through the proxy
     if (typeof window !== 'undefined') {
-      const currentHost = window.location.hostname;
-      // If running on localhost, use relative paths to go through proxy
-      if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
-        return ''; // Use relative paths (will go through proxy)
+      const hostname = window.location.hostname;
+      // If accessing from local network IP, use proxy (return empty string for relative paths)
+      if (hostname === '192.168.29.72' || hostname.startsWith('192.168.') || hostname === 'localhost' || hostname === '127.0.0.1') {
+        return ''; // Empty string means use relative path, which will go through proxy
       }
     }
     
-    return devUrl;
+    const devUrl = process.env.REACT_APP_DEV_API_URL || '';
+    
+    // If devUrl is set and not localhost, use it directly
+    if (devUrl && !devUrl.includes('localhost') && !devUrl.includes('127.0.0.1') && !devUrl.includes('itcatalystindia.com') && !devUrl.includes('itcatalystindia.com/Development/CustomerPortal') && !devUrl.includes('192.168.29.72')) {
+      return devUrl;
+    }
+    
+    // If devUrl is localhost or not set, use the default remote API URL
+    // This ensures we always connect to the correct server
+    return DEFAULT_API_URL;
   }
 
-  // For non-development environments, use .env values
+  // For non-development environments, use .env values with fallback
   switch (process.env.NODE_ENV) {
     case 'staging':
-      return process.env.REACT_APP_STAGING_API_URL;
+      return process.env.REACT_APP_STAGING_API_URL || DEFAULT_API_URL;
     case 'production':
-      return process.env.REACT_APP_PRODUCTION_API_URL;
+      return process.env.REACT_APP_PRODUCTION_API_URL || DEFAULT_API_URL;
     default:
-      return '';
+      return DEFAULT_API_URL;
   }
 };
 

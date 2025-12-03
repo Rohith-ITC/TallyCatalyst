@@ -227,11 +227,37 @@ class EncryptionUtils {
     }
   }
 
+  // Check if Web Crypto API is available
+  isCryptoAvailable() {
+    return typeof crypto !== 'undefined' && 
+           crypto !== null && 
+           typeof crypto.subtle !== 'undefined' && 
+           crypto.subtle !== null;
+  }
+
   // Derive encryption key from email + salt (stable across token refreshes)
   async getEncryptionKey() {
     const email = sessionStorage.getItem('email');
     if (!email) {
       throw new Error('No user email found - cannot access encrypted cache');
+    }
+
+    // Check if crypto.subtle is available
+    if (!this.isCryptoAvailable()) {
+      const isSecureContext = window.isSecureContext || 
+                             window.location.protocol === 'https:' || 
+                             window.location.hostname === 'localhost' || 
+                             window.location.hostname === '127.0.0.1';
+      
+      if (!isSecureContext) {
+        console.warn('⚠️ Web Crypto API not available (not a secure context). Cache encryption disabled.');
+        console.warn('⚠️ For production, use HTTPS. For development, access via localhost or use HTTPS.');
+        // Return a dummy key for development - data will be stored unencrypted
+        // This is acceptable for development but should never happen in production
+        return new ArrayBuffer(32); // 32 bytes for AES-256
+      } else {
+        throw new Error('Web Crypto API (crypto.subtle) is not available in this browser. Cache encryption cannot be used.');
+      }
     }
 
     try {
@@ -256,9 +282,35 @@ class EncryptionUtils {
     }
   }
 
-  // Encrypt data
+  // Encrypt data with compression and optimized processing
   async encryptData(data) {
     try {
+      const startTime = performance.now();
+      
+      // Check if crypto is available
+      if (!this.isCryptoAvailable()) {
+        const isSecureContext = window.isSecureContext || 
+                               window.location.protocol === 'https:' || 
+                               window.location.hostname === 'localhost' || 
+                               window.location.hostname === '127.0.0.1';
+        
+        if (!isSecureContext) {
+          // For development on HTTP, store data unencrypted (base64 encoded)
+          console.warn('⚠️ Storing data unencrypted (development mode - HTTP)');
+          const jsonString = JSON.stringify(data);
+          return btoa(unescape(encodeURIComponent(jsonString))); // Base64 encode
+        } else {
+          throw new Error('Web Crypto API not available. Cannot encrypt cache data.');
+        }
+      }
+
+      // Step 1: Compress data first (reduces size significantly for JSON)
+      const compressStart = performance.now();
+      const compressedBuffer = await this.compressData(data);
+      const compressTime = performance.now() - compressStart;
+      console.log(`📦 Compression: ${(compressedBuffer.byteLength / 1024).toFixed(2)} KB in ${compressTime.toFixed(2)}ms`);
+
+      // Step 2: Get encryption key
       const keyBuffer = await this.getEncryptionKey();
       const key = await crypto.subtle.importKey(
         'raw',
@@ -268,50 +320,170 @@ class EncryptionUtils {
         ['encrypt']
       );
 
-      const encoder = new TextEncoder();
-      const jsonString = JSON.stringify(data);
-      const dataBuffer = encoder.encode(jsonString);
-      
+      // Step 3: Encrypt compressed data
+      const encryptStart = performance.now();
       const iv = crypto.getRandomValues(new Uint8Array(12));
       const encrypted = await crypto.subtle.encrypt(
         { name: 'AES-GCM', iv: iv },
         key,
-        dataBuffer
+        compressedBuffer
       );
+      const encryptTime = performance.now() - encryptStart;
+      console.log(`🔐 Encryption: ${(encrypted.byteLength / 1024).toFixed(2)} KB in ${encryptTime.toFixed(2)}ms`);
 
-      // Combine IV and encrypted data
+      // Step 4: Combine IV and encrypted data
       const combined = new Uint8Array(iv.length + encrypted.byteLength);
       combined.set(iv);
       combined.set(new Uint8Array(encrypted), iv.length);
 
-      // Convert to base64 for storage - use chunked approach to avoid stack overflow
-      return this.arrayBufferToBase64(combined.buffer);
+      // Step 5: Convert to base64 (yield to browser periodically for large data)
+      const base64Start = performance.now();
+      let result;
+      if (combined.length > 1024 * 1024) { // > 1MB, use chunked base64
+        result = await this.arrayBufferToBase64Chunked(combined.buffer);
+      } else {
+        result = this.arrayBufferToBase64(combined.buffer);
+      }
+      const base64Time = performance.now() - base64Start;
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`📝 Base64 encoding: ${(result.length / 1024).toFixed(2)} KB in ${base64Time.toFixed(2)}ms`);
+      console.log(`⚡ Total encryption time: ${totalTime.toFixed(2)}ms (${(combined.length / 1024 / 1024).toFixed(2)} MB)`);
+      
+      return result;
     } catch (error) {
       console.error('Encryption error:', error);
       throw error;
     }
   }
 
-  // Helper function to convert ArrayBuffer to base64 efficiently
-  arrayBufferToBase64(buffer) {
+  // Chunked base64 encoding with yield points for large data
+  async arrayBufferToBase64Chunked(buffer) {
     const bytes = new Uint8Array(buffer);
-    let binary = '';
-    const chunkSize = 8192; // Process in 8KB chunks to avoid stack overflow
+    const chunkSize = 1024 * 1024; // 1MB chunks
+    const chunks = [];
     
     for (let i = 0; i < bytes.length; i += chunkSize) {
       const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
-      // Build binary string in chunks
-      for (let j = 0; j < chunk.length; j++) {
-        binary += String.fromCharCode(chunk[j]);
+      chunks.push(this.arrayBufferToBase64(chunk.buffer));
+      
+      // Yield to browser every chunk to prevent blocking
+      if (i + chunkSize < bytes.length) {
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
+    }
+    
+    return chunks.join('');
+  }
+
+  // Helper function to convert ArrayBuffer to base64 efficiently
+  // Optimized version using Uint8Array directly with chunked processing
+  arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 16384; // Increased chunk size for better performance (16KB)
+    let binary = '';
+    
+    // Use chunked processing to avoid blocking the main thread
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
+      // Use String.fromCharCode.apply for better performance on large chunks
+      binary += String.fromCharCode.apply(null, chunk);
     }
     
     return btoa(binary);
   }
 
-  // Decrypt data
+  // Compress data using native CompressionStream API (available in modern browsers)
+  async compressData(data) {
+    try {
+      // Check if CompressionStream is available
+      if (typeof CompressionStream === 'undefined') {
+        console.warn('CompressionStream not available, skipping compression');
+        // Fallback to uncompressed
+        const jsonString = JSON.stringify(data);
+        const encoder = new TextEncoder();
+        return encoder.encode(jsonString).buffer;
+      }
+
+      const jsonString = JSON.stringify(data);
+      const encoder = new TextEncoder();
+      const dataStream = new Blob([encoder.encode(jsonString)]).stream();
+      
+      const compressedStream = dataStream.pipeThrough(new CompressionStream('gzip'));
+      const compressedBlob = await new Response(compressedStream).blob();
+      const compressedArrayBuffer = await compressedBlob.arrayBuffer();
+      
+      const originalSize = new TextEncoder().encode(jsonString).length;
+      const compressedSize = compressedArrayBuffer.byteLength;
+      const compressionRatio = ((1 - compressedSize / originalSize) * 100).toFixed(1);
+      console.log(`📦 Compression: ${(originalSize / 1024).toFixed(2)} KB → ${(compressedSize / 1024).toFixed(2)} KB (${compressionRatio}% reduction)`);
+      
+      return compressedArrayBuffer;
+    } catch (error) {
+      console.warn('Compression failed, using uncompressed data:', error);
+      // Fallback to uncompressed
+      const jsonString = JSON.stringify(data);
+      const encoder = new TextEncoder();
+      return encoder.encode(jsonString).buffer;
+    }
+  }
+
+  // Decompress data using native DecompressionStream API
+  async decompressData(compressedBuffer) {
+    try {
+      // Check if DecompressionStream is available
+      if (typeof DecompressionStream === 'undefined') {
+        console.warn('DecompressionStream not available, assuming uncompressed');
+        const decoder = new TextDecoder();
+        return JSON.parse(decoder.decode(new Uint8Array(compressedBuffer)));
+      }
+
+      const compressedStream = new Blob([compressedBuffer]).stream();
+      const decompressedStream = compressedStream.pipeThrough(new DecompressionStream('gzip'));
+      const decompressedBlob = await new Response(decompressedStream).blob();
+      const decompressedArrayBuffer = await decompressedBlob.arrayBuffer();
+      const decoder = new TextDecoder();
+      return JSON.parse(decoder.decode(decompressedArrayBuffer));
+    } catch (error) {
+      // Try as uncompressed data
+      try {
+        const decoder = new TextDecoder();
+        return JSON.parse(decoder.decode(new Uint8Array(compressedBuffer)));
+      } catch (e) {
+        console.error('Decompression failed:', error);
+        throw error;
+      }
+    }
+  }
+
+  // Decrypt data with decompression support
   async decryptData(encryptedBase64) {
     try {
+      const startTime = performance.now();
+      
+      // Check if crypto is available
+      if (!this.isCryptoAvailable()) {
+        const isSecureContext = window.isSecureContext || 
+                               window.location.protocol === 'https:' || 
+                               window.location.hostname === 'localhost' || 
+                               window.location.hostname === '127.0.0.1';
+        
+        if (!isSecureContext) {
+          // For development on HTTP, data is stored as base64 encoded JSON
+          console.warn('⚠️ Decrypting unencrypted data (development mode - HTTP)');
+          try {
+            const jsonString = decodeURIComponent(escape(atob(encryptedBase64)));
+            return JSON.parse(jsonString);
+          } catch (error) {
+            // If base64 decode fails, try as encrypted data (might be from HTTPS session)
+            console.warn('⚠️ Failed to decode as unencrypted, might be encrypted data');
+            return null;
+          }
+        } else {
+          throw new Error('Web Crypto API not available. Cannot decrypt cache data.');
+        }
+      }
+
       const keyBuffer = await this.getEncryptionKey();
       const key = await crypto.subtle.importKey(
         'raw',
@@ -321,30 +493,93 @@ class EncryptionUtils {
         ['decrypt']
       );
 
-      // Decode from base64 - use chunked approach for large data
-      const binaryString = atob(encryptedBase64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      // Decode from base64 - optimized for large data
+      const base64Start = performance.now();
+      let bytes;
+      if (encryptedBase64.length > 1024 * 1024) { // > 1MB, use chunked decoding
+        bytes = await this.base64ToArrayBufferChunked(encryptedBase64);
+      } else {
+        const binaryString = atob(encryptedBase64);
+        bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+      }
+      const base64Time = performance.now() - base64Start;
+      console.log(`📝 Base64 decoding: ${(bytes.length / 1024).toFixed(2)} KB in ${base64Time.toFixed(2)}ms`);
+      
+      // Check if this looks like encrypted data (has IV) or unencrypted base64
+      // Encrypted data starts with 12-byte IV, so if length < 12, it's probably unencrypted
+      if (bytes.length < 12) {
+        // Try as unencrypted base64
+        try {
+          const jsonString = decodeURIComponent(escape(encryptedBase64));
+          return JSON.parse(jsonString);
+        } catch {
+          return null;
+        }
       }
       
       // Extract IV and encrypted data
       const iv = bytes.slice(0, 12);
       const encrypted = bytes.slice(12);
 
+      // Decrypt
+      const decryptStart = performance.now();
       const decrypted = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: iv },
         key,
         encrypted
       );
+      const decryptTime = performance.now() - decryptStart;
+      console.log(`🔓 Decryption: ${(decrypted.byteLength / 1024).toFixed(2)} KB in ${decryptTime.toFixed(2)}ms`);
 
-      const decoder = new TextDecoder();
-      return JSON.parse(decoder.decode(decrypted));
+      // Decompress (handles both compressed and uncompressed data)
+      const decompressStart = performance.now();
+      const decompressed = await this.decompressData(decrypted);
+      const decompressTime = performance.now() - decompressStart;
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`📦 Decompression: ${decompressTime.toFixed(2)}ms`);
+      console.log(`⚡ Total decryption time: ${totalTime.toFixed(2)}ms`);
+      
+      return decompressed;
     } catch (error) {
       console.error('Decryption error:', error);
-      // If decryption fails (e.g., wrong user), return null
-      return null;
+      // If decryption fails (e.g., wrong user or unencrypted data), try as unencrypted
+      try {
+        const jsonString = decodeURIComponent(escape(atob(encryptedBase64)));
+        return JSON.parse(jsonString);
+      } catch {
+        return null;
+      }
     }
+  }
+
+  // Chunked base64 to ArrayBuffer conversion with yield points
+  async base64ToArrayBufferChunked(base64) {
+    const chunkSize = 1024 * 1024; // 1MB chunks
+    const totalLength = Math.ceil(base64.length * 3 / 4);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    
+    for (let i = 0; i < base64.length; i += chunkSize) {
+      const chunk = base64.slice(i, Math.min(i + chunkSize, base64.length));
+      const binaryString = atob(chunk);
+      const chunkBytes = new Uint8Array(binaryString.length);
+      for (let j = 0; j < binaryString.length; j++) {
+        chunkBytes[j] = binaryString.charCodeAt(j);
+      }
+      result.set(chunkBytes, offset);
+      offset += chunkBytes.length;
+      
+      // Yield to browser every chunk
+      if (i + chunkSize < base64.length) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+    
+    return result;
   }
 }
 
@@ -355,6 +590,7 @@ class OPFSBackend {
     this.root = null;
     this.initialized = false;
     this.metadataCache = new Map(); // In-memory cache for metadata
+    this.metadataSaveTimer = null; // Timer for deferred metadata saves
   }
 
   // Load metadata from OPFS
@@ -502,8 +738,18 @@ class OPFSBackend {
   async setSalesData(cacheKey, data, maxAgeDays = null, startDate = null, endDate = null) {
     try {
       await this.init();
+      
+      // Check data size and warn on mobile if large
+      const dataSize = JSON.stringify(data).length;
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      if (isMobile && dataSize > 5 * 1024 * 1024) { // > 5MB
+        console.warn(`⚠️ Large data write on mobile: ${(dataSize / (1024 * 1024)).toFixed(2)} MB`);
+      }
+      
+      const syncStart = performance.now();
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
+      console.log(`💾 Cache write started for: ${cacheKey}`);
       
       // Parse date range from cache key if not provided
       let dateRange = null;
@@ -536,8 +782,9 @@ class OPFSBackend {
       const fileHandle = await dir.getFileHandle(fileName, { create: true });
       
       try {
-        // Try sync access handle for better performance (if available)
-        if ('createSyncAccessHandle' in fileHandle) {
+        // Sync access handles may not be available on mobile browsers
+        // Skip sync access on mobile for better compatibility
+        if (!isMobile && 'createSyncAccessHandle' in fileHandle) {
           const syncHandle = await fileHandle.createSyncAccessHandle();
           try {
             const encoder = new TextEncoder();
@@ -548,19 +795,20 @@ class OPFSBackend {
             syncHandle.close();
           }
         } else {
-          // Fallback to async file writing
+          // Use async file writing (more compatible with mobile)
           const writable = await fileHandle.createWritable();
           await writable.write(encrypted);
           await writable.close();
         }
       } catch (writeError) {
+        console.warn('⚠️ Primary write method failed, trying fallback:', writeError.message);
         // If sync fails, try async
         const writable = await fileHandle.createWritable();
         await writable.write(encrypted);
         await writable.close();
       }
       
-      // Store metadata in OPFS
+      // Store metadata in memory (defer file write to batch operations)
       const salesMap = this.metadataCache.get('sales') || new Map();
       const metadata = {
         cacheKey,
@@ -570,7 +818,18 @@ class OPFSBackend {
       };
       salesMap.set(cacheKey, metadata);
       this.metadataCache.set('sales', salesMap);
-      await this.saveMetadata();
+      
+      // Defer metadata save to avoid blocking (use setTimeout to batch writes)
+      if (this.metadataSaveTimer) {
+        clearTimeout(this.metadataSaveTimer);
+      }
+      this.metadataSaveTimer = setTimeout(async () => {
+        await this.saveMetadata();
+        this.metadataSaveTimer = null;
+      }, 100); // Batch metadata saves within 100ms
+      
+      const syncTime = performance.now() - syncStart;
+      console.log(`✅ Cache write completed in ${syncTime.toFixed(2)}ms: ${cacheKey}`);
       
       // Clean up old entries only if expiry is set (not null/never)
       if (maxAgeDays !== null && maxAgeDays !== undefined) {
@@ -1099,8 +1358,10 @@ class OPFSBackend {
   // Store complete sales data with metadata
   async setCompleteSalesData(companyInfo, data, metadata = {}) {
     try {
+      const syncStart = performance.now();
       await this.init();
       const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      console.log(`💾 Complete sales data cache write started for: ${cacheKey}`);
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
       
@@ -1198,9 +1459,12 @@ class OPFSBackend {
       };
       salesMap.set(cacheKey, metadataEntry);
       this.metadataCache.set('sales', salesMap);
+      
+      // For complete sales data, save metadata immediately (important for sync tracking)
       await this.saveMetadata();
       
-      console.log(`✅ Cached complete sales data in OPFS: ${cacheKey}, lastaltid: ${lastaltid}`);
+      const syncTime = performance.now() - syncStart;
+      console.log(`✅ Cached complete sales data in OPFS: ${cacheKey}, lastaltid: ${lastaltid} (${syncTime.toFixed(2)}ms)`);
     } catch (error) {
       console.error('Error storing complete sales data in OPFS:', error);
       throw error;
@@ -1869,6 +2133,9 @@ class HybridCache {
   async init() {
     if (this.initialized) return;
     
+    // Detect mobile device
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    
     // Detect browser support with detailed logging
     const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const hasStorage = 'storage' in navigator;
@@ -1876,6 +2143,7 @@ class HybridCache {
     const supportsOPFS = isSecureContext && hasStorage && hasGetDirectory;
     
     console.log('🔍 Storage Detection:', {
+      isMobile,
       isSecureContext,
       protocol: window.location.protocol,
       hostname: window.location.hostname,
@@ -1885,36 +2153,76 @@ class HybridCache {
       userAgent: navigator.userAgent
     });
     
-    // Try OPFS first if supported
-    if (supportsOPFS) {
+    // On mobile browsers, OPFS support varies significantly
+    // Safari iOS: Limited OPFS support, better to use IndexedDB
+    // Chrome Android: Good OPFS support
+    // Firefox Android: Limited OPFS support
+    const isSafariIOS = isMobile && /Safari/i.test(navigator.userAgent) && /iPhone|iPad|iPod/i.test(navigator.userAgent) && !/Chrome|CriOS|FxiOS/i.test(navigator.userAgent);
+    const isFirefoxMobile = isMobile && /Firefox/i.test(navigator.userAgent);
+    
+    // Prefer IndexedDB on Safari iOS and Firefox Mobile due to better stability
+    const preferIndexedDB = isSafariIOS || isFirefoxMobile;
+    
+    if (preferIndexedDB) {
+      console.log('📱 Mobile browser detected with limited OPFS support, using IndexedDB');
+    }
+    
+    if (supportsOPFS && !preferIndexedDB) {
       try {
         console.log('🚀 Initializing OPFS backend...');
-        // Initialize OPFS root first
-        const opfsRoot = await navigator.storage.getDirectory();
+        // Initialize OPFS root first with timeout for mobile
+        const opfsInitPromise = navigator.storage.getDirectory();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('OPFS initialization timeout')), isMobile ? 10000 : 5000)
+        );
+        
+        const opfsRoot = await Promise.race([opfsInitPromise, timeoutPromise]);
+        
+        // Check storage quota on mobile
+        if (isMobile && 'estimate' in navigator.storage) {
+          const estimate = await navigator.storage.estimate();
+          const usagePercent = (estimate.usage / estimate.quota) * 100;
+          console.log(`📊 Storage quota: ${(estimate.usage / (1024 * 1024)).toFixed(2)} MB / ${(estimate.quota / (1024 * 1024)).toFixed(2)} MB (${usagePercent.toFixed(1)}%)`);
+          
+          if (usagePercent > 90) {
+            console.warn('⚠️ Storage quota nearly full on mobile (>90%), consider cleanup');
+          } else if (usagePercent > 75) {
+            console.warn('⚠️ Storage quota getting high on mobile (>75%)');
+          }
+        }
+        
         this.encryption = new EncryptionUtils(opfsRoot);
         this.backend = new OPFSBackend(this.encryption);
         await this.backend.init();
         this.backendType = 'OPFS';
-        console.log('✅ OPFS backend initialized successfully');
+        console.log('✅ OPFS backend initialized successfully' + (isMobile ? ' (mobile)' : ''));
         this.initialized = true;
         return;
       } catch (error) {
-        console.warn('⚠️ OPFS initialization failed, falling back to IndexedDB:', error);
+        console.warn('⚠️ OPFS initialization failed, falling back to IndexedDB:', {
+          error: error.message,
+          isMobile,
+          browser: navigator.userAgent
+        });
         // Fall through to IndexedDB
       }
     }
     
-    // Fall back to IndexedDB
+    // Fall back to IndexedDB (or use it directly if preferred)
     try {
-      console.log('🚀 Initializing IndexedDB backend...');
+      console.log('🚀 Initializing IndexedDB backend...' + (isMobile ? ' (mobile)' : ''));
       this.encryption = new EncryptionUtils(null); // No OPFS root
       this.backend = new IndexedDBBackend(this.encryption);
       await this.backend.init();
       this.backendType = 'IndexedDB';
-      console.log('✅ IndexedDB backend initialized successfully');
+      console.log('✅ IndexedDB backend initialized successfully' + (isMobile ? ' (mobile)' : ''));
     } catch (error) {
-      console.error('❌ IndexedDB initialization failed:', error);
-      throw new Error('Failed to initialize both OPFS and IndexedDB backends');
+      console.error('❌ IndexedDB initialization failed:', {
+        error: error.message,
+        isMobile,
+        browser: navigator.userAgent
+      });
+      throw new Error(`Failed to initialize storage backends: ${error.message}. Please ensure your browser supports modern storage APIs.`);
     }
     
     this.initialized = true;
@@ -1966,6 +2274,36 @@ class HybridCache {
       isUsingOPFS: this.backendType === 'OPFS',
       isUsingIndexedDB: this.backendType === 'IndexedDB'
     };
+  }
+
+  // Add this method to HybridCache class
+  async getStorageQuota() {
+    try {
+      if ('storage' in navigator && 'estimate' in navigator.storage) {
+        const estimate = await navigator.storage.estimate();
+        return {
+          quota: estimate.quota,
+          usage: estimate.usage,
+          available: estimate.quota - estimate.usage,
+          usagePercent: ((estimate.usage / estimate.quota) * 100).toFixed(2),
+          quotaMB: (estimate.quota / (1024 * 1024)).toFixed(2),
+          usageMB: (estimate.usage / (1024 * 1024)).toFixed(2),
+          availableMB: ((estimate.quota - estimate.usage) / (1024 * 1024)).toFixed(2)
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting storage quota:', error);
+      return null;
+    }
+  }
+
+  // Add this method to check if storage is getting low
+  async isStorageLow(thresholdPercent = 80) {
+    const quota = await this.getStorageQuota();
+    if (!quota) return false;
+    const usagePercent = (quota.usage / quota.quota) * 100;
+    return usagePercent >= thresholdPercent;
   }
 
   // List all cache entries
