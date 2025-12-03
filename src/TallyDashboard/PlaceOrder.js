@@ -1964,12 +1964,12 @@ function PlaceOrder() {
         <div style={{ 
           background: '#fee2e2', 
           color: '#b91c1c', 
-          borderRadius: isMobile ? 6 : 8, 
-          padding: isMobile ? '6px 12px' : '8px 16px', 
-          margin: isMobile ? '8px 4px' : '0 auto 18px auto', 
+                borderRadius: isMobile ? 8 : 8,
+          padding: isMobile ? '8px 14px' : '8px 16px', 
+          margin: isMobile ? '12px 8px' : '0 auto 18px auto', 
           fontWeight: 600, 
-          fontSize: isMobile ? 13 : 15, 
-          maxWidth: isMobile ? 'calc(100% - 8px)' : 1200, 
+          fontSize: isMobile ? 14 : 15, 
+          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200, 
           display: 'flex', 
           alignItems: 'center', 
           gap: 8 
@@ -1982,12 +1982,12 @@ function PlaceOrder() {
         <div style={{ 
           background: '#fee2e2', 
           color: '#b91c1c', 
-          borderRadius: isMobile ? 6 : 8, 
-          padding: isMobile ? '6px 12px' : '8px 16px', 
-          margin: isMobile ? '8px 4px' : '0 auto 18px auto', 
+                borderRadius: isMobile ? 8 : 8,
+          padding: isMobile ? '8px 14px' : '8px 16px', 
+          margin: isMobile ? '12px 8px' : '0 auto 18px auto', 
           fontWeight: 600, 
-          fontSize: isMobile ? 13 : 15, 
-          maxWidth: isMobile ? 'calc(100% - 8px)' : 1200, 
+          fontSize: isMobile ? 14 : 15, 
+          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200, 
           display: 'flex', 
           alignItems: 'center', 
           gap: 8 
@@ -2001,26 +2001,26 @@ function PlaceOrder() {
       {/* Company, Customer, and Place Order Section */}
       <div style={{
         background: '#fff',
-        margin: isMobile ? '8px 4px' : '24px 24px 16px 24px',
+        margin: isMobile ? '12px 8px' : '24px 24px 16px 24px',
         maxWidth: isMobile ? '100%' : '1400px',
-        width: isMobile ? 'calc(100% - 8px)' : 'auto',
-        borderRadius: isMobile ? '12px' : '16px',
-        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+        width: isMobile ? 'calc(100% - 16px)' : 'auto',
+        borderRadius: isMobile ? '16px' : '16px',
+        boxShadow: isMobile ? '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.1)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
         overflow: 'visible',
-        border: '1px solid #e5e7eb',
+        border: isMobile ? '1px solid #e5e7eb' : '1px solid #e5e7eb',
         position: 'relative'
       }}>
         {/* Form - Place Order */}
-        <form onSubmit={handleSubmit} style={{ padding: isMobile ? '12px 8px' : '12px', width: isMobile ? '100%' : '98%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
+        <form onSubmit={handleSubmit} style={{ padding: isMobile ? '16px 12px' : '12px', width: isMobile ? '100%' : '98%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
           {/* Header */}
           <div style={{
             display: 'flex',
             flexDirection: isMobile ? 'column' : 'row',
             alignItems: isMobile ? 'flex-start' : 'center',
             justifyContent: 'space-between',
-            gap: isMobile ? '12px' : '0',
-            marginBottom: '6px',
-            paddingBottom: '16px',
+            gap: isMobile ? '14px' : '0',
+            marginBottom: isMobile ? '8px' : '6px',
+            paddingBottom: isMobile ? '14px' : '16px',
             borderBottom: '1px solid #f3f4f6',
             position: 'relative'
           }}>
@@ -2090,7 +2090,7 @@ function PlaceOrder() {
                 fontSize: isMobile ? '12px' : '14px',
                 color: '#64748b',
                 fontWeight: '500',
-                padding: isMobile ? '6px 12px' : '8px 16px',
+                padding: isMobile ? '8px 14px' : '8px 16px',
                 backgroundColor: '#f8fafc',
                 borderRadius: '20px',
                 border: '1px solid #e2e8f0',
@@ -2116,7 +2116,7 @@ function PlaceOrder() {
           <div style={{
             display: 'flex',
             flexDirection: isMobile ? 'column' : 'row',
-            gap: isMobile ? '16px' : '20px',
+            gap: isMobile ? '14px' : '20px',
             alignItems: isMobile ? 'stretch' : 'end',
             minHeight: '60px',
             position: 'relative'
@@ -2130,7 +2130,7 @@ function PlaceOrder() {
               <div style={{
                 position: 'relative',
                 background: 'white',
-                borderRadius: '12px',
+                borderRadius: isMobile ? '10px' : '12px',
                 border: showVoucherTypeDropdown ? '2px solid #3b82f6' : '2px solid #e2e8f0',
                 transition: 'all 0.2s ease',
                 boxShadow: showVoucherTypeDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
@@ -2303,7 +2303,7 @@ function PlaceOrder() {
               <div style={{
                 position: 'relative',
                 background: 'white',
-                borderRadius: '12px',
+                borderRadius: isMobile ? '10px' : '12px',
                 border: showCustomerDropdown ? '2px solid #3b82f6' : '2px solid #e2e8f0',
                 transition: 'all 0.2s ease',
                 boxShadow: showCustomerDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
@@ -2662,9 +2662,9 @@ function PlaceOrder() {
                   color: '#fff',
                   border: 'none',
                   borderRadius: '8px',
-                  padding: isMobile ? '14px 20px' : '12px 24px',
+                  padding: isMobile ? '16px 24px' : '12px 24px',
                   cursor: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'not-allowed' : 'pointer',
-                  fontSize: isMobile ? '14px' : '16px',
+                  fontSize: isMobile ? '15px' : '16px',
                   fontWeight: '600',
                   boxShadow: '0 4px 6px rgba(59, 130, 246, 0.25)',
                   display: 'flex',
@@ -2705,9 +2705,9 @@ function PlaceOrder() {
               flexDirection: isMobile ? 'column' : 'row',
               alignItems: isMobile ? 'flex-start' : 'center',
               justifyContent: 'flex-start',
-              gap: isMobile ? '12px' : '20px',
-              padding: '8px 0',
-              fontSize: isMobile ? '12px' : '14px',
+              gap: isMobile ? '14px' : '20px',
+              padding: isMobile ? '10px 0' : '8px 0',
+              fontSize: isMobile ? '13px' : '14px',
               fontWeight: '500'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -2783,29 +2783,30 @@ function PlaceOrder() {
       {/* Order Items Section */}
       <div style={{
         background: '#fff',
-        margin: isMobile ? '0px 4px 8px 4px' : '0px 24px 24px 24px',
+        margin: isMobile ? '0px 8px 16px 8px' : '0px 24px 24px 24px',
         maxWidth: isMobile ? '100%' : '1400px',
-        width: isMobile ? 'calc(100% - 8px)' : 'auto',
-        borderRadius: isMobile ? '12px' : '16px',
-        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+        width: isMobile ? 'calc(100% - 16px)' : 'auto',
+        borderRadius: isMobile ? '16px' : '16px',
+        boxShadow: isMobile ? '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.1)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
         overflow: 'visible',
         border: '1px solid #e5e7eb'
       }}>
         {/* Add Item Form */}
         <div style={{
-          padding: isMobile ? '12px 8px' : '16px 32px',
-          paddingBottom: isMobile ? '12px' : '24px',
+          padding: isMobile ? '16px 12px' : '16px 32px',
+          paddingBottom: isMobile ? '16px' : '24px',
           borderBottom: '1px solid #f3f4f6',
           background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-          position: 'relative'
+          position: 'relative',
+          borderRadius: isMobile ? '16px 16px 0 0' : '0'
         }}>
           <div style={{
             display: 'flex',
             flexDirection: isMobile ? 'column' : 'row',
             alignItems: isMobile ? 'flex-start' : 'center',
             justifyContent: 'space-between',
-            gap: isMobile ? '12px' : '0',
-            marginBottom: '6px'
+            gap: isMobile ? '14px' : '0',
+            marginBottom: isMobile ? '10px' : '6px'
           }}>
             <div style={{
               display: 'flex',
@@ -2821,7 +2822,7 @@ function PlaceOrder() {
               fontSize: isMobile ? '12px' : '14px',
               color: '#64748b',
               fontWeight: '500',
-              padding: isMobile ? '6px 12px' : '8px 16px',
+              padding: isMobile ? '8px 14px' : '8px 16px',
               backgroundColor: '#f8fafc',
               borderRadius: '20px',
               border: '1px solid #e2e8f0',
@@ -2835,13 +2836,13 @@ function PlaceOrder() {
             display: 'flex',
             flexDirection: isMobile ? 'column' : 'row',
             flexWrap: isMobile ? 'nowrap' : 'wrap',
-            gap: isMobile ? '10px' : '12px',
+            gap: isMobile ? '12px' : '12px',
             alignItems: isMobile ? 'stretch' : 'flex-end',
             position: 'relative',
             minHeight: '30px',
-            padding: isMobile ? '10px 8px' : '20px',
+            padding: isMobile ? '16px 12px' : '20px',
             background: '#f8fafc',
-            borderRadius: isMobile ? '10px' : '16px',
+            borderRadius: isMobile ? '12px' : '16px',
             border: '1px solid #e2e8f0'
           }}>
             {/* Item Name */}
@@ -2854,7 +2855,7 @@ function PlaceOrder() {
               <div style={{
                 position: 'relative',
                 background: 'white',
-                borderRadius: '12px',
+                borderRadius: isMobile ? '10px' : '12px',
                 border: showItemDropdown ? '2px solid #3b82f6' : '2px solid #e2e8f0',
                 transition: 'all 0.2s ease',
                 boxShadow: showItemDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
@@ -3119,10 +3120,10 @@ function PlaceOrder() {
                 <div style={{
                   position: 'relative',
                   background: 'white',
-                  borderRadius: '10px',
+                  borderRadius: isMobile ? '10px' : '10px',
                   border: '1.5px solid #e2e8f0',
                   transition: 'all 0.2s ease',
-                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
                   cursor: 'pointer'
                 }}
                   onClick={() => setShowUnitTypeDropdown(!showUnitTypeDropdown)}
@@ -3135,10 +3136,10 @@ function PlaceOrder() {
                     onBlur={() => setTimeout(() => setUnitTypeFocused(false), 200)}
                     style={{
                       width: '100%',
-                      padding: '12px 36px 12px 16px',
+                      padding: isMobile ? '14px 36px 14px 16px' : '12px 36px 12px 16px',
                       border: 'none',
-                      borderRadius: '10px',
-                      fontSize: '14px',
+                      borderRadius: isMobile ? '10px' : '10px',
+                      fontSize: isMobile ? '15px' : '14px',
                       color: '#1e293b',
                       outline: 'none',
                       background: 'transparent',
@@ -3512,10 +3513,10 @@ function PlaceOrder() {
                 <div style={{
                   position: 'relative',
                   background: isFormulaEditMode ? 'white' : '#f8fafc',
-                  borderRadius: '10px',
+                  borderRadius: isMobile ? '10px' : '10px',
                   border: '1.5px solid #e2e8f0',
                   transition: 'all 0.2s ease',
-                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.05)'
                 }}>
                   <input
                     type="text"
@@ -3526,10 +3527,10 @@ function PlaceOrder() {
                     readOnly={!isFormulaEditMode}
                     style={{
                       width: '100%',
-                      padding: '12px 44px 12px 16px',
+                      padding: isMobile ? '14px 44px 14px 16px' : '12px 44px 12px 16px',
                       border: 'none',
-                      borderRadius: '10px',
-                      fontSize: '14px',
+                      borderRadius: isMobile ? '10px' : '10px',
+                      fontSize: isMobile ? '15px' : '14px',
                       color: isFormulaEditMode ? '#1e293b' : '#64748b',
                       outline: 'none',
                       background: 'transparent',
@@ -3591,10 +3592,10 @@ function PlaceOrder() {
                 <div style={{
                   position: 'relative',
                   background: 'white',
-                  borderRadius: '12px',
+                  borderRadius: isMobile ? '10px' : '12px',
                   border: '2px solid #e2e8f0',
                   transition: 'all 0.2s ease',
-                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
                   <input
                     type="number"
@@ -3606,10 +3607,10 @@ function PlaceOrder() {
                     min="1"
                     style={{
                       width: '100%',
-                      padding: '16px 20px',
+                      padding: isMobile ? '14px 20px' : '16px 20px',
                       border: 'none',
-                      borderRadius: '12px',
-                      fontSize: '15px',
+                      borderRadius: isMobile ? '10px' : '12px',
+                      fontSize: isMobile ? '15px' : '15px',
                       color: selectedItem ? '#1e293b' : '#9ca3af',
                       outline: 'none',
                       background: selectedItem ? 'transparent' : '#f1f5f9',
@@ -3642,9 +3643,9 @@ function PlaceOrder() {
                 <div style={{
                   position: 'relative',
                   background: '#f8fafc',
-                  borderRadius: '12px',
+                  borderRadius: isMobile ? '10px' : '12px',
                   border: '2px solid #e2e8f0',
-                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
                   <input
                     type="text"
@@ -3664,10 +3665,10 @@ function PlaceOrder() {
                     })()}
                     style={{
                       width: '100%',
-                      padding: '16px 20px',
+                      padding: isMobile ? '14px 20px' : '16px 20px',
                       border: 'none',
-                      borderRadius: '12px',
-                      fontSize: '15px',
+                      borderRadius: isMobile ? '10px' : '12px',
+                      fontSize: isMobile ? '15px' : '15px',
                       color: '#64748b',
                       outline: 'none',
                       background: 'transparent',
@@ -3705,9 +3706,9 @@ function PlaceOrder() {
                 <div style={{
                   position: 'relative',
                   background: canEditRate ? 'white' : '#f8fafc',
-                  borderRadius: '12px',
+                  borderRadius: isMobile ? '10px' : '12px',
                   border: '2px solid #e2e8f0',
-                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
                   <input
                     type="number"
@@ -3716,10 +3717,10 @@ function PlaceOrder() {
                     readOnly={!canEditRate}
                     style={{
                       width: '100%',
-                      padding: '16px 20px',
+                      padding: isMobile ? '14px 20px' : '16px 20px',
                       border: 'none',
-                      borderRadius: '12px',
-                      fontSize: '15px',
+                      borderRadius: isMobile ? '10px' : '12px',
+                      fontSize: isMobile ? '15px' : '15px',
                       color: canEditRate ? '#1e293b' : '#64748b',
                       outline: 'none',
                       background: 'transparent',
@@ -3752,9 +3753,9 @@ function PlaceOrder() {
                 <div style={{
                   position: 'relative',
                   background: canEditDiscount ? 'white' : '#f8fafc',
-                  borderRadius: '12px',
+                  borderRadius: isMobile ? '10px' : '12px',
                   border: '2px solid #e2e8f0',
-                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
                   <input
                     type="number"
@@ -3763,10 +3764,10 @@ function PlaceOrder() {
                     readOnly={!canEditDiscount}
                     style={{
                       width: '100%',
-                      padding: '16px 20px',
+                      padding: isMobile ? '14px 20px' : '16px 20px',
                       border: 'none',
-                      borderRadius: '12px',
-                      fontSize: '15px',
+                      borderRadius: isMobile ? '10px' : '12px',
+                      fontSize: isMobile ? '15px' : '15px',
                       color: canEditDiscount ? '#1e293b' : '#64748b',
                       outline: 'none',
                       background: 'transparent',
@@ -3799,19 +3800,19 @@ function PlaceOrder() {
                 <div style={{
                   position: 'relative',
                   background: '#f8fafc',
-                  borderRadius: '12px',
+                  borderRadius: isMobile ? '10px' : '12px',
                   border: '2px solid #e2e8f0',
-                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
                 }}>
                   <input
                     type="number"
                     value={itemGstPercent}
                     style={{
                       width: '100%',
-                      padding: '16px 20px',
+                      padding: isMobile ? '14px 20px' : '16px 20px',
                       border: 'none',
-                      borderRadius: '12px',
-                      fontSize: '15px',
+                      borderRadius: isMobile ? '10px' : '12px',
+                      fontSize: isMobile ? '15px' : '15px',
                       color: '#64748b',
                       outline: 'none',
                       background: 'transparent',
@@ -3841,16 +3842,16 @@ function PlaceOrder() {
             {/* Amount Display */}
             {canShowRateAmtColumn && (
               <div style={{
-                padding: '16px 20px',
+                padding: isMobile ? '14px 20px' : '16px 20px',
                 background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-                borderRadius: '12px',
+                borderRadius: isMobile ? '10px' : '12px',
                 border: '2px solid #0ea5e9',
-                fontSize: '16px',
+                fontSize: isMobile ? '15px' : '16px',
                 fontWeight: '700',
                 color: '#0369a1',
                 textAlign: 'center',
-                minWidth: '110px',
-                boxShadow: '0 2px 4px rgba(14, 165, 233, 0.2)'
+                minWidth: isMobile ? '100%' : '110px',
+                boxShadow: isMobile ? '0 2px 6px rgba(14, 165, 233, 0.25)' : '0 2px 4px rgba(14, 165, 233, 0.2)'
               }}>
                 ₹{itemAmount.toFixed(2)}
               </div>
@@ -3865,10 +3866,10 @@ function PlaceOrder() {
                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                 color: 'white',
                 border: 'none',
-                borderRadius: '12px',
-                padding: isMobile ? '14px 20px' : '16px 28px',
+                borderRadius: isMobile ? '10px' : '12px',
+                padding: isMobile ? '16px 24px' : '16px 28px',
                 cursor: 'pointer',
-                fontSize: isMobile ? '14px' : '15px',
+                fontSize: isMobile ? '15px' : '15px',
                 fontWeight: '700',
                 transition: 'all 0.3s ease',
                 opacity: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)) ? 0.5 : 1,
@@ -4004,13 +4005,13 @@ function PlaceOrder() {
 
         {/* Order Items Table */}
         {orderItems.length > 0 && (
-          <div style={{ padding: '2px 2px' }}>
+          <div style={{ padding: isMobile ? '0' : '2px 2px' }}>
             <div style={{
               background: 'white',
-              borderRadius: '2px',
+              borderRadius: isMobile ? '0 0 16px 16px' : '2px',
               border: '1px solid #e2e8f0',
               overflow: isMobile ? 'auto' : 'hidden',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+              boxShadow: isMobile ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.1)',
               maxWidth: '100%'
             }}>
               {/* Table Header */}
@@ -4018,12 +4019,12 @@ function PlaceOrder() {
                 display: 'grid',
                 gridTemplateColumns: getGridTemplateColumns(),
                 gap: isMobile ? '12px' : '24px',
-                padding: isMobile ? '8px 8px 8px 12px' : '10px 10px 10px 20px',
+                padding: isMobile ? '12px 12px 12px 16px' : '10px 10px 10px 20px',
                 backgroundColor: '#f8fafc',
                 borderBottom: '2px solid #e2e8f0',
                 fontWeight: '700',
                 color: '#475569',
-                fontSize: isMobile ? '12px' : '14px',
+                fontSize: isMobile ? '13px' : '14px',
                 letterSpacing: '0.025em',
                 minWidth: isMobile ? '800px' : 'auto'
               }}>
@@ -4042,10 +4043,10 @@ function PlaceOrder() {
                   display: 'grid',
                   gridTemplateColumns: getGridTemplateColumns(),
                   gap: isMobile ? '12px' : '24px',
-                  padding: isMobile ? '10px 10px 10px 12px' : '12px 12px 12px 20px',
+                  padding: isMobile ? '14px 12px 14px 16px' : '12px 12px 12px 20px',
                   borderBottom: '1px solid #f1f5f9',
                   alignItems: 'center',
-                  fontSize: isMobile ? '12px' : '14px',
+                  fontSize: isMobile ? '13px' : '14px',
                   color: '#1e293b',
                   transition: 'background-color 0.2s ease',
                   minWidth: isMobile ? '800px' : 'auto',
@@ -4056,7 +4057,7 @@ function PlaceOrder() {
                   <div style={{
                     fontWeight: '600',
                     color: '#1e293b',
-                    fontSize: isMobile ? '13px' : '15px'
+                    fontSize: isMobile ? '14px' : '15px'
                   }}>
                     {item.name}
                     {editingItemIndex === index ? (
@@ -4321,22 +4322,23 @@ function PlaceOrder() {
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: getGridTemplateColumns(),
-                    gap: '24px',
-                    padding: '12px 12px 12px 25px',
+                    gap: isMobile ? '12px' : '24px',
+                    padding: isMobile ? '14px 12px 14px 16px' : '12px 12px 12px 25px',
                     background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
                     color: 'white',
                     fontWeight: '700',
-                    fontSize: '12px',
-                    borderTop: '2px solid #3b82f6'
+                    fontSize: isMobile ? '13px' : '12px',
+                    borderTop: '2px solid #3b82f6',
+                    borderRadius: isMobile ? '0 0 16px 16px' : '0'
                   }}>
-                    <div style={{ fontSize: '18px' }}>OrderTotal ({orderItems.length} items selected)</div>
-                    <div style={{ textAlign: 'center', fontSize: '18px' }}>{totals.totalQuantity}</div>
+                    <div style={{ fontSize: isMobile ? '16px' : '18px' }}>OrderTotal ({orderItems.length} items selected)</div>
+                    <div style={{ textAlign: 'center', fontSize: isMobile ? '16px' : '18px' }}>{totals.totalQuantity}</div>
                     {canShowClosingStock && <div style={{ textAlign: 'center' }}>-</div>}
                     {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>-</div>}
                     {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center' }}>-</div>}
                     {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>-</div>}
                     {canShowRateAmtColumn && (
-                      <div style={{ textAlign: 'right', fontSize: '20px', color: '#fbbf24' }}>
+                      <div style={{ textAlign: 'right', fontSize: isMobile ? '18px' : '20px', color: '#fbbf24' }}>
                         ₹{totals.totalAmount.toFixed(2)}
                       </div>
                     )}
