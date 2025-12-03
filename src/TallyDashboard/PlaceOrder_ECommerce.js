@@ -5,6 +5,7 @@ import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/fronte
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
 import { getGoogleTokenFromConfigs, getGoogleDriveImageUrl } from '../utils/googleDriveUtils';
 import { useIsMobile } from './MobileViewConfig';
+import { isGoogleDriveLink, convertGoogleDriveToImageUrl, detectGoogleDriveFileType } from '../utils/googleDriveImageUtils';
 
 function PlaceOrder_ECommerce() {
   // Detect mobile view
@@ -51,7 +52,10 @@ function PlaceOrder_ECommerce() {
   const [stockItems, setStockItems] = useState([]);
   const [stockItemsLoading, setStockItemsLoading] = useState(false);
   const [refreshStockItems, setRefreshStockItems] = useState(0);
-
+  
+  // Image URL state for Google Drive conversions
+  const [imageUrlMap, setImageUrlMap] = useState({});
+  
   // Customer refresh state
   const [refreshCustomers, setRefreshCustomers] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -569,6 +573,7 @@ function PlaceOrder_ECommerce() {
         if (data && data.stockItems && Array.isArray(data.stockItems)) {
           // Deobfuscate sensitive pricing data
           const decryptedItems = deobfuscateStockItems(data.stockItems);
+          
           setStockItems(decryptedItems);
           // Cache the deobfuscated result with graceful fallback
           try {
@@ -592,6 +597,32 @@ function PlaceOrder_ECommerce() {
 
     fetchStockItems();
   }, [company, refreshStockItems, companies]); // Added 'companies' back to dependencies to check cache properly
+
+  // Convert Google Drive links to image URLs
+  useEffect(() => {
+    const convertImagePaths = async () => {
+      const newImageUrlMap = {};
+      
+      for (const item of stockItems) {
+        if (item.IMAGEPATH && isGoogleDriveLink(item.IMAGEPATH)) {
+          try {
+            const fileType = await detectGoogleDriveFileType(item.IMAGEPATH);
+            const imageUrl = convertGoogleDriveToImageUrl(item.IMAGEPATH, fileType);
+            newImageUrlMap[item.NAME] = imageUrl;
+          } catch (error) {
+            console.warn(`Failed to convert Google Drive URL for ${item.NAME}:`, error);
+            newImageUrlMap[item.NAME] = item.IMAGEPATH; // Fallback to original
+          }
+        }
+      }
+      
+      setImageUrlMap(newImageUrlMap);
+    };
+    
+    if (stockItems.length > 0) {
+      convertImagePaths();
+    }
+  }, [stockItems]);
 
   // Customer filtering
   useEffect(() => {
@@ -1785,7 +1816,9 @@ function PlaceOrder_ECommerce() {
                   {/* Product Info */}
                   <div style={{ marginBottom: 12, flex: 1 }}>
                     {/* Product Image or Placeholder Icon */}
-                    <div style={{
+                    <div 
+                      data-item-name={item.NAME}
+                      style={{
                       width: '100%',
                       height: isMobile ? '100px' : '120px',
                       marginBottom: isMobile ? '10px' : '12px',

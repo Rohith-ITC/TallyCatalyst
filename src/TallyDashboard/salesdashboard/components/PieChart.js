@@ -1,7 +1,39 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick, showBackButton, rowAction, customHeader }) => {
-  const total = data.reduce((sum, d) => sum + d.value, 0);
+  const [tooltip, setTooltip] = useState(null);
+  // Validate data
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    return (
+      <div style={{
+        background: 'white',
+        borderRadius: '12px',
+        padding: '24px',
+        border: '1px solid #e2e8f0',
+        textAlign: 'center',
+        color: '#64748b'
+      }}>
+        No data available
+      </div>
+    );
+  }
+
+  const total = data.reduce((sum, d) => sum + (d.value || 0), 0);
+  
+  if (total === 0) {
+    return (
+      <div style={{
+        background: 'white',
+        borderRadius: '12px',
+        padding: '24px',
+        border: '1px solid #e2e8f0',
+        textAlign: 'center',
+        color: '#64748b'
+      }}>
+        No data to display
+      </div>
+    );
+  }
 
   // Generate colors if not provided
   const colors = [
@@ -143,30 +175,90 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
         overflowY: 'auto',
         flex: 1
       }}>
-        <svg viewBox="0 0 100 100" style={{ width: '256px', height: '256px', flexShrink: 0 }}>
-          {slices.map((slice, index) => (
-            <path
-              key={index}
-              d={createArc(slice.startAngle, slice.endAngle)}
-              fill={slice.color}
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <svg viewBox="0 0 100 100" style={{ width: '256px', height: '256px' }}>
+            {slices.map((slice, index) => (
+              <path
+                key={index}
+                d={createArc(slice.startAngle, slice.endAngle)}
+                fill={slice.color}
+                style={{
+                  cursor: onSliceClick ? 'pointer' : 'default',
+                  transition: 'opacity 0.2s ease'
+                }}
+                onClick={() => onSliceClick?.(slice.label)}
+                onMouseEnter={(e) => {
+                  if (onSliceClick) {
+                    e.target.style.opacity = '0.8';
+                  }
+                  // Calculate tooltip position at the center of the slice
+                  const svgElement = e.currentTarget.closest('svg');
+                  if (!svgElement) return;
+                  
+                  const svgRect = svgElement.getBoundingClientRect();
+                  const midAngle = (slice.startAngle + slice.endAngle) / 2;
+                  const radius = 45;
+                  const centerX = 50;
+                  const centerY = 50;
+                  const tooltipRadius = radius * 0.6; // Position tooltip at 60% of radius
+                  const tooltipX = centerX + tooltipRadius * Math.cos((midAngle * Math.PI) / 180);
+                  const tooltipY = centerY + tooltipRadius * Math.sin((midAngle * Math.PI) / 180);
+                  
+                  // Convert SVG coordinates to screen coordinates
+                  const svgWidth = svgRect.width;
+                  const svgHeight = svgRect.height;
+                  const screenX = svgRect.left + (tooltipX / 100) * svgWidth;
+                  const screenY = svgRect.top + (tooltipY / 100) * svgHeight;
+                  
+                  setTooltip({
+                    x: screenX,
+                    y: screenY,
+                    label: slice.label,
+                    value: slice.value,
+                    percentage: slice.percentage
+                  });
+                }}
+                onMouseLeave={(e) => {
+                  if (onSliceClick) {
+                    e.target.style.opacity = '1';
+                  }
+                  setTooltip(null);
+                }}
+              />
+            ))}
+          </svg>
+          {tooltip && (
+            <div
               style={{
-                cursor: onSliceClick ? 'pointer' : 'default',
-                transition: 'opacity 0.2s ease'
+                position: 'fixed',
+                left: `${tooltip.x}px`,
+                top: `${tooltip.y}px`,
+                transform: 'translate(-50%, -100%)',
+                marginBottom: '8px',
+                background: 'rgba(0, 0, 0, 0.85)',
+                color: 'white',
+                padding: '8px 12px',
+                borderRadius: '6px',
+                fontSize: '12px',
+                fontWeight: '500',
+                pointerEvents: 'none',
+                zIndex: 1000,
+                whiteSpace: 'nowrap',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
+                lineHeight: '1.5',
+                maxWidth: '200px',
+                textAlign: 'center'
               }}
-              onClick={() => onSliceClick?.(slice.label)}
-              onMouseEnter={(e) => {
-                if (onSliceClick) {
-                  e.target.style.opacity = '0.8';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (onSliceClick) {
-                  e.target.style.opacity = '1';
-                }
-              }}
-            />
-          ))}
-        </svg>
+            >
+              <div style={{ fontWeight: '600', marginBottom: '4px' }}>
+                {tooltip.label}
+              </div>
+              <div style={{ fontSize: '11px', opacity: 0.9 }}>
+                {valuePrefix}{tooltip.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          )}
+        </div>
         <div style={{
           flex: 1,
           display: 'flex',

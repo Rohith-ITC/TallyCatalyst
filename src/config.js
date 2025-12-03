@@ -3,7 +3,7 @@ const getBaseUrl = () => {
   // Default API URL
   const DEFAULT_API_URL = 'https://itcatalystindia.com/Development/CustomerPortal_API';
   
-  // Use .env value for development mode
+    // Use .env value for development mode
   if (process.env.NODE_ENV === 'development') {
     // Check if we're running from a local network IP (like 192.168.x.x)
     // In this case, use relative paths to go through the proxy
