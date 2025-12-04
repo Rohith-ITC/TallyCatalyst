@@ -4,6 +4,7 @@ import { hybridCache } from '../utils/hybridCache';
 import { apiPost, apiGet } from '../utils/apiUtils';
 import { syncSalesData, syncCustomers, syncItems } from './utils/dataSync';
 import { useIsMobile } from './MobileViewConfig';
+import { cacheSyncManager } from './utils/cacheSyncManager';
 
 const CacheManagement = () => {
   const [cacheStats, setCacheStats] = useState(null);
@@ -40,6 +41,21 @@ const CacheManagement = () => {
     loadCacheStats();
     loadCurrentCompany();
     loadCacheExpiry();
+    
+    // Subscribe to shared sync progress
+    const unsubscribe = cacheSyncManager.subscribe((progress) => {
+      // Update local state from shared progress
+      setDownloadProgress(progress);
+      setDownloadingComplete(cacheSyncManager.isSyncInProgress());
+    });
+    
+    // Initialize state from current sync status
+    setDownloadingComplete(cacheSyncManager.isSyncInProgress());
+    if (cacheSyncManager.isSyncInProgress()) {
+      setDownloadProgress(cacheSyncManager.getProgress());
+    }
+    
+    return unsubscribe;
   }, []);
 
   const loadSessionCacheStats = () => {
@@ -559,6 +575,14 @@ const CacheManagement = () => {
 
     console.log('✅ Company selected:', selectedCompany);
 
+    // Check if sync is already in progress for this company
+    if (cacheSyncManager.isSyncInProgress() && cacheSyncManager.isSameCompany(selectedCompany)) {
+      console.log('🔄 Sync already in progress for this company, showing existing progress');
+      setMessage({ type: 'info', text: 'Sync already in progress. Progress will update automatically.' });
+      // Progress will be updated via subscription
+      return;
+    }
+
     // Check network connectivity before starting
     if (!navigator.onLine) {
       console.error('❌ No internet connection (navigator.onLine = false)');
@@ -609,17 +633,13 @@ const CacheManagement = () => {
       }
     });
 
-    setDownloadingComplete(true);
     setMessage({ type: '', text: '' });
-    setDownloadProgress({ current: 0, total: 0, message: 'Starting download...' });
 
     console.log('🚀 Calling syncSalesData...');
     
     try {
-      const result = await syncSalesData(selectedCompany, (progress) => {
-        console.log('📊 Progress update:', progress);
-        setDownloadProgress(progress);
-      });
+      // syncSalesData will now use cacheSyncManager internally
+      const result = await syncSalesData(selectedCompany);
 
       setMessage({
         type: 'success',
@@ -650,9 +670,6 @@ const CacheManagement = () => {
       }
       
       setMessage({ type: 'error', text: 'Failed to download data: ' + errorMsg });
-    } finally {
-      setDownloadingComplete(false);
-      setDownloadProgress({ current: 0, total: 0, message: '' });
     }
   };
 

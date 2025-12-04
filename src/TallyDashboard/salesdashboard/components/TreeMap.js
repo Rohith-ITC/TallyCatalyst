@@ -1,167 +1,62 @@
-import React, { useMemo, useEffect, useRef } from 'react';
-import Plot from 'react-plotly.js';
+import React, { useMemo, useState, useEffect } from 'react';
+import { ResponsiveTreeMap } from '@nivo/treemap';
 
 const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, showBackButton, rowAction, customHeader }) => {
-  // Generate colors if not provided (moved before hooks)
-  const colors = [
-    '#3b82f6', // Blue
-    '#10b981', // Green
-    '#f59e0b', // Amber
-    '#ef4444', // Red
-    '#8b5cf6', // Violet
-    '#ec4899', // Pink
-    '#06b6d4', // Cyan
-    '#84cc16', // Lime
-    '#f97316', // Orange
-    '#6366f1', // Indigo
-    '#14b8a6', // Teal
-    '#f43f5e', // Rose
-    '#8b5a2b', // Brown
-    '#6b7280', // Gray
-    '#dc2626', // Red-600
-    '#059669', // Green-600
-    '#d97706', // Orange-600
-    '#7c3aed', // Purple-600
-    '#0891b2', // Sky-600
-    '#ca8a04'  // Yellow-600
-  ];
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
-  // Calculate total (before hooks)
+  // Professional color palette with gradients
+  const colors = useMemo(() => [
+    '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+    '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
+    '#14b8a6', '#f43f5e', '#8b5a2b', '#6b7280', '#dc2626',
+    '#059669', '#d97706', '#7c3aed', '#0891b2', '#ca8a04'
+  ], []);
+
+  // Calculate total
   const total = useMemo(() => {
     if (!data || !Array.isArray(data)) return 0;
     return data.reduce((sum, d) => sum + (d.value || 0), 0);
   }, [data]);
 
-  // Convert data to Plotly format (must be before early returns)
-  const plotlyData = useMemo(() => {
+  // Convert data to Nivo format
+  const nivoData = useMemo(() => {
     if (!data || !Array.isArray(data) || data.length === 0 || total === 0) {
-      return {
-        labels: [],
-        values: [],
-        parents: [],
-        text: [],
-        markerColors: [],
-        hoverText: []
-      };
+      return { id: 'root', children: [] };
     }
 
-    const labels = [];
-    const values = [];
-    const parents = [];
-    const text = [];
-    const markerColors = [];
-    const hoverText = [];
-
-    data.forEach((item, index) => {
-      if (item.value > 0) {
-        labels.push(item.label || `Item ${index}`);
-        values.push(item.value);
-        parents.push(''); // Empty parent means root level
-        markerColors.push(item.color || colors[index % colors.length]);
-        
-        // Text to display inside boxes (name and value)
-        const label = item.label || `Item ${index}`;
-        text.push(`${label}<br>${valuePrefix}${item.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`);
-        
-        // Hover text (without label since it's already shown on the rectangle)
-        const percentage = ((item.value / total) * 100).toFixed(1);
-        hoverText.push(`${valuePrefix}${item.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}<br>${percentage}%`);
-      }
-    });
+    const children = data
+      .filter(item => item.value > 0)
+      .map((item, index) => ({
+        id: item.label || `Item ${index}`,
+        value: item.value,
+        color: item.color || colors[index % colors.length],
+        originalData: item
+      }));
 
     return {
-      labels,
-      values,
-      parents,
-      text,
-      markerColors,
-      hoverText
+      id: 'root',
+      children
     };
-  }, [data, total, valuePrefix, colors]);
+  }, [data, total, colors]);
 
-  // Plotly layout configuration
-  const layout = useMemo(() => ({
-    margin: { l: 0, r: 0, t: 0, b: 0 },
-    paper_bgcolor: 'transparent',
-    plot_bgcolor: 'transparent',
-    font: {
-      family: 'system-ui, -apple-system, sans-serif',
-      size: 12,
-      color: '#1e293b'
-    },
-    hovermode: 'closest',
-    showlegend: false
-  }), []);
-
-  // Ref for the plot container (must be before early returns)
-  const plotContainerRef = useRef(null);
-
-  // Add CSS for text outline effect (must be before early returns)
-  useEffect(() => {
-    const styleId = 'treemap-text-outline-style';
-    
-    // Add global style for all Plotly text elements
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement('style');
-      style.id = styleId;
-      style.textContent = `
-        .js-plotly-plot .textlayer text,
-        .js-plotly-plot .textlayer tspan {
-          stroke: #000000 !important;
-          stroke-width: 0.8px !important;
-          paint-order: stroke fill !important;
-        }
-      `;
-      document.head.appendChild(style);
-    }
-
-    // Apply styles directly to text elements after Plotly renders
-    const applyTextStyles = () => {
-      if (plotContainerRef.current) {
-        const textElements = plotContainerRef.current.querySelectorAll('.textlayer text, .textlayer tspan');
-        textElements.forEach((el) => {
-          el.style.stroke = '#000000';
-          el.style.strokeWidth = '0.8px';
-          el.style.paintOrder = 'stroke fill';
-        });
-      }
-    };
-
-    // Apply immediately
-    applyTextStyles();
-
-    // Use MutationObserver to apply styles when Plotly updates
-    const observer = new MutationObserver(() => {
-      applyTextStyles();
-    });
-
-    if (plotContainerRef.current) {
-      observer.observe(plotContainerRef.current, {
-        childList: true,
-        subtree: true
-      });
-    }
-
-    // Also use a timeout as a fallback
-    const timeoutId = setTimeout(applyTextStyles, 100);
-    const timeoutId2 = setTimeout(applyTextStyles, 500);
-
-    // Cleanup
-    return () => {
-      observer.disconnect();
-      clearTimeout(timeoutId);
-      clearTimeout(timeoutId2);
-    };
-  }, [plotlyData]); // Re-run when data changes
-
-  // Validate data (after hooks)
+  // Validate data
   if (!data || !Array.isArray(data) || data.length === 0) {
     return (
       <div style={{
-        background: 'white',
-        borderRadius: '12px',
-        padding: '24px',
+        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+        borderRadius: isMobile ? '12px' : '16px',
+        padding: isMobile ? '20px' : '32px',
         border: '1px solid #e2e8f0',
+        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
         textAlign: 'center',
         color: '#64748b'
       }}>
@@ -169,60 +64,53 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
       </div>
     );
   }
-  
+
   if (total === 0) {
     return (
       <div style={{
-        background: 'white',
-        borderRadius: '12px',
-        padding: '24px',
+        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+        borderRadius: isMobile ? '12px' : '16px',
+        padding: isMobile ? '20px' : '32px',
         border: '1px solid #e2e8f0',
+        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
         textAlign: 'center',
         color: '#64748b'
       }}>
-        No data to display
+        All values are zero
       </div>
     );
   }
 
-  // Plotly configuration
-  const config = {
-    displayModeBar: false,
-    responsive: true,
-    staticPlot: false
-  };
-
   // Handle click events
-  const handleClick = (event) => {
-    if (onBoxClick && event.points && event.points.length > 0) {
-      const point = event.points[0];
-      const label = point.label;
-      if (label) {
-        console.log('TreeMap click:', label);
-        onBoxClick(label);
-      }
+  const handleClick = (node) => {
+    if (onBoxClick && node.id !== 'root') {
+      console.log('TreeMap click:', node.id);
+      onBoxClick(node.id);
     }
   };
 
   return (
     <div style={{
-      background: 'white',
-      borderRadius: '12px',
+      background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+      borderRadius: isMobile ? '12px' : '16px',
       padding: '0',
       border: '1px solid #e2e8f0',
-      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
       display: 'flex',
       flexDirection: 'column',
-      height: '100%'
+      height: '100%',
+      overflow: 'hidden',
+      width: '100%',
+      maxWidth: '100%'
     }}>
       {customHeader ? (
         <div style={{ 
-          padding: '12px 16px',
+          padding: isMobile ? '12px 16px' : '16px 20px',
           position: 'sticky',
           top: 0,
-          background: 'white',
+          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           zIndex: 10,
-          borderBottom: '1px solid #e2e8f0',
+          borderBottom: '2px solid #e2e8f0',
           marginBottom: '0'
         }}>
           {customHeader}
@@ -232,19 +120,25 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '12px 16px',
+          padding: isMobile ? '12px 16px' : '16px 20px',
           position: 'sticky',
           top: 0,
-          background: 'white',
+          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           zIndex: 10,
-          borderBottom: '1px solid #e2e8f0',
-          marginBottom: '0'
+          borderBottom: '2px solid #e2e8f0',
+          marginBottom: '0',
+          gap: isMobile ? '8px' : '12px'
         }}>
           <h3 style={{
             margin: 0,
-            fontSize: '16px',
-            fontWeight: '600',
-            color: '#1e293b'
+            fontSize: isMobile ? '16px' : '18px',
+            fontWeight: '700',
+            color: '#1e293b',
+            letterSpacing: '-0.025em',
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
           }}>
             {title}
           </h3>
@@ -254,94 +148,165 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                background: '#f1f5f9',
-                border: '1px solid #e2e8f0',
-                borderRadius: '6px',
-                color: '#64748b',
-                fontSize: '12px',
-                fontWeight: '500',
+                gap: '4px',
+                padding: isMobile ? '6px 10px' : '8px 14px',
+                background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+                border: '1px solid #cbd5e1',
+                borderRadius: '8px',
+                color: '#475569',
+                fontSize: isMobile ? '11px' : '13px',
+                fontWeight: '600',
                 cursor: 'pointer',
-                transition: 'all 0.2s ease'
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                flexShrink: 0
               }}
               onMouseEnter={(e) => {
-                e.target.style.background = '#e2e8f0';
+                e.target.style.background = 'linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)';
+                e.target.style.transform = 'translateY(-1px)';
+                e.target.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
               }}
               onMouseLeave={(e) => {
-                e.target.style.background = '#f1f5f9';
+                e.target.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
               }}
             >
-              <span className="material-icons" style={{ fontSize: '16px' }}>arrow_back</span>
-              Back
+              <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px' }}>arrow_back</span>
+              {!isMobile && <span>Back</span>}
             </button>
           )}
         </div>
       )}
       <div style={{
-        padding: '12px 16px',
+        padding: '0',
         flex: 1,
-        minHeight: '250px',
+        minHeight: 0,
         display: 'flex',
         flexDirection: 'column',
-        overflowY: 'auto'
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        background: 'radial-gradient(circle at top, rgba(59, 130, 246, 0.03) 0%, transparent 50%)',
+        width: '100%',
+        maxWidth: '100%'
       }}>
-        <div 
-          ref={plotContainerRef}
-          style={{ 
-            width: '100%', 
-            height: '400px', 
-            position: 'relative',
-            flexShrink: 0
-          }}
-        >
-          <Plot
-            data={[{
-              type: 'treemap',
-              labels: plotlyData.labels,
-              values: plotlyData.values,
-              parents: plotlyData.parents,
-              text: plotlyData.text,
-              textinfo: 'text',
-              textfont: {
-                size: 14,
-                color: '#ffffff',
-                family: 'system-ui, -apple-system, sans-serif'
-              },
-              textposition: 'middle center',
-              hovertemplate: '<b>%{label}</b><br>%{customdata}<extra></extra>',
-              customdata: plotlyData.hoverText,
-              marker: {
-                colors: plotlyData.markerColors,
-                line: {
-                  width: 2,
-                  color: '#ffffff'
-                },
-                pad: {
-                  t: 2,
-                  l: 2,
-                  r: 2,
-                  b: 2
+        <div style={{ 
+          width: '100%', 
+          maxWidth: '100%',
+          height: isMobile ? '280px' : 'min(400px, calc(100vh - 400px))', 
+          minHeight: isMobile ? '280px' : '320px',
+          maxHeight: isMobile ? '350px' : '500px',
+          position: 'relative',
+          flexShrink: 0,
+          borderRadius: isMobile ? '8px' : '12px',
+          overflow: 'hidden',
+          background: 'white',
+          boxShadow: 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.06)'
+        }}>
+          <ResponsiveTreeMap
+            data={nivoData}
+            identity="id"
+            value="value"
+            valueFormat={value => `${valuePrefix}${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+            margin={isMobile ? { top: 5, right: 5, bottom: 5, left: 5 } : { top: 10, right: 10, bottom: 10, left: 10 }}
+            label={(node) => {
+              const percentage = total > 0 ? ((node.value / total) * 100).toFixed(1) : 0;
+              if (isMobile) {
+                return `${node.id}\n${percentage}%`;
+              }
+              return `${node.id}\n${valuePrefix}${node.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}\n${percentage}%`;
+            }}
+            labelTextColor="#ffffff"
+            labelSkipSize={isMobile ? 8 : 12}
+            parentLabelPosition="left"
+            parentLabelTextColor="#1e293b"
+            colors={(node) => node.data.color || '#3b82f6'}
+            borderColor={{ from: 'color', modifiers: [['darker', 0.3], ['opacity', 0.8]] }}
+            borderWidth={isMobile ? 2 : 3}
+            animate={true}
+            motionConfig={{
+              stiffness: 90,
+              damping: 15,
+              mass: 1
+            }}
+            onClick={handleClick}
+            tooltip={({ node }) => {
+              const percentage = total > 0 ? ((node.value / total) * 100).toFixed(1) : 0;
+              return (
+                <div style={{
+                  background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                  padding: isMobile ? '8px 12px' : '12px 16px',
+                  borderRadius: isMobile ? '8px' : '12px',
+                  border: '2px solid #e2e8f0',
+                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                  fontSize: isMobile ? '11px' : '13px',
+                  minWidth: isMobile ? '140px' : '180px',
+                  maxWidth: isMobile ? '200px' : 'none'
+                }}>
+                  <div style={{ 
+                    fontWeight: '700', 
+                    marginBottom: isMobile ? '4px' : '8px', 
+                    color: '#1e293b',
+                    fontSize: isMobile ? '12px' : '14px',
+                    letterSpacing: '-0.025em',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {node.id}
+                  </div>
+                  <div style={{ 
+                    color: '#475569',
+                    fontSize: isMobile ? '13px' : '15px',
+                    fontWeight: '600',
+                    marginBottom: isMobile ? '2px' : '4px'
+                  }}>
+                    {valuePrefix}{node.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <div style={{ 
+                    color: '#64748b', 
+                    fontSize: isMobile ? '10px' : '12px',
+                    background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+                    padding: isMobile ? '2px 6px' : '4px 8px',
+                    borderRadius: '6px',
+                    display: 'inline-block',
+                    fontWeight: '600'
+                  }}>
+                    {percentage}%
+                  </div>
+                </div>
+              );
+            }}
+            theme={{
+              tooltip: {
+                container: {
+                  background: 'transparent',
+                  padding: 0
                 }
               },
-              branchvalues: 'total',
-              pathbar: {
-                visible: false
+              labels: {
+                text: {
+                  fontSize: isMobile ? 10 : 13,
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  fontWeight: 700,
+                  fill: '#ffffff',
+                  stroke: '#000000',
+                  strokeWidth: isMobile ? 1 : 1.2,
+                  paintOrder: 'stroke fill',
+                  textShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
+                }
               }
-            }]}
-            layout={layout}
-            config={config}
-            style={{ width: '100%', height: '100%' }}
-            onClick={handleClick}
-            useResizeHandler={true}
+            }}
           />
         </div>
         {rowAction && (
           <div style={{
-            marginTop: '16px',
+            marginTop: isMobile ? '12px' : '20px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px'
+            gap: isMobile ? '8px' : '10px',
+            width: '100%',
+            maxWidth: '100%'
           }}>
             {data.map((box, index) => (
               <div
@@ -350,26 +315,64 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  background: '#f8fafc',
+                  background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
                   border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  padding: '8px 12px'
+                  borderRadius: isMobile ? '8px' : '10px',
+                  padding: isMobile ? '10px 12px' : '12px 16px',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                  gap: isMobile ? '8px' : '12px'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)';
+                  if (!isMobile) {
+                    e.currentTarget.style.transform = 'translateX(4px)';
+                  }
+                  e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)';
+                  e.currentTarget.style.transform = 'translateX(0)';
+                  e.currentTarget.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px', flex: 1, minWidth: 0 }}>
                   <div style={{ 
-                    width: '12px', 
-                    height: '12px', 
-                    borderRadius: '2px', 
-                    background: box.color || colors[index % colors.length] 
+                    width: isMobile ? '12px' : '16px', 
+                    height: isMobile ? '12px' : '16px', 
+                    borderRadius: '4px', 
+                    background: `linear-gradient(135deg, ${box.color || colors[index % colors.length]} 0%, ${box.color || colors[index % colors.length]}dd 100%)`,
+                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                    flexShrink: 0
                   }} />
-                  <span style={{ fontSize: '12px', fontWeight: '500', color: '#475569' }}>{box.label}</span>
+                  <span style={{ 
+                    fontSize: isMobile ? '11px' : '13px', 
+                    fontWeight: '600', 
+                    color: '#475569',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {box.label}
+                  </span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', color: '#9ca3af' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '12px', flexShrink: 0 }}>
+                  <span style={{ 
+                    fontSize: isMobile ? '10px' : '12px', 
+                    color: '#64748b',
+                    background: '#f1f5f9',
+                    padding: isMobile ? '2px 6px' : '4px 8px',
+                    borderRadius: '6px',
+                    fontWeight: '600'
+                  }}>
                     {((box.value / total) * 100).toFixed(1)}%
                   </span>
-                  <span style={{ fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>
+                  <span style={{ 
+                    fontSize: isMobile ? '11px' : '13px', 
+                    fontWeight: '700', 
+                    color: '#1e293b'
+                  }}>
                     {valuePrefix}{box.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <button
@@ -378,22 +381,31 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
                     title={rowAction.title || 'View raw data'}
                     style={{
                       border: 'none',
-                      background: 'transparent',
+                      background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
                       cursor: 'pointer',
                       color: '#1e40af',
-                      padding: '2px',
-                      borderRadius: '50%'
+                      padding: isMobile ? '4px' : '6px',
+                      borderRadius: '8px',
+                      transition: 'all 0.2s ease',
+                      boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#e0e7ff';
-                      e.currentTarget.style.color = '#1e3a8a';
+                      e.currentTarget.style.background = 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)';
+                      if (!isMobile) {
+                        e.currentTarget.style.transform = 'scale(1.1)';
+                      }
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.color = '#1e40af';
+                      e.currentTarget.style.background = 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
                     }}
                   >
-                    <span className="material-icons" style={{ fontSize: '16px' }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px' }}>
                       {rowAction.icon || 'table_view'}
                     </span>
                   </button>
