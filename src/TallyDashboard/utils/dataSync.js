@@ -2,6 +2,7 @@ import { hybridCache } from '../../utils/hybridCache';
 import { apiPost, apiGet } from '../../utils/apiUtils';
 import { deobfuscateStockItems } from '../../utils/frontendDeobfuscate';
 import { getApiUrl } from '../../config';
+import { cacheSyncManager } from './cacheSyncManager';
 
 // Detect mobile device
 const isMobileDevice = () => {
@@ -267,8 +268,8 @@ const fetchBooksFrom = async (selectedGuid) => {
     }
 };
 
-// Sync functions
-export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
+// Internal sync function that does the actual work
+const syncSalesDataInternal = async (companyInfo, onProgress = () => { }) => {
     if (!companyInfo) {
         console.error('❌ No company selected');
         throw new Error('No company selected');
@@ -602,6 +603,41 @@ export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
     } catch (error) {
         console.error('Error syncing sales data:', error);
         throw error;
+    }
+};
+
+// Sync functions - exported wrapper that uses cacheSyncManager
+export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
+    if (!companyInfo) {
+        console.error('❌ No company selected');
+        throw new Error('No company selected');
+    }
+
+    // Check if sync is already in progress for this company
+    if (cacheSyncManager.isSyncInProgress() && cacheSyncManager.isSameCompany(companyInfo)) {
+        console.log('🔄 Sync already in progress for this company, subscribing to existing sync');
+        // Subscribe to progress updates
+        const unsubscribe = cacheSyncManager.subscribe(onProgress);
+        try {
+            // Wait for existing sync to complete
+            const result = await cacheSyncManager.syncPromise;
+            return result;
+        } finally {
+            unsubscribe();
+        }
+    }
+
+    // Subscribe to progress updates
+    const unsubscribe = cacheSyncManager.subscribe(onProgress);
+
+    try {
+        // Use cacheSyncManager to start sync (prevents duplicates)
+        const result = await cacheSyncManager.startSync(companyInfo, async (companyInfo, progressCallback) => {
+            return await syncSalesDataInternal(companyInfo, progressCallback);
+        });
+        return result;
+    } finally {
+        unsubscribe();
     }
 };
 

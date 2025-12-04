@@ -340,7 +340,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return null;
   };
 
-
   // Helper function to fetch booksfrom date
   const fetchBooksFromDate = async (companyGuid) => {
     try {
@@ -749,7 +748,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       // Don't auto-fetch - user must click Submit button to refresh data
     }
     prevFormulaRef.current = salespersonFormula;
-  }, [salespersonFormula, dateRange.start, dateRange.end, initializeDashboard]);
+  }, [salespersonFormula]);
 
   // Set default date range on component mount
   useEffect(() => {
@@ -792,6 +791,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       dateRange,
       selectedCustomer,
       selectedItem,
+      selectedLedgerGroup,
+      selectedRegion,
+      selectedCountry,
       selectedPeriod,
       selectedSalesperson,
       enabledSalespersonsSize: enabledSalespersons.size,
@@ -1484,11 +1486,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           }
         }, 500);
       } else {
-        // For updates, reload the current view if user is still on the same date range
+        // For updates, trigger auto-load to refresh with latest data
         setTimeout(() => {
-          if (!cacheDownloadAbortRef.current && fromDate && toDate) {
-            console.log('🔄 Refreshing view with updated data...');
-            loadSales(fromDate, toDate, { invalidateCache: true });
+          if (!cacheDownloadAbortRef.current) {
+            console.log('🔄 Triggering auto-reload with updated data...');
+            setShouldAutoLoad(true);
           }
         }, 500);
       }
@@ -2760,6 +2762,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   const generateCustomCardData = useCallback((cardConfig, salesData) => {
     if (!salesData || salesData.length === 0) return [];
+    if (!cardConfig || !cardConfig.groupBy || !cardConfig.valueField) {
+      console.warn('Invalid card config:', cardConfig);
+      return [];
+    }
 
     // Apply filters from card config
     let filteredData = [...salesData];
@@ -3041,7 +3047,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       }
 
       return {
-        label: key,
+        label: displayKey, // Use original key for display (preserves casing)
         value: value
       };
     });
@@ -6845,7 +6851,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {ledgerGroupChartType === 'bar' && (
@@ -6892,7 +6899,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </select>
               </div>
                   }
-                  onBarClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                  onBarClick={(ledgerGroup) => {
+                    console.log('🎯 Setting selectedLedgerGroup from BarChart click:', ledgerGroup);
+                    setSelectedLedgerGroup(ledgerGroup);
+                  }}
                   onBackClick={() => setSelectedLedgerGroup('all')}
                   showBackButton={selectedLedgerGroup !== 'all'}
                   rowAction={{
@@ -6946,7 +6956,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                    onSliceClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                    onSliceClick={(ledgerGroup) => {
+                      console.log('🎯 Setting selectedLedgerGroup from PieChart click:', ledgerGroup);
+                      setSelectedLedgerGroup(ledgerGroup);
+                    }}
                     onBackClick={() => setSelectedLedgerGroup('all')}
                     showBackButton={selectedLedgerGroup !== 'all'}
                     rowAction={{
@@ -7355,7 +7368,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {regionChartType === 'bar' && (
@@ -7596,7 +7610,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {countryChartType === 'bar' && (
@@ -7861,7 +7876,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{ 
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {periodChartType === 'bar' && (
@@ -8147,7 +8163,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {topCustomersChartType === 'bar' && (
@@ -8495,7 +8512,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {topItemsByRevenueChartType === 'bar' && (
@@ -8834,7 +8852,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {topItemsByQuantityChartType === 'bar' && (
@@ -13399,7 +13418,9 @@ const CustomCard = React.memo(({
     return (sale) => {
       if (card.groupBy === 'date') {
         const saleDate = getFieldValueLocal(sale, 'cp_date') || getFieldValueLocal(sale, 'date');
+        if (!saleDate) return false;
         const date = new Date(saleDate);
+        if (isNaN(date.getTime())) return false;
         let groupKey = '';
         if (card.dateGrouping === 'day') {
           groupKey = saleDate;
@@ -13411,6 +13432,8 @@ const CustomCard = React.memo(({
           groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         } else if (card.dateGrouping === 'year') {
           groupKey = String(date.getFullYear());
+        } else {
+          groupKey = saleDate;
         }
         return groupKey === itemLabel;
       } else if (card.groupBy === 'profit_margin') {
@@ -13428,8 +13451,10 @@ const CustomCard = React.memo(({
         else range = '> ₹50K';
         return range === itemLabel;
       } else {
+        // Case-insensitive matching for string fields
         const fieldValue = getFieldValueLocal(sale, card.groupBy);
-        return fieldValue === itemLabel;
+        if (!fieldValue || !itemLabel) return false;
+        return String(fieldValue).trim().toLowerCase() === String(itemLabel).trim().toLowerCase();
       }
     };
   };
@@ -13566,7 +13591,10 @@ const CustomCard = React.memo(({
       display: 'flex',
       flexDirection: 'column',
       height: '500px',
-      overflow: 'hidden'
+      maxHeight: '500px',
+      minHeight: '500px',
+      overflow: 'hidden',
+      position: 'relative'
     }}>
       {cardData.length > 0 ? (
         <>
