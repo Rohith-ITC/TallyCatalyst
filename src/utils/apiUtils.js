@@ -1,6 +1,6 @@
 // Centralized API utility with automatic logout on token expiration
 import { getApiUrl } from '../config';
-import { addCacheBuster } from './cacheUtils';
+import { addCacheBuster } from './cacheSyncManager';
 
 // Global logout function
 const handleLogout = () => {

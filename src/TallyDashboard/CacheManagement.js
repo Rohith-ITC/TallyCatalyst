@@ -1,18 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { hybridCache } from '../utils/hybridCache';
 
 import { apiPost, apiGet } from '../utils/apiUtils';
-import { syncSalesData, syncCustomers, syncItems } from './utils/dataSync';
+import { syncSalesData, syncCustomers, syncItems, cacheSyncManager } from '../utils/cacheSyncManager';
 import { useIsMobile } from './MobileViewConfig';
-import { cacheSyncManager } from './utils/cacheSyncManager';
 
 const CacheManagement = () => {
   const [cacheStats, setCacheStats] = useState(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
   const [selectedCompany, setSelectedCompany] = useState(null);
+  const selectedCompanyRef = useRef(null);
+  
+  // Keep ref in sync with state
+  useEffect(() => {
+    selectedCompanyRef.current = selectedCompany;
+  }, [selectedCompany]);
   const [cacheEntries, setCacheEntries] = useState(null);
   const [showCacheViewer, setShowCacheViewer] = useState(false);
+  const showCacheViewerRef = React.useRef(false);
   const [loadingEntries, setLoadingEntries] = useState(false);
   const [cacheExpiryDays, setCacheExpiryDays] = useState(null);
   const [savingExpiry, setSavingExpiry] = useState(false);
@@ -37,6 +43,40 @@ const CacheManagement = () => {
     items: false
   });
 
+  // Load progress for selected company
+  const loadCompanyProgress = async () => {
+    // Use ref to get current selected company to avoid stale closure
+    const currentSelectedCompany = selectedCompanyRef.current;
+    if (!currentSelectedCompany) {
+      setDownloadProgress({ current: 0, total: 0, message: '' });
+      setDownloadingComplete(false);
+      return;
+    }
+
+    try {
+      console.log('📊 Loading progress for company:', currentSelectedCompany.company);
+      
+      // Check if there's progress for this company (this will also check active sync)
+      const companyProgress = await cacheSyncManager.getCompanyProgress(currentSelectedCompany);
+      
+      if (companyProgress) {
+        console.log('📊 Found progress:', companyProgress);
+        // Show progress for this company
+        setDownloadProgress(companyProgress);
+        setDownloadingComplete(true);
+      } else {
+        // No progress for this company
+        console.log('📊 No progress found for company');
+        setDownloadProgress({ current: 0, total: 0, message: '' });
+        setDownloadingComplete(false);
+      }
+    } catch (error) {
+      console.error('Error loading company progress:', error);
+      setDownloadProgress({ current: 0, total: 0, message: '' });
+      setDownloadingComplete(false);
+    }
+  };
+
   useEffect(() => {
     loadCacheStats();
     loadCurrentCompany();
@@ -44,19 +84,66 @@ const CacheManagement = () => {
     
     // Subscribe to shared sync progress
     const unsubscribe = cacheSyncManager.subscribe((progress) => {
-      // Update local state from shared progress
-      setDownloadProgress(progress);
-      setDownloadingComplete(cacheSyncManager.isSyncInProgress());
+      // Only update if this progress is for the currently selected company
+      const currentCompanyInfo = cacheSyncManager.getCompanyInfo();
+      if (currentCompanyInfo && selectedCompany && 
+          currentCompanyInfo.guid === selectedCompany.guid) {
+        setDownloadProgress(progress);
+        setDownloadingComplete(cacheSyncManager.isSyncInProgress());
+      } else {
+        // Check if there's stored progress for selected company
+        loadCompanyProgress();
+      }
     });
     
-    // Initialize state from current sync status
-    setDownloadingComplete(cacheSyncManager.isSyncInProgress());
-    if (cacheSyncManager.isSyncInProgress()) {
-      setDownloadProgress(cacheSyncManager.getProgress());
-    }
+    // Initialize state - check progress for selected company
+    const initProgress = async () => {
+      await loadCompanyProgress();
+    };
+    initProgress();
     
-    return unsubscribe;
+    // Listen for company changes from header
+    const handleCompanyChange = () => {
+      console.log('🔄 CacheManagement: Company changed event received');
+      loadCurrentCompany();
+      loadCacheStats();
+      // Reload progress for new company
+      setTimeout(() => {
+        loadCompanyProgress();
+      }, 100); // Small delay to ensure selectedCompany is updated
+      // Reload cache entries if viewer is open
+      if (showCacheViewerRef.current) {
+        loadCacheEntries();
+      }
+    };
+    
+    window.addEventListener('companyChanged', handleCompanyChange);
+    
+    return () => {
+      unsubscribe();
+      window.removeEventListener('companyChanged', handleCompanyChange);
+    };
   }, []);
+
+  // Reload progress when selected company changes
+  useEffect(() => {
+    if (selectedCompany) {
+      loadCompanyProgress();
+      
+      // Set up periodic polling for progress updates (every 2 seconds)
+      // This ensures we show progress even when sync is happening in background
+      const progressInterval = setInterval(async () => {
+        await loadCompanyProgress();
+      }, 2000);
+      
+      return () => {
+        clearInterval(progressInterval);
+      };
+    } else {
+      setDownloadProgress({ current: 0, total: 0, message: '' });
+      setDownloadingComplete(false);
+    }
+  }, [selectedCompany]);
 
   const loadSessionCacheStats = () => {
     if (!selectedCompany) return;
@@ -84,8 +171,16 @@ const CacheManagement = () => {
   useEffect(() => {
     if (selectedCompany) {
       loadSessionCacheStats();
+    } else {
+      // Reset session cache stats when no company is selected
+      setSessionCacheStats({ customers: 0, items: 0 });
     }
   }, [selectedCompany]);
+
+  // Sync ref with showCacheViewer state
+  useEffect(() => {
+    showCacheViewerRef.current = showCacheViewer;
+  }, [showCacheViewer]);
 
   const handleRefreshSessionCache = async (type) => {
     if (!selectedCompany) return;
@@ -174,6 +269,7 @@ const CacheManagement = () => {
       const entries = await hybridCache.listAllCacheEntries();
       setCacheEntries(entries);
       setShowCacheViewer(true);
+      showCacheViewerRef.current = true;
     } catch (error) {
       console.error('Error loading cache entries:', error);
       setMessage({ type: 'error', text: 'Failed to load cache entries: ' + error.message });
@@ -239,7 +335,16 @@ const CacheManagement = () => {
       // Note: We keep the keys directory as it contains user encryption keys
       // Clearing it would prevent decryption of any remaining cached data
 
+      // Clear in-memory metadata cache to ensure listAllCacheEntries shows updated data
+      await hybridCache.clearMetadataCache();
+
       setMessage({ type: 'success', text: 'All cache cleared successfully!' });
+      
+      // Reload cache entries if cache viewer is open
+      if (showCacheViewer) {
+        await loadCacheEntries();
+      }
+      
       await loadCacheStats();
     } catch (error) {
       console.error('Error clearing all cache:', error);
@@ -273,7 +378,16 @@ const CacheManagement = () => {
         setSessionCacheStats({ customers: 0, items: 0 });
       }
 
+      // Clear in-memory metadata cache to ensure listAllCacheEntries shows updated data
+      await hybridCache.clearMetadataCache();
+
       setMessage({ type: 'success', text: `Cache cleared successfully for ${selectedCompany.company}!` });
+      
+      // Reload cache entries if cache viewer is open
+      if (showCacheViewer) {
+        await loadCacheEntries();
+      }
+      
       await loadCacheStats();
     } catch (error) {
       console.error('Error clearing company cache:', error);
@@ -318,7 +432,16 @@ const CacheManagement = () => {
         console.warn('Failed to clear sales metadata:', err);
       }
 
+      // Clear in-memory metadata cache to ensure listAllCacheEntries shows updated data
+      await hybridCache.clearMetadataCache();
+
       setMessage({ type: 'success', text: `Sales cache cleared successfully for ${selectedCompany.company}!` });
+      
+      // Reload cache entries if cache viewer is open
+      if (showCacheViewer) {
+        await loadCacheEntries();
+      }
+      
       await loadCacheStats();
     } catch (error) {
       console.error('Error clearing sales cache:', error);
@@ -872,7 +995,7 @@ const CacheManagement = () => {
             Download and cache complete sales data from the beginning of your books. Update to fetch only new records since last download.
           </p>
 
-          {downloadProgress.total > 0 && (
+          {(downloadingComplete || downloadProgress.total > 0 || downloadProgress.message) && (
             <div style={{
               marginBottom: '16px',
               padding: '12px',
@@ -886,30 +1009,43 @@ const CacheManagement = () => {
                 marginBottom: '8px',
                 fontWeight: 500
               }}>
-                {downloadProgress.message}
+                {downloadProgress.message || 'Preparing sync...'}
               </div>
-              <div style={{
-                width: '100%',
-                height: '8px',
-                background: '#e0f2fe',
-                borderRadius: '4px',
-                overflow: 'hidden'
-              }}>
+              {downloadProgress.total > 0 ? (
+                <>
+                  <div style={{
+                    width: '100%',
+                    height: '8px',
+                    background: '#e0f2fe',
+                    borderRadius: '4px',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${Math.min(100, (downloadProgress.current / downloadProgress.total) * 100)}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#64748b',
+                    marginTop: '4px',
+                    textAlign: 'right'
+                  }}>
+                    {downloadProgress.current} / {downloadProgress.total}
+                  </div>
+                </>
+              ) : (
                 <div style={{
-                  width: `${(downloadProgress.current / downloadProgress.total) * 100}%`,
-                  height: '100%',
-                  background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
-                  transition: 'width 0.3s ease'
-                }} />
-              </div>
-              <div style={{
-                fontSize: '12px',
-                color: '#64748b',
-                marginTop: '4px',
-                textAlign: 'right'
-              }}>
-                {downloadProgress.current} / {downloadProgress.total}
-              </div>
+                  fontSize: '12px',
+                  color: '#64748b',
+                  marginTop: '4px',
+                  fontStyle: 'italic'
+                }}>
+                  Initializing...
+                </div>
+              )}
             </div>
           )}
 

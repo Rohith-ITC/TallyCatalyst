@@ -52,10 +52,10 @@ function PlaceOrder_ECommerce() {
   const [stockItems, setStockItems] = useState([]);
   const [stockItemsLoading, setStockItemsLoading] = useState(false);
   const [refreshStockItems, setRefreshStockItems] = useState(0);
-  
+
   // Image URL state for Google Drive conversions
   const [imageUrlMap, setImageUrlMap] = useState({});
-  
+
   // Customer refresh state
   const [refreshCustomers, setRefreshCustomers] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -573,7 +573,7 @@ function PlaceOrder_ECommerce() {
         if (data && data.stockItems && Array.isArray(data.stockItems)) {
           // Deobfuscate sensitive pricing data
           const decryptedItems = deobfuscateStockItems(data.stockItems);
-          
+
           setStockItems(decryptedItems);
           // Cache the deobfuscated result with graceful fallback
           try {
@@ -602,7 +602,7 @@ function PlaceOrder_ECommerce() {
   useEffect(() => {
     const convertImagePaths = async () => {
       const newImageUrlMap = {};
-      
+
       for (const item of stockItems) {
         if (item.IMAGEPATH && isGoogleDriveLink(item.IMAGEPATH)) {
           try {
@@ -615,10 +615,10 @@ function PlaceOrder_ECommerce() {
           }
         }
       }
-      
+
       setImageUrlMap(newImageUrlMap);
     };
-    
+
     if (stockItems.length > 0) {
       convertImagePaths();
     }
@@ -1069,11 +1069,12 @@ function PlaceOrder_ECommerce() {
       width: '100%',
       minHeight: '100%',
       background: 'transparent',
-      padding: 0,
+      padding: isMobile ? '8px 0' : 0,
       margin: 0,
       display: 'flex',
       flexDirection: 'column',
-      alignItems: 'center'
+      alignItems: isMobile ? 'center' : 'stretch',
+      boxSizing: 'border-box'
     }}>
       <style>
         {`
@@ -1102,22 +1103,23 @@ function PlaceOrder_ECommerce() {
       {/* Company, Customer, and Cart Section */}
       <div style={{
         background: '#fff',
-        margin: isMobile ? '12px 8px 8px 8px' : '24px auto 16px auto',
-        maxWidth: '1400px',
-        width: isMobile ? 'calc(100% - 16px)' : 'calc(100% - 48px)',
-        borderRadius: isMobile ? '12px' : '16px',
+        margin: isMobile ? '0 8px 12px 8px' : '24px -20px 16px -20px',
+        maxWidth: isMobile ? '100%' : 'none',
+        width: isMobile ? 'calc(100% - 16px)' : 'calc(100% + 40px)',
+        borderRadius: '16px',
         boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
         overflow: 'visible',
         border: '1px solid #e5e7eb',
-        position: 'relative'
+        position: 'relative',
+        boxSizing: 'border-box'
       }}>
         {/* Form */}
-        <div style={{ 
-          padding: isMobile ? '12px' : '20px', 
-          width: '100%', 
-          overflow: 'visible', 
-          position: 'relative', 
-          boxSizing: 'border-box' 
+        <div style={{
+          padding: isMobile ? '14px 12px' : '20px',
+          width: '100%',
+          overflow: 'visible',
+          position: 'relative',
+          boxSizing: 'border-box'
         }}>
           {/* Header */}
           <div style={{
@@ -1179,23 +1181,24 @@ function PlaceOrder_ECommerce() {
 
             {/* Customer Count Display */}
             <div style={{
-              fontSize: isMobile ? '12px' : '14px',
+              fontSize: isMobile ? '11px' : '14px',
               color: '#64748b',
               fontWeight: '500',
-              padding: isMobile ? '6px 12px' : '8px 16px',
+              padding: isMobile ? '5px 10px' : '8px 16px',
               backgroundColor: '#f8fafc',
               borderRadius: '20px',
               border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: isMobile ? '6px' : '8px',
+              gap: isMobile ? '5px' : '8px',
               position: 'relative',
               zIndex: 1,
               maxWidth: isMobile ? '100%' : '200px',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
-              width: isMobile ? '100%' : 'auto'
+              flexShrink: 1,
+              minWidth: 0
             }}>
               <span style={{ fontSize: isMobile ? '14px' : '16px', flexShrink: 0 }}>👥</span>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -1724,13 +1727,13 @@ function PlaceOrder_ECommerce() {
       {selectedCustomer && (
         <div style={{
           background: '#fff',
-          margin: isMobile ? '0px 8px 12px 8px' : '0px auto 24px auto',
-          maxWidth: '1400px',
-          width: isMobile ? 'calc(100% - 16px)' : 'calc(100% - 48px)',
-          borderRadius: isMobile ? '12px' : '16px',
+          margin: isMobile ? '0 8px 16px 8px' : '0px -20px 24px -20px',
+          maxWidth: isMobile ? '100%' : 'none',
+          width: isMobile ? 'calc(100% - 16px)' : 'calc(100% + 40px)',
+          borderRadius: '16px',
           boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
           border: '1px solid #e5e7eb',
-          padding: isMobile ? '16px' : '24px',
+          padding: isMobile ? '10px' : '24px',
           boxSizing: 'border-box'
         }}>
           <div style={{
@@ -1738,10 +1741,10 @@ function PlaceOrder_ECommerce() {
             flexDirection: isMobile ? 'column' : 'row',
             alignItems: isMobile ? 'flex-start' : 'center',
             justifyContent: 'space-between',
-            marginBottom: isMobile ? '16px' : '24px',
-            gap: isMobile ? '12px' : '0'
+            marginBottom: isMobile ? '10px' : '24px',
+            gap: isMobile ? '8px' : '0'
           }}>
-            <h2 style={{ margin: 0, fontSize: isMobile ? '18px' : '24px', fontWeight: '600', color: '#1f2937' }}>
+            <h2 style={{ margin: 0, fontSize: isMobile ? '16px' : '24px', fontWeight: '600', color: '#1f2937', lineHeight: '1.3' }}>
               Available Products ({filteredStockItems.length.toLocaleString()})
             </h2>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: isMobile ? '100%' : 'auto' }}>
@@ -1783,10 +1786,12 @@ function PlaceOrder_ECommerce() {
             width: '100%',
             display: 'grid',
             gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(280px, 1fr))',
-            gap: isMobile ? '16px' : '20px',
-            padding: isMobile ? '8px 0' : '16px 0',
-            maxHeight: isMobile ? '600px' : '800px',
-            overflowY: 'auto'
+            gap: isMobile ? '10px' : '20px',
+            padding: 0,
+            maxHeight: isMobile ? 'none' : '800px',
+            overflowY: isMobile ? 'visible' : 'auto',
+            overflowX: 'hidden',
+            boxSizing: 'border-box'
           }}>
             {filteredStockItems.map((item, index) => {
               const cartItem = cart.find(cartItem => cartItem.NAME === item.NAME);
@@ -1795,17 +1800,18 @@ function PlaceOrder_ECommerce() {
                 <div key={item.NAME || index} style={{
                   background: '#fff',
                   borderRadius: 12,
-                  padding: isMobile ? '14px' : '18px',
+                  padding: isMobile ? '12px' : '18px',
                   boxShadow: '0 2px 8px 0 rgba(31,38,135,0.08)',
                   border: '1px solid #e2e8f0',
                   transition: 'all 0.2s ease',
                   cursor: 'pointer',
                   position: 'relative',
                   overflow: 'hidden',
-                  minHeight: canShowImage ? (isMobile ? '280px' : '320px') : (isMobile ? '220px' : '260px'),
+                  minHeight: canShowImage ? (isMobile ? 'auto' : '320px') : (isMobile ? 'auto' : '260px'),
                   display: 'flex',
                   flexDirection: 'column',
-                  width: '100%'
+                  width: '100%',
+                  boxSizing: 'border-box'
                 }} onMouseEnter={(e) => {
                   e.currentTarget.style.transform = 'translateY(-2px)';
                   e.currentTarget.style.boxShadow = '0 4px 16px 0 rgba(31,38,135,0.12)';
@@ -1816,20 +1822,20 @@ function PlaceOrder_ECommerce() {
                   {/* Product Info */}
                   <div style={{ marginBottom: 12, flex: 1 }}>
                     {/* Product Image or Placeholder Icon */}
-                    <div 
+                    <div
                       data-item-name={item.NAME}
                       style={{
-                      width: '100%',
-                      height: isMobile ? '100px' : '120px',
-                      marginBottom: isMobile ? '10px' : '12px',
-                      borderRadius: '8px',
-                      overflow: 'hidden',
-                      backgroundColor: '#f8fafc',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      position: 'relative'
-                    }}>
+                        width: '100%',
+                        height: isMobile ? '90px' : '120px',
+                        marginBottom: isMobile ? '8px' : '12px',
+                        borderRadius: '8px',
+                        overflow: 'hidden',
+                        backgroundColor: '#f8fafc',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        position: 'relative'
+                      }}>
                       <ProductImage
                         imagePath={item.IMAGEPATH}
                         itemName={item.NAME}

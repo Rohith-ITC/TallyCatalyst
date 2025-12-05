@@ -7,7 +7,7 @@ import { getUserModules, hasPermission, getPermissionValue } from '../config/Sid
 function PlaceOrder() {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  
+
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 768);
@@ -1961,36 +1961,36 @@ function PlaceOrder() {
       </style>
       {/* Feedback/Error */}
       {customerError && (
-        <div style={{ 
-          background: '#fee2e2', 
-          color: '#b91c1c', 
-                borderRadius: isMobile ? 8 : 8,
-          padding: isMobile ? '8px 14px' : '8px 16px', 
-          margin: isMobile ? '12px 8px' : '0 auto 18px auto', 
-          fontWeight: 600, 
-          fontSize: isMobile ? 14 : 15, 
-          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200, 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: 8 
+        <div style={{
+          background: '#fee2e2',
+          color: '#b91c1c',
+          borderRadius: isMobile ? 8 : 8,
+          padding: isMobile ? '8px 14px' : '8px 16px',
+          margin: isMobile ? '12px 8px' : '0 auto 18px auto',
+          fontWeight: 600,
+          fontSize: isMobile ? 14 : 15,
+          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8
         }}>
           <span className="material-icons" style={{ fontSize: isMobile ? 16 : 18 }}>error_outline</span>
           {customerError}
         </div>
       )}
       {stockItemsError && (
-        <div style={{ 
-          background: '#fee2e2', 
-          color: '#b91c1c', 
-                borderRadius: isMobile ? 8 : 8,
-          padding: isMobile ? '8px 14px' : '8px 16px', 
-          margin: isMobile ? '12px 8px' : '0 auto 18px auto', 
-          fontWeight: 600, 
-          fontSize: isMobile ? 14 : 15, 
-          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200, 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: 8 
+        <div style={{
+          background: '#fee2e2',
+          color: '#b91c1c',
+          borderRadius: isMobile ? 8 : 8,
+          padding: isMobile ? '8px 14px' : '8px 16px',
+          margin: isMobile ? '12px 8px' : '0 auto 18px auto',
+          fontWeight: 600,
+          fontSize: isMobile ? 14 : 15,
+          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8
         }}>
           <span className="material-icons" style={{ fontSize: isMobile ? 16 : 18 }}>error_outline</span>
           {stockItemsError}
@@ -2008,7 +2008,8 @@ function PlaceOrder() {
         boxShadow: isMobile ? '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.1)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
         overflow: 'visible',
         border: isMobile ? '1px solid #e5e7eb' : '1px solid #e5e7eb',
-        position: 'relative'
+        position: 'relative',
+        boxSizing: 'border-box'
       }}>
         {/* Form - Place Order */}
         <form onSubmit={handleSubmit} style={{ padding: isMobile ? '16px 12px' : '12px', width: isMobile ? '100%' : '98%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
@@ -2789,76 +2790,70 @@ function PlaceOrder() {
         borderRadius: isMobile ? '16px' : '16px',
         boxShadow: isMobile ? '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.1)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
         overflow: 'visible',
-        border: '1px solid #e5e7eb'
+        border: '1px solid #e5e7eb',
+        boxSizing: 'border-box'
       }}>
         {/* Add Item Form */}
         <div style={{
-          padding: isMobile ? '16px 12px' : '16px 32px',
+          padding: isMobile ? '16px' : '16px 32px',
           paddingBottom: isMobile ? '16px' : '24px',
           borderBottom: '1px solid #f3f4f6',
           background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
           position: 'relative',
-          borderRadius: isMobile ? '16px 16px 0 0' : '0'
+          borderRadius: isMobile ? '16px 16px 0 0' : '0',
+          width: '100%',
+          boxSizing: 'border-box'
         }}>
+          {/* Items Counter - Mobile optimized */}
           <div style={{
-            display: 'flex',
-            flexDirection: isMobile ? 'column' : 'row',
-            alignItems: isMobile ? 'flex-start' : 'center',
-            justifyContent: 'space-between',
-            gap: isMobile ? '14px' : '0',
-            marginBottom: isMobile ? '10px' : '6px'
+            marginBottom: isMobile ? '12px' : '6px'
           }}>
             <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px'
-            }}>
-
-
-            </div>
-
-            {/* Total Items Counter */}
-            <div style={{
-              fontSize: isMobile ? '12px' : '14px',
+              fontSize: isMobile ? '13px' : '14px',
               color: '#64748b',
-              fontWeight: '500',
-              padding: isMobile ? '8px 14px' : '8px 16px',
-              backgroundColor: '#f8fafc',
-              borderRadius: '20px',
+              fontWeight: '600',
+              padding: isMobile ? '10px 16px' : '8px 16px',
+              backgroundColor: '#fff',
+              borderRadius: isMobile ? '10px' : '20px',
               border: '1px solid #e2e8f0',
-              width: isMobile ? '100%' : 'auto'
+              width: '100%',
+              textAlign: 'center',
+              boxSizing: 'border-box',
+              boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : 'none'
             }}>
               📦 {stockItems.length.toLocaleString()} items available
             </div>
           </div>
 
+          {/* Fields Container - Mobile optimized */}
           <div style={{
             display: 'flex',
             flexDirection: isMobile ? 'column' : 'row',
-            flexWrap: isMobile ? 'nowrap' : 'wrap',
-            gap: isMobile ? '12px' : '12px',
+            flexWrap: 'wrap',
+            gap: isMobile ? '14px' : '12px',
             alignItems: isMobile ? 'stretch' : 'flex-end',
-            position: 'relative',
-            minHeight: '30px',
-            padding: isMobile ? '16px 12px' : '20px',
-            background: '#f8fafc',
+            padding: isMobile ? '16px' : '20px',
+            background: '#fff',
             borderRadius: isMobile ? '12px' : '16px',
-            border: '1px solid #e2e8f0'
+            border: isMobile ? '1px solid #e2e8f0' : '1px solid #e2e8f0',
+            boxShadow: isMobile ? '0 2px 6px rgba(0, 0, 0, 0.06)' : 'none',
+            width: '100%',
+            boxSizing: 'border-box'
           }}>
             {/* Item Name */}
             <div style={{
               position: 'relative',
-              flex: isMobile ? '1 1 100%' : '1 1 300px',
-              minWidth: isMobile ? '100%' : '300px',
-              width: isMobile ? '100%' : 'auto'
+              flex: isMobile ? '1 1 auto' : '1 1 300px',
+              width: isMobile ? '100%' : 'auto',
+              minWidth: isMobile ? 'unset' : '300px'
             }}>
               <div style={{
                 position: 'relative',
                 background: 'white',
-                borderRadius: isMobile ? '10px' : '12px',
+                borderRadius: isMobile ? '12px' : '12px',
                 border: showItemDropdown ? '2px solid #3b82f6' : '2px solid #e2e8f0',
                 transition: 'all 0.2s ease',
-                boxShadow: showItemDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
+                boxShadow: showItemDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : (isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'),
                 zIndex: showItemDropdown ? 1001 : 'auto'
               }}>
                 <input
@@ -2894,15 +2889,16 @@ function PlaceOrder() {
                   disabled={!selectedCustomer}
                   style={{
                     width: '100%',
-                    padding: '16px 20px',
-                    paddingRight: selectedItem ? '50px' : '20px',
+                    padding: isMobile ? '14px 16px' : '16px 20px',
+                    paddingRight: selectedItem ? (isMobile ? '45px' : '50px') : (isMobile ? '16px' : '20px'),
                     border: 'none',
-                    borderRadius: '12px',
-                    fontSize: '15px',
+                    borderRadius: isMobile ? '12px' : '12px',
+                    fontSize: isMobile ? '14px' : '15px',
                     color: selectedCustomer ? '#1e293b' : '#9ca3af',
                     outline: 'none',
                     background: selectedCustomer ? 'transparent' : '#f1f5f9',
-                    cursor: selectedCustomer ? 'text' : 'not-allowed'
+                    cursor: selectedCustomer ? 'text' : 'not-allowed',
+                    boxSizing: 'border-box'
                   }}
                   placeholder=""
                 />
@@ -2964,9 +2960,9 @@ function PlaceOrder() {
 
                 <label style={{
                   position: 'absolute',
-                  left: '20px',
-                  top: itemFocused || selectedItem ? '-10px' : '16px',
-                  fontSize: itemFocused || selectedItem ? '12px' : '15px',
+                  left: isMobile ? '16px' : '20px',
+                  top: itemFocused || selectedItem ? '-10px' : (isMobile ? '14px' : '16px'),
+                  fontSize: itemFocused || selectedItem ? (isMobile ? '11px' : '12px') : (isMobile ? '14px' : '15px'),
                   fontWeight: '600',
                   color: '#3b82f6',
                   backgroundColor: 'white',
@@ -3285,7 +3281,11 @@ function PlaceOrder() {
                 return (
                   <>
                     {/* First component of compound unit */}
-                    <div style={{ position: 'relative', width: isMobile ? '100%' : '110px', flex: isMobile ? '1 1 100%' : 'none' }}>
+                    <div style={{
+                      position: 'relative',
+                      width: isMobile ? '100%' : '110px',
+                      flex: isMobile ? '1 1 auto' : 'none'
+                    }}>
                       <div style={{
                         position: 'relative',
                         background: 'white',
@@ -3309,14 +3309,15 @@ function PlaceOrder() {
                           onBlur={() => setBaseQtyFocused(false)}
                           style={{
                             width: '100%',
-                            padding: '12px 14px',
+                            padding: isMobile ? '14px 12px' : '12px 14px',
                             border: 'none',
                             borderRadius: '12px',
-                            fontSize: '15px',
+                            fontSize: isMobile ? '14px' : '15px',
                             color: '#1e293b',
                             outline: 'none',
                             background: 'transparent',
-                            textAlign: 'center'
+                            textAlign: 'center',
+                            boxSizing: 'border-box'
                           }}
                         />
                         <label style={{
@@ -3336,7 +3337,11 @@ function PlaceOrder() {
                     </div>
 
                     {/* Second component of compound unit */}
-                    <div style={{ position: 'relative', width: isMobile ? '100%' : '120px', flex: isMobile ? '1 1 100%' : 'none' }}>
+                    <div style={{
+                      position: 'relative',
+                      width: isMobile ? '100%' : '120px',
+                      flex: isMobile ? '1 1 auto' : 'none'
+                    }}>
                       <div style={{
                         position: 'relative',
                         background: 'white',
@@ -3360,14 +3365,15 @@ function PlaceOrder() {
                           onBlur={() => setBaseAddlQtyFocused(false)}
                           style={{
                             width: '100%',
-                            padding: '16px 20px',
+                            padding: isMobile ? '14px 16px' : '16px 20px',
                             border: 'none',
                             borderRadius: '12px',
-                            fontSize: '15px',
+                            fontSize: isMobile ? '14px' : '15px',
                             color: '#1e293b',
                             outline: 'none',
                             background: 'transparent',
-                            textAlign: 'center'
+                            textAlign: 'center',
+                            boxSizing: 'border-box'
                           }}
                         />
                         <label style={{
@@ -3397,7 +3403,11 @@ function PlaceOrder() {
                   : selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL;
 
                 return (
-                  <div style={{ position: 'relative', width: isMobile ? '100%' : '120px', flex: isMobile ? '1 1 100%' : 'none' }}>
+                  <div style={{
+                    position: 'relative',
+                    width: isMobile ? '100%' : '120px',
+                    flex: isMobile ? '1 1 auto' : 'none'
+                  }}>
                     <div style={{
                       position: 'relative',
                       background: 'white',
@@ -3421,14 +3431,15 @@ function PlaceOrder() {
                         onBlur={() => setQuantityFocused(false)}
                         style={{
                           width: '100%',
-                          padding: '16px 20px',
+                          padding: isMobile ? '14px 16px' : '16px 20px',
                           border: 'none',
                           borderRadius: '12px',
-                          fontSize: '15px',
+                          fontSize: isMobile ? '14px' : '15px',
                           color: '#1e293b',
                           outline: 'none',
                           background: 'transparent',
-                          textAlign: 'center'
+                          textAlign: 'center',
+                          boxSizing: 'border-box'
                         }}
                       />
                       <label style={{
@@ -3452,7 +3463,11 @@ function PlaceOrder() {
 
             {/* Denominator field (for additional units with denominator) */}
             {selectedItemUnitConfig && selectedUnitType === 'additional' && selectedItemUnitConfig.DENOMINATOR && (
-              <div style={{ position: 'relative', width: isMobile ? '100%' : '120px', flex: isMobile ? '1 1 100%' : 'none' }}>
+              <div style={{
+                position: 'relative',
+                width: isMobile ? '100%' : '120px',
+                flex: isMobile ? '1 1 auto' : 'none'
+              }}>
                 <div style={{
                   position: 'relative',
                   background: 'white',
@@ -3470,14 +3485,15 @@ function PlaceOrder() {
                     placeholder={selectedItemUnitConfig.DENOMINATOR}
                     style={{
                       width: '100%',
-                      padding: '16px 20px',
+                      padding: isMobile ? '14px 16px' : '16px 20px',
                       border: 'none',
                       borderRadius: '12px',
-                      fontSize: '15px',
+                      fontSize: isMobile ? '14px' : '15px',
                       color: '#1e293b',
                       outline: 'none',
                       background: 'transparent',
-                      textAlign: 'center'
+                      textAlign: 'center',
+                      boxSizing: 'border-box'
                     }}
                   />
                   <label style={{
@@ -3509,7 +3525,12 @@ function PlaceOrder() {
 
             {/* Formula Display/Edit Field */}
             {selectedItemUnitConfig && (
-              <div style={{ position: 'relative', flex: isMobile ? '1 1 100%' : '1 1 220px', minWidth: isMobile ? '100%' : '220px', width: isMobile ? '100%' : 'auto' }}>
+              <div style={{
+                position: 'relative',
+                flex: isMobile ? '1 1 auto' : '1 1 220px',
+                width: isMobile ? '100%' : 'auto',
+                minWidth: isMobile ? 'unset' : '220px'
+              }}>
                 <div style={{
                   position: 'relative',
                   background: isFormulaEditMode ? 'white' : '#f8fafc',
@@ -3588,7 +3609,11 @@ function PlaceOrder() {
 
             {/* Fallback - Old Quantity Input (when no item selected) */}
             {!selectedItemUnitConfig && (
-              <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none' }}>
+              <div style={{
+                position: 'relative',
+                width: isMobile ? '100%' : 'auto',
+                flex: isMobile ? '1 1 auto' : 'none'
+              }}>
                 <div style={{
                   position: 'relative',
                   background: 'white',
@@ -3607,23 +3632,24 @@ function PlaceOrder() {
                     min="1"
                     style={{
                       width: '100%',
-                      padding: isMobile ? '14px 20px' : '16px 20px',
+                      padding: isMobile ? '14px 16px' : '16px 20px',
                       border: 'none',
-                      borderRadius: isMobile ? '10px' : '12px',
-                      fontSize: isMobile ? '15px' : '15px',
+                      borderRadius: '12px',
+                      fontSize: isMobile ? '14px' : '15px',
                       color: selectedItem ? '#1e293b' : '#9ca3af',
                       outline: 'none',
                       background: selectedItem ? 'transparent' : '#f1f5f9',
-                      textAlign: 'left',
-                      cursor: selectedItem ? 'text' : 'not-allowed'
+                      textAlign: 'center',
+                      cursor: selectedItem ? 'text' : 'not-allowed',
+                      boxSizing: 'border-box'
                     }}
-                    placeholder="Qty"
+                    placeholder=""
                   />
                   <label style={{
                     position: 'absolute',
-                    left: '20px',
-                    top: quantityFocused || itemQuantity > 0 ? '-10px' : '16px',
-                    fontSize: quantityFocused || itemQuantity > 0 ? '12px' : '15px',
+                    left: isMobile ? '16px' : '20px',
+                    top: quantityFocused || itemQuantity > 0 ? '-10px' : (isMobile ? '14px' : '16px'),
+                    fontSize: quantityFocused || itemQuantity > 0 ? (isMobile ? '11px' : '12px') : (isMobile ? '14px' : '15px'),
                     fontWeight: '600',
                     color: '#3b82f6',
                     backgroundColor: 'white',
@@ -3639,7 +3665,11 @@ function PlaceOrder() {
 
             {/* Available Stock - Only show if user has show_clsstck_Column permission */}
             {canShowClosingStock && (
-              <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none' }}>
+              <div style={{
+                position: 'relative',
+                width: isMobile ? '100%' : 'auto',
+                flex: isMobile ? '1 1 auto' : 'none'
+              }}>
                 <div style={{
                   position: 'relative',
                   background: '#f8fafc',
@@ -3702,7 +3732,11 @@ function PlaceOrder() {
 
             {/* Rate */}
             {canShowRateAmtColumn && (
-              <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none' }}>
+              <div style={{
+                position: 'relative',
+                width: isMobile ? '100%' : 'auto',
+                flex: isMobile ? '1 1 auto' : 'none'
+              }}>
                 <div style={{
                   position: 'relative',
                   background: canEditRate ? 'white' : '#f8fafc',
@@ -3749,7 +3783,11 @@ function PlaceOrder() {
 
             {/* Discount */}
             {canShowRateAmtColumn && canShowDiscColumn && (
-              <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none' }}>
+              <div style={{
+                position: 'relative',
+                width: isMobile ? '100%' : 'auto',
+                flex: isMobile ? '1 1 auto' : 'none'
+              }}>
                 <div style={{
                   position: 'relative',
                   background: canEditDiscount ? 'white' : '#f8fafc',
@@ -3764,16 +3802,17 @@ function PlaceOrder() {
                     readOnly={!canEditDiscount}
                     style={{
                       width: '100%',
-                      padding: isMobile ? '14px 20px' : '16px 20px',
+                      padding: isMobile ? '14px 16px' : '16px 20px',
                       border: 'none',
-                      borderRadius: isMobile ? '10px' : '12px',
-                      fontSize: isMobile ? '15px' : '15px',
+                      borderRadius: '12px',
+                      fontSize: isMobile ? '14px' : '15px',
                       color: canEditDiscount ? '#1e293b' : '#64748b',
                       outline: 'none',
                       background: 'transparent',
                       textAlign: 'center',
                       fontWeight: '600',
-                      cursor: canEditDiscount ? 'text' : 'not-allowed'
+                      cursor: canEditDiscount ? 'text' : 'not-allowed',
+                      boxSizing: 'border-box'
                     }}
                     placeholder="Disc %"
                   />
@@ -3796,7 +3835,11 @@ function PlaceOrder() {
 
             {/* GST */}
             {canShowRateAmtColumn && (
-              <div style={{ position: 'relative' }}>
+              <div style={{
+                position: 'relative',
+                width: isMobile ? '100%' : 'auto',
+                flex: isMobile ? '1 1 auto' : 'none'
+              }}>
                 <div style={{
                   position: 'relative',
                   background: '#f8fafc',
@@ -3809,15 +3852,16 @@ function PlaceOrder() {
                     value={itemGstPercent}
                     style={{
                       width: '100%',
-                      padding: isMobile ? '14px 20px' : '16px 20px',
+                      padding: isMobile ? '14px 16px' : '16px 20px',
                       border: 'none',
-                      borderRadius: isMobile ? '10px' : '12px',
-                      fontSize: isMobile ? '15px' : '15px',
+                      borderRadius: '12px',
+                      fontSize: isMobile ? '14px' : '15px',
                       color: '#64748b',
                       outline: 'none',
                       background: 'transparent',
                       textAlign: 'center',
-                      fontWeight: '600'
+                      fontWeight: '600',
+                      boxSizing: 'border-box'
                     }}
                     placeholder="GST %"
                     readOnly
@@ -3842,16 +3886,19 @@ function PlaceOrder() {
             {/* Amount Display */}
             {canShowRateAmtColumn && (
               <div style={{
-                padding: isMobile ? '14px 20px' : '16px 20px',
+                padding: isMobile ? '16px' : '16px 20px',
                 background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-                borderRadius: isMobile ? '10px' : '12px',
+                borderRadius: isMobile ? '12px' : '12px',
                 border: '2px solid #0ea5e9',
-                fontSize: isMobile ? '15px' : '16px',
+                fontSize: isMobile ? '16px' : '16px',
                 fontWeight: '700',
                 color: '#0369a1',
                 textAlign: 'center',
-                minWidth: isMobile ? '100%' : '110px',
-                boxShadow: isMobile ? '0 2px 6px rgba(14, 165, 233, 0.25)' : '0 2px 4px rgba(14, 165, 233, 0.2)'
+                width: isMobile ? '100%' : 'auto',
+                flex: isMobile ? '1 1 auto' : 'none',
+                minWidth: isMobile ? 'unset' : '110px',
+                boxShadow: isMobile ? '0 2px 8px rgba(14, 165, 233, 0.3)' : '0 2px 4px rgba(14, 165, 233, 0.2)',
+                boxSizing: 'border-box'
               }}>
                 ₹{itemAmount.toFixed(2)}
               </div>
@@ -3863,23 +3910,26 @@ function PlaceOrder() {
               onClick={addOrderItem}
               disabled={!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)}
               style={{
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                background: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem))
+                  ? '#9ca3af'
+                  : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                 color: 'white',
                 border: 'none',
-                borderRadius: isMobile ? '10px' : '12px',
-                padding: isMobile ? '16px 24px' : '16px 28px',
-                cursor: 'pointer',
+                borderRadius: isMobile ? '12px' : '12px',
+                padding: isMobile ? '16px' : '16px 28px',
+                cursor: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)) ? 'not-allowed' : 'pointer',
                 fontSize: isMobile ? '15px' : '15px',
                 fontWeight: '700',
                 transition: 'all 0.3s ease',
-                opacity: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)) ? 0.5 : 1,
-                boxShadow: '0 4px 6px rgba(16, 185, 129, 0.25)',
+                boxShadow: isMobile ? '0 3px 8px rgba(16, 185, 129, 0.3)' : '0 4px 6px rgba(16, 185, 129, 0.25)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                minWidth: isMobile ? '100%' : '140px',
+                justifyContent: 'center',
+                gap: '10px',
                 width: isMobile ? '100%' : 'auto',
-                justifyContent: 'center'
+                flex: isMobile ? '1 1 auto' : 'none',
+                minWidth: isMobile ? 'unset' : '140px',
+                boxSizing: 'border-box'
               }}
             >
               <span className="material-icons" style={{ fontSize: '18px' }}>
@@ -3892,10 +3942,13 @@ function PlaceOrder() {
           {/* Description Field - Below the entire item line */}
           {selectedItem && (
             <div style={{
-              marginTop: '16px',
+              marginTop: isMobile ? '14px' : '16px',
               display: 'flex',
-              alignItems: 'center',
-              gap: '12px'
+              flexDirection: isMobile ? 'column' : 'row',
+              alignItems: isMobile ? 'stretch' : 'center',
+              gap: isMobile ? '10px' : '12px',
+              width: '100%',
+              boxSizing: 'border-box'
             }}>
               {/* Toggle Switch - Only show if user doesn't have show_itemdesc permission */}
               {!canShowItemDesc && (
@@ -3951,8 +4004,9 @@ function PlaceOrder() {
               {/* Description Field - Show always if permission exists, or when toggle is on */}
               {(canShowItemDesc || showDescription) && (
                 <div style={{
-                  width: '34%',
-                  maxWidth: '600px'
+                  width: isMobile ? '100%' : '34%',
+                  maxWidth: isMobile ? '100%' : '600px',
+                  flex: isMobile ? '1' : 'none'
                 }}>
                   <div style={{
                     position: 'relative',
@@ -4005,348 +4059,755 @@ function PlaceOrder() {
 
         {/* Order Items Table */}
         {orderItems.length > 0 && (
-          <div style={{ padding: isMobile ? '0' : '2px 2px' }}>
-            <div style={{
-              background: 'white',
-              borderRadius: isMobile ? '0 0 16px 16px' : '2px',
-              border: '1px solid #e2e8f0',
-              overflow: isMobile ? 'auto' : 'hidden',
-              boxShadow: isMobile ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.1)',
-              maxWidth: '100%'
-            }}>
-              {/* Table Header */}
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: getGridTemplateColumns(),
-                gap: isMobile ? '12px' : '24px',
-                padding: isMobile ? '12px 12px 12px 16px' : '10px 10px 10px 20px',
-                backgroundColor: '#f8fafc',
-                borderBottom: '2px solid #e2e8f0',
-                fontWeight: '700',
-                color: '#475569',
-                fontSize: isMobile ? '13px' : '14px',
-                letterSpacing: '0.025em',
-                minWidth: isMobile ? '800px' : 'auto'
-              }}>
-                <div>Item Name</div>
-                <div style={{ textAlign: 'center' }}>Qty</div>
-                {canShowClosingStock && <div style={{ textAlign: 'center' }}>Stock</div>}
-                {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>Rate</div>}
-                {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center' }}>Disc %</div>}
-                {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>GST %</div>}
-                {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>Amount</div>}
-              </div>
-
-              {/* Table Rows */}
-              {orderItems.map((item, index) => (
-                <div key={item.id} style={{
-                  display: 'grid',
-                  gridTemplateColumns: getGridTemplateColumns(),
-                  gap: isMobile ? '12px' : '24px',
-                  padding: isMobile ? '14px 12px 14px 16px' : '12px 12px 12px 20px',
-                  borderBottom: '1px solid #f1f5f9',
-                  alignItems: 'center',
-                  fontSize: isMobile ? '13px' : '14px',
-                  color: '#1e293b',
-                  transition: 'background-color 0.2s ease',
-                  minWidth: isMobile ? '800px' : 'auto',
-                  ':hover': {
-                    backgroundColor: '#f8fafc'
-                  }
+          <div style={{
+            padding: isMobile ? '0' : '2px 2px',
+            width: '100%',
+            boxSizing: 'border-box'
+          }}>
+            {isMobile ? (
+              <>
+                {/* Mobile Card View */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  padding: '0'
                 }}>
-                  <div style={{
-                    fontWeight: '600',
-                    color: '#1e293b',
-                    fontSize: isMobile ? '14px' : '15px'
-                  }}>
-                    {item.name}
-                    {editingItemIndex === index ? (
-                      <div style={{ marginTop: '8px' }}>
-                        <textarea
-                          value={editDescription}
-                          onChange={(e) => setEditDescription(e.target.value)}
-                          placeholder="Add description (optional)"
-                          style={{
-                            width: '100%',
-                            minHeight: '60px',
-                            padding: '6px 8px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '4px',
-                            fontSize: '12px',
-                            color: '#64748b',
-                            fontFamily: 'inherit',
-                            resize: 'vertical'
-                          }}
-                        />
-                      </div>
-                    ) : (
-                      item.description && (
+                  {orderItems.map((item, index) => (
+                    <div key={item.id} style={{
+                      background: 'white',
+                      borderRadius: '12px',
+                      border: '1px solid #e2e8f0',
+                      padding: '16px',
+                      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.08)',
+                      position: 'relative'
+                    }}>
+                      {/* Item Name and Description */}
+                      <div style={{
+                        marginBottom: '12px',
+                        paddingBottom: '12px',
+                        borderBottom: '1px solid #f1f5f9'
+                      }}>
                         <div style={{
-                          fontSize: '12px',
-                          color: '#64748b',
-                          fontWeight: '400',
-                          marginTop: '4px',
-                          fontStyle: 'italic',
-                          lineHeight: '1.3'
+                          fontWeight: '700',
+                          color: '#1e293b',
+                          fontSize: '15px',
+                          marginBottom: '4px'
                         }}>
-                          {item.description}
+                          {item.name}
                         </div>
-                      )
-                    )}
-                  </div>
-                  <div style={{
-                    textAlign: 'center',
-                    fontWeight: '600',
-                    color: '#059669'
-                  }}>
-                    {editingItemIndex === index ? (
-                      <input
-                        type="number"
-                        value={editQuantity}
-                        onChange={(e) => setEditQuantity(e.target.value)}
-                        style={{
-                          width: '60px',
-                          padding: '4px 8px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '4px',
-                          textAlign: 'center',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          color: '#059669'
-                        }}
-                        min="1"
-                        step="1"
-                      />
-                    ) : (
-                      item.quantity
-                    )}
-                  </div>
-                  {canShowClosingStock && (
-                    <div style={{
-                      textAlign: 'center',
-                      fontWeight: '600',
-                      color: '#7c3aed'
-                    }}>
-                      {(() => {
-                        const selectedStockItem = stockItems.find(stockItem => stockItem.NAME === item.name);
-                        if (selectedStockItem) {
-                          const stockValue = selectedStockItem.CLOSINGSTOCK || 0;
-                          // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
-                          if (canShowClosingStockYesNo) {
-                            return stockValue > 0 ? 'Yes' : 'No';
-                          }
-                          return stockValue;
-                        }
-                        return '';
-                      })()}
-                    </div>
-                  )}
-                  {canShowRateAmtColumn && (
-                    <div style={{
-                      textAlign: 'right',
-                      fontWeight: '600',
-                      color: '#dc2626'
-                    }}>
-                      {editingItemIndex === index && canEditRate ? (
-                        <input
-                          type="number"
-                          value={editRate}
-                          onChange={(e) => setEditRate(e.target.value)}
-                          style={{
-                            width: '80px',
-                            padding: '4px 8px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '4px',
-                            textAlign: 'right',
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            color: '#dc2626'
-                          }}
-                          min="0"
-                          step="0.01"
-                        />
-                      ) : (
-                        `₹${item.rate.toFixed(2)}`
-                      )}
-                    </div>
-                  )}
-                  {canShowRateAmtColumn && canShowDiscColumn && (
-                    <div style={{
-                      textAlign: 'center',
-                      fontWeight: '600',
-                      color: '#0ea5e9'
-                    }}>
-                      {editingItemIndex === index && canEditDiscount ? (
-                        <input
-                          type="number"
-                          value={editDiscountPercent}
-                          onChange={(e) => setEditDiscountPercent(e.target.value)}
-                          style={{
-                            width: '60px',
-                            padding: '4px 8px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '4px',
-                            textAlign: 'center',
-                            fontSize: '14px',
-                            fontWeight: '600',
-                            color: '#0ea5e9'
-                          }}
-                          min="0"
-                          max="100"
-                          step="0.01"
-                        />
-                      ) : (
-                        `${item.discountPercent || 0}%`
-                      )}
-                    </div>
-                  )}
-                  {canShowRateAmtColumn && (
-                    <div style={{
-                      textAlign: 'center',
-                      fontWeight: '600',
-                      color: '#ea580c'
-                    }}>
-                      {item.gstPercent}%
-                    </div>
-                  )}
-                  {canShowRateAmtColumn && (
-                    <div style={{
-                      textAlign: 'right',
-                      fontWeight: '700',
-                      color: '#059669',
-                      fontSize: '15px'
-                    }}>
-                      ₹{item.amount.toFixed(2)}
-                    </div>
-                  )}
-                  <div style={{ textAlign: 'center', display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                    {editingItemIndex === index ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={saveEditItem}
-                          style={{
-                            background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            padding: '4px 8px',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            transition: 'all 0.2s ease',
-                            boxShadow: '0 2px 4px rgba(5, 150, 105, 0.2)'
-                          }}
-                          title="Save changes"
-                        >
-                          <span className="material-icons" style={{ fontSize: '14px' }}>
-                            check
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={cancelEditItem}
-                          style={{
-                            background: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            padding: '4px 8px',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            transition: 'all 0.2s ease',
-                            boxShadow: '0 2px 4px rgba(107, 114, 128, 0.2)'
-                          }}
-                          title="Cancel editing"
-                        >
-                          <span className="material-icons" style={{ fontSize: '14px' }}>
-                            close
-                          </span>
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => startEditItem(index)}
-                          style={{
-                            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            padding: '4px 8px',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            transition: 'all 0.2s ease',
-                            boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)'
-                          }}
-                          title="Edit item"
-                        >
-                          <span className="material-icons" style={{ fontSize: '14px' }}>
-                            edit
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removeOrderItem(item.id)}
-                          style={{
-                            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            padding: '4px 8px',
-                            cursor: 'pointer',
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            transition: 'all 0.2s ease',
-                            boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)'
-                          }}
-                          title="Remove item"
-                        >
-                          <span className="material-icons" style={{ fontSize: '14px' }}>
-                            delete_outline
-                          </span>
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
+                        {editingItemIndex === index ? (
+                          <div style={{ marginTop: '8px' }}>
+                            <textarea
+                              value={editDescription}
+                              onChange={(e) => setEditDescription(e.target.value)}
+                              placeholder="Add description (optional)"
+                              style={{
+                                width: '100%',
+                                minHeight: '60px',
+                                padding: '8px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '8px',
+                                fontSize: '13px',
+                                color: '#64748b',
+                                fontFamily: 'inherit',
+                                resize: 'vertical',
+                                boxSizing: 'border-box'
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          item.description && (
+                            <div style={{
+                              fontSize: '13px',
+                              color: '#64748b',
+                              fontWeight: '400',
+                              marginTop: '6px',
+                              fontStyle: 'italic',
+                              lineHeight: '1.4'
+                            }}>
+                              {item.description}
+                            </div>
+                          )
+                        )}
+                      </div>
 
-              {/* Totals Row */}
-              {(() => {
-                const totals = calculateTotals();
-                return (
+                      {/* Item Details Grid */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '12px',
+                        marginBottom: '12px'
+                      }}>
+                        {/* Quantity */}
+                        <div>
+                          <div style={{
+                            fontSize: '11px',
+                            color: '#64748b',
+                            fontWeight: '600',
+                            marginBottom: '4px',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px'
+                          }}>
+                            Quantity
+                          </div>
+                          <div style={{
+                            fontSize: '16px',
+                            fontWeight: '700',
+                            color: '#059669'
+                          }}>
+                            {editingItemIndex === index ? (
+                              <input
+                                type="number"
+                                value={editQuantity}
+                                onChange={(e) => setEditQuantity(e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '8px 12px',
+                                  border: '1px solid #d1d5db',
+                                  borderRadius: '8px',
+                                  fontSize: '16px',
+                                  fontWeight: '700',
+                                  color: '#059669',
+                                  boxSizing: 'border-box'
+                                }}
+                                min="1"
+                                step="1"
+                              />
+                            ) : (
+                              item.quantity
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Stock */}
+                        {canShowClosingStock && (
+                          <div>
+                            <div style={{
+                              fontSize: '11px',
+                              color: '#64748b',
+                              fontWeight: '600',
+                              marginBottom: '4px',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px'
+                            }}>
+                              Stock
+                            </div>
+                            <div style={{
+                              fontSize: '16px',
+                              fontWeight: '700',
+                              color: '#7c3aed'
+                            }}>
+                              {(() => {
+                                const selectedStockItem = stockItems.find(stockItem => stockItem.NAME === item.name);
+                                if (selectedStockItem) {
+                                  const stockValue = selectedStockItem.CLOSINGSTOCK || 0;
+                                  if (canShowClosingStockYesNo) {
+                                    return stockValue > 0 ? 'Yes' : 'No';
+                                  }
+                                  return stockValue;
+                                }
+                                return '';
+                              })()}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Rate */}
+                        {canShowRateAmtColumn && (
+                          <div>
+                            <div style={{
+                              fontSize: '11px',
+                              color: '#64748b',
+                              fontWeight: '600',
+                              marginBottom: '4px',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px'
+                            }}>
+                              Rate
+                            </div>
+                            <div style={{
+                              fontSize: '16px',
+                              fontWeight: '700',
+                              color: '#dc2626'
+                            }}>
+                              {editingItemIndex === index && canEditRate ? (
+                                <input
+                                  type="number"
+                                  value={editRate}
+                                  onChange={(e) => setEditRate(e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '16px',
+                                    fontWeight: '700',
+                                    color: '#dc2626',
+                                    boxSizing: 'border-box'
+                                  }}
+                                  min="0"
+                                  step="0.01"
+                                />
+                              ) : (
+                                `₹${item.rate.toFixed(2)}`
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Discount */}
+                        {canShowRateAmtColumn && canShowDiscColumn && (
+                          <div>
+                            <div style={{
+                              fontSize: '11px',
+                              color: '#64748b',
+                              fontWeight: '600',
+                              marginBottom: '4px',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px'
+                            }}>
+                              Discount
+                            </div>
+                            <div style={{
+                              fontSize: '16px',
+                              fontWeight: '700',
+                              color: '#0ea5e9'
+                            }}>
+                              {editingItemIndex === index && canEditDiscount ? (
+                                <input
+                                  type="number"
+                                  value={editDiscountPercent}
+                                  onChange={(e) => setEditDiscountPercent(e.target.value)}
+                                  style={{
+                                    width: '100%',
+                                    padding: '8px 12px',
+                                    border: '1px solid #d1d5db',
+                                    borderRadius: '8px',
+                                    fontSize: '16px',
+                                    fontWeight: '700',
+                                    color: '#0ea5e9',
+                                    boxSizing: 'border-box'
+                                  }}
+                                  min="0"
+                                  max="100"
+                                  step="0.01"
+                                />
+                              ) : (
+                                `${item.discountPercent || 0}%`
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* GST */}
+                        {canShowRateAmtColumn && (
+                          <div>
+                            <div style={{
+                              fontSize: '11px',
+                              color: '#64748b',
+                              fontWeight: '600',
+                              marginBottom: '4px',
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.5px'
+                            }}>
+                              GST
+                            </div>
+                            <div style={{
+                              fontSize: '16px',
+                              fontWeight: '700',
+                              color: '#ea580c'
+                            }}>
+                              {item.gstPercent}%
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Amount - Full Width */}
+                      {canShowRateAmtColumn && (
+                        <div style={{
+                          background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                          padding: '12px',
+                          borderRadius: '8px',
+                          marginBottom: '12px',
+                          border: '1px solid #0ea5e9'
+                        }}>
+                          <div style={{
+                            fontSize: '11px',
+                            color: '#0369a1',
+                            fontWeight: '600',
+                            marginBottom: '4px',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.5px'
+                          }}>
+                            Total Amount
+                          </div>
+                          <div style={{
+                            fontSize: '20px',
+                            fontWeight: '700',
+                            color: '#0369a1'
+                          }}>
+                            ₹{item.amount.toFixed(2)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Action Buttons */}
+                      <div style={{
+                        display: 'flex',
+                        gap: '8px',
+                        justifyContent: 'flex-end'
+                      }}>
+                        {editingItemIndex === index ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={saveEditItem}
+                              style={{
+                                flex: 1,
+                                background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '12px',
+                                cursor: 'pointer',
+                                fontSize: '15px',
+                                fontWeight: '600',
+                                transition: 'all 0.2s ease',
+                                boxShadow: '0 2px 6px rgba(5, 150, 105, 0.3)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                              }}
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>check</span>
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditItem}
+                              style={{
+                                flex: 1,
+                                background: 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '12px',
+                                cursor: 'pointer',
+                                fontSize: '15px',
+                                fontWeight: '600',
+                                transition: 'all 0.2s ease',
+                                boxShadow: '0 2px 6px rgba(220, 38, 38, 0.3)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                              }}
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>close</span>
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => startEditItem(index)}
+                              style={{
+                                flex: 1,
+                                background: 'linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '12px',
+                                cursor: 'pointer',
+                                fontSize: '15px',
+                                fontWeight: '600',
+                                transition: 'all 0.2s ease',
+                                boxShadow: '0 2px 6px rgba(59, 130, 246, 0.3)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                              }}
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>edit</span>
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeOrderItem(item.id)}
+                              style={{
+                                flex: 1,
+                                background: 'linear-gradient(135deg, #dc2626 0%, #ef4444 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '12px',
+                                cursor: 'pointer',
+                                fontSize: '15px',
+                                fontWeight: '600',
+                                transition: 'all 0.2s ease',
+                                boxShadow: '0 2px 6px rgba(220, 38, 38, 0.3)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '8px'
+                              }}
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>delete</span>
+                              Delete
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Desktop Table View */}
+                <div style={{
+                  background: 'white',
+                  borderRadius: '2px',
+                  border: '1px solid #e2e8f0',
+                  overflow: 'hidden',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                  maxWidth: '100%'
+                }}>
+                  {/* Table Header */}
                   <div style={{
                     display: 'grid',
                     gridTemplateColumns: getGridTemplateColumns(),
-                    gap: isMobile ? '12px' : '24px',
-                    padding: isMobile ? '14px 12px 14px 16px' : '12px 12px 12px 25px',
-                    background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
-                    color: 'white',
+                    gap: '24px',
+                    padding: '10px 10px 10px 20px',
+                    backgroundColor: '#f8fafc',
+                    borderBottom: '2px solid #e2e8f0',
                     fontWeight: '700',
-                    fontSize: isMobile ? '13px' : '12px',
-                    borderTop: '2px solid #3b82f6',
-                    borderRadius: isMobile ? '0 0 16px 16px' : '0'
+                    color: '#475569',
+                    fontSize: '14px',
+                    letterSpacing: '0.025em'
                   }}>
-                    <div style={{ fontSize: isMobile ? '16px' : '18px' }}>OrderTotal ({orderItems.length} items selected)</div>
-                    <div style={{ textAlign: 'center', fontSize: isMobile ? '16px' : '18px' }}>{totals.totalQuantity}</div>
-                    {canShowClosingStock && <div style={{ textAlign: 'center' }}>-</div>}
-                    {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>-</div>}
-                    {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center' }}>-</div>}
-                    {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>-</div>}
-                    {canShowRateAmtColumn && (
-                      <div style={{ textAlign: 'right', fontSize: isMobile ? '18px' : '20px', color: '#fbbf24' }}>
-                        ₹{totals.totalAmount.toFixed(2)}
-                      </div>
-                    )}
-                    <div></div>
+                    <div>Item Name</div>
+                    <div style={{ textAlign: 'center' }}>Qty</div>
+                    {canShowClosingStock && <div style={{ textAlign: 'center' }}>Stock</div>}
+                    {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>Rate</div>}
+                    {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center' }}>Disc %</div>}
+                    {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>GST %</div>}
+                    {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>Amount</div>}
                   </div>
-                );
-              })()}
-            </div>
+
+                  {/* Table Rows */}
+                  {orderItems.map((item, index) => (
+                    <div key={item.id} style={{
+                      display: 'grid',
+                      gridTemplateColumns: getGridTemplateColumns(),
+                      gap: '24px',
+                      padding: '12px 12px 12px 20px',
+                      borderBottom: '1px solid #f1f5f9',
+                      alignItems: 'center',
+                      fontSize: '14px',
+                      color: '#1e293b',
+                      transition: 'background-color 0.2s ease'
+                    }}>
+                      <div style={{
+                        fontWeight: '600',
+                        color: '#1e293b',
+                        fontSize: '15px'
+                      }}>
+                        {item.name}
+                        {editingItemIndex === index ? (
+                          <div style={{ marginTop: '8px' }}>
+                            <textarea
+                              value={editDescription}
+                              onChange={(e) => setEditDescription(e.target.value)}
+                              placeholder="Add description (optional)"
+                              style={{
+                                width: '100%',
+                                minHeight: '60px',
+                                padding: '6px 8px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '4px',
+                                fontSize: '12px',
+                                color: '#64748b',
+                                fontFamily: 'inherit',
+                                resize: 'vertical'
+                              }}
+                            />
+                          </div>
+                        ) : (
+                          item.description && (
+                            <div style={{
+                              fontSize: '12px',
+                              color: '#64748b',
+                              fontWeight: '400',
+                              marginTop: '4px',
+                              fontStyle: 'italic',
+                              lineHeight: '1.3'
+                            }}>
+                              {item.description}
+                            </div>
+                          )
+                        )}
+                      </div>
+                      <div style={{
+                        textAlign: 'center',
+                        fontWeight: '600',
+                        color: '#059669'
+                      }}>
+                        {editingItemIndex === index ? (
+                          <input
+                            type="number"
+                            value={editQuantity}
+                            onChange={(e) => setEditQuantity(e.target.value)}
+                            style={{
+                              width: '60px',
+                              padding: '4px 8px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '4px',
+                              textAlign: 'center',
+                              fontSize: '14px',
+                              fontWeight: '600',
+                              color: '#059669'
+                            }}
+                            min="1"
+                            step="1"
+                          />
+                        ) : (
+                          item.quantity
+                        )}
+                      </div>
+                      {canShowClosingStock && (
+                        <div style={{
+                          textAlign: 'center',
+                          fontWeight: '600',
+                          color: '#7c3aed'
+                        }}>
+                          {(() => {
+                            const selectedStockItem = stockItems.find(stockItem => stockItem.NAME === item.name);
+                            if (selectedStockItem) {
+                              const stockValue = selectedStockItem.CLOSINGSTOCK || 0;
+                              // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
+                              if (canShowClosingStockYesNo) {
+                                return stockValue > 0 ? 'Yes' : 'No';
+                              }
+                              return stockValue;
+                            }
+                            return '';
+                          })()}
+                        </div>
+                      )}
+                      {canShowRateAmtColumn && (
+                        <div style={{
+                          textAlign: 'right',
+                          fontWeight: '600',
+                          color: '#dc2626'
+                        }}>
+                          {editingItemIndex === index && canEditRate ? (
+                            <input
+                              type="number"
+                              value={editRate}
+                              onChange={(e) => setEditRate(e.target.value)}
+                              style={{
+                                width: '80px',
+                                padding: '4px 8px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '4px',
+                                textAlign: 'right',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: '#dc2626'
+                              }}
+                              min="0"
+                              step="0.01"
+                            />
+                          ) : (
+                            `₹${item.rate.toFixed(2)}`
+                          )}
+                        </div>
+                      )}
+                      {canShowRateAmtColumn && canShowDiscColumn && (
+                        <div style={{
+                          textAlign: 'center',
+                          fontWeight: '600',
+                          color: '#0ea5e9'
+                        }}>
+                          {editingItemIndex === index && canEditDiscount ? (
+                            <input
+                              type="number"
+                              value={editDiscountPercent}
+                              onChange={(e) => setEditDiscountPercent(e.target.value)}
+                              style={{
+                                width: '60px',
+                                padding: '4px 8px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '4px',
+                                textAlign: 'center',
+                                fontSize: '14px',
+                                fontWeight: '600',
+                                color: '#0ea5e9'
+                              }}
+                              min="0"
+                              max="100"
+                              step="0.01"
+                            />
+                          ) : (
+                            `${item.discountPercent || 0}%`
+                          )}
+                        </div>
+                      )}
+                      {canShowRateAmtColumn && (
+                        <div style={{
+                          textAlign: 'center',
+                          fontWeight: '600',
+                          color: '#ea580c'
+                        }}>
+                          {item.gstPercent}%
+                        </div>
+                      )}
+                      {canShowRateAmtColumn && (
+                        <div style={{
+                          textAlign: 'right',
+                          fontWeight: '700',
+                          color: '#059669',
+                          fontSize: '15px'
+                        }}>
+                          ₹{item.amount.toFixed(2)}
+                        </div>
+                      )}
+                      <div>
+                        {editingItemIndex === index ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={saveEditItem}
+                              style={{
+                                flex: 1,
+                                background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '4px 8px',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                transition: 'all 0.2s ease',
+                                boxShadow: '0 2px 4px rgba(5, 150, 105, 0.2)'
+                              }}
+                              title="Save changes"
+                            >
+                              <span className="material-icons" style={{ fontSize: '14px' }}>
+                                check
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditItem}
+                              style={{
+                                background: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '4px 8px',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                transition: 'all 0.2s ease',
+                                boxShadow: '0 2px 4px rgba(107, 114, 128, 0.2)'
+                              }}
+                              title="Cancel editing"
+                            >
+                              <span className="material-icons" style={{ fontSize: '14px' }}>
+                                close
+                              </span>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => startEditItem(index)}
+                              style={{
+                                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '4px 8px',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                transition: 'all 0.2s ease',
+                                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)'
+                              }}
+                              title="Edit item"
+                            >
+                              <span className="material-icons" style={{ fontSize: '14px' }}>
+                                edit
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => removeOrderItem(item.id)}
+                              style={{
+                                background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                padding: '4px 8px',
+                                cursor: 'pointer',
+                                fontSize: '12px',
+                                fontWeight: '600',
+                                transition: 'all 0.2s ease',
+                                boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)'
+                              }}
+                              title="Remove item"
+                            >
+                              <span className="material-icons" style={{ fontSize: '14px' }}>
+                                delete_outline
+                              </span>
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Totals Row */}
+                  {(() => {
+                    const totals = calculateTotals();
+                    return (
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: getGridTemplateColumns(),
+                        gap: '24px',
+                        padding: '12px 12px 12px 25px',
+                        background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
+                        color: 'white',
+                        fontWeight: '700',
+                        fontSize: '12px',
+                        borderTop: '2px solid #3b82f6'
+                      }}>
+                        <div style={{ fontSize: '18px' }}>OrderTotal ({orderItems.length} items selected)</div>
+                        <div style={{ textAlign: 'center', fontSize: '18px' }}>{totals.totalQuantity}</div>
+                        {canShowClosingStock && <div style={{ textAlign: 'center' }}>-</div>}
+                        {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>-</div>}
+                        {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center' }}>-</div>}
+                        {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>-</div>}
+                        {canShowRateAmtColumn && (
+                          <div style={{ textAlign: 'right', fontSize: '20px', color: '#fbbf24' }}>
+                            ₹{totals.totalAmount.toFixed(2)}
+                          </div>
+                        )}
+                        <div></div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>

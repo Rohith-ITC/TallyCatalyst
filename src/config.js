@@ -130,9 +130,9 @@ export const DEV_API_PORT = 1235;
 // Google Drive Configuration
 // All credentials must be set via environment variables
 export const GOOGLE_DRIVE_CONFIG = {
-  CLIENT_ID: process.env.REACT_APP_GOOGLE_CLIENT_ID || '',
-  API_KEY: process.env.REACT_APP_GOOGLE_API_KEY || '',
-  CLIENT_SECRET: process.env.REACT_APP_GOOGLE_CLIENT_SECRET || '',
+  CLIENT_ID: (process.env.REACT_APP_GOOGLE_CLIENT_ID || '').trim(),
+  API_KEY: (process.env.REACT_APP_GOOGLE_API_KEY || '').trim(),
+  CLIENT_SECRET: (process.env.REACT_APP_GOOGLE_CLIENT_SECRET || '').trim(),
   SCOPES: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly'
 };
 
