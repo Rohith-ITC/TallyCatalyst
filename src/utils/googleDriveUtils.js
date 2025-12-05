@@ -31,6 +31,27 @@ const loadGoogleIdentityServices = () => {
   });
 };
 
+// Validate token by making a test API call
+const validateGoogleToken = async (token) => {
+  if (!token) return false;
+  
+  try {
+    // Make a lightweight API call to validate token
+    const response = await fetch('https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=' + token);
+    if (response.ok) {
+      const data = await response.json();
+      // Check if token is expired (expires_in is in seconds)
+      if (data.expires_in && data.expires_in > 0) {
+        return true;
+      }
+    }
+    return false;
+  } catch (error) {
+    console.warn('Token validation failed:', error);
+    return false;
+  }
+};
+
 // Refresh Google token silently
 const refreshGoogleToken = async () => {
   return new Promise((resolve, reject) => {
@@ -60,6 +81,150 @@ const refreshGoogleToken = async () => {
       tokenClient.requestAccessToken({ prompt: '' });
     }).catch(reject);
   });
+};
+
+// Enhanced refresh function that updates backend
+export const refreshGoogleTokenAndUpdateBackend = async (tallylocId, coGuid, displayName = null) => {
+  return new Promise((resolve, reject) => {
+    if (!isGoogleDriveFullyConfigured().configured) {
+      reject(new Error('Google API credentials not configured'));
+      return;
+    }
+
+    loadGoogleIdentityServices().then(() => {
+      const tokenClient = window.google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_DRIVE_CONFIG.CLIENT_ID,
+        scope: GOOGLE_DRIVE_CONFIG.SCOPES,
+        callback: async (response) => {
+          if (response.error) {
+            reject(new Error(response.error_description || response.error));
+            return;
+          }
+          if (response.access_token) {
+            // Update backend if company info is available
+            if (tallylocId && coGuid) {
+              try {
+                // Get display_name from existing config if not provided
+                let userDisplayName = displayName;
+                if (!userDisplayName) {
+                  const configs = await apiGet(`/api/cmpconfig/list?tallyloc_id=${tallylocId}&co_guid=${coGuid}`);
+                  if (configs && configs.data) {
+                    const displayNameConfig = Array.isArray(configs.data) 
+                      ? configs.data.find(c => c.config_key === 'google_display_name')
+                      : null;
+                    userDisplayName = displayNameConfig?.permission_value || '';
+                  }
+                }
+                
+                // Get existing configs to preserve other settings
+                const existingConfigs = await apiGet(`/api/cmpconfig/list?tallyloc_id=${tallylocId}&co_guid=${coGuid}`);
+                let allConfigs = [];
+                if (existingConfigs && existingConfigs.data) {
+                  allConfigs = Array.isArray(existingConfigs.data) 
+                    ? existingConfigs.data 
+                    : (existingConfigs.data.configurations || existingConfigs.data.configs || []);
+                }
+                
+                // Update or add google_token and google_display_name configs
+                const updatedConfigs = allConfigs.map(config => {
+                  if (config.config_key === 'google_token') {
+                    return { ...config, permission_value: response.access_token };
+                  }
+                  if (config.config_key === 'google_display_name' && userDisplayName) {
+                    return { ...config, permission_value: userDisplayName };
+                  }
+                  return config;
+                });
+                
+                // Add configs if they don't exist
+                if (!updatedConfigs.find(c => c.config_key === 'google_token')) {
+                  updatedConfigs.push({
+                    config_key: 'google_token',
+                    permission_value: response.access_token
+                  });
+                }
+                if (userDisplayName && !updatedConfigs.find(c => c.config_key === 'google_display_name')) {
+                  updatedConfigs.push({
+                    config_key: 'google_display_name',
+                    permission_value: userDisplayName
+                  });
+                }
+                
+                // Update backend with all configs
+                const payload = {
+                  tallyloc_id: tallylocId,
+                  co_guid: coGuid,
+                  configurations: updatedConfigs.map(config => ({
+                    config_id: config.config_id || config.id,
+                    is_enabled: config.is_enabled === true || config.is_enabled === 1,
+                    permission_value: config.permission_value || config.config_value || ''
+                  }))
+                };
+                await apiPost('/api/cmpconfig/update', payload);
+                
+                // Clear cache to force fresh fetch
+                clearTokenCache(tallylocId, coGuid);
+                console.log('✅ Refreshed token saved to backend');
+              } catch (err) {
+                console.warn('⚠️ Failed to update backend with refreshed token:', err);
+                // Continue anyway - token is still valid
+              }
+            }
+            
+            resolve(response.access_token);
+          } else {
+            reject(new Error('No access token received'));
+          }
+        },
+      });
+
+      // Request token silently (no prompt) - this will refresh if user previously consented
+      tokenClient.requestAccessToken({ prompt: '' });
+    }).catch(reject);
+  });
+};
+
+// Get and validate token from backend, auto-refresh if expired
+export const getValidGoogleTokenFromConfigs = async (tallylocId, coGuid) => {
+  console.log('🔑 getValidGoogleTokenFromConfigs called:', { tallylocId, coGuid });
+  
+  if (!tallylocId || !coGuid) {
+    console.log('❌ Missing tallylocId or coGuid');
+    return null;
+  }
+
+  try {
+    // First, get the stored token
+    const storedToken = await getGoogleTokenFromConfigs(tallylocId, coGuid);
+    
+    if (!storedToken) {
+      console.log('⚠️ No stored token found');
+      return null;
+    }
+
+    // Validate the token
+    const isValid = await validateGoogleToken(storedToken);
+    
+    if (isValid) {
+      console.log('✅ Stored token is still valid');
+      return storedToken;
+    }
+
+    // Token is expired, try to refresh
+    console.log('⚠️ Stored token expired, attempting refresh...');
+    try {
+      const refreshedToken = await refreshGoogleTokenAndUpdateBackend(tallylocId, coGuid);
+      console.log('✅ Token refreshed successfully');
+      return refreshedToken;
+    } catch (refreshError) {
+      console.error('❌ Failed to refresh token:', refreshError);
+      // Return null - user will need to re-authenticate
+      return null;
+    }
+  } catch (error) {
+    console.error('❌ Error in getValidGoogleTokenFromConfigs:', error);
+    return null;
+  }
 };
 
 // Get Google token from backend configs

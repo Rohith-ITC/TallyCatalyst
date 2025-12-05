@@ -21,7 +21,7 @@ import {
 import { getApiUrl } from '../../config';
 import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/companyConfigUtils';
 import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
-import { syncSalesData } from '../utils/dataSync';
+import { syncSalesData } from '../../utils/cacheSyncManager';
 
 const SalesDashboard = ({ onNavigationAttempt }) => {
   const RAW_DATA_PAGE_SIZE = 20;
@@ -42,6 +42,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [noCompanySelected, setNoCompanySelected] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
   
   // Progress bar state
   const [progress, setProgress] = useState({ current: 0, total: 0, percentage: 0 });
@@ -452,16 +453,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         // Start background download for first time (complete data)
         startBackgroundCacheDownload(companyInfo, false);
       } else if (hasCachedSalesData) {
-        // Auto-load data from cache when tab opens
-        console.log('🚀 Loading data from cache and checking for updates in background...');
+        // Auto-load data from cache when tab opens (no automatic update)
+        console.log('🚀 Loading data from cache...');
         console.log('📅 Auto-load will use dates:', defaults);
         // Use setTimeout to ensure dates are set in state before triggering auto-load
         setTimeout(() => {
           console.log('✅ Triggering auto-load with dates:', defaults);
           setShouldAutoLoad(true);
         }, 100);
-        // Start background update to fetch only new records
-        startBackgroundCacheDownload(companyInfo, true);
+        // Note: Automatic update removed - user must click refresh button to update cache
       }
     } catch (err) {
       console.warn('⚠️ Sales dashboard initialization error:', err);
@@ -762,27 +762,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return () => window.removeEventListener('companyChanged', handleCompanyChange);
   }, [initializeDashboard]);
 
-  // Auto-update cache every 30 minutes in the background
-  useEffect(() => {
-    const autoUpdateInterval = setInterval(async () => {
-      try {
-        const companyInfo = getCompanyInfo();
-        // Check if cache exists
-        const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
-        if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
-          console.log('⏰ Auto-update: Checking for new sales data...');
-          // Only start update if not already downloading
-          if (!isDownloadingCache) {
-            startBackgroundCacheDownload(companyInfo, true);
-          }
-        }
-      } catch (err) {
-        console.warn('⚠️ Auto-update check failed:', err);
-      }
-    }, 30 * 60 * 1000); // 30 minutes in milliseconds
+  // Auto-update removed - user must click refresh button to update cache
+  // useEffect(() => {
+  //   const autoUpdateInterval = setInterval(async () => {
+  //     try {
+  //       const companyInfo = getCompanyInfo();
+  //       // Check if cache exists
+  //       const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+  //       if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
+  //         console.log('⏰ Auto-update: Checking for new sales data...');
+  //         // Only start update if not already downloading
+  //         if (!isDownloadingCache) {
+  //           startBackgroundCacheDownload(companyInfo, true);
+  //         }
+  //       }
+  //     } catch (err) {
+  //       console.warn('⚠️ Auto-update check failed:', err);
+  //     }
+  //   }, 30 * 60 * 1000); // 30 minutes in milliseconds
 
-    return () => clearInterval(autoUpdateInterval);
-  }, [isDownloadingCache]);
+  //   return () => clearInterval(autoUpdateInterval);
+  // }, [isDownloadingCache]);
 
   // Filter sales data based on selected filters (excluding issales filter)
   const filteredSales = useMemo(() => {
@@ -1421,6 +1421,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
       console.log('💾 Setting sales state with', transformedSales.length, 'transformed sales records');
       setSales(transformedSales);
+      setLastUpdated(new Date());
       console.log('✅ Sales data loaded successfully. Total records:', transformedSales.length);
       setDateRange({ start: startDate, end: endDate });
       setFromDate(startDate);
@@ -1449,6 +1450,39 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     loadSales(fromDate, toDate, { invalidateCache: true });
+  };
+
+  const handleRefresh = () => {
+    if (!fromDate || !toDate) {
+      console.warn('Cannot refresh: date range not set');
+      return;
+    }
+
+    try {
+      // Get company info for cache update
+      const companyInfo = getCompanyInfo();
+      
+      // Start cache update - this will sync data from server and auto-reload after completion
+      console.log('🔄 Refresh button clicked - starting cache update...');
+      
+      // Check if cache download is already in progress
+      if (isDownloadingCache) {
+        console.log('⚠️ Cache update already in progress, please wait...');
+        return;
+      }
+      
+      // Update cache from server (runs in background and auto-reloads data after completion)
+      // The startBackgroundCacheDownload function will:
+      // 1. Sync cache data from server
+      // 2. Automatically reload sales data after cache update completes
+      startBackgroundCacheDownload(companyInfo, true);
+    } catch (error) {
+      console.error('❌ Error during refresh:', error);
+      // If we can't get company info or start cache update, fallback to reloading from existing cache
+      if (fromDate && toDate) {
+        loadSales(fromDate, toDate, { invalidateCache: false });
+      }
+    }
   };
 
   // Background cache download function
@@ -5417,8 +5451,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{ 
               display: 'grid',
               gridTemplateColumns: '1fr',
-              gap: '8px', 
-              width: '100%'
+              gap: '10px', 
+              width: '100%',
+              boxSizing: 'border-box'
             }}>
               {/* Create Custom Card Button */}
               <button
@@ -5505,6 +5540,86 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <span className="material-icons" style={{ fontSize: '18px' }}>calendar_month</span>
                 <span>Select Date Range</span>
               </button>
+
+              {/* Last Updated & Refresh - Mobile */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+                width: '100%',
+                padding: '10px 12px',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                boxSizing: 'border-box'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  flex: '1 1 0',
+                  minWidth: 0,
+                  overflow: 'hidden'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '16px', color: '#64748b', flexShrink: 0 }}>schedule</span>
+                  <span style={{
+                    fontSize: '11px',
+                    color: '#64748b',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    flex: '1 1 0',
+                    minWidth: 0
+                  }}>
+                    {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={loading || !fromDate || !toDate}
+                  style={{
+                    background: loading || !fromDate || !toDate
+                      ? '#e5e7eb'
+                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '6px 10px',
+                    cursor: loading || !fromDate || !toDate ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    color: loading || !fromDate || !toDate ? '#9ca3af' : '#fff',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s ease',
+                    boxShadow: loading || !fromDate || !toDate
+                      ? 'none'
+                      : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
+                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{
+                    fontSize: '16px',
+                    animation: loading ? 'spin 1s linear infinite' : 'none'
+                  }}>refresh</span>
+                  <span>Refresh</span>
+                </button>
+              </div>
 
               {/* Download Button */}
               <div style={{ position: 'relative', width: '100%' }} ref={downloadDropdownRef}>
@@ -5636,8 +5751,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
-              flex: '1 1 0',
-              minWidth: '300px'
+              flex: '0 1 auto',
+              minWidth: '200px',
+              maxWidth: '400px',
+              overflow: 'hidden'
             }}>
               <div style={{
                 width: '44px',
@@ -5662,7 +5779,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               >
                 <span className="material-icons" style={{ color: 'white', fontSize: '22px' }}>analytics</span>
               </div>
-              <div style={{ flex: '0 0 auto' }}>
+              <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
                 <h1 style={{
                   margin: 0,
                   color: '#0f172a',
@@ -5670,17 +5787,31 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   fontWeight: '800',
                   lineHeight: '1.2',
                   letterSpacing: '-0.02em',
-                  whiteSpace: 'nowrap'
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
                 }}>
                   Sales Analytics Dashboard
                 </h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', flexWrap: 'wrap' }}>
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '10px', 
+                  marginTop: '4px', 
+                  flexWrap: 'wrap',
+                  overflow: 'hidden',
+                  minWidth: 0
+                }}>
                   <p style={{
                     margin: 0,
                     color: '#64748b',
                     fontSize: '13px',
                     fontWeight: '500',
-                    lineHeight: '1.4'
+                    lineHeight: '1.4',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    flex: '0 1 auto'
                   }}>
                     Comprehensive sales insights
                   </p>
@@ -5696,7 +5827,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     alignItems: 'center',
                     gap: '5px',
                     border: '1px solid #bae6fd',
-                    whiteSpace: 'nowrap'
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0
                   }}>
                     <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
                     {filteredSales.length} records
@@ -5707,7 +5839,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
             {/* Desktop: Buttons */}
             {/* Create Custom Card Button - Desktop */}
-            <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center' }}>
+            <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                 <button
                   onClick={(e) => {
                     e.preventDefault();
@@ -5759,10 +5891,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '10px',
-                flex: '1 1 0',
+                flex: '0 1 auto',
                 justifyContent: 'center',
                 flexWrap: 'wrap',
-                minWidth: '200px'
+                minWidth: '140px',
+                flexShrink: 1
               }}>
                 <button
                   type="button"
@@ -5805,15 +5938,87 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </button>
               </div>
 
+              {/* Last Updated & Refresh - Desktop */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                flex: '0 0 auto',
+                padding: '6px 12px',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px', color: '#64748b' }}>schedule</span>
+                  <span style={{
+                    fontSize: '12px',
+                    color: '#64748b',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={loading || !fromDate || !toDate}
+                  style={{
+                    background: loading || !fromDate || !toDate
+                      ? '#e5e7eb'
+                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    cursor: loading || !fromDate || !toDate ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: loading || !fromDate || !toDate ? '#9ca3af' : '#fff',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s ease',
+                    boxShadow: loading || !fromDate || !toDate
+                      ? 'none'
+                      : '0 2px 4px rgba(59, 130, 246, 0.25)'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
+                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{
+                    fontSize: '16px',
+                    animation: loading ? 'spin 1s linear infinite' : 'none'
+                  }}>refresh</span>
+                  <span>Refresh</span>
+                </button>
+              </div>
+
               {/* Right: Download Dropdown - Desktop */}
               <div style={{
                 display: 'flex', 
                 gap: '6px', 
                 alignItems: 'center',
-                flex: '1 1 0',
+                flex: '0 0 auto',
                 justifyContent: 'flex-end',
-                minWidth: '150px',
-                position: 'relative'
+                minWidth: '120px',
+                position: 'relative',
+                flexShrink: 0
               }} ref={downloadDropdownRef}>
                 <button
                   type="button"

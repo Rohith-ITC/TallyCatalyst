@@ -1231,10 +1231,21 @@ class OPFSBackend {
     }
   }
 
+  // Clear metadata cache (for refreshing after clearing cache)
+  async clearMetadataCache() {
+    this.metadataCache.set('sales', new Map());
+    this.metadataCache.set('dashboard', new Map());
+    // Reload from OPFS to ensure consistency
+    await this.loadMetadata();
+  }
+
   // List all cache entries for viewing
   async listAllCacheEntries() {
     try {
       await this.init();
+      
+      // Reload metadata to ensure we have the latest data
+      await this.loadMetadata();
       
       const salesMap = this.metadataCache.get('sales') || new Map();
       const dashboardMap = this.metadataCache.get('dashboard') || new Map();
@@ -1351,8 +1362,12 @@ class OPFSBackend {
   }
 
   // Get complete sales data cache key for a company
-  getCompleteSalesDataKey(companyInfo) {
-    return `complete_sales_${companyInfo.tallyloc_id}_${companyInfo.guid}`;
+  // Format: {email}_{guid}_{tallyloc_id}_complete_sales
+  getCompleteSalesDataKey(companyInfo, email = null) {
+    const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+    // Sanitize email for use in filename
+    const sanitizedEmail = userEmail.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return `${sanitizedEmail}_${companyInfo.guid}_${companyInfo.tallyloc_id}_complete_sales`;
   }
 
   // Store complete sales data with metadata
@@ -1360,7 +1375,8 @@ class OPFSBackend {
     try {
       const syncStart = performance.now();
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const email = metadata.email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, email);
       console.log(`💾 Complete sales data cache write started for: ${cacheKey}`);
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
@@ -1472,10 +1488,11 @@ class OPFSBackend {
   }
 
   // Get complete sales data for a company
-  async getCompleteSalesData(companyInfo) {
+  async getCompleteSalesData(companyInfo, email = null) {
     try {
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, userEmail);
       
       // Check metadata first
       const salesMap = this.metadataCache.get('sales') || new Map();
@@ -1529,10 +1546,11 @@ class OPFSBackend {
   }
 
   // Get lastaltid for a company
-  async getLastAlterId(companyInfo) {
+  async getLastAlterId(companyInfo, email = null) {
     try {
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, userEmail);
       const salesMap = this.metadataCache.get('sales') || new Map();
       const metadata = salesMap.get(cacheKey);
       if (metadata && metadata.isComplete) {
@@ -1874,6 +1892,13 @@ class IndexedDBBackend {
     }
   }
 
+  // Clear metadata cache (for IndexedDB, entries are read directly from DB, so this is a no-op)
+  async clearMetadataCache() {
+    // For IndexedDB, entries are read directly from the database, so no in-memory cache to clear
+    // But we'll ensure the database is up to date
+    await this.init();
+  }
+
   // List all cache entries for viewing
   async listAllCacheEntries() {
     try {
@@ -1942,15 +1967,20 @@ class IndexedDBBackend {
   }
 
   // Get complete sales data cache key for a company
-  getCompleteSalesDataKey(companyInfo) {
-    return `complete_sales_${companyInfo.tallyloc_id}_${companyInfo.guid}`;
+  // Format: {email}_{guid}_{tallyloc_id}_complete_sales
+  getCompleteSalesDataKey(companyInfo, email = null) {
+    const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+    // Sanitize email for use in filename
+    const sanitizedEmail = userEmail.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return `${sanitizedEmail}_${companyInfo.guid}_${companyInfo.tallyloc_id}_complete_sales`;
   }
 
   // Store complete sales data with metadata
   async setCompleteSalesData(companyInfo, data, metadata = {}) {
     try {
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const email = metadata.email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, email);
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
       
@@ -2015,10 +2045,11 @@ class IndexedDBBackend {
   }
 
   // Get complete sales data for a company
-  async getCompleteSalesData(companyInfo) {
+  async getCompleteSalesData(companyInfo, email = null) {
     try {
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, userEmail);
       
       // Get entry from IndexedDB
       const entry = await this.db.salesData.get(cacheKey);
@@ -2049,10 +2080,11 @@ class IndexedDBBackend {
   }
 
   // Get lastaltid for a company
-  async getLastAlterId(companyInfo) {
+  async getLastAlterId(companyInfo, email = null) {
     try {
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, userEmail);
       const entry = await this.db.salesData.get(cacheKey);
       if (entry && entry.isComplete) {
         return entry.lastaltid || null;
@@ -2306,6 +2338,14 @@ class HybridCache {
     return usagePercent >= thresholdPercent;
   }
 
+  // Clear metadata cache (for refreshing after clearing cache)
+  async clearMetadataCache() {
+    await this.init();
+    if (this.backend && this.backend.clearMetadataCache) {
+      await this.backend.clearMetadataCache();
+    }
+  }
+
   // List all cache entries
   async listAllCacheEntries() {
     await this.init();
@@ -2334,15 +2374,15 @@ class HybridCache {
   }
 
   // Get complete sales data for a company
-  async getCompleteSalesData(companyInfo) {
+  async getCompleteSalesData(companyInfo, email = null) {
     await this.init();
-    return await this.backend.getCompleteSalesData(companyInfo);
+    return await this.backend.getCompleteSalesData(companyInfo, email);
   }
 
   // Get lastaltid for a company
-  async getLastAlterId(companyInfo) {
+  async getLastAlterId(companyInfo, email = null) {
     await this.init();
-    return await this.backend.getLastAlterId(companyInfo);
+    return await this.backend.getLastAlterId(companyInfo, email);
   }
 
   // Get raw cache file data as JSON (for viewing)
