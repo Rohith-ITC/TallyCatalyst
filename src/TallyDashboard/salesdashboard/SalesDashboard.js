@@ -11,6 +11,7 @@ import {
   Treemap,
   Tooltip as RechartsTooltip,
 } from 'recharts';
+import { Tooltip } from '@mui/material';
 import BillDrilldownModal from '../../RecvDashboard/components/BillDrilldownModal';
 import VoucherDetailsModal from '../../RecvDashboard/components/VoucherDetailsModal';
 import {
@@ -21,7 +22,7 @@ import {
 import { getApiUrl } from '../../config';
 import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/companyConfigUtils';
 import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
-import { syncSalesData } from '../utils/dataSync';
+import { syncSalesData, cacheSyncManager } from '../../utils/cacheSyncManager';
 
 const SalesDashboard = ({ onNavigationAttempt }) => {
   const RAW_DATA_PAGE_SIZE = 20;
@@ -42,6 +43,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [noCompanySelected, setNoCompanySelected] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
   
   // Progress bar state
   const [progress, setProgress] = useState({ current: 0, total: 0, percentage: 0 });
@@ -190,6 +192,67 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       window.removeEventListener('companyChanged', handleAccessUpdate);
     };
   }, [computeShowProfitPermission]);
+
+  // Subscribe to cacheSyncManager for real-time progress updates (like CacheManagement)
+  useEffect(() => {
+    let companyInfoRef = null;
+    
+    // Subscribe to shared sync progress from cacheSyncManager
+    const unsubscribe = cacheSyncManager.subscribe((progress) => {
+      try {
+        // Get current company info
+        if (!companyInfoRef) {
+          try {
+            companyInfoRef = getCompanyInfo();
+          } catch (e) {
+            // Company not selected yet
+            return;
+          }
+        }
+        
+        // Only update if this progress is for the currently selected company
+        const currentCompanyInfo = cacheSyncManager.getCompanyInfo();
+        
+        if (currentCompanyInfo && companyInfoRef && 
+            currentCompanyInfo.guid === companyInfoRef.guid) {
+          // Update progress in real-time
+          setCacheDownloadProgress(progress);
+          setIsDownloadingCache(cacheSyncManager.isSyncInProgress());
+          console.log('📊 Real-time progress update from cacheSyncManager:', progress);
+        }
+      } catch (error) {
+        // Ignore errors when getting company info
+        console.warn('Error in progress subscription:', error);
+      }
+    });
+
+    // Also set up periodic check for progress when downloading (every 1 second)
+    const progressInterval = setInterval(async () => {
+      if (isDownloadingCache) {
+        try {
+          if (!companyInfoRef) {
+            companyInfoRef = getCompanyInfo();
+          }
+          
+          if (companyInfoRef) {
+            const companyProgress = await cacheSyncManager.getCompanyProgress(companyInfoRef);
+            if (companyProgress && companyProgress.total > 0) {
+              setCacheDownloadProgress(companyProgress);
+              setIsDownloadingCache(true);
+              console.log('📊 Polled progress update:', companyProgress);
+            }
+          }
+        } catch (error) {
+          // Ignore errors - company might not be selected
+        }
+      }
+    }, 1000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(progressInterval);
+    };
+  }, [isDownloadingCache]);
 
   // Expose loading state to parent component
   useEffect(() => {
@@ -452,16 +515,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         // Start background download for first time (complete data)
         startBackgroundCacheDownload(companyInfo, false);
       } else if (hasCachedSalesData) {
-        // Auto-load data from cache when tab opens
-        console.log('🚀 Loading data from cache and checking for updates in background...');
+        // Auto-load data from cache when tab opens (no automatic update)
+        console.log('🚀 Loading data from cache...');
         console.log('📅 Auto-load will use dates:', defaults);
         // Use setTimeout to ensure dates are set in state before triggering auto-load
         setTimeout(() => {
           console.log('✅ Triggering auto-load with dates:', defaults);
           setShouldAutoLoad(true);
         }, 100);
-        // Start background update to fetch only new records
-        startBackgroundCacheDownload(companyInfo, true);
+        // Note: Automatic update removed - user must click refresh button to update cache
       }
     } catch (err) {
       console.warn('⚠️ Sales dashboard initialization error:', err);
@@ -554,10 +616,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         
         console.log(`✅ Filtered ${filteredVouchers.length} vouchers from complete cache for date range ${startDate} to ${endDate}`);
         
-        // Return filtered data from cache - don't proceed to API calls
+        // Return filtered data from cache with timestamp - don't proceed to API calls
         return {
-          ...completeCache.data,
-          vouchers: filteredVouchers
+          data: {
+            ...completeCache.data,
+            vouchers: filteredVouchers
+          },
+          cacheTimestamp: completeCache.metadata?.timestamp || null
         };
       } else {
         console.log('📋 No complete cached data found, will check date-range cache');
@@ -597,7 +662,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         if (gaps.length === 0) {
           // All data is cached, merge and return
           console.log(`✅ All data is cached, merging ${cached.length} cached range(s)`);
-          return mergeCachedData(cached);
+          const merged = mergeCachedData(cached);
+          return { data: merged, cacheTimestamp: null };
         }
         
         // Some data is missing, but we're not calling API - use only cached data
@@ -607,7 +673,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         // Return only cached data without fetching gaps
         const merged = mergeCachedData(cached);
         console.log(`✅ Returning ${merged.vouchers?.length || 0} vouchers from cached ranges only`);
-        return merged;
+        return { data: merged, cacheTimestamp: null };
       }
     } catch (error) {
       console.warn('Error checking for overlapping cache:', error);
@@ -641,8 +707,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       });
       
       return {
-        ...completeCache.data,
-        vouchers: filteredVouchers
+        data: {
+          ...completeCache.data,
+          vouchers: filteredVouchers
+        },
+        cacheTimestamp: completeCache.metadata?.timestamp || null
       };
     }
     
@@ -650,7 +719,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     console.log(`⚠️ Skipping API call as requested - please download complete data first from Cache Management.`);
     
     // Return empty data instead of calling API
-    return { vouchers: [] };
+    return { data: { vouchers: [] }, cacheTimestamp: null };
   };
 
   // REMOVED: fetchSalesDataFromAPI - Sales dashboard now uses cache only
@@ -762,27 +831,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return () => window.removeEventListener('companyChanged', handleCompanyChange);
   }, [initializeDashboard]);
 
-  // Auto-update cache every 30 minutes in the background
-  useEffect(() => {
-    const autoUpdateInterval = setInterval(async () => {
-      try {
-        const companyInfo = getCompanyInfo();
-        // Check if cache exists
-        const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
-        if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
-          console.log('⏰ Auto-update: Checking for new sales data...');
-          // Only start update if not already downloading
-          if (!isDownloadingCache) {
-            startBackgroundCacheDownload(companyInfo, true);
-          }
-        }
-      } catch (err) {
-        console.warn('⚠️ Auto-update check failed:', err);
-      }
-    }, 30 * 60 * 1000); // 30 minutes in milliseconds
+  // Auto-update removed - user must click refresh button to update cache
+  // useEffect(() => {
+  //   const autoUpdateInterval = setInterval(async () => {
+  //     try {
+  //       const companyInfo = getCompanyInfo();
+  //       // Check if cache exists
+  //       const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+  //       if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
+  //         console.log('⏰ Auto-update: Checking for new sales data...');
+  //         // Only start update if not already downloading
+  //         if (!isDownloadingCache) {
+  //           startBackgroundCacheDownload(companyInfo, true);
+  //         }
+  //       }
+  //     } catch (err) {
+  //       console.warn('⚠️ Auto-update check failed:', err);
+  //     }
+  //   }, 30 * 60 * 1000); // 30 minutes in milliseconds
 
-    return () => clearInterval(autoUpdateInterval);
-  }, [isDownloadingCache]);
+  //   return () => clearInterval(autoUpdateInterval);
+  // }, [isDownloadingCache]);
 
   // Filter sales data based on selected filters (excluding issales filter)
   const filteredSales = useMemo(() => {
@@ -1025,13 +1094,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const response = await fetchSalesData(startDate, endDate);
       console.log('📦 Response from fetchSalesData:', {
         hasResponse: !!response,
-        voucherCount: response?.vouchers?.length || 0,
-        sampleVoucher: response?.vouchers?.[0]
+        hasData: !!response?.data,
+        voucherCount: response?.data?.vouchers?.length || 0,
+        cacheTimestamp: response?.cacheTimestamp,
+        sampleVoucher: response?.data?.vouchers?.[0]
       });
       
+      // Handle both old format (direct data) and new format (wrapped with data and cacheTimestamp)
+      const responseData = response?.data || response;
+      const cacheTimestamp = response?.cacheTimestamp;
+      
       const allVouchers = [];
-      if (response?.vouchers && Array.isArray(response.vouchers)) {
-        allVouchers.push(...response.vouchers);
+      if (responseData?.vouchers && Array.isArray(responseData.vouchers)) {
+        allVouchers.push(...responseData.vouchers);
         console.log('✅ Loaded', allVouchers.length, 'vouchers from cache');
       } else {
         console.warn('⚠️ No vouchers found in response:', response);
@@ -1421,6 +1496,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
       console.log('💾 Setting sales state with', transformedSales.length, 'transformed sales records');
       setSales(transformedSales);
+      
+      // Use cache timestamp if available, otherwise use current time
+      if (cacheTimestamp) {
+        console.log('📅 Using cache timestamp:', new Date(cacheTimestamp));
+        setLastUpdated(new Date(cacheTimestamp));
+      } else {
+        console.log('📅 No cache timestamp found, using current time');
+        setLastUpdated(new Date());
+      }
+      
       console.log('✅ Sales data loaded successfully. Total records:', transformedSales.length);
       setDateRange({ start: startDate, end: endDate });
       setFromDate(startDate);
@@ -1451,6 +1536,39 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     loadSales(fromDate, toDate, { invalidateCache: true });
   };
 
+  const handleRefresh = () => {
+    if (!fromDate || !toDate) {
+      console.warn('Cannot refresh: date range not set');
+      return;
+    }
+
+    try {
+      // Get company info for cache update
+      const companyInfo = getCompanyInfo();
+      
+      // Start cache update - this will sync data from server and auto-reload after completion
+      console.log('🔄 Refresh button clicked - starting cache update...');
+      
+      // Check if cache download is already in progress
+      if (isDownloadingCache) {
+        console.log('⚠️ Cache update already in progress, please wait...');
+        return;
+      }
+      
+      // Update cache from server (runs in background and auto-reloads data after completion)
+      // The startBackgroundCacheDownload function will:
+      // 1. Sync cache data from server
+      // 2. Automatically reload sales data after cache update completes
+      startBackgroundCacheDownload(companyInfo, true);
+    } catch (error) {
+      console.error('❌ Error during refresh:', error);
+      // If we can't get company info or start cache update, fallback to reloading from existing cache
+      if (fromDate && toDate) {
+        loadSales(fromDate, toDate, { invalidateCache: false });
+      }
+    }
+  };
+
   // Background cache download function
   const startBackgroundCacheDownload = async (companyInfo, isUpdate = false) => {
     if (isDownloadingCache || cacheDownloadAbortRef.current) return;
@@ -1465,6 +1583,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       await syncSalesData(companyInfo, (progress) => {
         // Only update progress if not aborted
         if (!cacheDownloadAbortRef.current) {
+          // Force immediate state update for real-time progress
+          console.log('📊 Progress update:', progress);
           setCacheDownloadProgress(progress);
         }
       });
@@ -5636,6 +5756,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               opacity: 0;
             }
           }
+          @keyframes indeterminateProgress {
+            0% {
+              transform: translateX(-100%);
+            }
+            100% {
+              transform: translateX(400%);
+            }
+          }
         `}
       </style>
      <div
@@ -5671,45 +5799,104 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           background: 'transparent',
           position: 'relative'
           }}>
-            {/* Green Pulsating Dot Indicator */}
-            {isDownloadingCache && (
-              <div style={{
-                position: 'absolute',
-                top: '20px',
-                right: '20px',
-                zIndex: 1000,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <div style={{ position: 'relative', width: '12px', height: '12px' }}>
-                  {/* Pulsating ring effect */}
+            {/* Cache Update Progress Bar Indicator */}
+            {isDownloadingCache && (() => {
+              // Use current values directly to ensure real-time updates
+              const current = cacheDownloadProgress.current || 0;
+              const total = cacheDownloadProgress.total || 0;
+              const hasTotal = total > 0;
+              
+              const progressPercentage = hasTotal && total > 0
+                ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
+                : 0;
+              
+              // Show indeterminate progress when total is not yet known
+              const isIndeterminate = !hasTotal;
+              
+              // Ensure we always show at least some progress visually
+              // When progress is 0%, show 5% so user knows something is happening
+              // When progress > 0%, show actual progress (minimum 1% for visibility)
+              const displayProgress = hasTotal 
+                ? (progressPercentage === 0 ? 5 : Math.max(progressPercentage, 1))
+                : 0;
+              
+              const tooltipText = hasTotal
+                ? `${cacheDownloadProgress.message || 'Updating cache'}: ${progressPercentage}% (${current}/${total})`
+                : (cacheDownloadProgress.message || 'Updating cache...');
+
+              return (
+                <Tooltip
+                  title={tooltipText}
+                  arrow
+                  placement="left"
+                >
                   <div style={{
                     position: 'absolute',
-                    top: '0',
-                    left: '0',
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '50%',
-                    background: '#10b981',
-                    opacity: 0.4,
-                    animation: 'pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-                  }}></div>
-                  {/* Main dot */}
-                  <div style={{
-                    position: 'absolute',
-                    top: '0',
-                    left: '0',
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '50%',
-                    background: '#10b981',
-                    boxShadow: '0 0 8px rgba(16, 185, 129, 0.6)',
-                    animation: 'pulse 2s ease-in-out infinite'
-                  }}></div>
-                </div>
-              </div>
-            )}
+                    top: '20px',
+                    right: '20px',
+                    zIndex: 1000,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer'
+                  }}>
+                    <div style={{
+                      width: '120px',
+                      height: '6px',
+                      backgroundColor: '#e2e8f0',
+                      borderRadius: '3px',
+                      overflow: 'hidden',
+                      position: 'relative',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                    }}>
+                      {isIndeterminate ? (
+                        // Indeterminate progress bar (animated sliding)
+                        <div
+                          style={{
+                            width: '30%',
+                            height: '100%',
+                            backgroundColor: '#10b981',
+                            borderRadius: '3px',
+                            animation: 'indeterminateProgress 1.5s ease-in-out infinite',
+                            position: 'absolute',
+                            left: 0,
+                            top: 0
+                          }}
+                        />
+                      ) : (
+                        // Determinate progress bar
+                        <div
+                          style={{
+                            width: `${displayProgress}%`,
+                            height: '100%',
+                            backgroundColor: '#10b981',
+                            borderRadius: '3px',
+                            transition: 'width 0.3s ease',
+                            position: 'relative',
+                            overflow: 'hidden',
+                            minWidth: progressPercentage > 0 ? '2px' : '0px'
+                          }}
+                        >
+                          {progressPercentage > 0 && progressPercentage < 100 && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent)',
+                                animation: 'progressShimmer 1.5s infinite'
+                              }}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </Tooltip>
+              );
+            })()}
             {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
         {isMobile ? (
           <>
@@ -5790,8 +5977,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{ 
               display: 'grid',
               gridTemplateColumns: '1fr',
-              gap: '8px', 
-              width: '100%'
+              gap: '10px', 
+              width: '100%',
+              boxSizing: 'border-box'
             }}>
               {/* Create Custom Card Button */}
               <button
@@ -5878,6 +6066,86 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <span className="material-icons" style={{ fontSize: '18px' }}>calendar_month</span>
                 <span>Select Date Range</span>
               </button>
+
+              {/* Last Updated & Refresh - Mobile */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+                width: '100%',
+                padding: '10px 12px',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                boxSizing: 'border-box'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  flex: '1 1 0',
+                  minWidth: 0,
+                  overflow: 'hidden'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '16px', color: '#64748b', flexShrink: 0 }}>schedule</span>
+                  <span style={{
+                    fontSize: '11px',
+                    color: '#64748b',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    flex: '1 1 0',
+                    minWidth: 0
+                  }}>
+                    {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={loading || !fromDate || !toDate}
+                  style={{
+                    background: loading || !fromDate || !toDate
+                      ? '#e5e7eb'
+                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '6px 10px',
+                    cursor: loading || !fromDate || !toDate ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    color: loading || !fromDate || !toDate ? '#9ca3af' : '#fff',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s ease',
+                    boxShadow: loading || !fromDate || !toDate
+                      ? 'none'
+                      : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
+                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{
+                    fontSize: '16px',
+                    animation: loading ? 'spin 1s linear infinite' : 'none'
+                  }}>refresh</span>
+                  <span>Refresh</span>
+                </button>
+              </div>
 
               {/* Download Button */}
               <div style={{ position: 'relative', width: '100%' }} ref={downloadDropdownRef}>
@@ -6009,8 +6277,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
-              flex: '1 1 0',
-              minWidth: '300px'
+              flex: '0 1 auto',
+              minWidth: '200px',
+              maxWidth: '400px',
+              overflow: 'hidden'
             }}>
               <div style={{
                 width: '44px',
@@ -6035,7 +6305,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               >
                 <span className="material-icons" style={{ color: 'white', fontSize: '22px' }}>analytics</span>
               </div>
-              <div style={{ flex: '0 0 auto' }}>
+              <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
                 <h1 style={{
                   margin: 0,
                   color: '#0f172a',
@@ -6043,17 +6313,31 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   fontWeight: '800',
                   lineHeight: '1.2',
                   letterSpacing: '-0.02em',
-                  whiteSpace: 'nowrap'
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
                 }}>
                   Sales Analytics Dashboard
                 </h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', flexWrap: 'wrap' }}>
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '10px', 
+                  marginTop: '4px', 
+                  flexWrap: 'wrap',
+                  overflow: 'hidden',
+                  minWidth: 0
+                }}>
                   <p style={{
                     margin: 0,
                     color: '#64748b',
                     fontSize: '13px',
                     fontWeight: '500',
-                    lineHeight: '1.4'
+                    lineHeight: '1.4',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    flex: '0 1 auto'
                   }}>
                     Comprehensive sales insights
                   </p>
@@ -6069,7 +6353,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     alignItems: 'center',
                     gap: '5px',
                     border: '1px solid #bae6fd',
-                    whiteSpace: 'nowrap'
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0
                   }}>
                     <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
                     {filteredSales.length} records
@@ -6080,7 +6365,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
             {/* Desktop: Buttons */}
             {/* Create Custom Card Button - Desktop */}
-            <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center' }}>
+            <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                 <button
                   onClick={(e) => {
                     e.preventDefault();
@@ -6132,10 +6417,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '10px',
-                flex: '1 1 0',
+                flex: '0 1 auto',
                 justifyContent: 'center',
                 flexWrap: 'wrap',
-                minWidth: '200px'
+                minWidth: '140px',
+                flexShrink: 1
               }}>
                 <button
                   type="button"
@@ -6178,15 +6464,87 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </button>
               </div>
 
+              {/* Last Updated & Refresh - Desktop */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                flex: '0 0 auto',
+                padding: '6px 12px',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px', color: '#64748b' }}>schedule</span>
+                  <span style={{
+                    fontSize: '12px',
+                    color: '#64748b',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={loading || !fromDate || !toDate}
+                  style={{
+                    background: loading || !fromDate || !toDate
+                      ? '#e5e7eb'
+                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    cursor: loading || !fromDate || !toDate ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: loading || !fromDate || !toDate ? '#9ca3af' : '#fff',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s ease',
+                    boxShadow: loading || !fromDate || !toDate
+                      ? 'none'
+                      : '0 2px 4px rgba(59, 130, 246, 0.25)'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
+                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{
+                    fontSize: '16px',
+                    animation: loading ? 'spin 1s linear infinite' : 'none'
+                  }}>refresh</span>
+                  <span>Refresh</span>
+                </button>
+              </div>
+
               {/* Right: Download Dropdown - Desktop */}
               <div style={{
                 display: 'flex', 
                 gap: '6px', 
                 alignItems: 'center',
-                flex: '1 1 0',
+                flex: '0 0 auto',
                 justifyContent: 'flex-end',
-                minWidth: '150px',
-                position: 'relative'
+                minWidth: '120px',
+                position: 'relative',
+                flexShrink: 0
               }} ref={downloadDropdownRef}>
                 <button
                   type="button"
