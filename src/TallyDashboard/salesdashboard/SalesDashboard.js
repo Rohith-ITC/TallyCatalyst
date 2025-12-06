@@ -11,6 +11,7 @@ import {
   Treemap,
   Tooltip as RechartsTooltip,
 } from 'recharts';
+import { Tooltip } from '@mui/material';
 import BillDrilldownModal from '../../RecvDashboard/components/BillDrilldownModal';
 import VoucherDetailsModal from '../../RecvDashboard/components/VoucherDetailsModal';
 import {
@@ -21,7 +22,7 @@ import {
 import { getApiUrl } from '../../config';
 import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/companyConfigUtils';
 import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
-import { syncSalesData } from '../../utils/cacheSyncManager';
+import { syncSalesData, cacheSyncManager } from '../../utils/cacheSyncManager';
 
 const SalesDashboard = ({ onNavigationAttempt }) => {
   const RAW_DATA_PAGE_SIZE = 20;
@@ -191,6 +192,67 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       window.removeEventListener('companyChanged', handleAccessUpdate);
     };
   }, [computeShowProfitPermission]);
+
+  // Subscribe to cacheSyncManager for real-time progress updates (like CacheManagement)
+  useEffect(() => {
+    let companyInfoRef = null;
+    
+    // Subscribe to shared sync progress from cacheSyncManager
+    const unsubscribe = cacheSyncManager.subscribe((progress) => {
+      try {
+        // Get current company info
+        if (!companyInfoRef) {
+          try {
+            companyInfoRef = getCompanyInfo();
+          } catch (e) {
+            // Company not selected yet
+            return;
+          }
+        }
+        
+        // Only update if this progress is for the currently selected company
+        const currentCompanyInfo = cacheSyncManager.getCompanyInfo();
+        
+        if (currentCompanyInfo && companyInfoRef && 
+            currentCompanyInfo.guid === companyInfoRef.guid) {
+          // Update progress in real-time
+          setCacheDownloadProgress(progress);
+          setIsDownloadingCache(cacheSyncManager.isSyncInProgress());
+          console.log('📊 Real-time progress update from cacheSyncManager:', progress);
+        }
+      } catch (error) {
+        // Ignore errors when getting company info
+        console.warn('Error in progress subscription:', error);
+      }
+    });
+
+    // Also set up periodic check for progress when downloading (every 1 second)
+    const progressInterval = setInterval(async () => {
+      if (isDownloadingCache) {
+        try {
+          if (!companyInfoRef) {
+            companyInfoRef = getCompanyInfo();
+          }
+          
+          if (companyInfoRef) {
+            const companyProgress = await cacheSyncManager.getCompanyProgress(companyInfoRef);
+            if (companyProgress && companyProgress.total > 0) {
+              setCacheDownloadProgress(companyProgress);
+              setIsDownloadingCache(true);
+              console.log('📊 Polled progress update:', companyProgress);
+            }
+          }
+        } catch (error) {
+          // Ignore errors - company might not be selected
+        }
+      }
+    }, 1000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(progressInterval);
+    };
+  }, [isDownloadingCache]);
 
   // Expose loading state to parent component
   useEffect(() => {
@@ -554,10 +616,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         
         console.log(`✅ Filtered ${filteredVouchers.length} vouchers from complete cache for date range ${startDate} to ${endDate}`);
         
-        // Return filtered data from cache - don't proceed to API calls
+        // Return filtered data from cache with timestamp - don't proceed to API calls
         return {
-          ...completeCache.data,
-          vouchers: filteredVouchers
+          data: {
+            ...completeCache.data,
+            vouchers: filteredVouchers
+          },
+          cacheTimestamp: completeCache.metadata?.timestamp || null
         };
       } else {
         console.log('📋 No complete cached data found, will check date-range cache');
@@ -597,7 +662,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         if (gaps.length === 0) {
           // All data is cached, merge and return
           console.log(`✅ All data is cached, merging ${cached.length} cached range(s)`);
-          return mergeCachedData(cached);
+          const merged = mergeCachedData(cached);
+          return { data: merged, cacheTimestamp: null };
         }
         
         // Some data is missing, but we're not calling API - use only cached data
@@ -607,7 +673,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         // Return only cached data without fetching gaps
         const merged = mergeCachedData(cached);
         console.log(`✅ Returning ${merged.vouchers?.length || 0} vouchers from cached ranges only`);
-        return merged;
+        return { data: merged, cacheTimestamp: null };
       }
     } catch (error) {
       console.warn('Error checking for overlapping cache:', error);
@@ -641,8 +707,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       });
       
       return {
-        ...completeCache.data,
-        vouchers: filteredVouchers
+        data: {
+          ...completeCache.data,
+          vouchers: filteredVouchers
+        },
+        cacheTimestamp: completeCache.metadata?.timestamp || null
       };
     }
     
@@ -650,7 +719,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     console.log(`⚠️ Skipping API call as requested - please download complete data first from Cache Management.`);
     
     // Return empty data instead of calling API
-    return { vouchers: [] };
+    return { data: { vouchers: [] }, cacheTimestamp: null };
   };
 
   // REMOVED: fetchSalesDataFromAPI - Sales dashboard now uses cache only
@@ -1025,13 +1094,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const response = await fetchSalesData(startDate, endDate);
       console.log('📦 Response from fetchSalesData:', {
         hasResponse: !!response,
-        voucherCount: response?.vouchers?.length || 0,
-        sampleVoucher: response?.vouchers?.[0]
+        hasData: !!response?.data,
+        voucherCount: response?.data?.vouchers?.length || 0,
+        cacheTimestamp: response?.cacheTimestamp,
+        sampleVoucher: response?.data?.vouchers?.[0]
       });
       
+      // Handle both old format (direct data) and new format (wrapped with data and cacheTimestamp)
+      const responseData = response?.data || response;
+      const cacheTimestamp = response?.cacheTimestamp;
+      
       const allVouchers = [];
-      if (response?.vouchers && Array.isArray(response.vouchers)) {
-        allVouchers.push(...response.vouchers);
+      if (responseData?.vouchers && Array.isArray(responseData.vouchers)) {
+        allVouchers.push(...responseData.vouchers);
         console.log('✅ Loaded', allVouchers.length, 'vouchers from cache');
       } else {
         console.warn('⚠️ No vouchers found in response:', response);
@@ -1421,7 +1496,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
       console.log('💾 Setting sales state with', transformedSales.length, 'transformed sales records');
       setSales(transformedSales);
-      setLastUpdated(new Date());
+      
+      // Use cache timestamp if available, otherwise use current time
+      if (cacheTimestamp) {
+        console.log('📅 Using cache timestamp:', new Date(cacheTimestamp));
+        setLastUpdated(new Date(cacheTimestamp));
+      } else {
+        console.log('📅 No cache timestamp found, using current time');
+        setLastUpdated(new Date());
+      }
+      
       console.log('✅ Sales data loaded successfully. Total records:', transformedSales.length);
       setDateRange({ start: startDate, end: endDate });
       setFromDate(startDate);
@@ -1499,6 +1583,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       await syncSalesData(companyInfo, (progress) => {
         // Only update progress if not aborted
         if (!cacheDownloadAbortRef.current) {
+          // Force immediate state update for real-time progress
+          console.log('📊 Progress update:', progress);
           setCacheDownloadProgress(progress);
         }
       });
@@ -5297,6 +5383,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               opacity: 0;
             }
           }
+          @keyframes indeterminateProgress {
+            0% {
+              transform: translateX(-100%);
+            }
+            100% {
+              transform: translateX(400%);
+            }
+          }
         `}
       </style>
      <div
@@ -5332,45 +5426,104 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           background: 'transparent',
           position: 'relative'
           }}>
-            {/* Green Pulsating Dot Indicator */}
-            {isDownloadingCache && (
-              <div style={{
-                position: 'absolute',
-                top: '20px',
-                right: '20px',
-                zIndex: 1000,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px'
-              }}>
-                <div style={{ position: 'relative', width: '12px', height: '12px' }}>
-                  {/* Pulsating ring effect */}
+            {/* Cache Update Progress Bar Indicator */}
+            {isDownloadingCache && (() => {
+              // Use current values directly to ensure real-time updates
+              const current = cacheDownloadProgress.current || 0;
+              const total = cacheDownloadProgress.total || 0;
+              const hasTotal = total > 0;
+              
+              const progressPercentage = hasTotal && total > 0
+                ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
+                : 0;
+              
+              // Show indeterminate progress when total is not yet known
+              const isIndeterminate = !hasTotal;
+              
+              // Ensure we always show at least some progress visually
+              // When progress is 0%, show 5% so user knows something is happening
+              // When progress > 0%, show actual progress (minimum 1% for visibility)
+              const displayProgress = hasTotal 
+                ? (progressPercentage === 0 ? 5 : Math.max(progressPercentage, 1))
+                : 0;
+              
+              const tooltipText = hasTotal
+                ? `${cacheDownloadProgress.message || 'Updating cache'}: ${progressPercentage}% (${current}/${total})`
+                : (cacheDownloadProgress.message || 'Updating cache...');
+
+              return (
+                <Tooltip
+                  title={tooltipText}
+                  arrow
+                  placement="left"
+                >
                   <div style={{
                     position: 'absolute',
-                    top: '0',
-                    left: '0',
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '50%',
-                    background: '#10b981',
-                    opacity: 0.4,
-                    animation: 'pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-                  }}></div>
-                  {/* Main dot */}
-                  <div style={{
-                    position: 'absolute',
-                    top: '0',
-                    left: '0',
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '50%',
-                    background: '#10b981',
-                    boxShadow: '0 0 8px rgba(16, 185, 129, 0.6)',
-                    animation: 'pulse 2s ease-in-out infinite'
-                  }}></div>
-                </div>
-              </div>
-            )}
+                    top: '20px',
+                    right: '20px',
+                    zIndex: 1000,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    cursor: 'pointer'
+                  }}>
+                    <div style={{
+                      width: '120px',
+                      height: '6px',
+                      backgroundColor: '#e2e8f0',
+                      borderRadius: '3px',
+                      overflow: 'hidden',
+                      position: 'relative',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                    }}>
+                      {isIndeterminate ? (
+                        // Indeterminate progress bar (animated sliding)
+                        <div
+                          style={{
+                            width: '30%',
+                            height: '100%',
+                            backgroundColor: '#10b981',
+                            borderRadius: '3px',
+                            animation: 'indeterminateProgress 1.5s ease-in-out infinite',
+                            position: 'absolute',
+                            left: 0,
+                            top: 0
+                          }}
+                        />
+                      ) : (
+                        // Determinate progress bar
+                        <div
+                          style={{
+                            width: `${displayProgress}%`,
+                            height: '100%',
+                            backgroundColor: '#10b981',
+                            borderRadius: '3px',
+                            transition: 'width 0.3s ease',
+                            position: 'relative',
+                            overflow: 'hidden',
+                            minWidth: progressPercentage > 0 ? '2px' : '0px'
+                          }}
+                        >
+                          {progressPercentage > 0 && progressPercentage < 100 && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent)',
+                                animation: 'progressShimmer 1.5s infinite'
+                              }}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </Tooltip>
+              );
+            })()}
             {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
         {isMobile ? (
           <>
