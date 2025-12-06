@@ -1,10 +1,11 @@
 .company-orders-container {
-  padding: 24px 32px;
+  padding: 24px 32px 24px 56px;
   width: 100%;
-  max-width: none;
+  max-width: 100%;
   margin: 0;
   min-height: 100vh;
   box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 .company-orders-header {
@@ -436,12 +437,16 @@
   background: white;
   border-radius: 12px;
   border: 1px solid #e2e8f0;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: visible;
+  max-width: 100%;
 }
 
 .orders-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: auto;
+  min-width: 1100px;
 }
 
 .orders-table th,
@@ -458,18 +463,26 @@
   text-align: right;
 }
 
-/* Detailed view: Left-align Stock Item (column 3) and Customer (column 4) */
-.orders-table.detailed-view th:nth-child(3),
-.orders-table.detailed-view td:nth-child(3),
+/* Detailed view: Left-align Stock Item (column 4) - increased width to prevent overlap, allow wrapping */
 .orders-table.detailed-view th:nth-child(4),
 .orders-table.detailed-view td:nth-child(4) {
   text-align: left;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  word-wrap: break-word;
+  word-break: break-word;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 /* Summary view: Left-align first column (Stock Item or Customer) */
 .orders-table.summary-view th:first-child,
 .orders-table.summary-view td:first-child {
   text-align: left;
+  width: 140px;
+  min-width: 140px;
+  max-width: 140px;
 }
 
 .summary-clickable-row {
@@ -481,10 +494,99 @@
   background-color: #f1f5f9;
 }
 
-/* Detailed view: Left-align Order No column (column 2) */
-.orders-table.detailed-view th:nth-child(2),
-.orders-table.detailed-view td:nth-child(2) {
+.order-row-clickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.order-row-clickable:hover {
+  background-color: #f1f5f9;
+}
+
+.order-row-expanded {
+  cursor: pointer;
+  background-color: #e0f2fe;
+  transition: background-color 0.15s ease;
+}
+
+.order-row-expanded:hover {
+  background-color: #bae6fd;
+}
+
+/* Detailed view: Left-align Order No column (column 3, accounting for menu button) - reduced width, allow wrapping */
+.orders-table.detailed-view th:nth-child(3),
+.orders-table.detailed-view td:nth-child(3) {
   text-align: left;
+  width: 100px;
+  min-width: 100px;
+  max-width: 100px;
+  white-space: normal;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Customer column (column 5) - increased width to prevent overlap */
+.orders-table.detailed-view th:nth-child(5),
+.orders-table.detailed-view td:nth-child(5) {
+  word-wrap: break-word;
+  word-break: break-word;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  white-space: normal;
+  text-align: left;
+}
+
+/* Rate column (column 8) - further reduced width */
+.orders-table.detailed-view th:nth-child(8),
+.orders-table.detailed-view td:nth-child(8) {
+  width: 70px;
+  min-width: 70px;
+  max-width: 70px;
+  text-align: right;
+}
+
+/* Pending value column (column 9) - reduced width */
+.orders-table.detailed-view th:nth-child(9),
+.orders-table.detailed-view td:nth-child(9) {
+  width: 110px;
+  min-width: 110px;
+  max-width: 110px;
+  text-align: right;
+}
+
+/* Quantity columns - allow wrapping for unit display, right-aligned */
+.orders-table td .quantity-number {
+  display: block;
+  line-height: 1.4;
+  text-align: right;
+}
+
+.orders-table td .quantity-unit {
+  display: block;
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.2;
+  margin-top: 2px;
+  text-align: right;
+}
+
+/* Order Qty column (column 6) - reduced width, right-aligned */
+.orders-table.detailed-view th:nth-child(6),
+.orders-table.detailed-view td:nth-child(6) {
+  width: 100px;
+  min-width: 100px;
+  max-width: 100px;
+  text-align: right;
+}
+
+/* Pending Qty column (column 7) - reduced width, right-aligned */
+.orders-table.detailed-view th:nth-child(7),
+.orders-table.detailed-view td:nth-child(7) {
+  width: 100px;
+  min-width: 100px;
+  max-width: 100px;
+  text-align: right;
 }
 
 /* Prevent date columns from wrapping */
@@ -518,8 +620,8 @@
 }
 
 .orders-table.summary-view th:first-child .sortable-header,
-.orders-table.detailed-view th:nth-child(3) .sortable-header,
-.orders-table.detailed-view th:nth-child(4) .sortable-header {
+.orders-table.detailed-view th:nth-child(4) .sortable-header,
+.orders-table.detailed-view th:nth-child(5) .sortable-header {
   align-items: flex-start;
   text-align: left;
 }

@@ -362,15 +362,39 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                             <div style={{ textAlign: 'right' }}>Discount</div>
                             <div style={{ textAlign: 'right' }}>Amount</div>
                           </div>
-                          {inventoryAllocations.map((inv, invIndex) => (
-                            <div key={invIndex} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 12, padding: '6px 0', fontSize: 13, color: '#1e293b' }}>
-                              <div>{inv.STOCKITEMNAME || inv || '-'}</div>
-                              <div style={{ textAlign: 'right' }}>{inv.BILLEQTY || inv.ACTUALQTY || '-'}</div>
-                              <div style={{ textAlign: 'right' }}>{inv.RATE || '-'}</div>
-                              <div style={{ textAlign: 'right' }}>{inv.DISCOUNT || '0'}</div>
-                              <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(inv.AMOUNT || inv.VALUE || 0)}</div>
-                            </div>
-                          ))}
+                          {inventoryAllocations.map((inv, invIndex) => {
+                            const batchAllocations = normalizeToArray(inv.BATCHALLOCATIONS);
+                            return (
+                              <div key={invIndex}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 12, padding: '6px 0', fontSize: 13, color: '#1e293b' }}>
+                                  <div>{inv.STOCKITEMNAME || inv || '-'}</div>
+                                  <div style={{ textAlign: 'right' }}>{inv.BILLEQTY || inv.ACTUALQTY || '-'}</div>
+                                  <div style={{ textAlign: 'right' }}>{inv.RATE || '-'}</div>
+                                  <div style={{ textAlign: 'right' }}>{inv.DISCOUNT || '0'}</div>
+                                  <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(inv.AMOUNT || inv.VALUE || 0)}</div>
+                                </div>
+                                {/* Batch Allocations under each item */}
+                                {batchAllocations.length > 0 && (
+                                  <div style={{ paddingLeft: '20px', paddingBottom: '8px', borderLeft: '2px solid #e2e8f0', marginLeft: '8px' }}>
+                                    {batchAllocations.map((batch, batchIndex) => (
+                                      <div key={batchIndex} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 12, padding: '4px 0', fontSize: 12, color: '#64748b' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                          <span style={{ color: '#94a3b8' }}>•</span>
+                                          <span style={{ fontWeight: 500 }}>{batch.BATCHNAME || 'Any'}</span>
+                                        </div>
+                                        <div style={{ textAlign: 'right', color: '#475569' }}>
+                                          {batch.BILLEDQTY || batch.ACTUALQTY || '0'}
+                                        </div>
+                                        <div></div>
+                                        <div></div>
+                                        <div></div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                           {/* Tax Summary Rows (CGST, SGST, ROUND OFF) */}
                           {(entry.CGST || entry.SGST || entry.ROUNDOFF !== undefined) && (
                             <>
