@@ -7784,14 +7784,6 @@ function PlaceOrder() {
 
       margin: 0,
 
-      display: 'flex',
-
-      flexDirection: 'column',
-
-      alignItems: 'center',
-
-      boxSizing: 'border-box'
-
     }}>
 
       <style>
@@ -7850,19 +7842,17 @@ function PlaceOrder() {
 
           color: '#b91c1c', 
 
-          borderRadius: isMobile ? 8 : 8,
+                borderRadius: isMobile ? 8 : 8,
 
           padding: isMobile ? '8px 14px' : '8px 16px', 
 
-          margin: isMobile ? '12px 8px' : '18px auto', 
+          margin: isMobile ? '12px 8px' : '0 auto 18px auto', 
 
           fontWeight: 600, 
 
           fontSize: isMobile ? 14 : 15, 
 
-          maxWidth: isMobile ? 'calc(100% - 16px)' : '1400px', 
-
-          width: isMobile ? 'calc(100% - 16px)' : 'calc(100% - 48px)',
+          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200, 
 
           display: 'flex', 
 
@@ -7888,19 +7878,17 @@ function PlaceOrder() {
 
           color: '#b91c1c', 
 
-          borderRadius: isMobile ? 8 : 8,
+                borderRadius: isMobile ? 8 : 8,
 
           padding: isMobile ? '8px 14px' : '8px 16px', 
 
-          margin: isMobile ? '12px 8px' : '18px auto', 
+          margin: isMobile ? '12px 8px' : '0 auto 18px auto', 
 
           fontWeight: 600, 
 
           fontSize: isMobile ? 14 : 15, 
 
-          maxWidth: isMobile ? 'calc(100% - 16px)' : '1400px', 
-
-          width: isMobile ? 'calc(100% - 16px)' : 'calc(100% - 48px)',
+          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200, 
 
           display: 'flex', 
 
@@ -7928,11 +7916,11 @@ function PlaceOrder() {
 
         background: '#fff',
 
-        margin: isMobile ? '12px 8px' : '0 auto 16px auto',
+        margin: isMobile ? '12px 8px' : '24px 24px 16px 24px',
 
         maxWidth: isMobile ? '100%' : '1400px',
 
-        width: isMobile ? 'calc(100% - 16px)' : 'calc(100% - 48px)',
+        width: isMobile ? 'calc(100% - 16px)' : 'auto',
 
         borderRadius: isMobile ? '16px' : '16px',
 
@@ -7948,7 +7936,7 @@ function PlaceOrder() {
 
         {/* Form - Place Order */}
 
-        <form onSubmit={handleSubmit} style={{ padding: isMobile ? '16px 12px' : '12px', width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
+        <form onSubmit={handleSubmit} style={{ padding: isMobile ? '16px 12px' : '12px', width: isMobile ? '100%' : '98%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
 
           {/* Header */}
 
@@ -8160,7 +8148,7 @@ function PlaceOrder() {
 
             gap: isMobile ? '14px' : '20px',
 
-            alignItems: isMobile ? 'stretch' : 'flex-end',
+            alignItems: isMobile ? 'stretch' : 'end',
 
             minHeight: '60px',
 
@@ -8270,7 +8258,7 @@ function PlaceOrder() {
 
                     width: '100%',
 
-                    padding: isMobile ? '14px 20px' : '16px 20px',
+                    padding: '16px 20px',
 
                     border: 'none',
 
@@ -8284,11 +8272,7 @@ function PlaceOrder() {
 
                     background: 'transparent',
 
-                    cursor: voucherTypesLoading ? 'not-allowed' : 'text',
-
-                    height: isMobile ? '48px' : '52px',
-
-                    boxSizing: 'border-box'
+                    cursor: voucherTypesLoading ? 'not-allowed' : 'text'
 
                   }}
 
@@ -8650,7 +8634,7 @@ function PlaceOrder() {
 
                     width: '100%',
 
-                    padding: isMobile ? '14px 20px' : '16px 20px',
+                    padding: '16px 20px',
 
                     paddingRight: selectedCustomer ? '50px' : '20px',
 
@@ -8666,11 +8650,7 @@ function PlaceOrder() {
 
                     background: 'transparent',
 
-                    cursor: customerLoading ? 'not-allowed' : 'text',
-
-                    height: isMobile ? '48px' : '52px',
-
-                    boxSizing: 'border-box'
+                    cursor: customerLoading ? 'not-allowed' : 'text'
 
                   }}
 
@@ -9232,15 +9212,13 @@ function PlaceOrder() {
 
               display: 'flex',
 
-              alignItems: 'flex-end',
+              alignItems: 'center',
 
               gap: '10px',
 
               flex: isMobile ? '1 1 100%' : '0 0 180px',
 
-              width: isMobile ? '100%' : 'auto',
-
-              height: isMobile ? 'auto' : '52px'
+              width: isMobile ? '100%' : 'auto'
 
             }}>
 
@@ -9260,7 +9238,7 @@ function PlaceOrder() {
 
                   borderRadius: '8px',
 
-                  padding: isMobile ? '16px 24px' : '14px 24px',
+                  padding: isMobile ? '16px 24px' : '12px 24px',
 
                   cursor: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'not-allowed' : 'pointer',
 
@@ -9282,11 +9260,7 @@ function PlaceOrder() {
 
                   transition: 'all 0.2s ease',
 
-                  width: isMobile ? '100%' : 'auto',
-
-                  height: isMobile ? 'auto' : '52px',
-
-                  boxSizing: 'border-box'
+                  width: isMobile ? '100%' : 'auto'
 
                 }}
 
@@ -9506,11 +9480,11 @@ function PlaceOrder() {
 
         background: '#fff',
 
-        margin: isMobile ? '0px 8px 16px 8px' : '0 auto 24px auto',
+        margin: isMobile ? '0px 8px 16px 8px' : '0px 24px 24px 24px',
 
         maxWidth: isMobile ? '100%' : '1400px',
 
-        width: isMobile ? 'calc(100% - 16px)' : 'calc(100% - 48px)',
+        width: isMobile ? 'calc(100% - 16px)' : 'auto',
 
         borderRadius: isMobile ? '16px' : '16px',
 
@@ -9615,8 +9589,6 @@ function PlaceOrder() {
             gap: isMobile ? '12px' : '12px',
 
             alignItems: isMobile ? 'stretch' : 'flex-end',
-
-            alignContent: isMobile ? 'stretch' : 'flex-start',
 
             position: 'relative',
 
@@ -9734,7 +9706,7 @@ function PlaceOrder() {
 
                     width: '100%',
 
-                    padding: isMobile ? '14px 20px' : '16px 20px',
+                    padding: '16px 20px',
 
                     paddingRight: selectedItem ? '50px' : '20px',
 
@@ -9750,11 +9722,7 @@ function PlaceOrder() {
 
                     background: selectedCustomer ? 'transparent' : '#f1f5f9',
 
-                    cursor: selectedCustomer ? 'text' : 'not-allowed',
-
-                    height: isMobile ? '48px' : '52px',
-
-                    boxSizing: 'border-box'
+                    cursor: selectedCustomer ? 'text' : 'not-allowed'
 
                   }}
 
@@ -10695,11 +10663,7 @@ function PlaceOrder() {
 
                       textAlign: 'left',
 
-                      cursor: selectedItem ? 'text' : 'not-allowed',
-
-                      height: isMobile ? '48px' : '52px',
-
-                      boxSizing: 'border-box'
+                      cursor: selectedItem ? 'text' : 'not-allowed'
 
                     }}
 
@@ -10823,11 +10787,7 @@ function PlaceOrder() {
 
                       textDecorationColor: canShowStockBreakdown ? '#3b82f6' : 'transparent',
 
-                      textUnderlineOffset: '2px',
-
-                      height: isMobile ? '48px' : '52px',
-
-                      boxSizing: 'border-box'
+                      textUnderlineOffset: '2px'
 
                     }}
 
@@ -10924,11 +10884,7 @@ function PlaceOrder() {
 
                       fontWeight: '600',
 
-                      cursor: canEditRate ? 'text' : 'not-allowed',
-
-                      height: isMobile ? '48px' : '52px',
-
-                      boxSizing: 'border-box'
+                      cursor: canEditRate ? 'text' : 'not-allowed'
 
                     }}
 
@@ -11036,7 +10992,7 @@ function PlaceOrder() {
                         onBlur={() => setTimeout(() => setRateUOMFocused(false), 200)}
                         style={{
                           width: '100%',
-                          padding: isMobile ? '14px 36px 14px 16px' : '16px 36px 16px 16px',
+                          padding: isMobile ? '14px 36px 14px 16px' : '12px 36px 12px 16px',
                           border: 'none',
                           borderRadius: isMobile ? '10px' : '10px',
                           fontSize: isMobile ? '15px' : '14px',
@@ -11045,9 +11001,7 @@ function PlaceOrder() {
                           background: hasMultipleUnits ? 'transparent' : '#f8fafc',
                           cursor: hasMultipleUnits ? 'pointer' : 'default',
                           pointerEvents: 'none',
-                          fontWeight: '500',
-                          height: isMobile ? '48px' : '52px',
-                          boxSizing: 'border-box'
+                          fontWeight: '500'
                         }}
                       />
                       {hasMultipleUnits && (
@@ -11391,11 +11345,7 @@ function PlaceOrder() {
 
                       fontWeight: '600',
 
-                      cursor: canEditDiscount ? 'text' : 'not-allowed',
-
-                      height: isMobile ? '48px' : '52px',
-
-                      boxSizing: 'border-box'
+                      cursor: canEditDiscount ? 'text' : 'not-allowed'
 
                     }}
 
@@ -11483,11 +11433,7 @@ function PlaceOrder() {
 
                       textAlign: 'center',
 
-                      fontWeight: '600',
-
-                      height: isMobile ? '48px' : '52px',
-
-                      boxSizing: 'border-box'
+                      fontWeight: '600'
 
                     }}
 
@@ -11555,17 +11501,7 @@ function PlaceOrder() {
 
                 minWidth: isMobile ? '100%' : '110px',
 
-                boxShadow: isMobile ? '0 2px 6px rgba(14, 165, 233, 0.25)' : '0 2px 4px rgba(14, 165, 233, 0.2)',
-
-                height: isMobile ? '48px' : '52px',
-
-                boxSizing: 'border-box',
-
-                display: 'flex',
-
-                alignItems: 'center',
-
-                justifyContent: 'center'
+                boxShadow: isMobile ? '0 2px 6px rgba(14, 165, 233, 0.25)' : '0 2px 4px rgba(14, 165, 233, 0.2)'
 
               }}>
 
@@ -11597,7 +11533,7 @@ function PlaceOrder() {
 
                 borderRadius: isMobile ? '10px' : '12px',
 
-                padding: isMobile ? '16px 24px' : '14px 28px',
+                padding: isMobile ? '16px 24px' : '16px 28px',
 
                 cursor: 'pointer',
 
@@ -11621,11 +11557,7 @@ function PlaceOrder() {
 
                 width: isMobile ? '100%' : 'auto',
 
-                justifyContent: 'center',
-
-                height: isMobile ? 'auto' : '52px',
-
-                boxSizing: 'border-box'
+                justifyContent: 'center'
 
               }}
 
@@ -14730,3 +14662,4 @@ function PlaceOrder() {
 
 
 export default PlaceOrder;
+

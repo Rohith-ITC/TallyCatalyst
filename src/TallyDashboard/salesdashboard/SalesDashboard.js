@@ -2784,13 +2784,371 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       );
     }
     
-    // Add generic filters for custom cards
-    if (cardId && genericFilters) {
+    // For custom cards, check both standard filters (if groupBy matches) and generic filters
+    if (cardType === 'custom' && cardId) {
+      const card = customCards.find(c => c.id === cardId);
+      if (card) {
+        const groupBy = card.groupBy;
+        const groupByLower = groupBy ? groupBy.toLowerCase() : '';
+        
+        // Check if custom card's groupBy matches standard filter fields and show badges
+        // Customer filter
+        if ((groupByLower === 'customer') && selectedCustomer !== 'all') {
+          badges.push(
+            <div
+              key="customer-filter"
+              style={{
+                background: '#dbeafe',
+                border: '1px solid #93c5fd',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#1e40af',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>person</span>
+              {isMobile ? 'Customer' : `Customer: ${selectedCustomer}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedCustomer('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#1e40af',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#93c5fd';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Item filter
+        if ((groupByLower === 'item') && selectedItem !== 'all') {
+          badges.push(
+            <div
+              key="item-filter"
+              style={{
+                background: '#dcfce7',
+                border: '1px solid #86efac',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#166534',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>inventory_2</span>
+              {isMobile ? 'Item' : `Item: ${selectedItem}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedItem('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#166534',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#86efac';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Stock Group filter
+        if ((groupByLower === 'category' || groupByLower === 'stockgroup' || groupByLower === 'stock_group') && selectedStockGroup !== 'all') {
+          badges.push(
+            <div
+              key="stockGroup-filter"
+              style={{
+                background: '#fef3c7',
+                border: '1px solid #fcd34d',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#92400e',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>category</span>
+              {isMobile ? 'Stock Group' : `Stock Group: ${selectedStockGroup}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedStockGroup('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#92400e',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#fcd34d';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Region filter
+        if ((groupByLower === 'region') && selectedRegion !== 'all') {
+          badges.push(
+            <div
+              key="region-filter"
+              style={{
+                background: '#e0e7ff',
+                border: '1px solid #a5b4fc',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#3730a3',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>location_on</span>
+              {isMobile ? 'State' : `State: ${selectedRegion}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedRegion('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#3730a3',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#a5b4fc';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Country filter
+        if ((groupByLower === 'country') && selectedCountry !== 'all') {
+          badges.push(
+            <div
+              key="country-filter"
+              style={{
+                background: '#fef3c7',
+                border: '1px solid #fcd34d',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#92400e',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>public</span>
+              {isMobile ? 'Country' : `Country: ${selectedCountry}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedCountry('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#92400e',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#fcd34d';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Period filter (for date grouping)
+        if ((groupBy === 'date') && selectedPeriod !== null) {
+          badges.push(
+            <div
+              key="period-filter"
+              style={{
+                background: '#fce7f3',
+                border: '1px solid #f9a8d4',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#9d174d',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>calendar_month</span>
+              {isMobile ? 'Period' : `Period: ${formatPeriodLabel(selectedPeriod)}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedPeriod(null);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#9d174d',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#f9a8d4';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Ledger Group filter
+        if ((groupByLower === 'ledgergroup' || groupByLower === 'ledger_group') && selectedLedgerGroup !== 'all') {
+          badges.push(
+            <div
+              key="ledgerGroup-filter"
+              style={{
+                background: '#f3e8ff',
+                border: '1px solid #c084fc',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#6b21a8',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>group</span>
+              {isMobile ? 'Ledger Group' : `Ledger Group: ${selectedLedgerGroup}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedLedgerGroup('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#6b21a8',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#c084fc';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+      }
+      
+      // Add generic filters for custom cards (for non-standard groupBy fields)
+      if (genericFilters) {
       Object.entries(genericFilters).forEach(([filterKey, filterValue]) => {
         if (filterKey.startsWith(`${cardId}_`) && filterValue && filterValue !== 'all' && filterValue !== '') {
           const fieldName = filterKey.replace(`${cardId}_`, '');
           const fieldLabel = fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
-          const card = customCards.find(c => c.id === cardId);
           
           badges.push(
             <div
@@ -2849,6 +3207,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           );
         }
       });
+      }
     }
     
     return badges.length > 0 ? (
@@ -2935,6 +3294,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           const date = new Date(saleDate);
           const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
           return salePeriod === cardConfig.filters.period;
+        });
+      }
+      // Handle generic filter field and values
+      if (cardConfig.filters.filterField && cardConfig.filters.filterValues && cardConfig.filters.filterValues.length > 0) {
+        const filterFieldName = cardConfig.filters.filterField;
+        const filterValuesSet = new Set(cardConfig.filters.filterValues.map(v => String(v).trim().toLowerCase()));
+        filteredData = filteredData.filter(s => {
+          // Use case-insensitive field access
+          const fieldValue = getFieldValue(s, filterFieldName);
+          if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+            return false;
+          }
+          const normalizedValue = String(fieldValue).trim().toLowerCase();
+          return filterValuesSet.has(normalizedValue);
         });
       }
     }
@@ -10708,19 +11081,25 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           </div>
           )}
 
-          {/* Sales by Stock Group and Custom Cards - Moved to end */}
+          {/* Sales by Stock Group (Position 13) and First Custom Card (Position 14) */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
             gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
+            marginBottom: isMobile ? '16px' : '24px',
+            width: '100%',
+            maxWidth: '100%',
+            minWidth: 0
           }}>
-            {/* Sales by Stock Group */}
+            {/* Sales by Stock Group - Position 13 */}
             <div style={{
               display: 'flex',
               flexDirection: 'column',
               height: '500px',
-              overflow: 'hidden'
+              overflow: 'hidden',
+              width: '100%',
+              maxWidth: '100%',
+              minWidth: 0
             }}>
               {categoryChartType === 'bar' && (
                 <BarChart
@@ -10937,9 +11316,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 )}
     </div>
 
-            {/* First Custom Card - Next to Sales by Stock Group */}
-    {customCards.length > 0 && (
-              <div ref={customCards.length === 1 ? customCardsSectionRef : null}>
+            {/* First Custom Card - Position 14 */}
+            {customCards.length > 0 && (
+              <div 
+                ref={customCards.length === 1 ? customCardsSectionRef : null}
+                style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
+              >
                 <CustomCard
                   key={customCards[0].id}
                   card={customCards[0]}
@@ -10975,55 +11357,74 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             )}
           </div>
 
-          {/* Additional Custom Cards - Continue in the same grid layout, filling positions sequentially */}
-          {customCards.length > 1 && (
-            <div 
-              ref={customCards.length === 2 ? customCardsSectionRef : null}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-                gap: '24px',
-                marginBottom: '24px'
-              }}>
-              {customCards.slice(1).map((card, index) => (
+          {/* Additional Custom Cards - Starting from Position 15, continuing sequentially */}
+          {customCards.length > 1 && (() => {
+            // Process remaining custom cards (starting from index 1) in pairs for 2-column grid layout
+            const remainingCards = customCards.slice(1);
+            const cardRows = [];
+            for (let i = 0; i < remainingCards.length; i += 2) {
+              const rowCards = remainingCards.slice(i, i + 2);
+              cardRows.push(rowCards);
+            }
+            
+            return cardRows.map((rowCards, rowIndex) => {
+              const isLastRow = rowIndex === cardRows.length - 1;
+              const shouldAttachRef = (rowIndex === 0 && remainingCards.length === 1) || 
+                                     (rowIndex === 0 && remainingCards.length === 2) ||
+                                     (isLastRow && rowCards.length === 1);
+              
+              return (
                 <div
-                  key={card.id}
-                  ref={index === customCards.slice(1).length - 1 ? customCardsSectionRef : null}
+                  key={`custom-cards-row-${rowIndex}`}
+                  ref={shouldAttachRef ? customCardsSectionRef : null}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                    gap: isMobile ? '16px' : '24px',
+                    marginBottom: isMobile ? '16px' : '24px',
+                    width: '100%',
+                    maxWidth: '100%',
+                    minWidth: 0
+                  }}
                 >
-                  <CustomCard
-                    card={card}
-                    salesData={filteredSales}
-                    generateCustomCardData={generateCustomCardData}
-                    chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
-                    onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
-                    onDelete={() => handleDeleteCustomCard(card.id)}
-                    onEdit={handleEditCustomCard}
-                    openTransactionRawData={openTransactionRawData}
-                    setSelectedCustomer={setSelectedCustomer}
-                    setSelectedItem={setSelectedItem}
-                    setSelectedStockGroup={setSelectedStockGroup}
-                    setSelectedRegion={setSelectedRegion}
-                    setSelectedCountry={setSelectedCountry}
-                    setSelectedPeriod={setSelectedPeriod}
-                    setSelectedLedgerGroup={setSelectedLedgerGroup}
-                    selectedCustomer={selectedCustomer}
-                    selectedItem={selectedItem}
-                    selectedStockGroup={selectedStockGroup}
-                    selectedRegion={selectedRegion}
-                    selectedCountry={selectedCountry}
-                    selectedPeriod={selectedPeriod}
-                    selectedLedgerGroup={selectedLedgerGroup}
-                    genericFilters={genericFilters}
-                    setGenericFilters={setGenericFilters}
-                    renderCardFilterBadges={renderCardFilterBadges}
-                    customCards={customCards}
-                    isMobile={isMobile}
-                    formatPeriodLabel={formatPeriodLabel}
-                  />
+                  {rowCards.map((card, cardIndex) => (
+                    <div key={card.id} style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
+                      <CustomCard
+                        card={card}
+                        salesData={filteredSales}
+                        generateCustomCardData={generateCustomCardData}
+                        chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
+                        onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
+                        onDelete={() => handleDeleteCustomCard(card.id)}
+                        onEdit={handleEditCustomCard}
+                        openTransactionRawData={openTransactionRawData}
+                        setSelectedCustomer={setSelectedCustomer}
+                        setSelectedItem={setSelectedItem}
+                        setSelectedStockGroup={setSelectedStockGroup}
+                        setSelectedRegion={setSelectedRegion}
+                        setSelectedCountry={setSelectedCountry}
+                        setSelectedPeriod={setSelectedPeriod}
+                        setSelectedLedgerGroup={setSelectedLedgerGroup}
+                        selectedCustomer={selectedCustomer}
+                        selectedItem={selectedItem}
+                        selectedStockGroup={selectedStockGroup}
+                        selectedRegion={selectedRegion}
+                        selectedCountry={selectedCountry}
+                        selectedPeriod={selectedPeriod}
+                        selectedLedgerGroup={selectedLedgerGroup}
+                        genericFilters={genericFilters}
+                        setGenericFilters={setGenericFilters}
+                        renderCardFilterBadges={renderCardFilterBadges}
+                        customCards={customCards}
+                        isMobile={isMobile}
+                        formatPeriodLabel={formatPeriodLabel}
+                      />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            });
+          })()}
           
         </div>
         </form>
@@ -11864,6 +12265,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
 
   // Initialize form state from editingCard if provided, otherwise use defaults
   const [cardTitle, setCardTitle] = useState(editingCard?.title || '');
+  const [chartType, setChartType] = useState(editingCard?.chartType || 'bar');
   const [selectedFields, setSelectedFields] = useState(() => {
     // Initialize from editingCard if available
     if (editingCard) {
@@ -11904,6 +12306,20 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     }
     return {};
   });
+  // Multiple filters support - array of { field: string, values: Set<string> }
+  const [filters, setFilters] = useState(() => {
+    // Initialize from editingCard if available
+    if (editingCard && editingCard.filters && editingCard.filters.length > 0) {
+      return editingCard.filters.map(f => ({
+        field: f.filterField,
+        values: new Set(f.filterValues || [])
+      }));
+    }
+    return [];
+  });
+  // Current filter being configured
+  const [currentFilterField, setCurrentFilterField] = useState('');
+  const [currentFilterValues, setCurrentFilterValues] = useState(new Set());
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [fieldBeingConfigured, setFieldBeingConfigured] = useState(null);
   const [isDateSettingsModal, setIsDateSettingsModal] = useState(false);
@@ -11918,6 +12334,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   useEffect(() => {
     if (editingCard) {
       setCardTitle(editingCard.title || '');
+      setChartType(editingCard.chartType || 'bar');
       const fields = new Set();
       // Add groupBy field
       if (editingCard.groupBy === 'date') {
@@ -11945,11 +12362,25 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
         });
       }
       setTopN(editingCard.topN ? String(editingCard.topN) : '');
+      
+      // Set filters
+      if (editingCard.filters && Array.isArray(editingCard.filters) && editingCard.filters.length > 0) {
+        setFilters(editingCard.filters.map(f => ({
+          field: f.filterField,
+          values: new Set(f.filterValues || [])
+        })));
+      } else {
+        setFilters([]);
+      }
     } else {
       // Reset to defaults when not editing
       setCardTitle('');
+      setChartType('bar');
       setSelectedFields(new Set());
       setTopN('');
+      setFilters([]);
+      setCurrentFilterField('');
+      setCurrentFilterValues(new Set());
     }
   }, [editingCard]);
 
@@ -12371,6 +12802,11 @@ IMPORTANT RULES:
       // Auto-populate form fields with AI-generated config
       setCardTitle(cardConfig.title);
       
+      // Set chart type
+      if (cardConfig.chartType) {
+        setChartType(cardConfig.chartType);
+      }
+      
       // Set selected fields
       const fields = new Set();
       fields.add(cardConfig.groupBy === 'date' ? 'date' : cardConfig.groupBy);
@@ -12392,6 +12828,23 @@ IMPORTANT RULES:
       // Set topN if present
       if (cardConfig.topN) {
         setTopN(String(cardConfig.topN));
+      }
+      
+      // Set filters if present
+      if (cardConfig.filters) {
+        if (Array.isArray(cardConfig.filters)) {
+          // Multiple filters
+          setFilters(cardConfig.filters.map(f => ({
+            field: f.filterField,
+            values: new Set(f.filterValues || [])
+          })));
+        } else if (cardConfig.filters.filterField) {
+          // Single filter (legacy format)
+          setFilters([{
+            field: cardConfig.filters.filterField,
+            values: new Set(cardConfig.filters.filterValues || [])
+          }]);
+        }
       }
       
       // Switch to manual tab for review
@@ -12423,12 +12876,55 @@ IMPORTANT RULES:
       .map(fieldValue => allFields.find(f => f.value === fieldValue))
       .filter(field => field && field.type === 'category');
   }, [selectedFields, allFields]);
-  
+
   const valueFields = useMemo(() => {
     return Array.from(selectedFields)
       .map(fieldValue => allFields.find(f => f.value === fieldValue))
       .filter(field => field && field.type === 'value');
   }, [selectedFields, allFields]);
+
+  // Get unique values for the current filter field being configured
+  const currentFilterFieldValues = useMemo(() => {
+    if (!currentFilterField || !salesData || !Array.isArray(salesData) || salesData.length === 0) {
+      return [];
+    }
+    
+    const valuesSet = new Set();
+    salesData.forEach(sale => {
+      // Use case-insensitive field access
+      const fieldValue = sale[currentFilterField] || 
+                        sale[currentFilterField.toLowerCase()] ||
+                        sale[currentFilterField.toUpperCase()] ||
+                        (Object.keys(sale).find(k => k.toLowerCase() === currentFilterField.toLowerCase()) 
+                          ? sale[Object.keys(sale).find(k => k.toLowerCase() === currentFilterField.toLowerCase())] 
+                          : null);
+      
+      if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
+        const stringValue = String(fieldValue).trim();
+        if (stringValue) {
+          valuesSet.add(stringValue);
+        }
+      }
+    });
+    
+    // Sort values for better UX
+    return Array.from(valuesSet).sort((a, b) => {
+      // Try to sort numerically if both are numbers
+      const numA = parseFloat(a);
+      const numB = parseFloat(b);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      // Otherwise sort alphabetically
+      return a.localeCompare(b);
+    });
+  }, [currentFilterField, salesData]);
+
+  // Get fields that are not already used in filters
+  const availableFilterFields = useMemo(() => {
+    const usedFields = new Set(filters.map(f => f.field));
+    return allFields.filter(field => !usedFields.has(field.value));
+  }, [allFields, filters]);
   
   // Handle field checkbox toggle
   const handleFieldToggle = (fieldValue) => {
@@ -12504,6 +13000,89 @@ IMPORTANT RULES:
     }));
   };
 
+  // Handle adding a new filter
+  const handleAddFilter = () => {
+    if (!currentFilterField) {
+      alert('Please select a filter field first');
+      return;
+    }
+    if (currentFilterValues.size === 0) {
+      alert('Please select at least one filter value');
+      return;
+    }
+    
+    // Add the filter to the filters array
+    setFilters(prev => [...prev, {
+      field: currentFilterField,
+      values: new Set(currentFilterValues)
+    }]);
+    
+    // Reset current filter configuration
+    setCurrentFilterField('');
+    setCurrentFilterValues(new Set());
+  };
+
+  // Handle removing a filter
+  const handleRemoveFilter = (index) => {
+    setFilters(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Handle filter field selection for new filter
+  const handleFilterFieldChange = (fieldValue) => {
+    setCurrentFilterField(fieldValue);
+    setCurrentFilterValues(new Set()); // Clear selected values when field changes
+  };
+
+  // Handle filter value toggle for current filter being configured
+  const handleFilterValueToggle = (value) => {
+    setCurrentFilterValues(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(value)) {
+        newSet.delete(value);
+      } else {
+        newSet.add(value);
+      }
+      return newSet;
+    });
+  };
+
+  // Get unique values for a specific filter field
+  const getFilterFieldValues = (fieldName) => {
+    if (!fieldName || !salesData || !Array.isArray(salesData) || salesData.length === 0) {
+      return [];
+    }
+    
+    const valuesSet = new Set();
+    salesData.forEach(sale => {
+      // Use case-insensitive field access
+      const fieldValue = sale[fieldName] || 
+                        sale[fieldName.toLowerCase()] ||
+                        sale[fieldName.toUpperCase()] ||
+                        (Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase()) 
+                          ? sale[Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase())] 
+                          : null);
+      
+      if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
+        const stringValue = String(fieldValue).trim();
+        if (stringValue) {
+          valuesSet.add(stringValue);
+        }
+      }
+    });
+    
+    // Sort values for better UX
+    return Array.from(valuesSet).sort((a, b) => {
+      // Try to sort numerically if both are numbers
+      const numA = parseFloat(a);
+      const numB = parseFloat(b);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      // Otherwise sort alphabetically
+      return a.localeCompare(b);
+    });
+  };
+
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -12543,14 +13122,21 @@ IMPORTANT RULES:
     // Normalize date field value to 'date' for groupBy
     const normalizedGroupBy = (groupByValue === 'date' || groupByValue.startsWith('date_')) ? 'date' : groupByValue;
     
+    // Build filters array from filters state
+    const filtersArray = filters.length > 0 ? filters.map(f => ({
+      filterField: f.field,
+      filterValues: Array.from(f.values)
+    })) : undefined;
+    
     const cardConfig = {
       title: cardTitle.trim(),
       groupBy: normalizedGroupBy,
       dateGrouping: (normalizedGroupBy === 'date') ? dateGrouping : undefined,
       aggregation,
       valueField: mappedValueField,
-      chartType: editingCard?.chartType || 'bar', // Keep existing chart type or default to bar
-      topN: topN ? parseInt(topN, 10) : undefined
+      chartType: chartType, // Use chart type from state
+      topN: topN ? parseInt(topN, 10) : undefined,
+      filters: filtersArray
     };
 
     onCreate(cardConfig);
@@ -12935,6 +13521,58 @@ IMPORTANT RULES:
           />
         </div>
 
+        {/* Chart Type */}
+        <div>
+          <label style={{
+            display: 'block',
+            fontSize: '13px',
+            fontWeight: '500',
+            color: '#475569',
+            marginBottom: '6px',
+            letterSpacing: '0.01em'
+          }}>
+            Default Chart Type
+          </label>
+          <select
+            value={chartType}
+            onChange={(e) => setChartType(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '11px 14px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '14px',
+              outline: 'none',
+              transition: 'all 0.15s ease',
+              background: '#ffffff',
+              color: '#1e293b',
+              boxSizing: 'border-box',
+              cursor: 'pointer'
+            }}
+            onFocus={(e) => {
+              e.target.style.borderColor = '#3b82f6';
+              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+            }}
+            onBlur={(e) => {
+              e.target.style.borderColor = '#e2e8f0';
+              e.target.style.boxShadow = 'none';
+            }}
+          >
+            <option value="bar">Bar Chart</option>
+            <option value="pie">Pie Chart</option>
+            <option value="treemap">Tree Map</option>
+            <option value="line">Line Chart</option>
+          </select>
+          <p style={{
+            margin: '6px 0 0 0',
+            fontSize: '12px',
+            color: '#64748b',
+            fontStyle: 'italic'
+          }}>
+            You can change this later using the dropdown in the card header
+          </p>
+        </div>
+
         {/* Choose fields to add to report */}
         <div>
           <label style={{
@@ -13270,6 +13908,338 @@ IMPORTANT RULES:
                 })}
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Filters Section */}
+        <div>
+          <div style={{
+            fontSize: '13px',
+            fontWeight: '500',
+            color: '#475569',
+            marginBottom: '12px',
+            paddingBottom: '8px',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>filter_list</span>
+              Filters <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '400' }}>(Optional)</span>
+            </div>
+          </div>
+
+          {/* Filters Bucket */}
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '12px',
+            minHeight: '120px',
+            marginBottom: '12px'
+          }}>
+            <div style={{
+              background: '#ffffff',
+              border: '1px dashed #cbd5e1',
+              borderRadius: '6px',
+              padding: '8px',
+              minHeight: '80px'
+            }}>
+              {filters.length > 0 && filters.map((filter, index) => {
+                const field = allFields.find(f => f.value === filter.field);
+                const fieldLabel = field ? field.label : filter.field;
+                const valuesArray = Array.from(filter.values);
+                return (
+                  <div
+                    key={index}
+                    style={{
+                      display: 'inline-flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      background: '#fef3c7',
+                      border: '1px solid #fbbf24',
+                      color: '#92400e',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      margin: '4px',
+                      gap: '6px',
+                      maxWidth: '100%'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
+                      <span style={{ fontWeight: '600' }}>{fieldLabel}:</span>
+                      <span 
+                        className="material-icons" 
+                        style={{ 
+                          fontSize: '16px',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '2px',
+                          transition: 'background 0.2s',
+                          marginLeft: 'auto'
+                        }}
+                        onClick={() => handleRemoveFilter(index)}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#fde68a';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                        title="Remove filter"
+                      >
+                        close
+                      </span>
+                    </div>
+                    <div style={{ 
+                      fontSize: '11px', 
+                      color: '#78350f',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '4px',
+                      maxWidth: '100%'
+                    }}>
+                      {valuesArray.length > 0 ? (
+                        valuesArray.slice(0, 3).map((val, i) => (
+                          <span key={i} style={{
+                            background: '#fef3c7',
+                            padding: '2px 6px',
+                            borderRadius: '3px',
+                            border: '1px solid #fbbf24'
+                          }}>
+                            {val}
+                          </span>
+                        ))
+                      ) : null}
+                      {valuesArray.length > 3 && (
+                        <span style={{ color: '#78350f', fontStyle: 'italic' }}>
+                          +{valuesArray.length - 3} more
+                        </span>
+                      )}
+                      {valuesArray.length === 0 && (
+                        <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>No values selected</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {filters.length === 0 && (
+                <div style={{
+                  color: '#94a3b8',
+                  fontSize: '12px',
+                  textAlign: 'center',
+                  padding: '20px'
+                }}>
+                  No filters added. Select a field below to add a filter.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Add New Filter Section */}
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '12px'
+          }}>
+            <div style={{
+              fontSize: '12px',
+              fontWeight: '500',
+              color: '#64748b',
+              marginBottom: '10px'
+            }}>
+              Add Filter:
+            </div>
+          
+          {/* Filter Field Dropdown */}
+          <div style={{ marginBottom: '12px' }}>
+            <select
+                value={currentFilterField}
+                onChange={(e) => handleFilterFieldChange(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '11px 14px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                transition: 'all 0.15s ease',
+                background: '#ffffff',
+                color: '#1e293b',
+                boxSizing: 'border-box',
+                cursor: 'pointer'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#3b82f6';
+                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#e2e8f0';
+                e.target.style.boxShadow = 'none';
+              }}
+            >
+                <option value="">Select field to filter:</option>
+                {availableFilterFields.map((field) => (
+                <option key={field.value} value={field.value}>
+                  {field.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Filter Values Checkboxes */}
+            {currentFilterField && currentFilterFieldValues.length > 0 && (
+            <div style={{
+                background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '12px',
+              maxHeight: '200px',
+                overflowY: 'auto',
+                marginBottom: '12px'
+            }}>
+              <div style={{
+                fontSize: '12px',
+                fontWeight: '500',
+                color: '#64748b',
+                marginBottom: '8px'
+              }}>
+                Select values to include:
+              </div>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px'
+              }}>
+                  {currentFilterFieldValues.map((value) => (
+                  <div
+                    key={value}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '6px 8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f8fafc';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                      onClick={() => handleFilterValueToggle(value)}
+                  >
+                    <div style={{
+                      width: '18px',
+                      height: '18px',
+                        border: currentFilterValues.has(value) ? 'none' : '2px solid #cbd5e1',
+                      borderRadius: '4px',
+                        background: currentFilterValues.has(value) ? '#10b981' : 'transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: '10px',
+                      flexShrink: 0
+                    }}>
+                        {currentFilterValues.has(value) && (
+                        <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
+                      )}
+                    </div>
+                    <span style={{
+                      fontSize: '13px',
+                        fontWeight: currentFilterValues.has(value) ? '600' : '400',
+                      color: '#1e293b'
+                    }}>
+                      {value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+                {currentFilterValues.size > 0 && (
+                <div style={{
+                  marginTop: '10px',
+                  paddingTop: '10px',
+                  borderTop: '1px solid #e2e8f0',
+                  fontSize: '12px',
+                  color: '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                    <span>{currentFilterValues.size} value(s) selected</span>
+                  <button
+                    type="button"
+                      onClick={() => setCurrentFilterValues(new Set())}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#ef4444',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      transition: 'background 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#fef2f2';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'transparent';
+                    }}
+                  >
+                    Clear all
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          
+            {currentFilterField && currentFilterFieldValues.length === 0 && (
+            <div style={{
+                background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '20px',
+              textAlign: 'center',
+              color: '#94a3b8',
+                fontSize: '13px',
+                marginBottom: '12px'
+            }}>
+              No values found for this field
+            </div>
+          )}
+
+            {/* Add Filter Button */}
+            {currentFilterField && currentFilterValues.size > 0 && (
+              <button
+                type="button"
+                onClick={handleAddFilter}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  background: '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#2563eb';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#3b82f6';
+                }}
+              >
+                Add Filter
+              </button>
+            )}
           </div>
         </div>
 
@@ -14020,7 +14990,10 @@ const CustomCard = React.memo(({
       maxHeight: '500px',
       minHeight: '500px',
       overflow: 'hidden',
-      position: 'relative'
+      position: 'relative',
+      width: '100%',
+      maxWidth: '100%',
+      minWidth: 0
     }}>
       {cardData.length > 0 ? (
         <>
@@ -14115,15 +15088,18 @@ const CustomCard = React.memo(({
           borderRadius: '12px',
           border: '1px solid #e2e8f0',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          padding: '40px',
-          textAlign: 'center',
-          color: '#64748b',
           height: '500px',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
+          flexDirection: 'column'
         }}>
-          No data available for this card configuration.
+          {customHeader && (
+            <div style={{ 
+              padding: '16px 20px',
+              borderBottom: '2px solid #e2e8f0'
+            }}>
+              {customHeader}
+            </div>
+          )}
         </div>
       )}
     </div>
