@@ -24,6 +24,8 @@ const CacheManagement = () => {
   const [savingExpiry, setSavingExpiry] = useState(false);
   const [downloadingComplete, setDownloadingComplete] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState({ current: 0, total: 0, message: '' });
+  const [downloadStartTime, setDownloadStartTime] = useState(null);
+  const downloadStartTimeRef = useRef(null);
   const [viewingJsonCache, setViewingJsonCache] = useState(null);
   const [jsonCacheData, setJsonCacheData] = useState(null);
   const [timeRange, setTimeRange] = useState('all');
@@ -50,6 +52,8 @@ const CacheManagement = () => {
     if (!currentSelectedCompany) {
       setDownloadProgress({ current: 0, total: 0, message: '' });
       setDownloadingComplete(false);
+      setDownloadStartTime(null);
+      downloadStartTimeRef.current = null;
       return;
     }
 
@@ -64,11 +68,19 @@ const CacheManagement = () => {
         // Show progress for this company
         setDownloadProgress(companyProgress);
         setDownloadingComplete(true);
+        // Set start time if not already set and we have progress
+        if (companyProgress.total > 0 && !downloadStartTimeRef.current) {
+          const startTime = Date.now();
+          setDownloadStartTime(startTime);
+          downloadStartTimeRef.current = startTime;
+        }
       } else {
         // No progress for this company
         console.log('📊 No progress found for company');
         setDownloadProgress({ current: 0, total: 0, message: '' });
         setDownloadingComplete(false);
+        setDownloadStartTime(null);
+        downloadStartTimeRef.current = null;
       }
     } catch (error) {
       console.error('Error loading company progress:', error);
@@ -90,6 +102,12 @@ const CacheManagement = () => {
           currentCompanyInfo.guid === selectedCompany.guid) {
         setDownloadProgress(progress);
         setDownloadingComplete(cacheSyncManager.isSyncInProgress());
+        // Set start time if not already set and we have progress
+        if (progress.total > 0 && !downloadStartTimeRef.current) {
+          const startTime = Date.now();
+          setDownloadStartTime(startTime);
+          downloadStartTimeRef.current = startTime;
+        }
       } else {
         // Check if there's stored progress for selected company
         loadCompanyProgress();
@@ -142,6 +160,8 @@ const CacheManagement = () => {
     } else {
       setDownloadProgress({ current: 0, total: 0, message: '' });
       setDownloadingComplete(false);
+      setDownloadStartTime(null);
+      downloadStartTimeRef.current = null;
     }
   }, [selectedCompany]);
 
@@ -553,7 +573,7 @@ const CacheManagement = () => {
     return dateString;
   };
 
-  // Helper function to split date range into 5-day chunks
+  // Helper function to split date range into 2-day chunks
   const splitDateRange = (startDate, endDate) => {
     const chunks = [];
     const start = new Date(startDate);
@@ -563,7 +583,7 @@ const CacheManagement = () => {
 
     while (currentStart <= end) {
       let currentEnd = new Date(currentStart);
-      currentEnd.setDate(currentEnd.getDate() + 4); // 5-day chunks
+      currentEnd.setDate(currentEnd.getDate() + 1); // 2-day chunks (start + 1 day = 2 days total)
 
       if (currentEnd > end) {
         currentEnd = new Date(end);
@@ -574,7 +594,7 @@ const CacheManagement = () => {
         end: currentEnd.toISOString().split('T')[0]
       });
 
-      currentStart.setDate(currentStart.getDate() + 5);
+      currentStart.setDate(currentStart.getDate() + 2); // Move to next chunk (2 days forward)
     }
 
     return chunks;
@@ -769,6 +789,9 @@ const CacheManagement = () => {
         text: `Successfully ${isUpdate ? 'updated' : 'downloaded'} ${result.count} vouchers! Last Alter ID: ${result.lastAlterId || 'N/A'}`
       });
       await loadCacheStats();
+      // Clear start time when download completes
+      setDownloadStartTime(null);
+      downloadStartTimeRef.current = null;
 
     } catch (error) {
       console.error('❌ Error downloading complete data:', error);
@@ -1011,32 +1034,89 @@ const CacheManagement = () => {
               }}>
                 {downloadProgress.message || 'Preparing sync...'}
               </div>
-              {downloadProgress.total > 0 ? (
-                <>
-                  <div style={{
-                    width: '100%',
-                    height: '8px',
-                    background: '#e0f2fe',
-                    borderRadius: '4px',
-                    overflow: 'hidden'
-                  }}>
+              {downloadProgress.total > 0 ? (() => {
+                // Calculate ETA
+                const calculateETA = () => {
+                  const startTime = downloadStartTime || downloadStartTimeRef.current;
+                  const current = downloadProgress.current || 0;
+                  const total = downloadProgress.total || 0;
+                  
+                  if (!startTime || current === 0 || current >= total) {
+                    return null;
+                  }
+                  
+                  const elapsed = Date.now() - startTime; // milliseconds
+                  const elapsedSeconds = Math.max(1, elapsed / 1000); // Ensure at least 1 second
+                  const rate = current / elapsedSeconds; // chunks per second
+                  
+                  if (rate <= 0 || !isFinite(rate)) {
+                    return null;
+                  }
+                  
+                  const remaining = total - current;
+                  const remainingSeconds = remaining / rate;
+                  
+                  if (!isFinite(remainingSeconds) || remainingSeconds < 0 || remainingSeconds > 86400) {
+                    // Don't show ETA if it's more than 24 hours (likely inaccurate)
+                    return null;
+                  }
+                  
+                  // Format ETA
+                  if (remainingSeconds < 60) {
+                    return `${Math.round(remainingSeconds)}s`;
+                  } else if (remainingSeconds < 3600) {
+                    const minutes = Math.floor(remainingSeconds / 60);
+                    const seconds = Math.round(remainingSeconds % 60);
+                    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+                  } else {
+                    const hours = Math.floor(remainingSeconds / 3600);
+                    const minutes = Math.round((remainingSeconds % 3600) / 60);
+                    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+                  }
+                };
+                
+                const eta = calculateETA();
+                const progressPercentage = Math.min(100, Math.round((downloadProgress.current / downloadProgress.total) * 100));
+                
+                return (
+                  <>
                     <div style={{
-                      width: `${Math.min(100, (downloadProgress.current / downloadProgress.total) * 100)}%`,
-                      height: '100%',
-                      background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
-                      transition: 'width 0.3s ease'
-                    }} />
-                  </div>
-                  <div style={{
-                    fontSize: '12px',
-                    color: '#64748b',
-                    marginTop: '4px',
-                    textAlign: 'right'
-                  }}>
-                    {downloadProgress.current} / {downloadProgress.total}
-                  </div>
-                </>
-              ) : (
+                      width: '100%',
+                      height: '8px',
+                      background: '#e0f2fe',
+                      borderRadius: '4px',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        width: `${progressPercentage}%`,
+                        height: '100%',
+                        background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
+                        transition: 'width 0.3s ease'
+                      }} />
+                    </div>
+                    <div style={{
+                      fontSize: '12px',
+                      color: '#64748b',
+                      marginTop: '4px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}>
+                      <span>
+                        {downloadProgress.current} / {downloadProgress.total} ({progressPercentage}%)
+                      </span>
+                      {eta && (
+                        <span style={{
+                          fontWeight: 600,
+                          color: '#0369a1'
+                        }}>
+                          ETA: {eta}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                );
+              })() : (
                 <div style={{
                   fontSize: '12px',
                   color: '#64748b',

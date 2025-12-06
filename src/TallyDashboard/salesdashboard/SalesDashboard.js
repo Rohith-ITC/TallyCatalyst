@@ -138,6 +138,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Background cache download state
   const [isDownloadingCache, setIsDownloadingCache] = useState(false);
   const [cacheDownloadProgress, setCacheDownloadProgress] = useState({ current: 0, total: 0, message: '' });
+  const [cacheDownloadStartTime, setCacheDownloadStartTime] = useState(null);
+  const cacheDownloadStartTimeRef = useRef(null);
   const cacheDownloadAbortRef = useRef(false);
 
   // Helper function to get auth token
@@ -218,6 +220,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           // Update progress in real-time
           setCacheDownloadProgress(progress);
           setIsDownloadingCache(cacheSyncManager.isSyncInProgress());
+          // Set start time if not already set and we have progress
+          if (progress.total > 0 && !cacheDownloadStartTimeRef.current) {
+            const startTime = Date.now();
+            setCacheDownloadStartTime(startTime);
+            cacheDownloadStartTimeRef.current = startTime;
+          }
           console.log('📊 Real-time progress update from cacheSyncManager:', progress);
         }
       } catch (error) {
@@ -239,6 +247,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             if (companyProgress && companyProgress.total > 0) {
               setCacheDownloadProgress(companyProgress);
               setIsDownloadingCache(true);
+              // Set start time if not already set and we have progress
+              if (!cacheDownloadStartTimeRef.current) {
+                const startTime = Date.now();
+                setCacheDownloadStartTime(startTime);
+                cacheDownloadStartTimeRef.current = startTime;
+              }
               console.log('📊 Polled progress update:', companyProgress);
             }
           }
@@ -509,13 +523,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setSelectedCountry('all');
       setSelectedPeriod(null);
       
-      // Check if cache exists and start background download accordingly
+      // Check if cache exists and load data accordingly (NO auto-update - user must click refresh)
       if (!hasCachedSalesData) {
-        console.log('📭 No sales cache found - starting background download from books begin date');
-        // Start background download for first time (complete data)
-        startBackgroundCacheDownload(companyInfo, false);
+        console.log('📭 No sales cache found - user must click refresh button to download data');
+        // Do NOT auto-start download - user must explicitly click refresh button
+        // This ensures user has control over when updates happen
       } else if (hasCachedSalesData) {
-        // Auto-load data from cache when tab opens (no automatic update)
+        // Auto-load data from cache when tab opens (NO automatic update)
         console.log('🚀 Loading data from cache...');
         console.log('📅 Auto-load will use dates:', defaults);
         // Use setTimeout to ensure dates are set in state before triggering auto-load
@@ -523,7 +537,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           console.log('✅ Triggering auto-load with dates:', defaults);
           setShouldAutoLoad(true);
         }, 100);
-        // Note: Automatic update removed - user must click refresh button to update cache
+        // Note: Automatic update completely disabled - user must click refresh button to update cache
       }
     } catch (err) {
       console.warn('⚠️ Sales dashboard initialization error:', err);
@@ -1574,6 +1588,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     if (isDownloadingCache || cacheDownloadAbortRef.current) return;
 
     setIsDownloadingCache(true);
+    const startTime = Date.now();
+    setCacheDownloadStartTime(startTime); // Track start time for ETA calculation
+    cacheDownloadStartTimeRef.current = startTime; // Also store in ref for use in callbacks
     setCacheDownloadProgress({ current: 0, total: 0, message: isUpdate ? 'Checking for updates...' : 'Downloading cache...' });
     cacheDownloadAbortRef.current = false;
 
@@ -1621,6 +1638,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     } finally {
       setIsDownloadingCache(false);
       setCacheDownloadProgress({ current: 0, total: 0, message: '' });
+      setCacheDownloadStartTime(null); // Clear start time when done
+      cacheDownloadStartTimeRef.current = null; // Also clear ref
     }
   };
 
@@ -5437,6 +5456,44 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
                 : 0;
               
+              // Calculate ETA
+              const calculateETA = () => {
+                const startTime = cacheDownloadStartTime || cacheDownloadStartTimeRef.current;
+                if (!hasTotal || !startTime || current === 0 || current >= total) {
+                  return null;
+                }
+                
+                const elapsed = Date.now() - startTime; // milliseconds
+                const elapsedSeconds = elapsed / 1000;
+                const rate = current / elapsedSeconds; // items per second
+                
+                if (rate === 0 || !isFinite(rate)) {
+                  return null;
+                }
+                
+                const remaining = total - current;
+                const remainingSeconds = remaining / rate;
+                
+                if (!isFinite(remainingSeconds) || remainingSeconds < 0) {
+                  return null;
+                }
+                
+                // Format ETA
+                if (remainingSeconds < 60) {
+                  return `${Math.round(remainingSeconds)}s`;
+                } else if (remainingSeconds < 3600) {
+                  const minutes = Math.floor(remainingSeconds / 60);
+                  const seconds = Math.round(remainingSeconds % 60);
+                  return `${minutes}m ${seconds}s`;
+                } else {
+                  const hours = Math.floor(remainingSeconds / 3600);
+                  const minutes = Math.round((remainingSeconds % 3600) / 60);
+                  return `${hours}h ${minutes}m`;
+                }
+              };
+              
+              const eta = calculateETA();
+              
               // Show indeterminate progress when total is not yet known
               const isIndeterminate = !hasTotal;
               
@@ -5448,7 +5505,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 : 0;
               
               const tooltipText = hasTotal
-                ? `${cacheDownloadProgress.message || 'Updating cache'}: ${progressPercentage}% (${current}/${total})`
+                ? `${cacheDownloadProgress.message || 'Updating cache'}: ${progressPercentage}% (${current}/${total})${eta ? ` • ETA: ${eta}` : ''}`
                 : (cacheDownloadProgress.message || 'Updating cache...');
 
               return (
@@ -5457,17 +5514,28 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   arrow
                   placement="left"
                 >
-                  <div style={{
-                    position: 'absolute',
-                    top: '20px',
-                    right: '20px',
-                    zIndex: 1000,
-                    display: 'flex',
-                    alignItems: 'center',
+              <div style={{
+                position: 'absolute',
+                top: '20px',
+                right: '20px',
+                zIndex: 1000,
+                display: 'flex',
+                alignItems: 'center',
                     gap: '8px',
                     cursor: 'pointer'
                   }}>
-                    <div style={{
+                    {/* ETA Display */}
+                    {eta && (
+                      <span style={{
+                        fontSize: '11px',
+                        color: '#64748b',
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap'
+                      }}>
+                        ETA: {eta}
+                      </span>
+                    )}
+                  <div style={{
                       width: '120px',
                       height: '6px',
                       backgroundColor: '#e2e8f0',
@@ -5485,7 +5553,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                             backgroundColor: '#10b981',
                             borderRadius: '3px',
                             animation: 'indeterminateProgress 1.5s ease-in-out infinite',
-                            position: 'absolute',
+                    position: 'absolute',
                             left: 0,
                             top: 0
                           }}
@@ -5507,7 +5575,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           {progressPercentage > 0 && progressPercentage < 100 && (
                             <div
                               style={{
-                                position: 'absolute',
+                    position: 'absolute',
                                 top: 0,
                                 left: 0,
                                 right: 0,
@@ -5517,8 +5585,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                               }}
                             />
                           )}
-                        </div>
-                      )}
+              </div>
+            )}
                     </div>
                   </div>
                 </Tooltip>
