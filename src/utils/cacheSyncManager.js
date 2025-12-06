@@ -99,9 +99,11 @@ const isMobileDevice = () => {
 };
 
 // Fetch with timeout and retry logic
-const fetchWithTimeout = async (url, options, timeout = 60000, retries = 3) => {
+// Increased timeout and retries for large data downloads
+const fetchWithTimeout = async (url, options, timeout = 300000, retries = 10) => {
   const isMobile = isMobileDevice();
-  const effectiveTimeout = isMobile ? 90000 : timeout;
+  // Use longer timeout for large data - 5 minutes default, 7.5 minutes for mobile
+  const effectiveTimeout = isMobile ? 450000 : timeout;
   
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -198,13 +200,13 @@ const splitDateRange = (startDate, endDate) => {
   let currentStart = new Date(start);
   while (currentStart <= end) {
     let currentEnd = new Date(currentStart);
-    currentEnd.setDate(currentEnd.getDate() + 4);
+    currentEnd.setDate(currentEnd.getDate() + 1); // 2-day chunks (start + 1 day = 2 days total)
     if (currentEnd > end) currentEnd = new Date(end);
     chunks.push({
       start: currentStart.toISOString().split('T')[0],
       end: currentEnd.toISOString().split('T')[0]
     });
-    currentStart.setDate(currentStart.getDate() + 5);
+    currentStart.setDate(currentStart.getDate() + 2); // Move to next chunk (2 days forward)
   }
   return chunks;
 };
@@ -368,8 +370,8 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
             headers,
             body: JSON.stringify(payload),
           },
-          60000,
-          2
+          300000, // 5 minutes timeout
+          5 // Increased retries
         );
 
         const responseText = await fetchResponse.text();
@@ -400,6 +402,20 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
     let allVouchers = [];
     let mergedData = { vouchers: [] };
     let chunks = null;
+
+    // For updates, load existing data FIRST before processing chunks to ensure we preserve it
+    let existingVouchersForMerge = [];
+    if (isUpdate) {
+      try {
+        const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
+        if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
+          existingVouchersForMerge = existingData.data.vouchers;
+          console.log(`📊 Pre-loaded ${existingVouchersForMerge.length} existing vouchers for update merge`);
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not pre-load existing cache for update:', error);
+      }
+    }
 
     if (needsSlice || shouldUseChunking) {
       let startDateForChunks = todayStr;
@@ -458,8 +474,8 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
               headers,
               body: JSON.stringify(chunkPayload),
             },
-            60000,
-            3
+            300000, // 5 minutes timeout for large chunks
+            10 // Increased retries to 10 for better resilience
           );
 
           const chunkResponseText = await chunkFetchResponse.text();
@@ -494,29 +510,133 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
             });
           }
         } catch (chunkError) {
-          // Save progress before throwing
+          // Log error but continue with next chunk instead of stopping
+          console.error(`❌ Error fetching chunk ${i + 1}/${chunks.length} for ${companyInfo.company}:`, chunkError);
+          
+          // Get current saved progress to track failed chunks
+          let currentSavedProgress = null;
+          try {
+            currentSavedProgress = await hybridCache.getDashboardState(progressKey);
+          } catch (e) {
+            // Ignore errors getting saved progress
+          }
+          
+          // Save error state but don't mark as completely failed
           await hybridCache.setDashboardState(progressKey, {
             email,
             companyGuid: companyInfo.guid,
             tallylocId: companyInfo.tallyloc_id,
-            status: 'failed',
+            status: 'in_progress',
             lastUpdated: Date.now(),
             chunksCompleted: i,
             totalChunks: chunks.length,
-            error: chunkError.message
+            error: `Chunk ${i + 1} failed: ${chunkError.message}`,
+            failedChunks: [...(currentSavedProgress?.failedChunks || []), i]
           });
-          throw chunkError;
+          
+          // Continue with next chunk instead of throwing - allow download to complete
+          // We'll retry failed chunks at the end if needed
+          console.warn(`⚠️ Continuing with next chunk despite error in chunk ${i + 1}`);
+          
+          // Update progress to show we're continuing
+          if (onProgress) {
+            onProgress({
+              current: i + 1,
+              total: chunks.length,
+              message: `Syncing ${companyInfo.company}: ${i + 1} / ${chunks.length} chunks (chunk ${i + 1} failed, continuing...)`,
+              companyGuid: companyInfo.guid,
+              companyName: companyInfo.company
+            });
+          }
+          
+          // Continue to next chunk instead of throwing
+          continue;
         }
       }
-      mergedData = { vouchers: allVouchers };
       
-      // If this is an update, merge with existing cache data
-      if (isUpdate && allVouchers.length > 0) {
-        try {
-          const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
-          if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
-            const existingVouchers = existingData.data.vouchers;
+      // After processing all chunks, retry any failed chunks
+      let currentSavedProgress = null;
+      try {
+        currentSavedProgress = await hybridCache.getDashboardState(progressKey);
+      } catch (e) {
+        // Ignore errors
+      }
+      
+      const failedChunks = currentSavedProgress?.failedChunks || [];
+      if (failedChunks.length > 0) {
+        console.log(`🔄 Retrying ${failedChunks.length} failed chunks...`);
+        
+        for (const failedChunkIndex of failedChunks) {
+          if (failedChunkIndex >= chunks.length) continue;
+          
+          const chunk = chunks[failedChunkIndex];
+          const chunkPayload = {
+            ...payload,
+            fromdate: formatDateForAPI(chunk.start),
+            todate: formatDateForAPI(chunk.end),
+            serverslice: "No"
+          };
+
+          try {
+            console.log(`🔄 Retrying chunk ${failedChunkIndex + 1}/${chunks.length}...`);
             
+            const chunkFetchResponse = await fetchWithTimeout(
+              salesextractUrl,
+              {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(chunkPayload),
+              },
+              300000, // 5 minutes timeout
+              5 // 5 retries for failed chunks
+            );
+
+            const chunkResponseText = await chunkFetchResponse.text();
+            if (chunkResponseText) {
+              const chunkResponse = JSON.parse(chunkResponseText);
+              if (chunkResponse && chunkResponse.vouchers && Array.isArray(chunkResponse.vouchers)) {
+                allVouchers.push(...chunkResponse.vouchers);
+                console.log(`✅ Successfully retried chunk ${failedChunkIndex + 1}`);
+              }
+            }
+            
+            // Update progress to remove from failed chunks
+            if (onProgress) {
+              onProgress({
+                current: chunks.length,
+                total: chunks.length,
+                message: `Syncing ${companyInfo.company}: Retrying failed chunks... (${failedChunks.length - (failedChunks.indexOf(failedChunkIndex) + 1)} remaining)`,
+                companyGuid: companyInfo.guid,
+                companyName: companyInfo.company
+              });
+            }
+          } catch (retryError) {
+            console.error(`❌ Retry failed for chunk ${failedChunkIndex + 1}:`, retryError);
+            // Continue with next failed chunk even if retry fails
+          }
+        }
+      }
+      
+      // If this is an update, ALWAYS merge with existing cache data to preserve old data
+      if (isUpdate) {
+        // Use pre-loaded existing vouchers, or try to load them again if pre-load failed
+        let existingVouchers = existingVouchersForMerge;
+        if (existingVouchers.length === 0) {
+          try {
+            const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
+            if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
+              existingVouchers = existingData.data.vouchers;
+              console.log(`📊 Loaded ${existingVouchers.length} existing vouchers for merge (fallback)`);
+            }
+          } catch (error) {
+            console.warn('⚠️ Could not load existing cache for merge:', error);
+          }
+        }
+        
+        if (existingVouchers.length > 0) {
+          // Always preserve existing vouchers - this is critical to prevent data loss
+          // If we have new vouchers, merge them; otherwise just keep ALL existing
+          if (allVouchers.length > 0) {
             const existingIds = new Set(existingVouchers.map(v => {
               const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
               const alterid = v.alterid || v.ALTERID;
@@ -541,21 +661,48 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
               return !existingIds.has(id);
             });
             
+            console.log(`📊 Merging ${newVouchers.length} new vouchers with ${existingVouchers.length} existing vouchers (total: ${existingVouchers.length + newVouchers.length})`);
             allVouchers = [...existingVouchers, ...newVouchers];
-            mergedData = { vouchers: allVouchers };
+          } else {
+            // No new vouchers, but preserve ALL existing data
+            console.log(`📊 No new vouchers found, preserving ALL ${existingVouchers.length} existing vouchers`);
+            allVouchers = existingVouchers;
           }
-        } catch (error) {
-          console.error('Error loading existing cache for merge, using only new vouchers:', error);
+          mergedData = { vouchers: allVouchers };
+        } else {
+          // No existing data found - this shouldn't happen in normal update flow
+          // But if it does, use new vouchers (better than losing them)
+          console.warn('⚠️ Update mode but no existing data found, using new vouchers only');
+          mergedData = { vouchers: allVouchers };
         }
+      } else {
+        // Not an update, use new vouchers as-is
+        mergedData = { vouchers: allVouchers };
       }
     } else {
       if (response && response.vouchers && Array.isArray(response.vouchers)) {
+        allVouchers = response.vouchers;
+        
+        // If this is an update, ALWAYS merge with existing cache data to preserve old data
         if (isUpdate) {
-          try {
-            const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
-            if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
-              const existingVouchers = existingData.data.vouchers;
-              
+          // Use pre-loaded existing vouchers, or try to load them again if pre-load failed
+          let existingVouchers = existingVouchersForMerge;
+          if (existingVouchers.length === 0) {
+            try {
+              const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
+              if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
+                existingVouchers = existingData.data.vouchers;
+                console.log(`📊 Loaded ${existingVouchers.length} existing vouchers for merge (fallback, non-chunked)`);
+              }
+            } catch (error) {
+              console.warn('⚠️ Could not load existing cache for merge (non-chunked):', error);
+            }
+          }
+          
+          if (existingVouchers.length > 0) {
+            // Always preserve existing vouchers
+            // If we have new vouchers, merge them; otherwise just keep ALL existing
+            if (allVouchers.length > 0) {
               const existingIds = new Set(existingVouchers.map(v => {
                 const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
                 const alterid = v.alterid || v.ALTERID;
@@ -567,7 +714,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
                 return JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
               }));
 
-              const newVouchers = response.vouchers.filter(v => {
+              const newVouchers = allVouchers.filter(v => {
                 const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
                 const alterid = v.alterid || v.ALTERID;
                 const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
@@ -580,30 +727,37 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
                 return !existingIds.has(id);
               });
               
+              console.log(`📊 Merging ${newVouchers.length} new vouchers with ${existingVouchers.length} existing vouchers (total: ${existingVouchers.length + newVouchers.length})`);
               allVouchers = [...existingVouchers, ...newVouchers];
-              mergedData = { vouchers: allVouchers };
             } else {
-              allVouchers = response.vouchers;
-              mergedData = { vouchers: allVouchers };
+              // No new vouchers, but preserve ALL existing data
+              console.log(`📊 No new vouchers found, preserving ALL ${existingVouchers.length} existing vouchers`);
+              allVouchers = existingVouchers;
             }
-          } catch (error) {
-            allVouchers = response.vouchers;
+            mergedData = { vouchers: allVouchers };
+          } else {
+            // No existing data found - this shouldn't happen in normal update flow
+            console.warn('⚠️ Update mode but no existing data found (non-chunked), using new vouchers only');
             mergedData = { vouchers: allVouchers };
           }
         } else {
-          allVouchers = response.vouchers;
+          // Not an update, use new vouchers as-is
           mergedData = { vouchers: allVouchers };
         }
       } else {
+        // No response vouchers
         if (isUpdate) {
+          // For updates, preserve existing data even if API returns nothing
           try {
             const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
             if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
+              console.log(`📊 No new data from API, preserving ${existingData.data.vouchers.length} existing vouchers`);
               mergedData = existingData.data;
             } else {
               mergedData = { vouchers: [] };
             }
           } catch (error) {
+            console.error('Error loading existing cache:', error);
             mergedData = { vouchers: [] };
           }
         } else {
@@ -612,22 +766,29 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
       }
     }
 
-    // Final validation
+    // Final validation - but don't fail if we have some data (even if some chunks failed)
     if (isUpdate && (!mergedData.vouchers || !Array.isArray(mergedData.vouchers) || mergedData.vouchers.length === 0)) {
         try {
             const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
         if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
           mergedData = existingData.data;
+          console.log('⚠️ No new data from update, preserving existing cache data');
         } else {
-          throw new Error('No existing cache to preserve and update resulted in empty data');
+          // Don't throw error if we have no data - just log and continue
+          console.warn('⚠️ Update resulted in empty data and no existing cache, but continuing...');
+          mergedData = { vouchers: [] };
         }
       } catch (error) {
-        throw new Error('Update failed: No data to store and no existing cache to preserve');
+        // Don't throw - just log and continue with empty array
+        console.warn('⚠️ Could not load existing cache:', error);
+        mergedData = { vouchers: [] };
       }
     }
 
     if (!mergedData || !mergedData.vouchers || !Array.isArray(mergedData.vouchers)) {
-      throw new Error('Invalid data structure: mergedData must have vouchers array');
+      // Initialize empty array instead of throwing - better to have empty cache than crash
+      console.warn('⚠️ Invalid data structure, initializing empty vouchers array');
+      mergedData = { vouchers: [] };
     }
 
     const maxAlterId = calculateMaxAlterId(mergedData);
