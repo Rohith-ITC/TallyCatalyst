@@ -48,35 +48,123 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
     };
   }, [data, total, colors]);
 
-  // Validate data
-  if (!data || !Array.isArray(data) || data.length === 0) {
+  // Validate data - return empty card structure
+  if (!data || !Array.isArray(data) || data.length === 0 || total === 0) {
     return (
       <div style={{
         background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
         borderRadius: isMobile ? '12px' : '16px',
-        padding: isMobile ? '20px' : '32px',
+        padding: '0',
         border: '1px solid #e2e8f0',
-        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-        textAlign: 'center',
-        color: '#64748b'
+        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        overflow: 'hidden',
+        width: '100%',
+        maxWidth: '100%'
       }}>
-        No data available
-      </div>
-    );
-  }
-
-  if (total === 0) {
-    return (
-      <div style={{
-        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-        borderRadius: isMobile ? '12px' : '16px',
-        padding: isMobile ? '20px' : '32px',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
-        textAlign: 'center',
-        color: '#64748b'
-      }}>
-        All values are zero
+        {customHeader ? (
+          <div style={{ 
+            padding: isMobile ? '12px 16px' : '16px 20px',
+            position: 'sticky',
+            top: 0,
+            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+            zIndex: 10,
+            borderBottom: '2px solid #e2e8f0',
+            marginBottom: '0'
+          }}>
+            {customHeader}
+          </div>
+        ) : (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: isMobile ? '12px 16px' : '16px 20px',
+            position: 'sticky',
+            top: 0,
+            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+            zIndex: 10,
+            borderBottom: '2px solid #e2e8f0',
+            marginBottom: '0',
+            gap: isMobile ? '8px' : '12px'
+          }}>
+            <h3 style={{
+              margin: 0,
+              fontSize: isMobile ? '16px' : '18px',
+              fontWeight: '700',
+              color: '#1e293b',
+              letterSpacing: '-0.025em',
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
+              {title}
+            </h3>
+            {showBackButton && onBackClick && (
+              <button
+                onClick={onBackClick}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: isMobile ? '6px 10px' : '8px 14px',
+                  background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '8px',
+                  color: '#475569',
+                  fontSize: isMobile ? '11px' : '13px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                  flexShrink: 0
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)';
+                  e.target.style.transform = 'translateY(-1px)';
+                  e.target.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
+                  e.target.style.transform = 'translateY(0)';
+                  e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px' }}>arrow_back</span>
+                {!isMobile && <span>Back</span>}
+              </button>
+            )}
+          </div>
+        )}
+        <div style={{
+          padding: '0',
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          background: 'radial-gradient(circle at top, rgba(59, 130, 246, 0.03) 0%, transparent 50%)',
+          width: '100%',
+          maxWidth: '100%'
+        }}>
+          <div style={{ 
+            width: '100%', 
+            maxWidth: '100%',
+            height: isMobile ? '280px' : 'min(400px, calc(100vh - 400px))', 
+            minHeight: isMobile ? '280px' : '320px',
+            maxHeight: isMobile ? '350px' : '500px',
+            position: 'relative',
+            flexShrink: 0,
+            borderRadius: isMobile ? '8px' : '12px',
+            overflow: 'hidden',
+            background: 'white',
+            boxShadow: 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.06)'
+          }} />
+        </div>
       </div>
     );
   }

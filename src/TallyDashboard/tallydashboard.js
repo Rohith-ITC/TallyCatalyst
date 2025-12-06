@@ -2935,8 +2935,16 @@ function TallyDashboard() {
           {activeSidebar === 'ledger' && <Ledgerbook />}
           {activeSidebar === 'ledgerwise' && <Ledgerbook />}
           {activeSidebar === 'billwise' && <Ledgerbook />}
-          {activeSidebar === 'order' && <PlaceOrder />}
-          {activeSidebar === 'ecommerce' && <PlaceOrder_ECommerce />}
+          {activeSidebar === 'order' && (
+            <div style={{ margin: '-20px', padding: '0' }}>
+              <PlaceOrder />
+            </div>
+          )}
+          {activeSidebar === 'ecommerce' && (
+            <div style={{ margin: '-20px', padding: '0' }}>
+              <PlaceOrder_ECommerce />
+            </div>
+          )}
           {activeSidebar === 'sales_dashboard' && (
             <div style={{ margin: '-20px', padding: '0' }}>
               <SalesDashboard onNavigationAttempt={true} />
