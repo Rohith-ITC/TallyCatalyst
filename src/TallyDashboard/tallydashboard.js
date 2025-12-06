@@ -2355,16 +2355,16 @@ function TallyDashboard() {
                     marginTop: 16,
                     padding: 12,
                     borderRadius: 8,
-                    background: '#f0f9ff',
-                    border: '1px solid #bae6fd',
+                    background: '#f0fdf4',
+                    border: '1px solid #86efac',
                     fontSize: 14,
-                    color: '#0369a1',
+                    color: '#16a34a',
                     display: 'flex',
                     alignItems: 'center',
                     gap: 8,
                   }}>
-                    <span className="material-icons" style={{ fontSize: 18 }}>info</span>
-                    Google account is connected. Token expires after 1 hour of inactivity.
+                    <span className="material-icons" style={{ fontSize: 18 }}>check_circle</span>
+                    Google account is connected. The connection will remain active until you unlink or switch accounts.
                   </div>
                 )}
               </div>
@@ -2935,8 +2935,16 @@ function TallyDashboard() {
           {activeSidebar === 'ledger' && <Ledgerbook />}
           {activeSidebar === 'ledgerwise' && <Ledgerbook />}
           {activeSidebar === 'billwise' && <Ledgerbook />}
-          {activeSidebar === 'order' && <PlaceOrder />}
-          {activeSidebar === 'ecommerce' && <PlaceOrder_ECommerce />}
+          {activeSidebar === 'order' && (
+            <div style={{ margin: '-20px', padding: '0' }}>
+              <PlaceOrder />
+            </div>
+          )}
+          {activeSidebar === 'ecommerce' && (
+            <div style={{ margin: '-20px', padding: '0' }}>
+              <PlaceOrder_ECommerce />
+            </div>
+          )}
           {activeSidebar === 'sales_dashboard' && (
             <div style={{ margin: '-20px', padding: '0' }}>
               <SalesDashboard onNavigationAttempt={true} />
