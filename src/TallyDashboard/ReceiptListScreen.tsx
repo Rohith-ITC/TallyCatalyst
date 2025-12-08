@@ -4,6 +4,7 @@ import type {Company, ReceiptVoucher} from '../utils/receiptApiTypes';
 import {splitDateRangeIntoChunks, formatDateForInput, formatDateDisplay} from '../utils/dateUtils';
 import {exportReceiptsToExcel} from '../utils/receiptExportUtils';
 import {importReceiptsFromExcel} from '../utils/receiptImportUtils';
+import {useIsMobile} from './MobileViewConfig';
 import './ReceiptListScreen.css';
 
 interface ReceiptListScreenProps {
@@ -17,6 +18,7 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
   company,
   onBack,
 }) => {
+  const isMobile = useIsMobile();
   const today = new Date();
   const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
   
@@ -1091,33 +1093,35 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
           ← Back
         </button>
         <h1 className="header-title">{company.company || company.conn_name}</h1>
-        <div style={{display: 'flex', gap: '8px'}}>
+        <div className="header-actions" style={{display: 'flex', gap: isMobile ? '4px' : '8px', flexWrap: isMobile ? 'wrap' : 'nowrap'}}>
           <button
             onClick={() => setShowHelp(true)}
             className="config-button"
             title="View help and instructions"
-            style={{backgroundColor: '#007bff'}}>
-            ❓ Help
+            style={{backgroundColor: '#007bff', fontSize: isMobile ? '12px' : '14px', padding: isMobile ? '6px 10px' : '8px 16px'}}>
+            {isMobile ? '❓' : '❓ Help'}
           </button>
           <button
             onClick={() => setShowExcludedStringsConfig(true)}
             className="config-button"
-            title="Configure excluded strings for matching">
-            ⚙️ Excluded Strings
+            title="Configure excluded strings for matching"
+            style={{fontSize: isMobile ? '12px' : '14px', padding: isMobile ? '6px 10px' : '8px 16px'}}>
+            {isMobile ? '⚙️' : '⚙️ Excluded Strings'}
           </button>
           <button
             onClick={() => setShowSettings(true)}
             className="config-button"
-            title="Configure settings">
-            ⚙️ Settings
+            title="Configure settings"
+            style={{fontSize: isMobile ? '12px' : '14px', padding: isMobile ? '6px 10px' : '8px 16px'}}>
+            {isMobile ? '⚙️' : '⚙️ Settings'}
           </button>
         </div>
       </header>
 
       <div className="receipt-list-content">
         {/* Section 1: Get All Receipts from Tally, Download, and Load Cache */}
-        <div className="date-filter-section" style={{marginBottom: '20px', padding: '15px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#f9f9f9'}}>
-          <h3 style={{marginTop: 0, marginBottom: '12px', fontSize: '16px', fontWeight: '600'}}>Option 1: Get All Receipts from Tally (for Cache)</h3>
+        <div className="date-filter-section" style={{marginBottom: isMobile ? '16px' : '20px', padding: isMobile ? '12px' : '15px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#f9f9f9'}}>
+          <h3 style={{marginTop: 0, marginBottom: isMobile ? '10px' : '12px', fontSize: isMobile ? '14px' : '16px', fontWeight: '600'}}>Option 1: Get All Receipts from Tally (for Cache)</h3>
           <div className="date-inputs">
             <div className="date-input-group">
               <label htmlFor="cacheFromDate" className="date-label">From Date</label>
@@ -1194,8 +1198,8 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
         </div>
 
         {/* Section 2: Get Ledger Receipts (for matching) */}
-        <div className="date-filter-section" style={{marginBottom: '20px', padding: '15px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#fff9e6'}}>
-          <h3 style={{marginTop: 0, marginBottom: '12px', fontSize: '16px', fontWeight: '600'}}>Option 2: Get Ledger Receipts (for Matching)</h3>
+        <div className="date-filter-section" style={{marginBottom: isMobile ? '16px' : '20px', padding: isMobile ? '12px' : '15px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#fff9e6'}}>
+          <h3 style={{marginTop: 0, marginBottom: isMobile ? '10px' : '12px', fontSize: isMobile ? '14px' : '16px', fontWeight: '600'}}>Option 2: Get Ledger Receipts (for Matching)</h3>
           <div className="date-inputs">
             <div className="date-input-group">
               <label htmlFor="ledgerName" className="date-label">Ledger Name</label>
@@ -1240,7 +1244,7 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
               {loading ? 'Loading...' : 'Search Ledger Receipts'}
             </button>
           </div>
-          <div style={{marginTop: '10px', fontSize: '12px', color: '#666', fontStyle: 'italic'}}>
+          <div style={{marginTop: isMobile ? '8px' : '10px', fontSize: isMobile ? '11px' : '12px', color: '#666', fontStyle: 'italic', lineHeight: '1.4'}}>
             Note: Ledger receipts will be displayed in the table below. Use "Find" or "Find All" to match against the loaded cache (excluding receipts from the selected ledger).
           </div>
         </div>
@@ -1307,12 +1311,12 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
         {!loading && ledgerReceipts.length > 0 && (
           <>
             <div className="receipts-summary">
-              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px'}}>
-                <div style={{display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap'}}>
-                  <p style={{margin: 0}}>
+              <div style={{display: 'flex', flexDirection: isMobile ? 'column' : 'row', justifyContent: 'space-between', alignItems: isMobile ? 'stretch' : 'center', flexWrap: 'wrap', gap: isMobile ? '12px' : '12px'}}>
+                <div style={{display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '8px' : '12px', flexWrap: 'wrap', width: isMobile ? '100%' : 'auto'}}>
+                  <p style={{margin: 0, fontSize: isMobile ? '13px' : '14px', lineHeight: '1.4'}}>
                     Total Receipts: <strong>{ledgerReceipts.length}</strong>
                     {receiptsBeforeFindAll.length !== ledgerReceipts.length && (
-                      <> | Filtered Receipts: <strong>{receiptsBeforeFindAll.length}</strong></>
+                      <> | Filtered: <strong>{receiptsBeforeFindAll.length}</strong></>
                     )}
                     {findAllMode && Object.keys(expandedReceipts).length > 0 && (
                       <> | With Matches: <strong>{filteredReceipts.length}</strong></>
@@ -1320,35 +1324,40 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
                     {!findAllMode && filteredReceipts.length !== ledgerReceipts.length && filteredReceipts.length === receiptsBeforeFindAll.length && (
                       <> | Showing: <strong>{filteredReceipts.length}</strong></>
                     )}
-                    {' '}| Showing{' '}
-                    {filteredReceipts.length > 0 ? startIndex + 1 : 0} - {Math.min(endIndex, filteredReceipts.length)} of{' '}
-                    {filteredReceipts.length}
+                    {!isMobile && (
+                      <> | Showing{' '}
+                      {filteredReceipts.length > 0 ? startIndex + 1 : 0} - {Math.min(endIndex, filteredReceipts.length)} of{' '}
+                      {filteredReceipts.length}</>
+                    )}
                   </p>
                   {totalPages > 1 && (
-                    <div className="pagination" style={{margin: 0, padding: 0, background: 'transparent', boxShadow: 'none'}}>
+                    <div className="pagination" style={{margin: 0, padding: 0, background: 'transparent', boxShadow: 'none', width: isMobile ? '100%' : 'auto'}}>
                       <button
                         onClick={() => goToPage(currentPage - 1)}
                         disabled={currentPage === 1}
-                        className="pagination-button">
+                        className="pagination-button"
+                        style={{width: isMobile ? '100%' : 'auto'}}>
                         Previous
                       </button>
-                      <span className="pagination-info">
+                      <span className="pagination-info" style={{textAlign: isMobile ? 'center' : 'left', width: isMobile ? '100%' : 'auto'}}>
                         Page {currentPage} of {totalPages}
                       </span>
                       <button
                         onClick={() => goToPage(currentPage + 1)}
                         disabled={currentPage === totalPages}
-                        className="pagination-button">
+                        className="pagination-button"
+                        style={{width: isMobile ? '100%' : 'auto'}}>
                         Next
                       </button>
                     </div>
                   )}
                 </div>
-                <div style={{display: 'flex', gap: '12px', alignItems: 'center'}}>
+                <div style={{display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '8px' : '12px', alignItems: 'stretch', width: isMobile ? '100%' : 'auto'}}>
                   <button
                     onClick={() => handleFindAll()}
                     className="find-all-button"
-                    disabled={findAllLoading || filteredReceipts.length === 0}>
+                    disabled={findAllLoading || filteredReceipts.length === 0}
+                    style={{width: isMobile ? '100%' : 'auto'}}>
                     {findAllLoading ? `Finding All... (${findAllProgress}%)` : findAllMode ? 'Find All (Active)' : 'Find All'}
                   </button>
                   {findAllMode && Object.keys(expandedReceipts).length > 0 && (
@@ -1358,7 +1367,8 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
                         setExpandedReceipts({});
                       }}
                       className="clear-find-all-button"
-                      title="Show all receipts">
+                      title="Show all receipts"
+                      style={{width: isMobile ? '100%' : 'auto'}}>
                       Show All Receipts
                     </button>
                   )}
@@ -1482,7 +1492,7 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
                   </button>
                 )}
               </div>
-              <div style={{marginTop: '8px', fontSize: '12px', color: '#666', fontStyle: 'italic'}}>
+              <div style={{marginTop: isMobile ? '8px' : '8px', fontSize: isMobile ? '11px' : '12px', color: '#666', fontStyle: 'italic', lineHeight: '1.4'}}>
                 Note: Period filter applies to displayed receipts only. Find/Find All searches through the entire cache (excluding receipts from the selected ledger).
               </div>
             </div>
@@ -1619,20 +1629,22 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
             )}
 
             {filteredReceipts.length > 0 && totalPages > 1 && (
-              <div className="pagination">
+              <div className="pagination" style={{flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? '8px' : '16px'}}>
                 <button
                   onClick={() => goToPage(currentPage - 1)}
                   disabled={currentPage === 1}
-                  className="pagination-button">
+                  className="pagination-button"
+                  style={{width: isMobile ? '100%' : 'auto'}}>
                   Previous
                 </button>
-                <span className="pagination-info">
+                <span className="pagination-info" style={{textAlign: isMobile ? 'center' : 'left'}}>
                   Page {currentPage} of {totalPages}
                 </span>
                 <button
                   onClick={() => goToPage(currentPage + 1)}
                   disabled={currentPage === totalPages}
-                  className="pagination-button">
+                  className="pagination-button"
+                  style={{width: isMobile ? '100%' : 'auto'}}>
                   Next
                 </button>
               </div>

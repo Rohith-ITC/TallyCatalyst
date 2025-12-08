@@ -3,7 +3,8 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
-import { checkVersionUpdate } from './utils/cacheUtils';
+import { checkVersionUpdate } from './utils/cacheSyncManager';
+import { cacheSyncManager } from './utils/cacheSyncManager';
 
 // Debug: Check sessionStorage at the VERY START (before anything runs)
 console.log('🚀🚀🚀 APP STARTING - INITIAL SESSION CHECK 🚀🚀🚀');
@@ -20,6 +21,11 @@ console.log('🚀 sessionStorage at startup:', {
 
 // Check for version updates on app start
 checkVersionUpdate();
+
+// Initialize cache sync manager to resume incomplete syncs
+cacheSyncManager.init().catch(error => {
+  console.error('Error initializing cache sync manager:', error);
+});
 
 // Register service worker
 if ('serviceWorker' in navigator) {

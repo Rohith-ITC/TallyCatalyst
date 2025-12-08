@@ -338,6 +338,118 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
     }
   };
 
+  // Helper function to format date for Tally (dd-mmm-yy format, e.g., "01-Apr-25")
+  const formatDateForTally = (dateStr?: string | null): string => {
+    const date = dateStr ? new Date(dateStr) : new Date();
+    const day = String(date.getDate()).padStart(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[date.getMonth()];
+    const year = String(date.getFullYear()).slice(-2);
+    return `${day}-${month}-${year}`;
+  };
+
+  // Helper function to get books beginning date
+  const getBooksFromDate = (companyGuid?: string): string | null => {
+    try {
+      const currentGuid = companyGuid || company?.guid || sessionStorage.getItem('guid');
+      
+      console.log('📅 Getting booksfrom date for GUID:', currentGuid);
+      console.log('📅 Company prop booksfrom:', company?.booksfrom);
+      
+      // First check company prop directly (most reliable source)
+      if (company?.booksfrom) {
+        const booksfrom = company.booksfrom.trim();
+        console.log('📅 Found in company prop:', booksfrom);
+        // If already in Tally format (d-mmm-yy or dd-mmm-yy), return as is
+        if (/^\d{1,2}-[A-Za-z]{3}-\d{2}$/.test(booksfrom)) {
+          console.log('✅ Using company prop booksfrom (Tally format):', booksfrom);
+          return booksfrom;
+        }
+        // If in YYYYMMDD format, convert
+        if (/^\d{8}$/.test(booksfrom)) {
+          const year = parseInt(booksfrom.substring(0, 4));
+          const month = parseInt(booksfrom.substring(4, 6)) - 1;
+          const day = parseInt(booksfrom.substring(6, 8));
+          const converted = formatDateForTally(new Date(year, month, day).toISOString());
+          console.log('✅ Converted company prop booksfrom (YYYYMMDD):', booksfrom, '->', converted);
+          return converted;
+        }
+        // Try parsing as date string
+        const parsed = new Date(booksfrom);
+        if (!isNaN(parsed.getTime())) {
+          const converted = formatDateForTally(parsed.toISOString());
+          console.log('✅ Converted company prop booksfrom (date string):', booksfrom, '->', converted);
+          return converted;
+        }
+      }
+
+      // Second check allConnections in sessionStorage (check by GUID to get correct company)
+      const connections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+      if (currentGuid && Array.isArray(connections)) {
+        const companyConn = connections.find((c: any) => c.guid === currentGuid);
+        console.log('📅 Found company in allConnections:', companyConn ? companyConn.company : 'not found');
+        if (companyConn && companyConn.booksfrom) {
+          const booksfrom = companyConn.booksfrom.trim();
+          console.log('📅 Found in allConnections:', booksfrom);
+          // If already in Tally format (d-mmm-yy or dd-mmm-yy), return as is
+          if (/^\d{1,2}-[A-Za-z]{3}-\d{2}$/.test(booksfrom)) {
+            console.log('✅ Using allConnections booksfrom (Tally format):', booksfrom);
+            return booksfrom;
+          }
+          // If in YYYYMMDD format, convert
+          if (/^\d{8}$/.test(booksfrom)) {
+            const year = parseInt(booksfrom.substring(0, 4));
+            const month = parseInt(booksfrom.substring(4, 6)) - 1;
+            const day = parseInt(booksfrom.substring(6, 8));
+            const converted = formatDateForTally(new Date(year, month, day).toISOString());
+            console.log('✅ Converted allConnections booksfrom (YYYYMMDD):', booksfrom, '->', converted);
+            return converted;
+          }
+          // Try parsing as date string
+          const parsed = new Date(booksfrom);
+          if (!isNaN(parsed.getTime())) {
+            const converted = formatDateForTally(parsed.toISOString());
+            console.log('✅ Converted allConnections booksfrom (date string):', booksfrom, '->', converted);
+            return converted;
+          }
+        }
+      }
+
+      // Third check sessionStorage (fallback, but may be wrong company)
+      const booksfromDirect = sessionStorage.getItem('booksfrom');
+      if (booksfromDirect) {
+        const booksfrom = booksfromDirect.trim();
+        console.log('📅 Found in sessionStorage:', booksfrom);
+        // If already in Tally format (d-mmm-yy or dd-mmm-yy), return as is
+        if (/^\d{1,2}-[A-Za-z]{3}-\d{2}$/.test(booksfrom)) {
+          console.log('⚠️ Using sessionStorage booksfrom (may be wrong company):', booksfrom);
+          return booksfrom;
+        }
+        // If in YYYYMMDD format, convert
+        if (/^\d{8}$/.test(booksfrom)) {
+          const year = parseInt(booksfrom.substring(0, 4));
+          const month = parseInt(booksfrom.substring(4, 6)) - 1;
+          const day = parseInt(booksfrom.substring(6, 8));
+          const converted = formatDateForTally(new Date(year, month, day).toISOString());
+          console.log('⚠️ Converted sessionStorage booksfrom (YYYYMMDD):', booksfrom, '->', converted);
+          return converted;
+        }
+        // Try parsing as date string
+        const parsed = new Date(booksfrom);
+        if (!isNaN(parsed.getTime())) {
+          const converted = formatDateForTally(parsed.toISOString());
+          console.log('⚠️ Converted sessionStorage booksfrom (date string):', booksfrom, '->', converted);
+          return converted;
+        }
+      }
+      
+      console.warn('⚠️ No booksfrom date found, will use default fallback');
+    } catch (err) {
+      console.warn('Error fetching booksfrom date:', err);
+    }
+    return null;
+  };
+
   // Function to fetch vouchers for an order
   const fetchOrderVouchers = async (order: CompanyOrder, forceRefresh: boolean = false) => {
     const orderKey = getOrderKey(order);
@@ -368,11 +480,19 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
       const stockItem = order.StockItem || '';
       const customerName = order.Customer || '';
       
+      // Get books beginning date and current date
+      const booksFromDate = getBooksFromDate(guid);
+      const currentDate = formatDateForTally();
+      const svFromDate = booksFromDate || '01-Apr-00'; // Default fallback
+      const svToDate = currentDate;
+      
       console.log('🔍 Fetching vouchers for order:');
       console.log('  Order Number:', orderNo);
       console.log('  Stock Item:', stockItem);
       console.log('  Customer Name:', customerName);
       console.log('  Company Name:', companyName);
+      console.log('  Books From Date:', svFromDate);
+      console.log('  Current Date:', svToDate);
       console.log('  Order Object:', order);
       
       if (!customerName) {
@@ -444,6 +564,8 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
         <STATICVARIABLES>
             <SVCURRENTCOMPANY>${escapeForXML(companyName)}</SVCURRENTCOMPANY>
             <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+            <SVFROMDATE>${escapeForXML(svFromDate)}</SVFROMDATE>
+            <SVTODATE>${escapeForXML(svToDate)}</SVTODATE>
         </STATICVARIABLES>
     </DESC>
   </BODY>
@@ -3717,7 +3839,8 @@ ${inventoryEntriesStr}
                 } else {
                   setFilters({...filters, customer: value});
                 }
-              }}>
+              }}
+             >
               <option value="all">All Customers</option>
               {uniqueCustomers.map((customer) => (
                 <option key={customer} value={customer}>
@@ -3738,6 +3861,7 @@ ${inventoryEntriesStr}
               placeholder="Filter by order qty..."
               value={filters.orderQty}
               onChange={(e) => setFilters({...filters, orderQty: e.target.value})}
+             
             />
           </div>
           <div className="filter-group">
@@ -3749,6 +3873,7 @@ ${inventoryEntriesStr}
               placeholder="Filter by pending qty..."
               value={filters.pendingQty}
               onChange={(e) => setFilters({...filters, pendingQty: e.target.value})}
+             
             />
           </div>
         </div>
@@ -3762,6 +3887,7 @@ ${inventoryEntriesStr}
               placeholder="Filter by rate..."
               value={filters.rate}
               onChange={(e) => setFilters({...filters, rate: e.target.value})}
+             
             />
           </div>
           <div className="filter-group">
@@ -3773,6 +3899,7 @@ ${inventoryEntriesStr}
               placeholder="Filter by value..."
               value={filters.value}
               onChange={(e) => setFilters({...filters, value: e.target.value})}
+             
             />
           </div>
           <div className="filter-group">
@@ -3784,18 +3911,18 @@ ${inventoryEntriesStr}
               placeholder="Filter by due date or overdue..."
               value={filters.dueDate}
               onChange={(e) => setFilters({...filters, dueDate: e.target.value})}
+             
             />
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (!hasActiveFilters) return;
-              setFilters({...INITIAL_FILTERS});
-            }}
-            className="clear-filters-button"
-            disabled={!hasActiveFilters}>
-            Clear Filters
-          </button>
+          {(filters.date || filters.orderNo || filters.stockItem || filters.customer || filters.orderQty || filters.pendingQty || filters.rate || filters.value || filters.dueDate) && (
+            <button
+              type="button"
+              onClick={() => setFilters({...INITIAL_FILTERS})}
+              className="clear-filters-button"
+            >
+              Clear Filters
+            </button>
+          )}
         </div>
         </section>
       )}
@@ -4830,7 +4957,8 @@ ${inventoryEntriesStr}
                 </button>
                 <button
                   className="close-modal-button"
-                    onClick={closeDeliveryModal}>
+                    onClick={closeDeliveryModal}
+                   >
                   ✕
                 </button>
               </div>
@@ -5064,7 +5192,8 @@ ${inventoryEntriesStr}
               <button
                 className="cancel-button"
                 onClick={closeDeliveryModal}
-                disabled={saving}>
+                disabled={saving}
+               >
                 Cancel
               </button>
               <div className="delivery-date-group-modal">
@@ -5076,12 +5205,14 @@ ${inventoryEntriesStr}
                   value={deliveryDate}
                   onChange={(e) => setDeliveryDate(e.target.value)}
                   disabled={saving}
+                 
                 />
               </div>
               <button
                 className="save-order-button"
                 onClick={handleSaveDelivery}
-                disabled={saving || loading}>
+                disabled={saving || loading}
+               >
                 {saving ? `Saving… (${formatDuration(saveElapsedSeconds)})` : 'Save'}
               </button>
               {saving && (
@@ -5308,6 +5439,15 @@ ${inventoryEntriesStr}
                 );
               })()}
             </div>
+            <div className="batch-selection-modal-actions">
+              <button
+                className="cancel-button"
+                onClick={handleCloseBatchSelection}
+                disabled={saving}
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -5338,7 +5478,8 @@ ${inventoryEntriesStr}
                 setTempAllowDeliveryExceedOrder(allowDeliveryExceedOrder);
                   setConfigModalTab('sections');
                   setShowConfigModal(false);
-                }}>
+                }}
+               >
                 ✕
               </button>
             </div>
@@ -5568,6 +5709,7 @@ ${inventoryEntriesStr}
                 className="save-order-button"
                 type="button"
                 onClick={() => setSuccessDialogMessage(null)}
+               
               >
                 OK
               </button>

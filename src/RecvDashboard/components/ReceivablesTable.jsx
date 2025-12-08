@@ -7,6 +7,43 @@ import { exportReceivablesToExcel } from '../utils/exportUtils';
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100];
 
+// Helper function to format column names for display
+const formatColumnName = (col) => {
+  // If alias exists and is already properly formatted (contains spaces), use it
+  if (col.alias && col.alias.includes(' ')) {
+    return col.alias;
+  }
+  
+  // Use alias if available, otherwise use name
+  const name = col.alias || col.name || '';
+  
+  // If name already contains spaces, return as is (just capitalize properly)
+  if (name.includes(' ')) {
+    return name
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
+  }
+  
+  // Handle special cases
+  if (name.toLowerCase() === 'drcr' || name === 'DrCr') {
+    return 'Dr/Cr';
+  }
+  
+  // Convert camelCase/PascalCase to Title Case with spaces
+  // e.g., "LedgerName" -> "Ledger Name", "DueDate" -> "Due Date"
+  const formatted = name
+    .replace(/([A-Z])/g, ' $1') // Add space before capital letters
+    .replace(/^ /, '') // Remove leading space
+    .trim();
+  
+  // Capitalize first letter of each word
+  return formatted
+    .split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
 const ReceivablesTable = ({
   receivables,
   columns,
@@ -931,7 +968,7 @@ const ReceivablesTable = ({
         style={headerStyle}
       >
         <div className="header-content">
-          <span>{col.alias || col.name}</span>
+          <span>{formatColumnName(col)}</span>
           <button
             className={`sort-button ${sortConfig.column === index ? 'active' : ''}`}
             onClick={() => handleSort(index)}
@@ -1089,7 +1126,7 @@ const ReceivablesTable = ({
         style={headerStyle}
       >
         <div className="header-content">
-          <span>{col.alias || col.name}</span>
+          <span>{formatColumnName(col)}</span>
           <button
             className={`sort-button ${customerSort.column === index ? 'active' : ''}`}
             onClick={(e) => {

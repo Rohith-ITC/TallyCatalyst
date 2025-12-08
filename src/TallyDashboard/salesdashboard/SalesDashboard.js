@@ -11,6 +11,7 @@ import {
   Treemap,
   Tooltip as RechartsTooltip,
 } from 'recharts';
+import { Tooltip } from '@mui/material';
 import BillDrilldownModal from '../../RecvDashboard/components/BillDrilldownModal';
 import VoucherDetailsModal from '../../RecvDashboard/components/VoucherDetailsModal';
 import {
@@ -21,7 +22,7 @@ import {
 import { getApiUrl } from '../../config';
 import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/companyConfigUtils';
 import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
-import { syncSalesData } from '../utils/dataSync';
+import { syncSalesData, cacheSyncManager } from '../../utils/cacheSyncManager';
 
 const SalesDashboard = ({ onNavigationAttempt }) => {
   const RAW_DATA_PAGE_SIZE = 20;
@@ -42,6 +43,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [noCompanySelected, setNoCompanySelected] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState(null);
   
   // Progress bar state
   const [progress, setProgress] = useState({ current: 0, total: 0, percentage: 0 });
@@ -136,6 +138,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Background cache download state
   const [isDownloadingCache, setIsDownloadingCache] = useState(false);
   const [cacheDownloadProgress, setCacheDownloadProgress] = useState({ current: 0, total: 0, message: '' });
+  const [cacheDownloadStartTime, setCacheDownloadStartTime] = useState(null);
+  const cacheDownloadStartTimeRef = useRef(null);
   const cacheDownloadAbortRef = useRef(false);
 
   // Helper function to get auth token
@@ -190,6 +194,79 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       window.removeEventListener('companyChanged', handleAccessUpdate);
     };
   }, [computeShowProfitPermission]);
+
+  // Subscribe to cacheSyncManager for real-time progress updates (like CacheManagement)
+  useEffect(() => {
+    let companyInfoRef = null;
+    
+    // Subscribe to shared sync progress from cacheSyncManager
+    const unsubscribe = cacheSyncManager.subscribe((progress) => {
+      try {
+        // Get current company info
+        if (!companyInfoRef) {
+          try {
+            companyInfoRef = getCompanyInfo();
+          } catch (e) {
+            // Company not selected yet
+            return;
+          }
+        }
+        
+        // Only update if this progress is for the currently selected company
+        const currentCompanyInfo = cacheSyncManager.getCompanyInfo();
+        
+        if (currentCompanyInfo && companyInfoRef && 
+            currentCompanyInfo.guid === companyInfoRef.guid) {
+          // Update progress in real-time
+          setCacheDownloadProgress(progress);
+          setIsDownloadingCache(cacheSyncManager.isSyncInProgress());
+          // Set start time if not already set and we have progress
+          if (progress.total > 0 && !cacheDownloadStartTimeRef.current) {
+            const startTime = Date.now();
+            setCacheDownloadStartTime(startTime);
+            cacheDownloadStartTimeRef.current = startTime;
+          }
+          console.log('📊 Real-time progress update from cacheSyncManager:', progress);
+        }
+      } catch (error) {
+        // Ignore errors when getting company info
+        console.warn('Error in progress subscription:', error);
+      }
+    });
+
+    // Also set up periodic check for progress when downloading (every 1 second)
+    const progressInterval = setInterval(async () => {
+      if (isDownloadingCache) {
+        try {
+          if (!companyInfoRef) {
+            companyInfoRef = getCompanyInfo();
+          }
+          
+          if (companyInfoRef) {
+            const companyProgress = await cacheSyncManager.getCompanyProgress(companyInfoRef);
+            if (companyProgress && companyProgress.total > 0) {
+              setCacheDownloadProgress(companyProgress);
+              setIsDownloadingCache(true);
+              // Set start time if not already set and we have progress
+              if (!cacheDownloadStartTimeRef.current) {
+                const startTime = Date.now();
+                setCacheDownloadStartTime(startTime);
+                cacheDownloadStartTimeRef.current = startTime;
+              }
+              console.log('📊 Polled progress update:', companyProgress);
+            }
+          }
+        } catch (error) {
+          // Ignore errors - company might not be selected
+        }
+      }
+    }, 1000);
+
+    return () => {
+      unsubscribe();
+      clearInterval(progressInterval);
+    };
+  }, [isDownloadingCache]);
 
   // Expose loading state to parent component
   useEffect(() => {
@@ -340,7 +417,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return null;
   };
 
-
   // Helper function to fetch booksfrom date
   const fetchBooksFromDate = async (companyGuid) => {
     try {
@@ -447,22 +523,21 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setSelectedCountry('all');
       setSelectedPeriod(null);
       
-      // Check if cache exists and start background download accordingly
+      // Check if cache exists and load data accordingly (NO auto-update - user must click refresh)
       if (!hasCachedSalesData) {
-        console.log('📭 No sales cache found - starting background download from books begin date');
-        // Start background download for first time (complete data)
-        startBackgroundCacheDownload(companyInfo, false);
+        console.log('📭 No sales cache found - user must click refresh button to download data');
+        // Do NOT auto-start download - user must explicitly click refresh button
+        // This ensures user has control over when updates happen
       } else if (hasCachedSalesData) {
-        // Auto-load data from cache when tab opens
-        console.log('🚀 Loading data from cache and checking for updates in background...');
+        // Auto-load data from cache when tab opens (NO automatic update)
+        console.log('🚀 Loading data from cache...');
         console.log('📅 Auto-load will use dates:', defaults);
         // Use setTimeout to ensure dates are set in state before triggering auto-load
         setTimeout(() => {
           console.log('✅ Triggering auto-load with dates:', defaults);
           setShouldAutoLoad(true);
         }, 100);
-        // Start background update to fetch only new records
-        startBackgroundCacheDownload(companyInfo, true);
+        // Note: Automatic update completely disabled - user must click refresh button to update cache
       }
     } catch (err) {
       console.warn('⚠️ Sales dashboard initialization error:', err);
@@ -555,10 +630,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         
         console.log(`✅ Filtered ${filteredVouchers.length} vouchers from complete cache for date range ${startDate} to ${endDate}`);
         
-        // Return filtered data from cache - don't proceed to API calls
+        // Return filtered data from cache with timestamp - don't proceed to API calls
         return {
-          ...completeCache.data,
-          vouchers: filteredVouchers
+          data: {
+            ...completeCache.data,
+            vouchers: filteredVouchers
+          },
+          cacheTimestamp: completeCache.metadata?.timestamp || null
         };
       } else {
         console.log('📋 No complete cached data found, will check date-range cache');
@@ -598,7 +676,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         if (gaps.length === 0) {
           // All data is cached, merge and return
           console.log(`✅ All data is cached, merging ${cached.length} cached range(s)`);
-          return mergeCachedData(cached);
+          const merged = mergeCachedData(cached);
+          return { data: merged, cacheTimestamp: null };
         }
         
         // Some data is missing, but we're not calling API - use only cached data
@@ -608,7 +687,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         // Return only cached data without fetching gaps
         const merged = mergeCachedData(cached);
         console.log(`✅ Returning ${merged.vouchers?.length || 0} vouchers from cached ranges only`);
-        return merged;
+        return { data: merged, cacheTimestamp: null };
       }
     } catch (error) {
       console.warn('Error checking for overlapping cache:', error);
@@ -642,8 +721,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       });
       
       return {
-        ...completeCache.data,
-        vouchers: filteredVouchers
+        data: {
+          ...completeCache.data,
+          vouchers: filteredVouchers
+        },
+        cacheTimestamp: completeCache.metadata?.timestamp || null
       };
     }
     
@@ -651,7 +733,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     console.log(`⚠️ Skipping API call as requested - please download complete data first from Cache Management.`);
     
     // Return empty data instead of calling API
-    return { vouchers: [] };
+    return { data: { vouchers: [] }, cacheTimestamp: null };
   };
 
   // REMOVED: fetchSalesDataFromAPI - Sales dashboard now uses cache only
@@ -749,7 +831,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       // Don't auto-fetch - user must click Submit button to refresh data
     }
     prevFormulaRef.current = salespersonFormula;
-  }, [salespersonFormula, dateRange.start, dateRange.end, initializeDashboard]);
+  }, [salespersonFormula]);
 
   // Set default date range on component mount
   useEffect(() => {
@@ -763,27 +845,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return () => window.removeEventListener('companyChanged', handleCompanyChange);
   }, [initializeDashboard]);
 
-  // Auto-update cache every 30 minutes in the background
-  useEffect(() => {
-    const autoUpdateInterval = setInterval(async () => {
-      try {
-        const companyInfo = getCompanyInfo();
-        // Check if cache exists
-        const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
-        if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
-          console.log('⏰ Auto-update: Checking for new sales data...');
-          // Only start update if not already downloading
-          if (!isDownloadingCache) {
-            startBackgroundCacheDownload(companyInfo, true);
-          }
-        }
-      } catch (err) {
-        console.warn('⚠️ Auto-update check failed:', err);
-      }
-    }, 30 * 60 * 1000); // 30 minutes in milliseconds
+  // Auto-update removed - user must click refresh button to update cache
+  // useEffect(() => {
+  //   const autoUpdateInterval = setInterval(async () => {
+  //     try {
+  //       const companyInfo = getCompanyInfo();
+  //       // Check if cache exists
+  //       const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+  //       if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
+  //         console.log('⏰ Auto-update: Checking for new sales data...');
+  //         // Only start update if not already downloading
+  //         if (!isDownloadingCache) {
+  //           startBackgroundCacheDownload(companyInfo, true);
+  //         }
+  //       }
+  //     } catch (err) {
+  //       console.warn('⚠️ Auto-update check failed:', err);
+  //     }
+  //   }, 30 * 60 * 1000); // 30 minutes in milliseconds
 
-    return () => clearInterval(autoUpdateInterval);
-  }, [isDownloadingCache]);
+  //   return () => clearInterval(autoUpdateInterval);
+  // }, [isDownloadingCache]);
 
   // Filter sales data based on selected filters (excluding issales filter)
   const filteredSales = useMemo(() => {
@@ -792,6 +874,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       dateRange,
       selectedCustomer,
       selectedItem,
+      selectedLedgerGroup,
+      selectedRegion,
+      selectedCountry,
       selectedPeriod,
       selectedSalesperson,
       enabledSalespersonsSize: enabledSalespersons.size,
@@ -802,12 +887,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const dateMatch =
         (!dateRange.start || sale.date >= dateRange.start) &&
         (!dateRange.end || sale.date <= dateRange.end);
-      const customerMatch = selectedCustomer === 'all' || sale.customer === selectedCustomer;
-      const itemMatch = selectedItem === 'all' || sale.item === selectedItem;
-      const stockGroupMatch = selectedStockGroup === 'all' || sale.category === selectedStockGroup;
-      const ledgerGroupMatch = selectedLedgerGroup === 'all' || sale.ledgerGroup === selectedLedgerGroup;
-      const regionMatch = selectedRegion === 'all' || sale.region === selectedRegion;
-      const countryMatch = selectedCountry === 'all' || sale.country === selectedCountry;
+      const customerMatch = selectedCustomer === 'all' || (sale.customer && String(sale.customer).trim().toLowerCase() === String(selectedCustomer).trim().toLowerCase());
+      const itemMatch = selectedItem === 'all' || (sale.item && String(sale.item).trim().toLowerCase() === String(selectedItem).trim().toLowerCase());
+      const stockGroupMatch = selectedStockGroup === 'all' || (sale.category && String(sale.category).trim().toLowerCase() === String(selectedStockGroup).trim().toLowerCase());
+      const ledgerGroupMatch = selectedLedgerGroup === 'all' || (sale.ledgerGroup && String(sale.ledgerGroup).trim().toLowerCase() === String(selectedLedgerGroup).trim().toLowerCase());
+      const regionMatch = selectedRegion === 'all' || (sale.region && String(sale.region).trim().toLowerCase() === String(selectedRegion).trim().toLowerCase());
+      const countryMatch = selectedCountry === 'all' || (sale.country && String(sale.country).trim().toLowerCase() === String(selectedCountry).trim().toLowerCase());
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -932,12 +1017,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const dateMatch =
         (!dateRange.start || sale.date >= dateRange.start) &&
         (!dateRange.end || sale.date <= dateRange.end);
-      const customerMatch = selectedCustomer === 'all' || sale.customer === selectedCustomer;
-      const itemMatch = selectedItem === 'all' || sale.item === selectedItem;
-      const stockGroupMatch = selectedStockGroup === 'all' || sale.category === selectedStockGroup;
-      const ledgerGroupMatch = selectedLedgerGroup === 'all' || sale.ledgerGroup === selectedLedgerGroup;
-      const regionMatch = selectedRegion === 'all' || sale.region === selectedRegion;
-      const countryMatch = selectedCountry === 'all' || sale.country === selectedCountry;
+      const customerMatch = selectedCustomer === 'all' || (sale.customer && String(sale.customer).trim().toLowerCase() === String(selectedCustomer).trim().toLowerCase());
+      const itemMatch = selectedItem === 'all' || (sale.item && String(sale.item).trim().toLowerCase() === String(selectedItem).trim().toLowerCase());
+      const stockGroupMatch = selectedStockGroup === 'all' || (sale.category && String(sale.category).trim().toLowerCase() === String(selectedStockGroup).trim().toLowerCase());
+      const ledgerGroupMatch = selectedLedgerGroup === 'all' || (sale.ledgerGroup && String(sale.ledgerGroup).trim().toLowerCase() === String(selectedLedgerGroup).trim().toLowerCase());
+      const regionMatch = selectedRegion === 'all' || (sale.region && String(sale.region).trim().toLowerCase() === String(selectedRegion).trim().toLowerCase());
+      const countryMatch = selectedCountry === 'all' || (sale.country && String(sale.country).trim().toLowerCase() === String(selectedCountry).trim().toLowerCase());
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -1023,13 +1108,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const response = await fetchSalesData(startDate, endDate);
       console.log('📦 Response from fetchSalesData:', {
         hasResponse: !!response,
-        voucherCount: response?.vouchers?.length || 0,
-        sampleVoucher: response?.vouchers?.[0]
+        hasData: !!response?.data,
+        voucherCount: response?.data?.vouchers?.length || 0,
+        cacheTimestamp: response?.cacheTimestamp,
+        sampleVoucher: response?.data?.vouchers?.[0]
       });
       
+      // Handle both old format (direct data) and new format (wrapped with data and cacheTimestamp)
+      const responseData = response?.data || response;
+      const cacheTimestamp = response?.cacheTimestamp;
+      
       const allVouchers = [];
-      if (response?.vouchers && Array.isArray(response.vouchers)) {
-        allVouchers.push(...response.vouchers);
+      if (responseData?.vouchers && Array.isArray(responseData.vouchers)) {
+        allVouchers.push(...responseData.vouchers);
         console.log('✅ Loaded', allVouchers.length, 'vouchers from cache');
       } else {
         console.warn('⚠️ No vouchers found in response:', response);
@@ -1361,6 +1452,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               gstno: voucher.gstno || '',
               pincode: voucher.pincode || '',
               reference: voucher.reference || '',
+              vchtype: voucher.vchtype || '',
               
               // Additional inventory fields
               itemid: inventoryItem.itemid || '',
@@ -1418,6 +1510,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
       console.log('💾 Setting sales state with', transformedSales.length, 'transformed sales records');
       setSales(transformedSales);
+      
+      // Use cache timestamp if available, otherwise use current time
+      if (cacheTimestamp) {
+        console.log('📅 Using cache timestamp:', new Date(cacheTimestamp));
+        setLastUpdated(new Date(cacheTimestamp));
+      } else {
+        console.log('📅 No cache timestamp found, using current time');
+        setLastUpdated(new Date());
+      }
+      
       console.log('✅ Sales data loaded successfully. Total records:', transformedSales.length);
       setDateRange({ start: startDate, end: endDate });
       setFromDate(startDate);
@@ -1448,11 +1550,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     loadSales(fromDate, toDate, { invalidateCache: true });
   };
 
+  const handleRefresh = () => {
+    if (!fromDate || !toDate) {
+      console.warn('Cannot refresh: date range not set');
+      return;
+    }
+
+    try {
+      // Get company info for cache update
+      const companyInfo = getCompanyInfo();
+      
+      // Start cache update - this will sync data from server and auto-reload after completion
+      console.log('🔄 Refresh button clicked - starting cache update...');
+      
+      // Check if cache download is already in progress
+      if (isDownloadingCache) {
+        console.log('⚠️ Cache update already in progress, please wait...');
+        return;
+      }
+      
+      // Update cache from server (runs in background and auto-reloads data after completion)
+      // The startBackgroundCacheDownload function will:
+      // 1. Sync cache data from server
+      // 2. Automatically reload sales data after cache update completes
+      startBackgroundCacheDownload(companyInfo, true);
+    } catch (error) {
+      console.error('❌ Error during refresh:', error);
+      // If we can't get company info or start cache update, fallback to reloading from existing cache
+      if (fromDate && toDate) {
+        loadSales(fromDate, toDate, { invalidateCache: false });
+      }
+    }
+  };
+
   // Background cache download function
   const startBackgroundCacheDownload = async (companyInfo, isUpdate = false) => {
     if (isDownloadingCache || cacheDownloadAbortRef.current) return;
 
     setIsDownloadingCache(true);
+    const startTime = Date.now();
+    setCacheDownloadStartTime(startTime); // Track start time for ETA calculation
+    cacheDownloadStartTimeRef.current = startTime; // Also store in ref for use in callbacks
     setCacheDownloadProgress({ current: 0, total: 0, message: isUpdate ? 'Checking for updates...' : 'Downloading cache...' });
     cacheDownloadAbortRef.current = false;
 
@@ -1462,6 +1600,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       await syncSalesData(companyInfo, (progress) => {
         // Only update progress if not aborted
         if (!cacheDownloadAbortRef.current) {
+          // Force immediate state update for real-time progress
+          console.log('📊 Progress update:', progress);
           setCacheDownloadProgress(progress);
         }
       });
@@ -1483,11 +1623,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           }
         }, 500);
       } else {
-        // For updates, reload the current view if user is still on the same date range
+        // For updates, trigger auto-load to refresh with latest data
         setTimeout(() => {
-          if (!cacheDownloadAbortRef.current && fromDate && toDate) {
-            console.log('🔄 Refreshing view with updated data...');
-            loadSales(fromDate, toDate, { invalidateCache: true });
+          if (!cacheDownloadAbortRef.current) {
+            console.log('🔄 Triggering auto-reload with updated data...');
+            setShouldAutoLoad(true);
           }
         }, 500);
       }
@@ -1498,6 +1638,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     } finally {
       setIsDownloadingCache(false);
       setCacheDownloadProgress({ current: 0, total: 0, message: '' });
+      setCacheDownloadStartTime(null); // Clear start time when done
+      cacheDownloadStartTimeRef.current = null; // Also clear ref
     }
   };
 
@@ -1556,13 +1698,41 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     avgProfitPerOrder
   } = metrics;
 
+  // Helper function for case-insensitive grouping
+  // Groups by lowercase key but preserves the original case for display
+  const groupByCaseInsensitive = (items, getKey, getValue) => {
+    const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, value: number }>
+    
+    items.forEach(item => {
+      const key = getKey(item);
+      if (!key) return;
+      
+      const normalizedKey = String(key).trim().toLowerCase();
+      const originalKey = String(key).trim();
+      
+      if (!grouped.has(normalizedKey)) {
+        grouped.set(normalizedKey, { originalKey, value: 0 });
+      }
+      
+      const entry = grouped.get(normalizedKey);
+      entry.value += getValue(item);
+      // Keep the most common casing (or first encountered) as the original
+      // For now, we'll use the first encountered casing
+    });
+    
+    return grouped;
+  };
+
   // Category chart data
   const categoryChartData = useMemo(() => {
-    const categoryData = filteredSales.reduce((acc, sale) => {
-      const category = sale.category;
-      acc[category] = (acc[category] || 0) + sale.amount;
-      return acc;
-    }, {});
+    const grouped = groupByCaseInsensitive(
+      filteredSales,
+      (sale) => sale.category,
+      (sale) => sale.amount || 0
+    );
+    const categoryData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, value }]) => [originalKey, value])
+    );
 
     // Extended color palette for dynamic categories
     const colors = [
@@ -1599,11 +1769,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Ledger Group chart data
   const ledgerGroupChartData = useMemo(() => {
-    const ledgerGroupData = filteredSales.reduce((acc, sale) => {
-      const ledgerGroup = sale.ledgerGroup;
-      acc[ledgerGroup] = (acc[ledgerGroup] || 0) + sale.amount;
-      return acc;
-    }, {});
+    const grouped = groupByCaseInsensitive(
+      filteredSales,
+      (sale) => sale.ledgerGroup,
+      (sale) => sale.amount || 0
+    );
+    const ledgerGroupData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, value }]) => [originalKey, value])
+    );
 
     // Extended color palette for dynamic ledger groups
     const colors = [
@@ -1640,11 +1813,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Region chart data
   const regionChartData = useMemo(() => {
-    const regionData = filteredSales.reduce((acc, sale) => {
-      const region = sale.region;
-      acc[region] = (acc[region] || 0) + sale.amount;
-      return acc;
-    }, {});
+    const grouped = groupByCaseInsensitive(
+      filteredSales,
+      (sale) => sale.region,
+      (sale) => sale.amount || 0
+    );
+    const regionData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, value }]) => [originalKey, value])
+    );
 
     // Extended color palette for regions
     const regionColors = [
@@ -1672,13 +1848,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Country chart data - uses existing sales data, NO API calls
   // Country data is extracted from the initial loadSales() response
   const countryChartData = useMemo(() => {
-    const countryData = filteredSales.reduce((acc, sale) => {
-      const country = sale.country || 'Unknown';
-      // Ensure country is a valid string
-      const countryKey = String(country).trim() || 'Unknown';
-      acc[countryKey] = (acc[countryKey] || 0) + sale.amount;
-      return acc;
-    }, {});
+    const grouped = groupByCaseInsensitive(
+      filteredSales,
+      (sale) => sale.country || 'Unknown',
+      (sale) => sale.amount || 0
+    );
+    const countryData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, value }]) => [originalKey || 'Unknown', value])
+    );
 
     // Extended color palette for countries
     const countryColors = [
@@ -1782,11 +1959,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Top customers data
   const topCustomersData = useMemo(() => {
-    const customerData = filteredSales.reduce((acc, sale) => {
-      const customer = sale.customer;
-      acc[customer] = (acc[customer] || 0) + sale.amount;
-      return acc;
-    }, {});
+    const grouped = groupByCaseInsensitive(
+      filteredSales,
+      (sale) => sale.customer,
+      (sale) => sale.amount || 0
+    );
+    const customerData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, value }]) => [originalKey, value])
+    );
 
     // Extended color palette for customers
     const customerColors = [
@@ -1814,15 +1994,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Top items by revenue data
   const topItemsByRevenueData = useMemo(() => {
-    const itemData = filteredSales.reduce((acc, sale) => {
+    const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, revenue: number, quantity: number }>
+    
+    filteredSales.forEach(sale => {
       const item = sale.item;
-      if (!acc[item]) {
-        acc[item] = { revenue: 0, quantity: 0 };
+      if (!item) return;
+      
+      const normalizedKey = String(item).trim().toLowerCase();
+      const originalKey = String(item).trim();
+      
+      if (!grouped.has(normalizedKey)) {
+        grouped.set(normalizedKey, { originalKey, revenue: 0, quantity: 0 });
       }
-      acc[item].revenue += sale.amount;
-      acc[item].quantity += sale.quantity;
-      return acc;
-    }, {});
+      
+      const entry = grouped.get(normalizedKey);
+      entry.revenue += sale.amount || 0;
+      entry.quantity += sale.quantity || 0;
+    });
+    
+    const itemData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, revenue, quantity }]) => [
+        originalKey,
+        { revenue, quantity }
+      ])
+    );
 
     // Extended color palette for items
     const itemColors = [
@@ -1850,15 +2045,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Top items by quantity data
   const topItemsByQuantityData = useMemo(() => {
-    const itemData = filteredSales.reduce((acc, sale) => {
+    const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, revenue: number, quantity: number }>
+    
+    filteredSales.forEach(sale => {
       const item = sale.item;
-      if (!acc[item]) {
-        acc[item] = { revenue: 0, quantity: 0 };
+      if (!item) return;
+      
+      const normalizedKey = String(item).trim().toLowerCase();
+      const originalKey = String(item).trim();
+      
+      if (!grouped.has(normalizedKey)) {
+        grouped.set(normalizedKey, { originalKey, revenue: 0, quantity: 0 });
       }
-      acc[item].revenue += sale.amount;
-      acc[item].quantity += sale.quantity;
-      return acc;
-    }, {});
+      
+      const entry = grouped.get(normalizedKey);
+      entry.revenue += sale.amount || 0;
+      entry.quantity += sale.quantity || 0;
+    });
+    
+    const itemData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, revenue, quantity }]) => [
+        originalKey,
+        { revenue, quantity }
+      ])
+    );
 
     // Extended color palette for quantity items
     const quantityColors = [
@@ -1984,15 +2194,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Top 10 profitable items chart data
   const topProfitableItemsData = useMemo(() => {
-    const itemData = filteredSales.reduce((acc, sale) => {
+    const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, profit: number, revenue: number }>
+    
+    filteredSales.forEach(sale => {
       const item = sale.item;
-      if (!acc[item]) {
-        acc[item] = { profit: 0, revenue: 0 };
+      if (!item) return;
+      
+      const normalizedKey = String(item).trim().toLowerCase();
+      const originalKey = String(item).trim();
+      
+      if (!grouped.has(normalizedKey)) {
+        grouped.set(normalizedKey, { originalKey, profit: 0, revenue: 0 });
       }
-      acc[item].profit += sale.profit || 0;
-      acc[item].revenue += sale.amount;
-      return acc;
-    }, {});
+      
+      const entry = grouped.get(normalizedKey);
+      entry.profit += sale.profit || 0;
+      entry.revenue += sale.amount || 0;
+    });
+    
+    const itemData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, profit, revenue }]) => [
+        originalKey,
+        { profit, revenue }
+      ])
+    );
 
     const profitColors = [
       '#10b981', // Green
@@ -2020,15 +2245,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Top 10 loss items chart data (items with negative profit)
   const topLossItemsData = useMemo(() => {
-    const itemData = filteredSales.reduce((acc, sale) => {
+    const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, profit: number, revenue: number }>
+    
+    filteredSales.forEach(sale => {
       const item = sale.item;
-      if (!acc[item]) {
-        acc[item] = { profit: 0, revenue: 0 };
+      if (!item) return;
+      
+      const normalizedKey = String(item).trim().toLowerCase();
+      const originalKey = String(item).trim();
+      
+      if (!grouped.has(normalizedKey)) {
+        grouped.set(normalizedKey, { originalKey, profit: 0, revenue: 0 });
       }
-      acc[item].profit += sale.profit || 0;
-      acc[item].revenue += sale.amount;
-      return acc;
-    }, {});
+      
+      const entry = grouped.get(normalizedKey);
+      entry.profit += sale.profit || 0;
+      entry.revenue += sale.amount || 0;
+    });
+    
+    const itemData = Object.fromEntries(
+      Array.from(grouped.entries()).map(([_, { originalKey, profit, revenue }]) => [
+        originalKey,
+        { profit, revenue }
+      ])
+    );
 
     const lossColors = [
       '#ef4444', // Red
@@ -2123,6 +2363,860 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     selectedSalesperson !== null ||
     (genericFilters && Object.keys(genericFilters).length > 0 && Object.values(genericFilters).some(v => v !== null && v !== 'all' && v !== ''));
 
+  // Helper function to render filter badges for a specific card
+  const renderCardFilterBadges = (cardType, cardId = null) => {
+    const badges = [];
+    
+    // Map card types to their relevant filters
+    const filterMap = {
+      'customer': ['selectedCustomer'],
+      'item': ['selectedItem'],
+      'stockGroup': ['selectedStockGroup'],
+      'region': ['selectedRegion'],
+      'country': ['selectedCountry'],
+      'period': ['selectedPeriod'],
+      'salesperson': ['selectedSalesperson'],
+      'ledgerGroup': ['selectedLedgerGroup'],
+      'topCustomers': ['selectedCustomer'],
+      'topItems': ['selectedItem'],
+      'custom': cardId ? [`generic_${cardId}`] : []
+    };
+    
+    const relevantFilters = filterMap[cardType] || [];
+    
+    // Add customer filter badge
+    if (relevantFilters.includes('selectedCustomer') && selectedCustomer !== 'all') {
+      badges.push(
+        <div
+          key="customer-filter"
+          style={{
+            background: '#dbeafe',
+            border: '1px solid #93c5fd',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#1e40af',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>person</span>
+          {isMobile ? 'Customer' : `Customer: ${selectedCustomer}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedCustomer('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#1e40af',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#93c5fd';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add item filter badge
+    if (relevantFilters.includes('selectedItem') && selectedItem !== 'all') {
+      badges.push(
+        <div
+          key="item-filter"
+          style={{
+            background: '#dcfce7',
+            border: '1px solid #86efac',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#166534',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>inventory_2</span>
+          {isMobile ? 'Item' : `Item: ${selectedItem}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedItem('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#166534',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#86efac';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add stock group filter badge
+    if (relevantFilters.includes('selectedStockGroup') && selectedStockGroup !== 'all') {
+      badges.push(
+        <div
+          key="stockGroup-filter"
+          style={{
+            background: '#fef3c7',
+            border: '1px solid #fcd34d',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#92400e',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>category</span>
+          {isMobile ? 'Stock Group' : `Stock Group: ${selectedStockGroup}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedStockGroup('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#92400e',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#fcd34d';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add region filter badge
+    if (relevantFilters.includes('selectedRegion') && selectedRegion !== 'all') {
+      badges.push(
+        <div
+          key="region-filter"
+          style={{
+            background: '#e0e7ff',
+            border: '1px solid #a5b4fc',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#3730a3',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>location_on</span>
+          {isMobile ? 'State' : `State: ${selectedRegion}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedRegion('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#3730a3',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#a5b4fc';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add country filter badge
+    if (relevantFilters.includes('selectedCountry') && selectedCountry !== 'all') {
+      badges.push(
+        <div
+          key="country-filter"
+          style={{
+            background: '#fef3c7',
+            border: '1px solid #fcd34d',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#92400e',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>public</span>
+          {isMobile ? 'Country' : `Country: ${selectedCountry}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedCountry('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#92400e',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#fcd34d';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add period filter badge
+    if (relevantFilters.includes('selectedPeriod') && selectedPeriod !== null) {
+      badges.push(
+        <div
+          key="period-filter"
+          style={{
+            background: '#fce7f3',
+            border: '1px solid #f9a8d4',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#9d174d',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>calendar_month</span>
+          {isMobile ? 'Period' : `Period: ${formatPeriodLabel(selectedPeriod)}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedPeriod(null);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#9d174d',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#f9a8d4';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add salesperson filter badge
+    if (relevantFilters.includes('selectedSalesperson') && selectedSalesperson !== null) {
+      badges.push(
+        <div
+          key="salesperson-filter"
+          style={{
+            background: '#fff7ed',
+            border: '1px solid #fed7aa',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#c2410c',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>person_outline</span>
+          {isMobile ? 'Salesperson' : `Salesperson: ${selectedSalesperson}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedSalesperson(null);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#c2410c',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#fed7aa';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add ledger group filter badge
+    if (relevantFilters.includes('selectedLedgerGroup') && selectedLedgerGroup !== 'all') {
+      badges.push(
+        <div
+          key="ledgerGroup-filter"
+          style={{
+            background: '#f3e8ff',
+            border: '1px solid #c084fc',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#6b21a8',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>group</span>
+          {isMobile ? 'Ledger Group' : `Ledger Group: ${selectedLedgerGroup}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedLedgerGroup('all');
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#6b21a8',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#c084fc';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // For custom cards, check both standard filters (if groupBy matches) and generic filters
+    if (cardType === 'custom' && cardId) {
+      const card = customCards.find(c => c.id === cardId);
+      if (card) {
+        const groupBy = card.groupBy;
+        const groupByLower = groupBy ? groupBy.toLowerCase() : '';
+        
+        // Check if custom card's groupBy matches standard filter fields and show badges
+        // Customer filter
+        if ((groupByLower === 'customer') && selectedCustomer !== 'all') {
+          badges.push(
+            <div
+              key="customer-filter"
+              style={{
+                background: '#dbeafe',
+                border: '1px solid #93c5fd',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#1e40af',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>person</span>
+              {isMobile ? 'Customer' : `Customer: ${selectedCustomer}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedCustomer('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#1e40af',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#93c5fd';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Item filter
+        if ((groupByLower === 'item') && selectedItem !== 'all') {
+          badges.push(
+            <div
+              key="item-filter"
+              style={{
+                background: '#dcfce7',
+                border: '1px solid #86efac',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#166534',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>inventory_2</span>
+              {isMobile ? 'Item' : `Item: ${selectedItem}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedItem('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#166534',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#86efac';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Stock Group filter
+        if ((groupByLower === 'category' || groupByLower === 'stockgroup' || groupByLower === 'stock_group') && selectedStockGroup !== 'all') {
+          badges.push(
+            <div
+              key="stockGroup-filter"
+              style={{
+                background: '#fef3c7',
+                border: '1px solid #fcd34d',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#92400e',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>category</span>
+              {isMobile ? 'Stock Group' : `Stock Group: ${selectedStockGroup}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedStockGroup('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#92400e',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#fcd34d';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Region filter
+        if ((groupByLower === 'region') && selectedRegion !== 'all') {
+          badges.push(
+            <div
+              key="region-filter"
+              style={{
+                background: '#e0e7ff',
+                border: '1px solid #a5b4fc',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#3730a3',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>location_on</span>
+              {isMobile ? 'State' : `State: ${selectedRegion}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedRegion('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#3730a3',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#a5b4fc';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Country filter
+        if ((groupByLower === 'country') && selectedCountry !== 'all') {
+          badges.push(
+            <div
+              key="country-filter"
+              style={{
+                background: '#fef3c7',
+                border: '1px solid #fcd34d',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#92400e',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>public</span>
+              {isMobile ? 'Country' : `Country: ${selectedCountry}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedCountry('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#92400e',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#fcd34d';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Period filter (for date grouping)
+        if ((groupBy === 'date') && selectedPeriod !== null) {
+          badges.push(
+            <div
+              key="period-filter"
+              style={{
+                background: '#fce7f3',
+                border: '1px solid #f9a8d4',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#9d174d',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>calendar_month</span>
+              {isMobile ? 'Period' : `Period: ${formatPeriodLabel(selectedPeriod)}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedPeriod(null);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#9d174d',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#f9a8d4';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Ledger Group filter
+        if ((groupByLower === 'ledgergroup' || groupByLower === 'ledger_group') && selectedLedgerGroup !== 'all') {
+          badges.push(
+            <div
+              key="ledgerGroup-filter"
+              style={{
+                background: '#f3e8ff',
+                border: '1px solid #c084fc',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#6b21a8',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>group</span>
+              {isMobile ? 'Ledger Group' : `Ledger Group: ${selectedLedgerGroup}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedLedgerGroup('all');
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#6b21a8',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#c084fc';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+      }
+      
+      // Add generic filters for custom cards (for non-standard groupBy fields)
+      if (genericFilters) {
+      Object.entries(genericFilters).forEach(([filterKey, filterValue]) => {
+        if (filterKey.startsWith(`${cardId}_`) && filterValue && filterValue !== 'all' && filterValue !== '') {
+          const fieldName = filterKey.replace(`${cardId}_`, '');
+          const fieldLabel = fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
+          
+          badges.push(
+            <div
+              key={filterKey}
+              style={{
+                background: '#f0f9ff',
+                border: '1px solid #7dd3fc',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#0c4a6e',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>filter_alt</span>
+              {isMobile ? fieldLabel : `${fieldLabel}: ${filterValue}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setGenericFilters(prev => {
+                    const updated = { ...prev };
+                    delete updated[filterKey];
+                    try {
+                      sessionStorage.setItem('customCardGenericFilters', JSON.stringify(updated));
+                    } catch (e) {
+                      console.warn('Failed to update generic filters:', e);
+                    }
+                    return updated;
+                  });
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#0c4a6e',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#7dd3fc';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+      });
+      }
+    }
+    
+    return badges.length > 0 ? (
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+        {badges}
+      </div>
+    ) : null;
+  };
+
   const clearAllFilters = () => {
     // Only clear interactive filters - do NOT touch cache or date range
     console.log('🧹 Clearing interactive filters only (preserving cache and date range)...');
@@ -2166,6 +3260,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   const generateCustomCardData = useCallback((cardConfig, salesData) => {
     if (!salesData || salesData.length === 0) return [];
+    if (!cardConfig || !cardConfig.groupBy || !cardConfig.valueField) {
+      console.warn('Invalid card config:', cardConfig);
+      return [];
+    }
 
     // Apply filters from card config
     let filteredData = [...salesData];
@@ -2173,19 +3271,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     // Apply custom card filters (if specified)
     if (cardConfig.filters) {
       if (cardConfig.filters.customer && cardConfig.filters.customer !== 'all') {
-        filteredData = filteredData.filter(s => s.customer === cardConfig.filters.customer);
+        filteredData = filteredData.filter(s => s.customer && String(s.customer).trim().toLowerCase() === String(cardConfig.filters.customer).trim().toLowerCase());
       }
       if (cardConfig.filters.item && cardConfig.filters.item !== 'all') {
-        filteredData = filteredData.filter(s => s.item === cardConfig.filters.item);
+        filteredData = filteredData.filter(s => s.item && String(s.item).trim().toLowerCase() === String(cardConfig.filters.item).trim().toLowerCase());
       }
       if (cardConfig.filters.stockGroup && cardConfig.filters.stockGroup !== 'all') {
-        filteredData = filteredData.filter(s => s.category === cardConfig.filters.stockGroup);
+        filteredData = filteredData.filter(s => s.category && String(s.category).trim().toLowerCase() === String(cardConfig.filters.stockGroup).trim().toLowerCase());
       }
       if (cardConfig.filters.region && cardConfig.filters.region !== 'all') {
-        filteredData = filteredData.filter(s => s.region === cardConfig.filters.region);
+        filteredData = filteredData.filter(s => s.region && String(s.region).trim().toLowerCase() === String(cardConfig.filters.region).trim().toLowerCase());
       }
       if (cardConfig.filters.country && cardConfig.filters.country !== 'all') {
-        filteredData = filteredData.filter(s => s.country === cardConfig.filters.country);
+        filteredData = filteredData.filter(s => s.country && String(s.country).trim().toLowerCase() === String(cardConfig.filters.country).trim().toLowerCase());
       }
       if (cardConfig.filters.salesperson && cardConfig.filters.salesperson !== 'all') {
         filteredData = filteredData.filter(s => s.salesperson === cardConfig.filters.salesperson);
@@ -2198,12 +3296,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           return salePeriod === cardConfig.filters.period;
         });
       }
+      // Handle generic filter field and values
+      if (cardConfig.filters.filterField && cardConfig.filters.filterValues && cardConfig.filters.filterValues.length > 0) {
+        const filterFieldName = cardConfig.filters.filterField;
+        const filterValuesSet = new Set(cardConfig.filters.filterValues.map(v => String(v).trim().toLowerCase()));
+        filteredData = filteredData.filter(s => {
+          // Use case-insensitive field access
+          const fieldValue = getFieldValue(s, filterFieldName);
+          if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+            return false;
+          }
+          const normalizedValue = String(fieldValue).trim().toLowerCase();
+          return filterValuesSet.has(normalizedValue);
+        });
+      }
     }
 
     // Group data by selected field
     const grouped = {};
     filteredData.forEach(sale => {
       let groupKey = '';
+      let originalKey = '';
       
       if (cardConfig.groupBy === 'date') {
         const saleDate = sale.cp_date || sale.date;
@@ -2221,11 +3334,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         } else {
           groupKey = saleDate;
         }
+        originalKey = groupKey;
       } else if (cardConfig.groupBy === 'profit_margin') {
         const amount = parseFloat(getFieldValue(sale, 'amount') || 0);
         const profit = parseFloat(getFieldValue(sale, 'profit') || 0);
         const margin = amount > 0 ? ((profit / amount) * 100).toFixed(0) : '0';
         groupKey = `${margin}%`;
+        originalKey = groupKey;
       } else if (cardConfig.groupBy === 'order_value') {
         // Group by order value ranges
         const value = parseFloat(getFieldValue(sale, 'amount') || 0);
@@ -2234,21 +3349,35 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         else if (value < 10000) groupKey = '₹5K - ₹10K';
         else if (value < 50000) groupKey = '₹10K - ₹50K';
         else groupKey = '> ₹50K';
+        originalKey = groupKey;
       } else {
         // Generic field access - use helper function for case-insensitive search
         const fieldValue = getFieldValue(sale, cardConfig.groupBy);
-        groupKey = fieldValue || 'Unknown';
+        // Normalize to lowercase for grouping, but preserve original for display
+        const normalizedValue = fieldValue ? String(fieldValue).trim() : 'Unknown';
+        groupKey = normalizedValue.toLowerCase();
+        originalKey = normalizedValue;
       }
-
+      
+      // Initialize group if needed
       if (!grouped[groupKey]) {
-        grouped[groupKey] = [];
+        grouped[groupKey] = { items: [], originalKey: originalKey };
+      } else {
+        // For case-insensitive fields, keep the most common casing (use first encountered)
+        if (cardConfig.groupBy !== 'date' && cardConfig.groupBy !== 'profit_margin' && cardConfig.groupBy !== 'order_value') {
+          if (grouped[groupKey].originalKey === 'Unknown' && originalKey !== 'Unknown') {
+            grouped[groupKey].originalKey = originalKey;
+          }
+        }
       }
-      grouped[groupKey].push(sale);
+      grouped[groupKey].items.push(sale);
     });
 
     // Calculate aggregated values
     const result = Object.keys(grouped).map(key => {
-      const items = grouped[key];
+      const groupData = grouped[key];
+      const items = groupData.items || groupData; // Support both old and new format
+      const displayKey = groupData.originalKey || key; // Use original key for display
       let value = 0;
 
       if (cardConfig.aggregation === 'sum') {
@@ -2430,7 +3559,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       }
 
       return {
-        label: key,
+        label: displayKey, // Use original key for display (preserves casing)
         value: value
       };
     });
@@ -2614,7 +3743,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   const transactionColumns = useMemo(() => ([
     { key: 'date', label: 'Date' },
-    { key: 'voucherNo', label: 'Voucher No' },
+    { key: 'vchno', label: 'Voucher No' },
+    { key: 'vchtype', label: 'Voucher Type' },
     { key: 'customer', label: 'Customer' },
     { key: 'item', label: 'Item' },
     { key: 'category', label: 'Category' },
@@ -2626,20 +3756,36 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   ]), []);
 
   const buildTransactionRows = useCallback((salesList) => (
-    salesList.map((sale) => ({
-      date: sale.cp_date || sale.date,
-      voucherNo: sale.vchno || '',
-      customer: sale.customer || '-',
-      item: sale.item || '-',
-      category: sale.category || '-',
-      region: sale.region || '-',
-      country: sale.country || 'Unknown',
-      salesperson: sale.salesperson || 'Unassigned',
-      quantity: Number.isFinite(sale.quantity) ? sale.quantity : parseFloat(sale.quantity) || 0,
-      amount: sale.amount || 0,
-      masterid: sale.masterid, // Include masterid for direct voucher details access
-      masterId: sale.masterid, // Also include as masterId for compatibility
-    }))
+    salesList.map((sale) => {
+      // Ensure vchtype is a string, not an object
+      let vchtypeValue = '';
+      if (sale.vchtype) {
+        if (typeof sale.vchtype === 'string') {
+          vchtypeValue = sale.vchtype;
+        } else if (typeof sale.vchtype === 'object') {
+          // If it's an object, try to extract a meaningful value or convert to string
+          vchtypeValue = JSON.stringify(sale.vchtype);
+        } else {
+          vchtypeValue = String(sale.vchtype);
+        }
+      }
+      
+      return {
+        date: sale.cp_date || sale.date,
+        vchno: sale.vchno || '',
+        vchtype: vchtypeValue,
+        customer: sale.customer || '-',
+        item: sale.item || '-',
+        category: sale.category || '-',
+        region: sale.region || '-',
+        country: sale.country || 'Unknown',
+        salesperson: sale.salesperson || 'Unassigned',
+        quantity: Number.isFinite(sale.quantity) ? sale.quantity : parseFloat(sale.quantity) || 0,
+        amount: sale.amount || 0,
+        masterid: sale.masterid, // Include masterid for direct voucher details access
+        masterId: sale.masterid, // Also include as masterId for compatibility
+      };
+    })
   ), []);
 
   // NOTE: This function ONLY filters existing sales data - NO API calls are made
@@ -3142,7 +4288,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     } else {
       // Fallback: try to find by customer and voucher number
       const customer = row.customer || '';
-      const voucherNo = row.voucherNo || '';
+      const voucherNo = row.vchno || row.voucherNo || '';
       
       if (customer && voucherNo) {
         // Find the first transaction matching customer and voucher number
@@ -4494,6 +5640,29 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       return '-';
     }
 
+    // Handle objects - convert to string representation
+    if (typeof value === 'object' && !Array.isArray(value)) {
+      // If it's an object, try to extract a meaningful string representation
+      if (value.BILLNAME) {
+        return value.BILLNAME;
+      }
+      // Otherwise, convert to JSON string (truncated if too long)
+      const jsonStr = JSON.stringify(value);
+      return jsonStr.length > 50 ? jsonStr.substring(0, 50) + '...' : jsonStr;
+    }
+
+    // Handle arrays - convert to string representation
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        return '-';
+      }
+      // If array contains objects, try to extract meaningful info
+      if (value.length > 0 && typeof value[0] === 'object') {
+        return `${value.length} item(s)`;
+      }
+      return value.join(', ');
+    }
+
     if (column.format === 'currency') {
       const numericValue = typeof value === 'number' ? value : parseFloat(value);
       if (Number.isFinite(numericValue)) {
@@ -4606,6 +5775,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               opacity: 0;
             }
           }
+          @keyframes indeterminateProgress {
+            0% {
+              transform: translateX(-100%);
+            }
+            100% {
+              transform: translateX(400%);
+            }
+          }
         `}
       </style>
      <div
@@ -4641,8 +5818,75 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           background: 'transparent',
           position: 'relative'
           }}>
-            {/* Green Pulsating Dot Indicator */}
-            {isDownloadingCache && (
+            {/* Cache Update Progress Bar Indicator */}
+            {isDownloadingCache && (() => {
+              // Use current values directly to ensure real-time updates
+              const current = cacheDownloadProgress.current || 0;
+              const total = cacheDownloadProgress.total || 0;
+              const hasTotal = total > 0;
+              
+              const progressPercentage = hasTotal && total > 0
+                ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
+                : 0;
+              
+              // Calculate ETA
+              const calculateETA = () => {
+                const startTime = cacheDownloadStartTime || cacheDownloadStartTimeRef.current;
+                if (!hasTotal || !startTime || current === 0 || current >= total) {
+                  return null;
+                }
+                
+                const elapsed = Date.now() - startTime; // milliseconds
+                const elapsedSeconds = elapsed / 1000;
+                const rate = current / elapsedSeconds; // items per second
+                
+                if (rate === 0 || !isFinite(rate)) {
+                  return null;
+                }
+                
+                const remaining = total - current;
+                const remainingSeconds = remaining / rate;
+                
+                if (!isFinite(remainingSeconds) || remainingSeconds < 0) {
+                  return null;
+                }
+                
+                // Format ETA
+                if (remainingSeconds < 60) {
+                  return `${Math.round(remainingSeconds)}s`;
+                } else if (remainingSeconds < 3600) {
+                  const minutes = Math.floor(remainingSeconds / 60);
+                  const seconds = Math.round(remainingSeconds % 60);
+                  return `${minutes}m ${seconds}s`;
+                } else {
+                  const hours = Math.floor(remainingSeconds / 3600);
+                  const minutes = Math.round((remainingSeconds % 3600) / 60);
+                  return `${hours}h ${minutes}m`;
+                }
+              };
+              
+              const eta = calculateETA();
+              
+              // Show indeterminate progress when total is not yet known
+              const isIndeterminate = !hasTotal;
+              
+              // Ensure we always show at least some progress visually
+              // When progress is 0%, show 5% so user knows something is happening
+              // When progress > 0%, show actual progress (minimum 1% for visibility)
+              const displayProgress = hasTotal 
+                ? (progressPercentage === 0 ? 5 : Math.max(progressPercentage, 1))
+                : 0;
+              
+              const tooltipText = hasTotal
+                ? `${cacheDownloadProgress.message || 'Updating cache'}: ${progressPercentage}% (${current}/${total})${eta ? ` • ETA: ${eta}` : ''}`
+                : (cacheDownloadProgress.message || 'Updating cache...');
+
+              return (
+                <Tooltip
+                  title={tooltipText}
+                  arrow
+                  placement="left"
+                >
               <div style={{
                 position: 'absolute',
                 top: '20px',
@@ -4650,36 +5894,77 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 zIndex: 1000,
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px'
-              }}>
-                <div style={{ position: 'relative', width: '12px', height: '12px' }}>
-                  {/* Pulsating ring effect */}
+                    gap: '8px',
+                    cursor: 'pointer'
+                  }}>
+                    {/* ETA Display */}
+                    {eta && (
+                      <span style={{
+                        fontSize: '11px',
+                        color: '#64748b',
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap'
+                      }}>
+                        ETA: {eta}
+                      </span>
+                    )}
                   <div style={{
+                      width: '120px',
+                      height: '6px',
+                      backgroundColor: '#e2e8f0',
+                      borderRadius: '3px',
+                      overflow: 'hidden',
+                      position: 'relative',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                    }}>
+                      {isIndeterminate ? (
+                        // Indeterminate progress bar (animated sliding)
+                        <div
+                          style={{
+                            width: '30%',
+                            height: '100%',
+                            backgroundColor: '#10b981',
+                            borderRadius: '3px',
+                            animation: 'indeterminateProgress 1.5s ease-in-out infinite',
                     position: 'absolute',
-                    top: '0',
-                    left: '0',
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '50%',
-                    background: '#10b981',
-                    opacity: 0.4,
-                    animation: 'pulseRing 2s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-                  }}></div>
-                  {/* Main dot */}
-                  <div style={{
+                            left: 0,
+                            top: 0
+                          }}
+                        />
+                      ) : (
+                        // Determinate progress bar
+                        <div
+                          style={{
+                            width: `${displayProgress}%`,
+                            height: '100%',
+                            backgroundColor: '#10b981',
+                            borderRadius: '3px',
+                            transition: 'width 0.3s ease',
+                            position: 'relative',
+                            overflow: 'hidden',
+                            minWidth: progressPercentage > 0 ? '2px' : '0px'
+                          }}
+                        >
+                          {progressPercentage > 0 && progressPercentage < 100 && (
+                            <div
+                              style={{
                     position: 'absolute',
-                    top: '0',
-                    left: '0',
-                    width: '12px',
-                    height: '12px',
-                    borderRadius: '50%',
-                    background: '#10b981',
-                    boxShadow: '0 0 8px rgba(16, 185, 129, 0.6)',
-                    animation: 'pulse 2s ease-in-out infinite'
-                  }}></div>
-                </div>
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent)',
+                                animation: 'progressShimmer 1.5s infinite'
+                              }}
+                            />
+                          )}
               </div>
             )}
+                    </div>
+                  </div>
+                </Tooltip>
+              );
+            })()}
             {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
         {isMobile ? (
           <>
@@ -4760,8 +6045,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{ 
               display: 'grid',
               gridTemplateColumns: '1fr',
-              gap: '8px', 
-              width: '100%'
+              gap: '10px', 
+              width: '100%',
+              boxSizing: 'border-box'
             }}>
               {/* Create Custom Card Button */}
               <button
@@ -4848,6 +6134,86 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <span className="material-icons" style={{ fontSize: '18px' }}>calendar_month</span>
                 <span>Select Date Range</span>
               </button>
+
+              {/* Last Updated & Refresh - Mobile */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: '8px',
+                width: '100%',
+                padding: '10px 12px',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                boxSizing: 'border-box'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  flex: '1 1 0',
+                  minWidth: 0,
+                  overflow: 'hidden'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '16px', color: '#64748b', flexShrink: 0 }}>schedule</span>
+                  <span style={{
+                    fontSize: '11px',
+                    color: '#64748b',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    flex: '1 1 0',
+                    minWidth: 0
+                  }}>
+                    {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={loading || !fromDate || !toDate}
+                  style={{
+                    background: loading || !fromDate || !toDate
+                      ? '#e5e7eb'
+                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '6px 10px',
+                    cursor: loading || !fromDate || !toDate ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    color: loading || !fromDate || !toDate ? '#9ca3af' : '#fff',
+                    fontSize: '11px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s ease',
+                    boxShadow: loading || !fromDate || !toDate
+                      ? 'none'
+                      : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                    flexShrink: 0,
+                    whiteSpace: 'nowrap'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
+                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{
+                    fontSize: '16px',
+                    animation: loading ? 'spin 1s linear infinite' : 'none'
+                  }}>refresh</span>
+                  <span>Refresh</span>
+                </button>
+              </div>
 
               {/* Download Button */}
               <div style={{ position: 'relative', width: '100%' }} ref={downloadDropdownRef}>
@@ -4979,8 +6345,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               display: 'flex',
               alignItems: 'center',
               gap: '12px',
-              flex: '1 1 0',
-              minWidth: '300px'
+              flex: '0 1 auto',
+              minWidth: '200px',
+              maxWidth: '400px',
+              overflow: 'hidden'
             }}>
               <div style={{
                 width: '44px',
@@ -5005,7 +6373,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               >
                 <span className="material-icons" style={{ color: 'white', fontSize: '22px' }}>analytics</span>
               </div>
-              <div style={{ flex: '0 0 auto' }}>
+              <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
                 <h1 style={{
                   margin: 0,
                   color: '#0f172a',
@@ -5013,17 +6381,31 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   fontWeight: '800',
                   lineHeight: '1.2',
                   letterSpacing: '-0.02em',
-                  whiteSpace: 'nowrap'
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
                 }}>
                   Sales Analytics Dashboard
                 </h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '4px', flexWrap: 'wrap' }}>
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '10px', 
+                  marginTop: '4px', 
+                  flexWrap: 'wrap',
+                  overflow: 'hidden',
+                  minWidth: 0
+                }}>
                   <p style={{
                     margin: 0,
                     color: '#64748b',
                     fontSize: '13px',
                     fontWeight: '500',
-                    lineHeight: '1.4'
+                    lineHeight: '1.4',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    flex: '0 1 auto'
                   }}>
                     Comprehensive sales insights
                   </p>
@@ -5039,7 +6421,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     alignItems: 'center',
                     gap: '5px',
                     border: '1px solid #bae6fd',
-                    whiteSpace: 'nowrap'
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0
                   }}>
                     <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
                     {filteredSales.length} records
@@ -5050,7 +6433,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
             {/* Desktop: Buttons */}
             {/* Create Custom Card Button - Desktop */}
-            <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center' }}>
+            <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                 <button
                   onClick={(e) => {
                     e.preventDefault();
@@ -5102,10 +6485,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 display: 'flex',
                 alignItems: 'center',
                 gap: '10px',
-                flex: '1 1 0',
+                flex: '0 1 auto',
                 justifyContent: 'center',
                 flexWrap: 'wrap',
-                minWidth: '200px'
+                minWidth: '140px',
+                flexShrink: 1
               }}>
                 <button
                   type="button"
@@ -5148,15 +6532,87 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </button>
               </div>
 
+              {/* Last Updated & Refresh - Desktop */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                flex: '0 0 auto',
+                padding: '6px 12px',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '14px', color: '#64748b' }}>schedule</span>
+                  <span style={{
+                    fontSize: '12px',
+                    color: '#64748b',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRefresh}
+                  disabled={loading || !fromDate || !toDate}
+                  style={{
+                    background: loading || !fromDate || !toDate
+                      ? '#e5e7eb'
+                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    border: 'none',
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    cursor: loading || !fromDate || !toDate ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    color: loading || !fromDate || !toDate ? '#9ca3af' : '#fff',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s ease',
+                    boxShadow: loading || !fromDate || !toDate
+                      ? 'none'
+                      : '0 2px 4px rgba(59, 130, 246, 0.25)'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
+                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!loading && fromDate && toDate) {
+                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{
+                    fontSize: '16px',
+                    animation: loading ? 'spin 1s linear infinite' : 'none'
+                  }}>refresh</span>
+                  <span>Refresh</span>
+                </button>
+              </div>
+
               {/* Right: Download Dropdown - Desktop */}
               <div style={{
                 display: 'flex', 
                 gap: '6px', 
                 alignItems: 'center',
-                flex: '1 1 0',
+                flex: '0 0 auto',
                 justifyContent: 'flex-end',
-                minWidth: '150px',
-                position: 'relative'
+                minWidth: '120px',
+                position: 'relative',
+                flexShrink: 0
               }} ref={downloadDropdownRef}>
                 <button
                   type="button"
@@ -6194,7 +7650,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {ledgerGroupChartType === 'bar' && (
@@ -6220,6 +7677,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Sales by Ledger Group
                 </h3>
+                {renderCardFilterBadges('ledgerGroup')}
                 </div>
                 <select
                   value={ledgerGroupChartType}
@@ -6240,7 +7698,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </select>
               </div>
                   }
-                  onBarClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                  onBarClick={(ledgerGroup) => {
+                    console.log('🎯 Setting selectedLedgerGroup from BarChart click:', ledgerGroup);
+                    setSelectedLedgerGroup(ledgerGroup);
+                  }}
                   onBackClick={() => setSelectedLedgerGroup('all')}
                   showBackButton={selectedLedgerGroup !== 'all'}
                   rowAction={{
@@ -6273,6 +7734,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Ledger Group
                         </h3>
+                        {renderCardFilterBadges('ledgerGroup')}
                       </div>
                       <select
                         value={ledgerGroupChartType}
@@ -6293,7 +7755,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                    onSliceClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                    onSliceClick={(ledgerGroup) => {
+                      console.log('🎯 Setting selectedLedgerGroup from PieChart click:', ledgerGroup);
+                      setSelectedLedgerGroup(ledgerGroup);
+                    }}
                     onBackClick={() => setSelectedLedgerGroup('all')}
                     showBackButton={selectedLedgerGroup !== 'all'}
                     rowAction={{
@@ -6326,6 +7791,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Ledger Group
                         </h3>
+                        {renderCardFilterBadges('ledgerGroup')}
                       </div>
                       <select
                         value={ledgerGroupChartType}
@@ -6379,6 +7845,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Ledger Group
                         </h3>
+                        {renderCardFilterBadges('ledgerGroup')}
                       </div>
                       <select
                         value={ledgerGroupChartType}
@@ -6452,6 +7919,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                       Salesperson Totals
                     </h3>
+                    {renderCardFilterBadges('salesperson')}
                   </div>
                   <button
                     type="button"
@@ -6699,7 +8167,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {regionChartType === 'bar' && (
@@ -6725,6 +8194,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Sales by State
                 </h3>
+                  {renderCardFilterBadges('region')}
                 </div>
                 <select
                   value={regionChartType}
@@ -6754,7 +8224,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.region === item.label
+                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -6782,6 +8252,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by State
                         </h3>
+                        {renderCardFilterBadges('region')}
                       </div>
                       <select
                         value={regionChartType}
@@ -6802,7 +8273,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onSliceClick={(region) => setSelectedRegion(region)}
+                    onSliceClick={(region) => setSelectedRegion(region)}
                   onBackClick={() => setSelectedRegion('all')}
                   showBackButton={selectedRegion !== 'all'}
                   rowAction={{
@@ -6811,7 +8282,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.region === item.label
+                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -6839,6 +8310,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by State
                         </h3>
+                        {renderCardFilterBadges('region')}
                       </div>
                       <select
                         value={regionChartType}
@@ -6859,7 +8331,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onBoxClick={(region) => setSelectedRegion(region)}
+                    onBoxClick={(region) => setSelectedRegion(region)}
                   onBackClick={() => setSelectedRegion('all')}
                   showBackButton={selectedRegion !== 'all'}
                   rowAction={{
@@ -6868,7 +8340,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.region === item.label
+                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -6896,6 +8368,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by State
                         </h3>
+                        {renderCardFilterBadges('region')}
                       </div>
                       <select
                         value={regionChartType}
@@ -6916,7 +8389,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onPointClick={(region) => setSelectedRegion(region)}
+                    onPointClick={(region) => setSelectedRegion(region)}
                   onBackClick={() => setSelectedRegion('all')}
                   showBackButton={selectedRegion !== 'all'}
                   rowAction={{
@@ -6925,7 +8398,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.region === item.label
+                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -6936,7 +8409,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {countryChartType === 'bar' && (
@@ -6962,6 +8436,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Sales by Country
                 </h3>
+                  {renderCardFilterBadges('country')}
                 </div>
                 <select
                   value={countryChartType}
@@ -7023,6 +8498,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Country
                         </h3>
+                        {renderCardFilterBadges('country')}
                       </div>
                       <select
                         value={countryChartType}
@@ -7043,7 +8519,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onSliceClick={(country) => setSelectedCountry(country)}
+                    onSliceClick={(country) => setSelectedCountry(country)}
                   onBackClick={() => setSelectedCountry('all')}
                   showBackButton={selectedCountry !== 'all'}
                   rowAction={{
@@ -7084,6 +8560,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Country
                         </h3>
+                        {renderCardFilterBadges('country')}
                       </div>
                       <select
                         value={countryChartType}
@@ -7104,7 +8581,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onBoxClick={(country) => setSelectedCountry(country)}
+                    onBoxClick={(country) => setSelectedCountry(country)}
                   onBackClick={() => setSelectedCountry('all')}
                   showBackButton={selectedCountry !== 'all'}
                   rowAction={{
@@ -7145,6 +8622,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Sales by Country
                         </h3>
+                        {renderCardFilterBadges('country')}
                       </div>
                       <select
                         value={countryChartType}
@@ -7165,7 +8643,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onPointClick={(country) => setSelectedCountry(country)}
+                    onPointClick={(country) => setSelectedCountry(country)}
                   onBackClick={() => setSelectedCountry('all')}
                   showBackButton={selectedCountry !== 'all'}
                   rowAction={{
@@ -7197,7 +8675,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{ 
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {periodChartType === 'bar' && (
@@ -7223,6 +8702,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                   Period Chart
                 </h3>
+                  {renderCardFilterBadges('period')}
                 </div>
                 <select
                   value={periodChartType}
@@ -7482,7 +8962,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {topCustomersChartType === 'bar' && (
@@ -7508,6 +8989,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                   Top Customers Chart
                 </h3>
+                  {renderCardFilterBadges('topCustomers')}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
@@ -7562,7 +9044,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.customer === item.label
+                        (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -7590,6 +9072,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Customers Chart
                         </h3>
+                        {renderCardFilterBadges('topCustomers')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -7635,7 +9118,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onSliceClick={(customer) => setSelectedCustomer(customer)}
+                    onSliceClick={(customer) => setSelectedCustomer(customer)}
                   onBackClick={() => setSelectedCustomer('all')}
                   showBackButton={selectedCustomer !== 'all'}
                   rowAction={{
@@ -7644,7 +9127,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.customer === item.label
+                        (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -7672,6 +9155,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Customers Chart
                         </h3>
+                        {renderCardFilterBadges('topCustomers')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -7717,7 +9201,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onBoxClick={(customer) => setSelectedCustomer(customer)}
+                    onBoxClick={(customer) => setSelectedCustomer(customer)}
                   onBackClick={() => setSelectedCustomer('all')}
                   showBackButton={selectedCustomer !== 'all'}
                   rowAction={{
@@ -7726,7 +9210,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.customer === item.label
+                        (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -7754,6 +9238,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Customers Chart
                         </h3>
+                        {renderCardFilterBadges('topCustomers')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -7799,7 +9284,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onPointClick={(customer) => setSelectedCustomer(customer)}
+                    onPointClick={(customer) => setSelectedCustomer(customer)}
                   onBackClick={() => setSelectedCustomer('all')}
                   showBackButton={selectedCustomer !== 'all'}
                   rowAction={{
@@ -7808,7 +9293,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.customer === item.label
+                        (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -7826,7 +9311,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {topItemsByRevenueChartType === 'bar' && (
@@ -7852,6 +9338,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                   Top Items by Revenue Chart
                 </h3>
+                  {renderCardFilterBadges('topItems')}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
@@ -7906,7 +9393,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -7934,6 +9421,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Revenue Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -7979,7 +9467,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onSliceClick={(item) => setSelectedItem(item)}
+                    onSliceClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                   rowAction={{
@@ -7988,7 +9476,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8016,6 +9504,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Revenue Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -8061,7 +9550,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onBoxClick={(item) => setSelectedItem(item)}
+                    onBoxClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                   rowAction={{
@@ -8070,7 +9559,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8098,6 +9587,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Revenue Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -8143,7 +9633,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </div>
                     </div>
                   }
-                  onPointClick={(item) => setSelectedItem(item)}
+                    onPointClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                   rowAction={{
@@ -8152,7 +9642,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8161,7 +9651,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: isMobile ? '350px' : '500px', // Fixed height for consistency
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {topItemsByQuantityChartType === 'bar' && (
@@ -8187,6 +9678,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                   Top Items by Quantity Chart
                 </h3>
+                  {renderCardFilterBadges('topItems')}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
@@ -8242,7 +9734,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8270,6 +9762,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Quantity Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -8325,7 +9818,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8353,6 +9846,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Quantity Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -8408,7 +9902,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8436,6 +9930,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top Items by Quantity Chart
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
@@ -8491,7 +9986,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (entry) =>
                       openTransactionRawData(
                         `Raw Data - ${entry.label}`,
-                        (sale) => sale.item === entry.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -8543,6 +10038,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                       Revenue vs Profit (Monthly)
                     </h3>
+                    {renderCardFilterBadges('period')}
           </div>
                   <select
                     value={revenueVsProfitChartType}
@@ -8696,6 +10192,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Revenue vs Profit (Monthly)
                         </h3>
+                        {renderCardFilterBadges('period')}
                       </div>
                       <select
                         value={revenueVsProfitChartType}
@@ -8712,7 +10209,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <option value="line">Line</option>
                         <option value="bar">Bar</option>
                       </select>
-                    </div>
+        </div>
                     <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px' }}>
                       {revenueVsProfitChartData.map((item, index) => {
                         const maxRevenue = Math.max(...revenueVsProfitChartData.map(d => d.revenue));
@@ -8856,6 +10353,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                       Month-wise Profit
                     </h3>
+                    {renderCardFilterBadges('period')}
                   </div>
                   <select
                     value={monthWiseProfitChartType}
@@ -8925,6 +10423,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                              Month-wise Profit
                            </h3>
+                           {renderCardFilterBadges('period')}
                          </div>
                          <select
                            value={monthWiseProfitChartType}
@@ -8994,6 +10493,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                              Month-wise Profit
                            </h3>
+                           {renderCardFilterBadges('period')}
                          </div>
                          <select
                            value={monthWiseProfitChartType}
@@ -9063,6 +10563,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                              Month-wise Profit
                            </h3>
+                           {renderCardFilterBadges('period')}
                          </div>
                          <select
                            value={monthWiseProfitChartType}
@@ -9151,6 +10652,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Top 10 Profitable Items
                   </h3>
+                  {renderCardFilterBadges('topItems')}
                 </div>
                 <select
                   value={topProfitableItemsChartType}
@@ -9181,7 +10683,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -9209,6 +10711,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Profitable Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topProfitableItemsChartType}
@@ -9238,7 +10741,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -9266,6 +10769,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Profitable Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topProfitableItemsChartType}
@@ -9295,7 +10799,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -9323,6 +10827,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Profitable Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topProfitableItemsChartType}
@@ -9352,7 +10857,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -9389,6 +10894,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Top 10 Loss Items
                   </h3>
+                  {renderCardFilterBadges('topItems')}
                 </div>
                 <select
                   value={topLossItemsChartType}
@@ -9419,7 +10925,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onClick: (item) =>
                       openTransactionRawData(
                         `Raw Data - ${item.label}`,
-                        (sale) => sale.item === item.label
+                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
                 />
@@ -9447,6 +10953,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Loss Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topLossItemsChartType}
@@ -9467,7 +10974,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onSliceClick={(item) => setSelectedItem(item)}
+                    onSliceClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                 />
@@ -9495,6 +11002,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Loss Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topLossItemsChartType}
@@ -9515,7 +11023,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onBoxClick={(item) => setSelectedItem(item)}
+                    onBoxClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                 />
@@ -9543,6 +11051,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                           Top 10 Loss Items
                         </h3>
+                        {renderCardFilterBadges('topItems')}
                       </div>
                       <select
                         value={topLossItemsChartType}
@@ -9563,7 +11072,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </select>
                     </div>
                   }
-                  onPointClick={(item) => setSelectedItem(item)}
+                    onPointClick={(item) => setSelectedItem(item)}
                   onBackClick={() => setSelectedItem('all')}
                   showBackButton={selectedItem !== 'all'}
                 />
@@ -9572,19 +11081,25 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           </div>
           )}
 
-          {/* Sales by Stock Group and Custom Cards - Moved to end */}
+          {/* Sales by Stock Group (Position 13) and First Custom Card (Position 14) */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
             gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
+            marginBottom: isMobile ? '16px' : '24px',
+            width: '100%',
+            maxWidth: '100%',
+            minWidth: 0
           }}>
-            {/* Sales by Stock Group */}
+            {/* Sales by Stock Group - Position 13 */}
             <div style={{
               display: 'flex',
               flexDirection: 'column',
               height: '500px',
-              overflow: 'hidden'
+              overflow: 'hidden',
+              width: '100%',
+              maxWidth: '100%',
+              minWidth: 0
             }}>
               {categoryChartType === 'bar' && (
                 <BarChart
@@ -9595,7 +11110,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 alignItems: 'center',
                       justifyContent: 'space-between'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <button
                     type="button"
                     onClick={() => openRawData('stockGroup')}
@@ -9609,6 +11124,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
                     Sales by Stock Group
                 </h3>
+                  {renderCardFilterBadges('stockGroup')}
         </div>
                 <select
                   value={categoryChartType}
@@ -9800,9 +11316,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 )}
     </div>
 
-            {/* First Custom Card - Next to Sales by Stock Group */}
-    {customCards.length > 0 && (
-              <div ref={customCards.length === 1 ? customCardsSectionRef : null}>
+            {/* First Custom Card - Position 14 */}
+            {customCards.length > 0 && (
+              <div 
+                ref={customCards.length === 1 ? customCardsSectionRef : null}
+                style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
+              >
                 <CustomCard
                   key={customCards[0].id}
                   card={customCards[0]}
@@ -9829,54 +11348,83 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   selectedLedgerGroup={selectedLedgerGroup}
                   genericFilters={genericFilters}
                   setGenericFilters={setGenericFilters}
+                  renderCardFilterBadges={renderCardFilterBadges}
+                  customCards={customCards}
+                  isMobile={isMobile}
+                  formatPeriodLabel={formatPeriodLabel}
                 />
               </div>
             )}
           </div>
 
-          {/* Additional Custom Cards - Continue in the same grid layout, filling positions sequentially */}
-          {customCards.length > 1 && (
-            <div 
-              ref={customCards.length === 2 ? customCardsSectionRef : null}
-              style={{
-                display: 'grid',
-                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-                gap: '24px',
-                marginBottom: '24px'
-              }}>
-              {customCards.slice(1).map((card, index) => (
+          {/* Additional Custom Cards - Starting from Position 15, continuing sequentially */}
+          {customCards.length > 1 && (() => {
+            // Process remaining custom cards (starting from index 1) in pairs for 2-column grid layout
+            const remainingCards = customCards.slice(1);
+            const cardRows = [];
+            for (let i = 0; i < remainingCards.length; i += 2) {
+              const rowCards = remainingCards.slice(i, i + 2);
+              cardRows.push(rowCards);
+            }
+            
+            return cardRows.map((rowCards, rowIndex) => {
+              const isLastRow = rowIndex === cardRows.length - 1;
+              const shouldAttachRef = (rowIndex === 0 && remainingCards.length === 1) || 
+                                     (rowIndex === 0 && remainingCards.length === 2) ||
+                                     (isLastRow && rowCards.length === 1);
+              
+              return (
                 <div
-                  key={card.id}
-                  ref={index === customCards.slice(1).length - 1 ? customCardsSectionRef : null}
+                  key={`custom-cards-row-${rowIndex}`}
+                  ref={shouldAttachRef ? customCardsSectionRef : null}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                    gap: isMobile ? '16px' : '24px',
+                    marginBottom: isMobile ? '16px' : '24px',
+                    width: '100%',
+                    maxWidth: '100%',
+                    minWidth: 0
+                  }}
                 >
-                  <CustomCard
-                    card={card}
-                    salesData={filteredSales}
-                    generateCustomCardData={generateCustomCardData}
-                    chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
-                    onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
-                    onDelete={() => handleDeleteCustomCard(card.id)}
-                    onEdit={handleEditCustomCard}
-                    openTransactionRawData={openTransactionRawData}
-                    setSelectedCustomer={setSelectedCustomer}
-                    setSelectedItem={setSelectedItem}
-                    setSelectedStockGroup={setSelectedStockGroup}
-                    setSelectedRegion={setSelectedRegion}
-                    setSelectedCountry={setSelectedCountry}
-                    setSelectedPeriod={setSelectedPeriod}
-                    setSelectedLedgerGroup={setSelectedLedgerGroup}
-                    selectedCustomer={selectedCustomer}
-                    selectedItem={selectedItem}
-                    selectedStockGroup={selectedStockGroup}
-                    selectedRegion={selectedRegion}
-                    selectedCountry={selectedCountry}
-                    selectedPeriod={selectedPeriod}
-                    selectedLedgerGroup={selectedLedgerGroup}
-                  />
+                  {rowCards.map((card, cardIndex) => (
+                    <div key={card.id} style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
+                      <CustomCard
+                        card={card}
+                        salesData={filteredSales}
+                        generateCustomCardData={generateCustomCardData}
+                        chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
+                        onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
+                        onDelete={() => handleDeleteCustomCard(card.id)}
+                        onEdit={handleEditCustomCard}
+                        openTransactionRawData={openTransactionRawData}
+                        setSelectedCustomer={setSelectedCustomer}
+                        setSelectedItem={setSelectedItem}
+                        setSelectedStockGroup={setSelectedStockGroup}
+                        setSelectedRegion={setSelectedRegion}
+                        setSelectedCountry={setSelectedCountry}
+                        setSelectedPeriod={setSelectedPeriod}
+                        setSelectedLedgerGroup={setSelectedLedgerGroup}
+                        selectedCustomer={selectedCustomer}
+                        selectedItem={selectedItem}
+                        selectedStockGroup={selectedStockGroup}
+                        selectedRegion={selectedRegion}
+                        selectedCountry={selectedCountry}
+                        selectedPeriod={selectedPeriod}
+                        selectedLedgerGroup={selectedLedgerGroup}
+                        genericFilters={genericFilters}
+                        setGenericFilters={setGenericFilters}
+                        renderCardFilterBadges={renderCardFilterBadges}
+                        customCards={customCards}
+                        isMobile={isMobile}
+                        formatPeriodLabel={formatPeriodLabel}
+                      />
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              );
+            });
+          })()}
           
         </div>
         </form>
@@ -10717,6 +12265,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
 
   // Initialize form state from editingCard if provided, otherwise use defaults
   const [cardTitle, setCardTitle] = useState(editingCard?.title || '');
+  const [chartType, setChartType] = useState(editingCard?.chartType || 'bar');
   const [selectedFields, setSelectedFields] = useState(() => {
     // Initialize from editingCard if available
     if (editingCard) {
@@ -10757,14 +12306,35 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     }
     return {};
   });
+  // Multiple filters support - array of { field: string, values: Set<string> }
+  const [filters, setFilters] = useState(() => {
+    // Initialize from editingCard if available
+    if (editingCard && editingCard.filters && editingCard.filters.length > 0) {
+      return editingCard.filters.map(f => ({
+        field: f.filterField,
+        values: new Set(f.filterValues || [])
+      }));
+    }
+    return [];
+  });
+  // Current filter being configured
+  const [currentFilterField, setCurrentFilterField] = useState('');
+  const [currentFilterValues, setCurrentFilterValues] = useState(new Set());
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [fieldBeingConfigured, setFieldBeingConfigured] = useState(null);
   const [isDateSettingsModal, setIsDateSettingsModal] = useState(false);
+
+  // AI mode state
+  const [activeTab, setActiveTab] = useState('manual'); // 'manual' or 'ai'
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState(null);
 
   // Update form when editingCard changes
   useEffect(() => {
     if (editingCard) {
       setCardTitle(editingCard.title || '');
+      setChartType(editingCard.chartType || 'bar');
       const fields = new Set();
       // Add groupBy field
       if (editingCard.groupBy === 'date') {
@@ -10792,11 +12362,25 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
         });
       }
       setTopN(editingCard.topN ? String(editingCard.topN) : '');
+      
+      // Set filters
+      if (editingCard.filters && Array.isArray(editingCard.filters) && editingCard.filters.length > 0) {
+        setFilters(editingCard.filters.map(f => ({
+          field: f.filterField,
+          values: new Set(f.filterValues || [])
+        })));
+      } else {
+        setFilters([]);
+      }
     } else {
       // Reset to defaults when not editing
       setCardTitle('');
+      setChartType('bar');
       setSelectedFields(new Set());
       setTopN('');
+      setFilters([]);
+      setCurrentFilterField('');
+      setCurrentFilterValues(new Set());
     }
   }, [editingCard]);
 
@@ -10942,6 +12526,340 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     return uniqueFields.sort((a, b) => a.label.localeCompare(b.label));
   }, [salesData]);
   
+  // AI card generation function
+  const generateCardWithAI = async (prompt) => {
+    if (!prompt.trim()) {
+      throw new Error('Please enter a prompt');
+    }
+    
+    // Extract category and value fields for the LLM
+    const categoryFields = allFields
+      .filter(f => f.type === 'category')
+      .map(f => ({ value: f.value, label: f.label }));
+    
+    const valueFields = allFields
+      .filter(f => f.type === 'value')
+      .map(f => ({ value: f.value, label: f.label, aggregation: f.aggregation }));
+    
+    // Build system prompt
+    const systemPrompt = `You are an AI assistant that helps create data visualization configurations for a sales dashboard.
+
+The sales data has already been transformed into flat records. Each record represents one inventory item from a sales voucher.
+
+AVAILABLE FIELDS:
+
+Category Fields (for groupBy - use to group/categorize data):
+${categoryFields.map(f => `- ${f.value}: ${f.label}`).join('\n')}
+
+Value Fields (for valueField - numeric data to aggregate):
+${valueFields.map(f => `- ${f.value}: ${f.label}${f.aggregation ? ` (default: ${f.aggregation})` : ''}`).join('\n')}
+
+CARD CONFIGURATION FORMAT:
+You must return ONLY ONE valid JSON object with this exact structure.
+- NO markdown code blocks (no \`\`\`json or \`\`\`)
+- NO explanations before or after the JSON
+- NO multiple objects
+- ONLY the JSON object itself
+
+Required structure:
+{
+  "title": "Card Title",
+  "groupBy": "field_name",
+  "dateGrouping": "month",
+  "aggregation": "sum",
+  "valueField": "amount",
+  "chartType": "bar",
+  "topN": 10
+}
+
+FIELD DESCRIPTIONS:
+- title: A descriptive title for the card (string)
+- groupBy: One of the category field values listed above (string, required)
+- dateGrouping: ONLY if groupBy is "date", use "day", "week", "month", or "year" (string, optional)
+- aggregation: "sum", "average", "count", "min", or "max" (string, required)
+- valueField: One of the value field values listed above (string, required)
+- chartType: "bar", "pie", "treemap", or "line" (string, required)
+- topN: Limit to top N items (number, optional - only include if user specifically asks for "top X")
+
+CHART TYPE SELECTION GUIDE:
+- "bar": Best for comparing values across categories (most common)
+- "pie": Best for showing proportions/percentages of a whole
+- "line": Best for trends over time (especially with date grouping)
+- "treemap": Best for hierarchical data with many categories
+
+EXAMPLE MAPPINGS:
+- "top 10 customers by revenue" → {"title":"Top 10 Customers by Revenue","groupBy":"customer","aggregation":"sum","valueField":"amount","chartType":"bar","topN":10}
+- "sales by region" → {"title":"Sales by Region","groupBy":"region","aggregation":"sum","valueField":"amount","chartType":"bar"}
+- "profit by item" → {"title":"Profit by Item","groupBy":"item","aggregation":"sum","valueField":"profit","chartType":"bar"}
+- "monthly revenue trend" → {"title":"Monthly Revenue Trend","groupBy":"date","dateGrouping":"month","aggregation":"sum","valueField":"amount","chartType":"line"}
+- "average order value by customer" → {"title":"Average Order Value by Customer","groupBy":"customer","aggregation":"average","valueField":"amount","chartType":"bar"}
+- "item sales distribution" → {"title":"Item Sales Distribution","groupBy":"item","aggregation":"sum","valueField":"amount","chartType":"pie"}
+
+IMPORTANT RULES:
+1. Return ONLY the JSON object - no markdown code blocks, no explanations, no extra text
+2. Use field values exactly as listed above (case-sensitive)
+3. Always include: title, groupBy, aggregation, valueField, chartType
+4. Only include dateGrouping if groupBy is "date"
+5. Only include topN if the user explicitly asks for "top X" or "first N"
+6. Choose aggregation wisely: "sum" for totals, "average" for means, "count" for counts
+7. If the user's request is unclear, make reasonable assumptions based on common business needs`;
+
+    try {
+      const llmUrl = 'http://127.0.0.1:11434/api/chat';
+      
+      // Try to detect available model
+      const modelsToTry = ['llama2', 'llama3', 'mistral', 'phi', 'gemma'];
+      let requestBody = {
+        model: modelsToTry[0],
+        messages: [
+          {
+            role: 'system',
+            content: systemPrompt
+          },
+          {
+            role: 'user',
+            content: prompt
+          }
+        ],
+        stream: false,
+        temperature: 0, // Make output more deterministic and reduce corruption
+        format: 'json' // Request JSON format if supported by the model
+      };
+
+      console.log('🤖 Sending card generation request to LLM...');
+      const response = await fetch(llmUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ LLM API error:', errorText);
+        
+        // Try to get available models and retry
+        if (response.status === 404 || errorText.includes('model') || errorText.includes('not found')) {
+          try {
+            const modelsResponse = await fetch('http://127.0.0.1:11434/api/tags');
+            if (modelsResponse.ok) {
+              const modelsData = await modelsResponse.json();
+              if (modelsData.models && modelsData.models.length > 0) {
+                const firstModel = modelsData.models[0].name;
+                console.log(`🔄 Retrying with model: ${firstModel}`);
+                requestBody.model = firstModel;
+                const retryResponse = await fetch(llmUrl, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify(requestBody)
+                });
+                
+                if (retryResponse.ok) {
+                  const retryData = await retryResponse.json();
+                  return parseAIResponse(retryData);
+                }
+              }
+            }
+          } catch (modelsError) {
+            console.error('Failed to fetch models:', modelsError);
+          }
+        }
+        
+        throw new Error(`LLM API error: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return parseAIResponse(data);
+    } catch (error) {
+      console.error('AI generation error:', error);
+      throw error;
+    }
+  };
+
+  // Parse LLM response and extract cardConfig
+  const parseAIResponse = (data) => {
+    let responseText = '';
+    
+    // Extract response text from various possible formats
+    if (data.message && data.message.content) {
+      responseText = data.message.content;
+    } else if (data.response) {
+      responseText = data.response;
+    } else if (typeof data === 'string') {
+      responseText = data;
+    } else {
+      throw new Error('Unexpected LLM response format');
+    }
+
+    console.log('📥 LLM raw response:', responseText);
+
+    // Try to extract JSON from response
+    let jsonStr = responseText.trim();
+    
+    // Remove markdown code blocks (both ```json and ``` or just ```)
+    jsonStr = jsonStr.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+    
+    // Clean up common issues
+    jsonStr = jsonStr.trim();
+    
+    // Try to find the first complete JSON object with balanced braces
+    // This handles cases where LLM returns multiple objects or corrupted data
+    let braceCount = 0;
+    let startIndex = -1;
+    let endIndex = -1;
+    
+    for (let i = 0; i < jsonStr.length; i++) {
+      if (jsonStr[i] === '{') {
+        if (braceCount === 0) {
+          startIndex = i;
+        }
+        braceCount++;
+      } else if (jsonStr[i] === '}') {
+        braceCount--;
+        if (braceCount === 0 && startIndex !== -1) {
+          endIndex = i;
+          break;
+        }
+      }
+    }
+    
+    if (startIndex !== -1 && endIndex !== -1) {
+      jsonStr = jsonStr.substring(startIndex, endIndex + 1);
+    } else {
+      // Fallback to original regex approach
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      }
+    }
+    
+    // Remove any trailing commas before closing braces (common LLM error)
+    jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+    
+    // Remove any line breaks within string values that might break JSON
+    // This is a cautious approach - only fix obvious issues
+    jsonStr = jsonStr.replace(/"\s*\n\s*"/g, '" "');
+
+    try {
+      const cardConfig = JSON.parse(jsonStr);
+      
+      // Validate required fields
+      if (!cardConfig.title || !cardConfig.groupBy || !cardConfig.aggregation || 
+          !cardConfig.valueField || !cardConfig.chartType) {
+        throw new Error('Invalid card configuration: missing required fields');
+      }
+      
+      // Validate field values
+      const validChartTypes = ['bar', 'pie', 'treemap', 'line'];
+      if (!validChartTypes.includes(cardConfig.chartType)) {
+        cardConfig.chartType = 'bar'; // Default to bar if invalid
+      }
+      
+      const validAggregations = ['sum', 'average', 'count', 'min', 'max'];
+      if (!validAggregations.includes(cardConfig.aggregation)) {
+        cardConfig.aggregation = 'sum'; // Default to sum if invalid
+      }
+      
+      // Validate dateGrouping if present
+      if (cardConfig.dateGrouping) {
+        const validDateGroupings = ['day', 'week', 'month', 'year'];
+        if (!validDateGroupings.includes(cardConfig.dateGrouping)) {
+          delete cardConfig.dateGrouping;
+        }
+      }
+      
+      // Validate topN if present
+      if (cardConfig.topN !== undefined) {
+        cardConfig.topN = parseInt(cardConfig.topN, 10);
+        if (isNaN(cardConfig.topN) || cardConfig.topN <= 0) {
+          delete cardConfig.topN;
+        }
+      }
+      
+      console.log('✅ Parsed card config:', cardConfig);
+      return cardConfig;
+    } catch (parseError) {
+      console.error('Failed to parse JSON:', parseError);
+      console.error('Attempted to parse:', jsonStr);
+      console.error('Original response:', responseText);
+      
+      // Provide more helpful error message
+      throw new Error('Failed to parse AI response. The LLM returned invalid JSON. Please try again with a simpler prompt.');
+    }
+  };
+
+  // Handle AI generation
+  const handleAIGenerate = async () => {
+    setAiError(null);
+    setAiLoading(true);
+    
+    try {
+      const cardConfig = await generateCardWithAI(aiPrompt);
+      
+      // Auto-populate form fields with AI-generated config
+      setCardTitle(cardConfig.title);
+      
+      // Set chart type
+      if (cardConfig.chartType) {
+        setChartType(cardConfig.chartType);
+      }
+      
+      // Set selected fields
+      const fields = new Set();
+      fields.add(cardConfig.groupBy === 'date' ? 'date' : cardConfig.groupBy);
+      fields.add(cardConfig.valueField);
+      setSelectedFields(fields);
+      
+      // Set aggregation
+      setFieldAggregations({
+        [cardConfig.valueField]: cardConfig.aggregation
+      });
+      
+      // Set date grouping if applicable
+      if (cardConfig.groupBy === 'date' && cardConfig.dateGrouping) {
+        setDateGroupings({
+          date: cardConfig.dateGrouping
+        });
+      }
+      
+      // Set topN if present
+      if (cardConfig.topN) {
+        setTopN(String(cardConfig.topN));
+      }
+      
+      // Set filters if present
+      if (cardConfig.filters) {
+        if (Array.isArray(cardConfig.filters)) {
+          // Multiple filters
+          setFilters(cardConfig.filters.map(f => ({
+            field: f.filterField,
+            values: new Set(f.filterValues || [])
+          })));
+        } else if (cardConfig.filters.filterField) {
+          // Single filter (legacy format)
+          setFilters([{
+            field: cardConfig.filters.filterField,
+            values: new Set(cardConfig.filters.filterValues || [])
+          }]);
+        }
+      }
+      
+      // Switch to manual tab for review
+      setActiveTab('manual');
+      setAiPrompt(''); // Clear prompt
+      
+      alert('✅ Card configuration generated! Review and adjust the settings below, then click "Create Card".');
+    } catch (error) {
+      console.error('AI generation failed:', error);
+      setAiError(error.message || 'Failed to generate card configuration');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+  
   // Filter fields based on search term
   const filteredFields = useMemo(() => {
     if (!searchTerm.trim()) return allFields;
@@ -10958,12 +12876,55 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       .map(fieldValue => allFields.find(f => f.value === fieldValue))
       .filter(field => field && field.type === 'category');
   }, [selectedFields, allFields]);
-  
+
   const valueFields = useMemo(() => {
     return Array.from(selectedFields)
       .map(fieldValue => allFields.find(f => f.value === fieldValue))
       .filter(field => field && field.type === 'value');
   }, [selectedFields, allFields]);
+
+  // Get unique values for the current filter field being configured
+  const currentFilterFieldValues = useMemo(() => {
+    if (!currentFilterField || !salesData || !Array.isArray(salesData) || salesData.length === 0) {
+      return [];
+    }
+    
+    const valuesSet = new Set();
+    salesData.forEach(sale => {
+      // Use case-insensitive field access
+      const fieldValue = sale[currentFilterField] || 
+                        sale[currentFilterField.toLowerCase()] ||
+                        sale[currentFilterField.toUpperCase()] ||
+                        (Object.keys(sale).find(k => k.toLowerCase() === currentFilterField.toLowerCase()) 
+                          ? sale[Object.keys(sale).find(k => k.toLowerCase() === currentFilterField.toLowerCase())] 
+                          : null);
+      
+      if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
+        const stringValue = String(fieldValue).trim();
+        if (stringValue) {
+          valuesSet.add(stringValue);
+        }
+      }
+    });
+    
+    // Sort values for better UX
+    return Array.from(valuesSet).sort((a, b) => {
+      // Try to sort numerically if both are numbers
+      const numA = parseFloat(a);
+      const numB = parseFloat(b);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      // Otherwise sort alphabetically
+      return a.localeCompare(b);
+    });
+  }, [currentFilterField, salesData]);
+
+  // Get fields that are not already used in filters
+  const availableFilterFields = useMemo(() => {
+    const usedFields = new Set(filters.map(f => f.field));
+    return allFields.filter(field => !usedFields.has(field.value));
+  }, [allFields, filters]);
   
   // Handle field checkbox toggle
   const handleFieldToggle = (fieldValue) => {
@@ -11039,6 +13000,89 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     }));
   };
 
+  // Handle adding a new filter
+  const handleAddFilter = () => {
+    if (!currentFilterField) {
+      alert('Please select a filter field first');
+      return;
+    }
+    if (currentFilterValues.size === 0) {
+      alert('Please select at least one filter value');
+      return;
+    }
+    
+    // Add the filter to the filters array
+    setFilters(prev => [...prev, {
+      field: currentFilterField,
+      values: new Set(currentFilterValues)
+    }]);
+    
+    // Reset current filter configuration
+    setCurrentFilterField('');
+    setCurrentFilterValues(new Set());
+  };
+
+  // Handle removing a filter
+  const handleRemoveFilter = (index) => {
+    setFilters(prev => prev.filter((_, i) => i !== index));
+  };
+
+  // Handle filter field selection for new filter
+  const handleFilterFieldChange = (fieldValue) => {
+    setCurrentFilterField(fieldValue);
+    setCurrentFilterValues(new Set()); // Clear selected values when field changes
+  };
+
+  // Handle filter value toggle for current filter being configured
+  const handleFilterValueToggle = (value) => {
+    setCurrentFilterValues(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(value)) {
+        newSet.delete(value);
+      } else {
+        newSet.add(value);
+      }
+      return newSet;
+    });
+  };
+
+  // Get unique values for a specific filter field
+  const getFilterFieldValues = (fieldName) => {
+    if (!fieldName || !salesData || !Array.isArray(salesData) || salesData.length === 0) {
+      return [];
+    }
+    
+    const valuesSet = new Set();
+    salesData.forEach(sale => {
+      // Use case-insensitive field access
+      const fieldValue = sale[fieldName] || 
+                        sale[fieldName.toLowerCase()] ||
+                        sale[fieldName.toUpperCase()] ||
+                        (Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase()) 
+                          ? sale[Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase())] 
+                          : null);
+      
+      if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
+        const stringValue = String(fieldValue).trim();
+        if (stringValue) {
+          valuesSet.add(stringValue);
+        }
+      }
+    });
+    
+    // Sort values for better UX
+    return Array.from(valuesSet).sort((a, b) => {
+      // Try to sort numerically if both are numbers
+      const numA = parseFloat(a);
+      const numB = parseFloat(b);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      // Otherwise sort alphabetically
+      return a.localeCompare(b);
+    });
+  };
+
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -11078,14 +13122,21 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     // Normalize date field value to 'date' for groupBy
     const normalizedGroupBy = (groupByValue === 'date' || groupByValue.startsWith('date_')) ? 'date' : groupByValue;
     
+    // Build filters array from filters state
+    const filtersArray = filters.length > 0 ? filters.map(f => ({
+      filterField: f.field,
+      filterValues: Array.from(f.values)
+    })) : undefined;
+    
     const cardConfig = {
       title: cardTitle.trim(),
       groupBy: normalizedGroupBy,
       dateGrouping: (normalizedGroupBy === 'date') ? dateGrouping : undefined,
       aggregation,
       valueField: mappedValueField,
-      chartType: editingCard?.chartType || 'bar', // Keep existing chart type or default to bar
-      topN: topN ? parseInt(topN, 10) : undefined
+      chartType: chartType, // Use chart type from state
+      topN: topN ? parseInt(topN, 10) : undefined,
+      filters: filtersArray
     };
 
     onCreate(cardConfig);
@@ -11154,7 +13205,273 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
         </button>
       </div>
 
-      {/* Form Content */}
+      {/* Tab Navigation */}
+      <div style={{
+        display: 'flex',
+        borderBottom: '2px solid #e2e8f0',
+        background: '#fafbfc',
+        padding: '0 24px'
+      }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab('manual')}
+          style={{
+            padding: '12px 20px',
+            border: 'none',
+            background: 'transparent',
+            color: activeTab === 'manual' ? '#7c3aed' : '#64748b',
+            fontWeight: activeTab === 'manual' ? '600' : '500',
+            fontSize: '14px',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'manual' ? '2px solid #7c3aed' : '2px solid transparent',
+            marginBottom: '-2px',
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={(e) => {
+            if (activeTab !== 'manual') {
+              e.currentTarget.style.color = '#475569';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (activeTab !== 'manual') {
+              e.currentTarget.style.color = '#64748b';
+            }
+          }}
+        >
+          Manual
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('ai')}
+          style={{
+            padding: '12px 20px',
+            border: 'none',
+            background: 'transparent',
+            color: activeTab === 'ai' ? '#7c3aed' : '#64748b',
+            fontWeight: activeTab === 'ai' ? '600' : '500',
+            fontSize: '14px',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'ai' ? '2px solid #7c3aed' : '2px solid transparent',
+            marginBottom: '-2px',
+            transition: 'all 0.2s ease',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px'
+          }}
+          onMouseEnter={(e) => {
+            if (activeTab !== 'ai') {
+              e.currentTarget.style.color = '#475569';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (activeTab !== 'ai') {
+              e.currentTarget.style.color = '#64748b';
+            }
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: '16px' }}>auto_awesome</span>
+          Generate with AI
+        </button>
+      </div>
+
+      {/* AI Mode Content */}
+      {activeTab === 'ai' && (
+        <div style={{
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '20px',
+          overflowY: 'auto',
+          flex: 1
+        }}>
+          <div style={{
+            background: '#eff6ff',
+            border: '1px solid #bfdbfe',
+            borderRadius: '8px',
+            padding: '14px 16px',
+            display: 'flex',
+            gap: '10px'
+          }}>
+            <span className="material-icons" style={{ 
+              fontSize: '20px', 
+              color: '#3b82f6',
+              marginTop: '1px'
+            }}>
+              info
+            </span>
+            <p style={{
+              margin: 0,
+              fontSize: '13px',
+              lineHeight: '1.5',
+              color: '#1e40af',
+              fontWeight: '500'
+            }}>
+              Describe the card you want to create. For example: "Top 10 customers by revenue", "Monthly sales trend", "Profit by region", etc.
+            </p>
+          </div>
+
+          <div>
+            <label style={{
+              display: 'block',
+              fontSize: '13px',
+              fontWeight: '500',
+              color: '#475569',
+              marginBottom: '6px',
+              letterSpacing: '0.01em'
+            }}>
+              Describe your card <span style={{ color: '#ef4444' }}>*</span>
+            </label>
+            <textarea
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="e.g., Show me top 10 customers by revenue, or Create a monthly sales trend chart..."
+              rows={4}
+              style={{
+                width: '100%',
+                padding: '11px 14px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                transition: 'all 0.15s ease',
+                background: '#ffffff',
+                color: '#1e293b',
+                boxSizing: 'border-box',
+                fontFamily: 'inherit',
+                resize: 'vertical'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#3b82f6';
+                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#e2e8f0';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+          </div>
+
+          {aiError && (
+            <div style={{
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '8px',
+              padding: '14px 16px',
+              display: 'flex',
+              gap: '10px'
+            }}>
+              <span className="material-icons" style={{ 
+                fontSize: '20px', 
+                color: '#ef4444',
+                marginTop: '1px'
+              }}>
+                error
+              </span>
+              <p style={{
+                margin: 0,
+                fontSize: '13px',
+                lineHeight: '1.5',
+                color: '#991b1b',
+                fontWeight: '500'
+              }}>
+                {aiError}
+              </p>
+            </div>
+          )}
+
+          <div style={{
+            display: 'flex',
+            gap: '10px',
+            justifyContent: 'flex-end',
+            marginTop: 'auto',
+            paddingTop: '20px',
+            borderTop: '1px solid #f1f5f9'
+          }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '10px 20px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                background: '#ffffff',
+                color: '#64748b',
+                fontSize: '14px',
+                fontWeight: '500',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                minWidth: '80px'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = '#f8fafc';
+                e.target.style.borderColor = '#cbd5e1';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = '#ffffff';
+                e.target.style.borderColor = '#e2e8f0';
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleAIGenerate}
+              disabled={aiLoading || !aiPrompt.trim()}
+              style={{
+                padding: '10px 24px',
+                border: 'none',
+                borderRadius: '8px',
+                background: (aiLoading || !aiPrompt.trim()) ? '#cbd5e1' : 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: (aiLoading || !aiPrompt.trim()) ? 'not-allowed' : 'pointer',
+                transition: 'all 0.15s ease',
+                boxShadow: (aiLoading || !aiPrompt.trim()) ? 'none' : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                minWidth: '110px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                justifyContent: 'center'
+              }}
+              onMouseEnter={(e) => {
+                if (!aiLoading && aiPrompt.trim()) {
+                  e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
+                  e.target.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!aiLoading && aiPrompt.trim()) {
+                  e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
+                  e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+                }
+              }}
+            >
+              {aiLoading ? (
+                <>
+                  <span className="material-icons" style={{ fontSize: '16px', animation: 'spin 1s linear infinite' }}>refresh</span>
+                  Generating...
+                </>
+              ) : (
+                <>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>auto_awesome</span>
+                  Generate
+                </>
+              )}
+            </button>
+          </div>
+
+          <style>{`
+            @keyframes spin {
+              from { transform: rotate(0deg); }
+              to { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      )}
+
+      {/* Manual Mode Content */}
+      {activeTab === 'manual' && (
       <form onSubmit={handleSubmit} style={{ 
         padding: '24px',
         display: 'flex',
@@ -11202,6 +13519,58 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
               e.target.style.boxShadow = 'none';
             }}
           />
+        </div>
+
+        {/* Chart Type */}
+        <div>
+          <label style={{
+            display: 'block',
+            fontSize: '13px',
+            fontWeight: '500',
+            color: '#475569',
+            marginBottom: '6px',
+            letterSpacing: '0.01em'
+          }}>
+            Default Chart Type
+          </label>
+          <select
+            value={chartType}
+            onChange={(e) => setChartType(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '11px 14px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontSize: '14px',
+              outline: 'none',
+              transition: 'all 0.15s ease',
+              background: '#ffffff',
+              color: '#1e293b',
+              boxSizing: 'border-box',
+              cursor: 'pointer'
+            }}
+            onFocus={(e) => {
+              e.target.style.borderColor = '#3b82f6';
+              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+            }}
+            onBlur={(e) => {
+              e.target.style.borderColor = '#e2e8f0';
+              e.target.style.boxShadow = 'none';
+            }}
+          >
+            <option value="bar">Bar Chart</option>
+            <option value="pie">Pie Chart</option>
+            <option value="treemap">Tree Map</option>
+            <option value="line">Line Chart</option>
+          </select>
+          <p style={{
+            margin: '6px 0 0 0',
+            fontSize: '12px',
+            color: '#64748b',
+            fontStyle: 'italic'
+          }}>
+            You can change this later using the dropdown in the card header
+          </p>
         </div>
 
         {/* Choose fields to add to report */}
@@ -11542,6 +13911,338 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
           </div>
         </div>
 
+        {/* Filters Section */}
+        <div>
+          <div style={{
+            fontSize: '13px',
+            fontWeight: '500',
+            color: '#475569',
+            marginBottom: '12px',
+            paddingBottom: '8px',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>filter_list</span>
+              Filters <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '400' }}>(Optional)</span>
+            </div>
+          </div>
+
+          {/* Filters Bucket */}
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '12px',
+            minHeight: '120px',
+            marginBottom: '12px'
+          }}>
+            <div style={{
+              background: '#ffffff',
+              border: '1px dashed #cbd5e1',
+              borderRadius: '6px',
+              padding: '8px',
+              minHeight: '80px'
+            }}>
+              {filters.length > 0 && filters.map((filter, index) => {
+                const field = allFields.find(f => f.value === filter.field);
+                const fieldLabel = field ? field.label : filter.field;
+                const valuesArray = Array.from(filter.values);
+                return (
+                  <div
+                    key={index}
+                    style={{
+                      display: 'inline-flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      background: '#fef3c7',
+                      border: '1px solid #fbbf24',
+                      color: '#92400e',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      margin: '4px',
+                      gap: '6px',
+                      maxWidth: '100%'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
+                      <span style={{ fontWeight: '600' }}>{fieldLabel}:</span>
+                      <span 
+                        className="material-icons" 
+                        style={{ 
+                          fontSize: '16px',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '2px',
+                          transition: 'background 0.2s',
+                          marginLeft: 'auto'
+                        }}
+                        onClick={() => handleRemoveFilter(index)}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#fde68a';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                        title="Remove filter"
+                      >
+                        close
+                      </span>
+                    </div>
+                    <div style={{ 
+                      fontSize: '11px', 
+                      color: '#78350f',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '4px',
+                      maxWidth: '100%'
+                    }}>
+                      {valuesArray.length > 0 ? (
+                        valuesArray.slice(0, 3).map((val, i) => (
+                          <span key={i} style={{
+                            background: '#fef3c7',
+                            padding: '2px 6px',
+                            borderRadius: '3px',
+                            border: '1px solid #fbbf24'
+                          }}>
+                            {val}
+                          </span>
+                        ))
+                      ) : null}
+                      {valuesArray.length > 3 && (
+                        <span style={{ color: '#78350f', fontStyle: 'italic' }}>
+                          +{valuesArray.length - 3} more
+                        </span>
+                      )}
+                      {valuesArray.length === 0 && (
+                        <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>No values selected</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {filters.length === 0 && (
+                <div style={{
+                  color: '#94a3b8',
+                  fontSize: '12px',
+                  textAlign: 'center',
+                  padding: '20px'
+                }}>
+                  No filters added. Select a field below to add a filter.
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Add New Filter Section */}
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '12px'
+          }}>
+            <div style={{
+              fontSize: '12px',
+              fontWeight: '500',
+              color: '#64748b',
+              marginBottom: '10px'
+            }}>
+              Add Filter:
+            </div>
+          
+          {/* Filter Field Dropdown */}
+          <div style={{ marginBottom: '12px' }}>
+            <select
+                value={currentFilterField}
+                onChange={(e) => handleFilterFieldChange(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '11px 14px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                transition: 'all 0.15s ease',
+                background: '#ffffff',
+                color: '#1e293b',
+                boxSizing: 'border-box',
+                cursor: 'pointer'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#3b82f6';
+                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#e2e8f0';
+                e.target.style.boxShadow = 'none';
+              }}
+            >
+                <option value="">Select field to filter:</option>
+                {availableFilterFields.map((field) => (
+                <option key={field.value} value={field.value}>
+                  {field.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Filter Values Checkboxes */}
+            {currentFilterField && currentFilterFieldValues.length > 0 && (
+            <div style={{
+                background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '12px',
+              maxHeight: '200px',
+                overflowY: 'auto',
+                marginBottom: '12px'
+            }}>
+              <div style={{
+                fontSize: '12px',
+                fontWeight: '500',
+                color: '#64748b',
+                marginBottom: '8px'
+              }}>
+                Select values to include:
+              </div>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px'
+              }}>
+                  {currentFilterFieldValues.map((value) => (
+                  <div
+                    key={value}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '6px 8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f8fafc';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                      onClick={() => handleFilterValueToggle(value)}
+                  >
+                    <div style={{
+                      width: '18px',
+                      height: '18px',
+                        border: currentFilterValues.has(value) ? 'none' : '2px solid #cbd5e1',
+                      borderRadius: '4px',
+                        background: currentFilterValues.has(value) ? '#10b981' : 'transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: '10px',
+                      flexShrink: 0
+                    }}>
+                        {currentFilterValues.has(value) && (
+                        <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
+                      )}
+                    </div>
+                    <span style={{
+                      fontSize: '13px',
+                        fontWeight: currentFilterValues.has(value) ? '600' : '400',
+                      color: '#1e293b'
+                    }}>
+                      {value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+                {currentFilterValues.size > 0 && (
+                <div style={{
+                  marginTop: '10px',
+                  paddingTop: '10px',
+                  borderTop: '1px solid #e2e8f0',
+                  fontSize: '12px',
+                  color: '#64748b',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between'
+                }}>
+                    <span>{currentFilterValues.size} value(s) selected</span>
+                  <button
+                    type="button"
+                      onClick={() => setCurrentFilterValues(new Set())}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#ef4444',
+                      fontSize: '12px',
+                      cursor: 'pointer',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      transition: 'background 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#fef2f2';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'transparent';
+                    }}
+                  >
+                    Clear all
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          
+            {currentFilterField && currentFilterFieldValues.length === 0 && (
+            <div style={{
+                background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '20px',
+              textAlign: 'center',
+              color: '#94a3b8',
+                fontSize: '13px',
+                marginBottom: '12px'
+            }}>
+              No values found for this field
+            </div>
+          )}
+
+            {/* Add Filter Button */}
+            {currentFilterField && currentFilterValues.size > 0 && (
+              <button
+                type="button"
+                onClick={handleAddFilter}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  background: '#3b82f6',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#2563eb';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = '#3b82f6';
+                }}
+              >
+                Add Filter
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Top N */}
         <div>
           <label style={{
@@ -11646,6 +14347,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
           </button>
         </div>
       </form>
+      )}
       
       {/* Settings Modal (Value Field or Date Field) */}
       {settingsModalOpen && fieldBeingConfigured && (
@@ -11909,7 +14611,11 @@ const CustomCard = React.memo(({
   selectedPeriod,
   selectedLedgerGroup,
   genericFilters,
-  setGenericFilters
+  setGenericFilters,
+  renderCardFilterBadges,
+  customCards,
+  isMobile,
+  formatPeriodLabel
 }) => {
   const cardData = useMemo(() => generateCustomCardData(card, salesData), [card, salesData, generateCustomCardData]);
 
@@ -12108,7 +14814,9 @@ const CustomCard = React.memo(({
     return (sale) => {
       if (card.groupBy === 'date') {
         const saleDate = getFieldValueLocal(sale, 'cp_date') || getFieldValueLocal(sale, 'date');
+        if (!saleDate) return false;
         const date = new Date(saleDate);
+        if (isNaN(date.getTime())) return false;
         let groupKey = '';
         if (card.dateGrouping === 'day') {
           groupKey = saleDate;
@@ -12120,6 +14828,8 @@ const CustomCard = React.memo(({
           groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
         } else if (card.dateGrouping === 'year') {
           groupKey = String(date.getFullYear());
+        } else {
+          groupKey = saleDate;
         }
         return groupKey === itemLabel;
       } else if (card.groupBy === 'profit_margin') {
@@ -12137,8 +14847,10 @@ const CustomCard = React.memo(({
         else range = '> ₹50K';
         return range === itemLabel;
       } else {
+        // Case-insensitive matching for string fields
         const fieldValue = getFieldValueLocal(sale, card.groupBy);
-        return fieldValue === itemLabel;
+        if (!fieldValue || !itemLabel) return false;
+        return String(fieldValue).trim().toLowerCase() === String(itemLabel).trim().toLowerCase();
       }
     };
   };
@@ -12190,6 +14902,7 @@ const CustomCard = React.memo(({
         <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
           {card.title} (Custom Card)
         </h3>
+        {renderCardFilterBadges('custom', card.id)}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <select
@@ -12274,7 +14987,13 @@ const CustomCard = React.memo(({
       display: 'flex',
       flexDirection: 'column',
       height: '500px',
-      overflow: 'hidden'
+      maxHeight: '500px',
+      minHeight: '500px',
+      overflow: 'hidden',
+      position: 'relative',
+      width: '100%',
+      maxWidth: '100%',
+      minWidth: 0
     }}>
       {cardData.length > 0 ? (
         <>
@@ -12369,15 +15088,18 @@ const CustomCard = React.memo(({
           borderRadius: '12px',
           border: '1px solid #e2e8f0',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          padding: '40px',
-          textAlign: 'center',
-          color: '#64748b',
           height: '500px',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
+          flexDirection: 'column'
         }}>
-          No data available for this card configuration.
+          {customHeader && (
+            <div style={{ 
+              padding: '16px 20px',
+              borderBottom: '2px solid #e2e8f0'
+            }}>
+              {customHeader}
+            </div>
+          )}
         </div>
       )}
     </div>

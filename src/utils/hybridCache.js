@@ -150,6 +150,30 @@ class EncryptionUtils {
     this.indexedDB = indexedDB; // Dexie database instance
   }
 
+  // Validate if a string is valid base64
+  isValidBase64(str) {
+    if (!str || typeof str !== 'string') return false;
+    // Remove whitespace and newlines
+    const cleaned = str.replace(/\s/g, '');
+    if (cleaned.length === 0) return false;
+    // Base64 regex: only contains A-Z, a-z, 0-9, +, /, and = for padding
+    const base64Regex = /^[A-Za-z0-9+/]*={0,2}$/;
+    // Check if it matches base64 pattern
+    if (!base64Regex.test(cleaned)) return false;
+    // Check length is multiple of 4 (after padding) - but be lenient for very long strings
+    // Some base64 strings might have extra padding that we can handle
+    const paddingLength = (cleaned.match(/=/g) || []).length;
+    const baseLength = cleaned.length - paddingLength;
+    return baseLength > 0 && (baseLength % 4 === 0 || (baseLength % 4 === paddingLength && paddingLength <= 2));
+  }
+
+  // Clean and normalize base64 string
+  cleanBase64(str) {
+    if (!str || typeof str !== 'string') return str;
+    // Remove all whitespace, newlines, and other non-base64 characters
+    return str.replace(/[^A-Za-z0-9+/=]/g, '');
+  }
+
   // Get or create salt for user email (stored in OPFS or IndexedDB)
   async getUserSalt(email) {
     if (!email) {
@@ -282,9 +306,11 @@ class EncryptionUtils {
     }
   }
 
-  // Encrypt data
+  // Encrypt data with compression and optimized processing
   async encryptData(data) {
     try {
+      const startTime = performance.now();
+      
       // Check if crypto is available
       if (!this.isCryptoAvailable()) {
         const isSecureContext = window.isSecureContext || 
@@ -302,6 +328,13 @@ class EncryptionUtils {
         }
       }
 
+      // Step 1: Compress data first (reduces size significantly for JSON)
+      const compressStart = performance.now();
+      const compressedBuffer = await this.compressData(data);
+      const compressTime = performance.now() - compressStart;
+      console.log(`📦 Compression: ${(compressedBuffer.byteLength / 1024).toFixed(2)} KB in ${compressTime.toFixed(2)}ms`);
+
+      // Step 2: Get encryption key
       const keyBuffer = await this.getEncryptionKey();
       const key = await crypto.subtle.importKey(
         'raw',
@@ -311,50 +344,147 @@ class EncryptionUtils {
         ['encrypt']
       );
 
-      const encoder = new TextEncoder();
-      const jsonString = JSON.stringify(data);
-      const dataBuffer = encoder.encode(jsonString);
-      
+      // Step 3: Encrypt compressed data
+      const encryptStart = performance.now();
       const iv = crypto.getRandomValues(new Uint8Array(12));
       const encrypted = await crypto.subtle.encrypt(
         { name: 'AES-GCM', iv: iv },
         key,
-        dataBuffer
+        compressedBuffer
       );
+      const encryptTime = performance.now() - encryptStart;
+      console.log(`🔐 Encryption: ${(encrypted.byteLength / 1024).toFixed(2)} KB in ${encryptTime.toFixed(2)}ms`);
 
-      // Combine IV and encrypted data
+      // Step 4: Combine IV and encrypted data
       const combined = new Uint8Array(iv.length + encrypted.byteLength);
       combined.set(iv);
       combined.set(new Uint8Array(encrypted), iv.length);
 
-      // Convert to base64 for storage - use chunked approach to avoid stack overflow
-      return this.arrayBufferToBase64(combined.buffer);
+      // Step 5: Convert to base64 (yield to browser periodically for large data)
+      const base64Start = performance.now();
+      let result;
+      if (combined.length > 1024 * 1024) { // > 1MB, use chunked base64
+        result = await this.arrayBufferToBase64Chunked(combined.buffer);
+      } else {
+        result = this.arrayBufferToBase64(combined.buffer);
+      }
+      const base64Time = performance.now() - base64Start;
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`📝 Base64 encoding: ${(result.length / 1024).toFixed(2)} KB in ${base64Time.toFixed(2)}ms`);
+      console.log(`⚡ Total encryption time: ${totalTime.toFixed(2)}ms (${(combined.length / 1024 / 1024).toFixed(2)} MB)`);
+      
+      return result;
     } catch (error) {
       console.error('Encryption error:', error);
       throw error;
     }
   }
 
-  // Helper function to convert ArrayBuffer to base64 efficiently
-  arrayBufferToBase64(buffer) {
+  // Chunked base64 encoding with yield points for large data
+  async arrayBufferToBase64Chunked(buffer) {
     const bytes = new Uint8Array(buffer);
-    let binary = '';
-    const chunkSize = 8192; // Process in 8KB chunks to avoid stack overflow
+    const chunkSize = 1024 * 1024; // 1MB chunks
+    const chunks = [];
     
     for (let i = 0; i < bytes.length; i += chunkSize) {
       const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
-      // Build binary string in chunks
-      for (let j = 0; j < chunk.length; j++) {
-        binary += String.fromCharCode(chunk[j]);
+      chunks.push(this.arrayBufferToBase64(chunk.buffer));
+      
+      // Yield to browser every chunk to prevent blocking
+      if (i + chunkSize < bytes.length) {
+        await new Promise(resolve => setTimeout(resolve, 0));
       }
+    }
+    
+    return chunks.join('');
+  }
+
+  // Helper function to convert ArrayBuffer to base64 efficiently
+  // Optimized version using Uint8Array directly with chunked processing
+  arrayBufferToBase64(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const chunkSize = 16384; // Increased chunk size for better performance (16KB)
+    let binary = '';
+    
+    // Use chunked processing to avoid blocking the main thread
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
+      // Use String.fromCharCode.apply for better performance on large chunks
+      binary += String.fromCharCode.apply(null, chunk);
     }
     
     return btoa(binary);
   }
 
-  // Decrypt data
+  // Compress data using native CompressionStream API (available in modern browsers)
+  async compressData(data) {
+    try {
+      // Check if CompressionStream is available
+      if (typeof CompressionStream === 'undefined') {
+        console.warn('CompressionStream not available, skipping compression');
+        // Fallback to uncompressed
+        const jsonString = JSON.stringify(data);
+        const encoder = new TextEncoder();
+        return encoder.encode(jsonString).buffer;
+      }
+
+      const jsonString = JSON.stringify(data);
+      const encoder = new TextEncoder();
+      const dataStream = new Blob([encoder.encode(jsonString)]).stream();
+      
+      const compressedStream = dataStream.pipeThrough(new CompressionStream('gzip'));
+      const compressedBlob = await new Response(compressedStream).blob();
+      const compressedArrayBuffer = await compressedBlob.arrayBuffer();
+      
+      const originalSize = new TextEncoder().encode(jsonString).length;
+      const compressedSize = compressedArrayBuffer.byteLength;
+      const compressionRatio = ((1 - compressedSize / originalSize) * 100).toFixed(1);
+      console.log(`📦 Compression: ${(originalSize / 1024).toFixed(2)} KB → ${(compressedSize / 1024).toFixed(2)} KB (${compressionRatio}% reduction)`);
+      
+      return compressedArrayBuffer;
+    } catch (error) {
+      console.warn('Compression failed, using uncompressed data:', error);
+      // Fallback to uncompressed
+      const jsonString = JSON.stringify(data);
+      const encoder = new TextEncoder();
+      return encoder.encode(jsonString).buffer;
+    }
+  }
+
+  // Decompress data using native DecompressionStream API
+  async decompressData(compressedBuffer) {
+    try {
+      // Check if DecompressionStream is available
+      if (typeof DecompressionStream === 'undefined') {
+        console.warn('DecompressionStream not available, assuming uncompressed');
+        const decoder = new TextDecoder();
+        return JSON.parse(decoder.decode(new Uint8Array(compressedBuffer)));
+      }
+
+      const compressedStream = new Blob([compressedBuffer]).stream();
+      const decompressedStream = compressedStream.pipeThrough(new DecompressionStream('gzip'));
+      const decompressedBlob = await new Response(decompressedStream).blob();
+      const decompressedArrayBuffer = await decompressedBlob.arrayBuffer();
+      const decoder = new TextDecoder();
+      return JSON.parse(decoder.decode(decompressedArrayBuffer));
+    } catch (error) {
+      // Try as uncompressed data
+      try {
+        const decoder = new TextDecoder();
+        return JSON.parse(decoder.decode(new Uint8Array(compressedBuffer)));
+      } catch (e) {
+        console.error('Decompression failed:', error);
+        throw error;
+      }
+    }
+  }
+
+  // Decrypt data with decompression support
   async decryptData(encryptedBase64) {
     try {
+      const startTime = performance.now();
+      
       // Check if crypto is available
       if (!this.isCryptoAvailable()) {
         const isSecureContext = window.isSecureContext || 
@@ -387,12 +517,54 @@ class EncryptionUtils {
         ['decrypt']
       );
 
-      // Decode from base64 - use chunked approach for large data
-      const binaryString = atob(encryptedBase64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
+      // Clean base64 string (remove whitespace, newlines, etc.)
+      let cleanedBase64 = this.cleanBase64(encryptedBase64);
+      
+      // Log validation status but don't fail - try to decode anyway
+      const isValid = this.isValidBase64(cleanedBase64);
+      if (!isValid) {
+        console.warn('⚠️ Base64 validation failed, but attempting decode anyway (data might still be valid)');
       }
+
+      // Decode from base64 - optimized for large data
+      const base64Start = performance.now();
+      let bytes;
+      try {
+        if (cleanedBase64.length > 1024 * 1024) { // > 1MB, use chunked decoding
+          bytes = await this.base64ToArrayBufferChunked(cleanedBase64);
+        } else {
+          const binaryString = atob(cleanedBase64);
+          bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+        }
+      } catch (error) {
+        console.error('⚠️ Base64 decoding failed even after cleaning:', error);
+        // Try with original string as last resort (in case cleaning removed important characters)
+        if (cleanedBase64 !== encryptedBase64) {
+          try {
+            console.log('🔄 Attempting decode with original string...');
+            if (encryptedBase64.length > 1024 * 1024) {
+              bytes = await this.base64ToArrayBufferChunked(encryptedBase64);
+            } else {
+              const binaryString = atob(encryptedBase64);
+              bytes = new Uint8Array(binaryString.length);
+              for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+            }
+            console.log('✅ Decode succeeded with original string');
+          } catch (retryError) {
+            console.error('❌ Base64 decoding failed with both cleaned and original strings:', retryError);
+            return null;
+          }
+        } else {
+          return null;
+        }
+      }
+      const base64Time = performance.now() - base64Start;
+      console.log(`📝 Base64 decoding: ${(bytes.length / 1024).toFixed(2)} KB in ${base64Time.toFixed(2)}ms`);
       
       // Check if this looks like encrypted data (has IV) or unencrypted base64
       // Encrypted data starts with 12-byte IV, so if length < 12, it's probably unencrypted
@@ -410,23 +582,127 @@ class EncryptionUtils {
       const iv = bytes.slice(0, 12);
       const encrypted = bytes.slice(12);
 
+      // Decrypt
+      const decryptStart = performance.now();
       const decrypted = await crypto.subtle.decrypt(
         { name: 'AES-GCM', iv: iv },
         key,
         encrypted
       );
+      const decryptTime = performance.now() - decryptStart;
+      console.log(`🔓 Decryption: ${(decrypted.byteLength / 1024).toFixed(2)} KB in ${decryptTime.toFixed(2)}ms`);
 
-      const decoder = new TextDecoder();
-      return JSON.parse(decoder.decode(decrypted));
+      // Decompress (handles both compressed and uncompressed data)
+      const decompressStart = performance.now();
+      const decompressed = await this.decompressData(decrypted);
+      const decompressTime = performance.now() - decompressStart;
+      
+      const totalTime = performance.now() - startTime;
+      console.log(`📦 Decompression: ${decompressTime.toFixed(2)}ms`);
+      console.log(`⚡ Total decryption time: ${totalTime.toFixed(2)}ms`);
+      
+      return decompressed;
     } catch (error) {
       console.error('Decryption error:', error);
-      // If decryption fails (e.g., wrong user or unencrypted data), try as unencrypted
-      try {
-        const jsonString = decodeURIComponent(escape(atob(encryptedBase64)));
-        return JSON.parse(jsonString);
-      } catch {
+      // If decryption fails, check if it's a base64 error
+      if (error.message && (error.message.includes('base64') || error.message.includes('InvalidCharacterError'))) {
+        console.warn('⚠️ Corrupted cache data detected (invalid base64), returning null');
+        console.warn('⚠️ Cache file may need to be deleted and re-downloaded');
         return null;
       }
+      // If decryption fails (e.g., wrong user or unencrypted data), try as unencrypted
+      // Try with cleaned base64 first
+      const cleanedBase64 = this.cleanBase64(encryptedBase64);
+      if (cleanedBase64 && cleanedBase64.length > 0) {
+        try {
+          const binaryString = atob(cleanedBase64);
+          const jsonString = decodeURIComponent(escape(binaryString));
+          return JSON.parse(jsonString);
+        } catch {
+          // Try with original if cleaned didn't work
+          try {
+            const binaryString = atob(encryptedBase64);
+            const jsonString = decodeURIComponent(escape(binaryString));
+            return JSON.parse(jsonString);
+          } catch {
+            return null;
+          }
+        }
+      }
+      return null;
+    }
+  }
+
+  // Chunked base64 to ArrayBuffer conversion with yield points
+  async base64ToArrayBufferChunked(base64) {
+    // Clean the base64 string first
+    const cleanedBase64 = this.cleanBase64(base64);
+    
+    // Try to validate, but don't fail if validation fails - attempt decode anyway
+    if (!this.isValidBase64(cleanedBase64)) {
+      console.warn('⚠️ Base64 validation failed, but attempting decode anyway');
+    }
+
+    // Base64 must be decoded in groups of 4 characters
+    // Round chunk size down to nearest multiple of 4 to avoid splitting mid-group
+    const chunkSizeBase = 1024 * 1024; // 1MB base
+    const chunkSize = Math.floor(chunkSizeBase / 4) * 4; // Round down to multiple of 4
+    
+    const totalLength = Math.ceil(cleanedBase64.length * 3 / 4);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    let currentPos = 0;
+    
+    try {
+      while (currentPos < cleanedBase64.length) {
+        // Calculate chunk end - ensure it's aligned to 4-character boundary
+        let chunkEnd = Math.min(currentPos + chunkSize, cleanedBase64.length);
+        
+        // If not at the end, round down to nearest multiple of 4
+        if (chunkEnd < cleanedBase64.length) {
+          chunkEnd = Math.floor((chunkEnd - currentPos) / 4) * 4 + currentPos;
+        }
+        
+        // If chunk would be empty, break
+        if (chunkEnd <= currentPos) {
+          break;
+        }
+        
+        const chunk = cleanedBase64.slice(currentPos, chunkEnd);
+        
+        // Try to decode chunk
+        try {
+          const binaryString = atob(chunk);
+          const chunkBytes = new Uint8Array(binaryString.length);
+          for (let j = 0; j < binaryString.length; j++) {
+            chunkBytes[j] = binaryString.charCodeAt(j);
+          }
+          result.set(chunkBytes, offset);
+          offset += chunkBytes.length;
+        } catch (chunkError) {
+          // If chunk decode fails, the data might be corrupted at this position
+          console.error(`❌ Failed to decode base64 chunk at position ${currentPos}:`, chunkError);
+          throw new Error(`Invalid base64 chunk at position ${currentPos}: ${chunkError.message}`);
+        }
+        
+        // Move to next chunk
+        currentPos = chunkEnd;
+        
+        // Yield to browser every chunk (except last)
+        if (currentPos < cleanedBase64.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+      
+      // Trim result to actual decoded length
+      if (offset < result.length) {
+        return result.slice(0, offset);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Error in base64ToArrayBufferChunked:', error);
+      throw new Error(`Base64 decoding failed: ${error.message}`);
     }
   }
 }
@@ -438,6 +714,7 @@ class OPFSBackend {
     this.root = null;
     this.initialized = false;
     this.metadataCache = new Map(); // In-memory cache for metadata
+    this.metadataSaveTimer = null; // Timer for deferred metadata saves
   }
 
   // Load metadata from OPFS
@@ -593,8 +870,10 @@ class OPFSBackend {
         console.warn(`⚠️ Large data write on mobile: ${(dataSize / (1024 * 1024)).toFixed(2)} MB`);
       }
       
+      const syncStart = performance.now();
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
+      console.log(`💾 Cache write started for: ${cacheKey}`);
       
       // Parse date range from cache key if not provided
       let dateRange = null;
@@ -653,7 +932,7 @@ class OPFSBackend {
         await writable.close();
       }
       
-      // Store metadata in OPFS
+      // Store metadata in memory (defer file write to batch operations)
       const salesMap = this.metadataCache.get('sales') || new Map();
       const metadata = {
         cacheKey,
@@ -663,7 +942,18 @@ class OPFSBackend {
       };
       salesMap.set(cacheKey, metadata);
       this.metadataCache.set('sales', salesMap);
-      await this.saveMetadata();
+      
+      // Defer metadata save to avoid blocking (use setTimeout to batch writes)
+      if (this.metadataSaveTimer) {
+        clearTimeout(this.metadataSaveTimer);
+      }
+      this.metadataSaveTimer = setTimeout(async () => {
+        await this.saveMetadata();
+        this.metadataSaveTimer = null;
+      }, 100); // Batch metadata saves within 100ms
+      
+      const syncTime = performance.now() - syncStart;
+      console.log(`✅ Cache write completed in ${syncTime.toFixed(2)}ms: ${cacheKey}`);
       
       // Clean up old entries only if expiry is set (not null/never)
       if (maxAgeDays !== null && maxAgeDays !== undefined) {
@@ -1065,10 +1355,21 @@ class OPFSBackend {
     }
   }
 
+  // Clear metadata cache (for refreshing after clearing cache)
+  async clearMetadataCache() {
+    this.metadataCache.set('sales', new Map());
+    this.metadataCache.set('dashboard', new Map());
+    // Reload from OPFS to ensure consistency
+    await this.loadMetadata();
+  }
+
   // List all cache entries for viewing
   async listAllCacheEntries() {
     try {
       await this.init();
+      
+      // Reload metadata to ensure we have the latest data
+      await this.loadMetadata();
       
       const salesMap = this.metadataCache.get('sales') || new Map();
       const dashboardMap = this.metadataCache.get('dashboard') || new Map();
@@ -1185,15 +1486,22 @@ class OPFSBackend {
   }
 
   // Get complete sales data cache key for a company
-  getCompleteSalesDataKey(companyInfo) {
-    return `complete_sales_${companyInfo.tallyloc_id}_${companyInfo.guid}`;
+  // Format: {email}_{guid}_{tallyloc_id}_complete_sales
+  getCompleteSalesDataKey(companyInfo, email = null) {
+    const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+    // Sanitize email for use in filename
+    const sanitizedEmail = userEmail.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return `${sanitizedEmail}_${companyInfo.guid}_${companyInfo.tallyloc_id}_complete_sales`;
   }
 
   // Store complete sales data with metadata
   async setCompleteSalesData(companyInfo, data, metadata = {}) {
     try {
+      const syncStart = performance.now();
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const email = metadata.email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, email);
+      console.log(`💾 Complete sales data cache write started for: ${cacheKey}`);
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
       
@@ -1291,9 +1599,12 @@ class OPFSBackend {
       };
       salesMap.set(cacheKey, metadataEntry);
       this.metadataCache.set('sales', salesMap);
+      
+      // For complete sales data, save metadata immediately (important for sync tracking)
       await this.saveMetadata();
       
-      console.log(`✅ Cached complete sales data in OPFS: ${cacheKey}, lastaltid: ${lastaltid}`);
+      const syncTime = performance.now() - syncStart;
+      console.log(`✅ Cached complete sales data in OPFS: ${cacheKey}, lastaltid: ${lastaltid} (${syncTime.toFixed(2)}ms)`);
     } catch (error) {
       console.error('Error storing complete sales data in OPFS:', error);
       throw error;
@@ -1301,15 +1612,72 @@ class OPFSBackend {
   }
 
   // Get complete sales data for a company
-  async getCompleteSalesData(companyInfo) {
+  async getCompleteSalesData(companyInfo, email = null) {
     try {
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, userEmail);
       
       // Check metadata first
       const salesMap = this.metadataCache.get('sales') || new Map();
-      const metadata = salesMap.get(cacheKey);
+      let metadata = salesMap.get(cacheKey);
+      
+      // If metadata doesn't exist, try to check if file exists anyway
+      // (metadata might have been cleared but file might still be valid)
       if (!metadata || !metadata.isComplete) {
+        // Try to read file directly to see if it exists
+        try {
+          const filePath = this.getSalesFilePath(cacheKey);
+          const pathParts = filePath.split('/');
+          const fileName = pathParts.pop();
+          const dirPath = pathParts.join('/');
+          
+          let dir = this.root;
+          if (dirPath) {
+            for (const part of dirPath.split('/')) {
+              if (part) {
+                dir = await dir.getDirectoryHandle(part);
+              }
+            }
+          }
+          
+          // File exists but metadata is missing - try to load it
+          const fileHandle = await dir.getFileHandle(fileName);
+          const file = await fileHandle.getFile();
+          const encrypted = await file.text();
+          
+          // Try to decrypt - if successful, restore metadata
+          const decrypted = await this.encryption.decryptData(encrypted);
+          if (decrypted) {
+            console.log('✅ Found cache file without metadata - restoring metadata');
+            // Restore basic metadata
+            metadata = {
+              isComplete: true,
+              timestamp: file.lastModified || Date.now(),
+              lastaltid: null,
+              booksfrom: null
+            };
+            salesMap.set(cacheKey, metadata);
+            this.metadataCache.set('sales', salesMap);
+            await this.saveMetadata();
+            
+            // Return the decrypted data
+            return {
+              data: decrypted,
+              metadata: {
+                lastaltid: metadata.lastaltid,
+                booksfrom: metadata.booksfrom,
+                timestamp: metadata.timestamp
+              }
+            };
+          }
+        } catch (fileError) {
+          // File doesn't exist or can't be read - return null
+          if (fileError.name !== 'NotFoundError') {
+            console.warn('Error checking for cache file:', fileError);
+          }
+          return null;
+        }
         return null;
       }
       
@@ -1330,12 +1698,51 @@ class OPFSBackend {
       
       const fileHandle = await dir.getFileHandle(fileName);
       const file = await fileHandle.getFile();
+      
+      // Validate file size - should be reasonable for base64 encoded data
+      const fileSize = file.size;
+      console.log(`📄 Reading complete sales cache file: ${fileName}, size: ${(fileSize / 1024 / 1024).toFixed(2)} MB`);
+      
+      if (fileSize === 0) {
+        console.warn('⚠️ Cache file is empty');
+        return null;
+      }
+      
       const encrypted = await file.text();
+      
+      // Validate that we read the full file
+      if (encrypted.length === 0) {
+        console.warn('⚠️ Read empty string from cache file');
+        return null;
+      }
+      
+      // Log encrypted data info for debugging
+      console.log(`📝 Encrypted data length: ${encrypted.length} characters`);
+      
+      // Check if file might be truncated (base64 length should be roughly 4/3 of file size in bytes)
+      // But since it's stored as text, the file size in bytes should match the string length
+      const expectedLength = fileSize; // For text files, size in bytes should match character count
+      if (Math.abs(encrypted.length - expectedLength) > 100) {
+        console.warn(`⚠️ File size mismatch: expected ~${expectedLength} characters, got ${encrypted.length}. File might be truncated.`);
+      }
       
       // Decrypt
       const decrypted = await this.encryption.decryptData(encrypted);
       if (!decrypted) {
-        console.warn('Failed to decrypt complete sales data');
+        console.warn('⚠️ Failed to decrypt complete sales data - cache may be corrupted');
+        // Try to delete the corrupted cache entry
+        try {
+          await dir.removeEntry(fileName);
+          // Only clear metadata if file deletion was successful
+          const salesMap = this.metadataCache.get('sales') || new Map();
+          salesMap.delete(cacheKey);
+          this.metadataCache.set('sales', salesMap);
+          await this.saveMetadata();
+          console.log(`🗑️ Deleted corrupted cache entry and cleared metadata: ${cacheKey}`);
+        } catch (deleteError) {
+          console.warn('Could not delete corrupted cache entry - keeping metadata:', deleteError);
+          // Don't clear metadata if file deletion failed - file might still be recoverable
+        }
         return null;
       }
       
@@ -1352,16 +1759,47 @@ class OPFSBackend {
       if (error.name === 'NotFoundError') {
         return null;
       }
+      // If it's a base64 decoding error, try to clear the corrupted cache
+      if (error.message && error.message.includes('base64')) {
+        console.warn('⚠️ Base64 decoding error - attempting to clear corrupted cache');
+        try {
+          const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+          const filePath = this.getSalesFilePath(cacheKey);
+          const pathParts = filePath.split('/');
+          const fileName = pathParts.pop();
+          const dirPath = pathParts.join('/');
+          
+          let dir = this.root;
+          if (dirPath) {
+            for (const part of dirPath.split('/')) {
+              if (part) {
+                dir = await dir.getDirectoryHandle(part);
+              }
+            }
+          }
+          await dir.removeEntry(fileName);
+          // Only clear metadata if file deletion was successful
+          const salesMap = this.metadataCache.get('sales') || new Map();
+          salesMap.delete(cacheKey);
+          this.metadataCache.set('sales', salesMap);
+          await this.saveMetadata();
+          console.log(`🗑️ Deleted corrupted cache entry and cleared metadata due to base64 error: ${cacheKey}`);
+        } catch (deleteError) {
+          console.warn('Could not delete corrupted cache entry - keeping metadata:', deleteError);
+          // Don't clear metadata if file deletion failed
+        }
+      }
       console.error('Error retrieving complete sales data from OPFS:', error);
       return null;
     }
   }
 
   // Get lastaltid for a company
-  async getLastAlterId(companyInfo) {
+  async getLastAlterId(companyInfo, email = null) {
     try {
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, userEmail);
       const salesMap = this.metadataCache.get('sales') || new Map();
       const metadata = salesMap.get(cacheKey);
       if (metadata && metadata.isComplete) {
@@ -1703,6 +2141,13 @@ class IndexedDBBackend {
     }
   }
 
+  // Clear metadata cache (for IndexedDB, entries are read directly from DB, so this is a no-op)
+  async clearMetadataCache() {
+    // For IndexedDB, entries are read directly from the database, so no in-memory cache to clear
+    // But we'll ensure the database is up to date
+    await this.init();
+  }
+
   // List all cache entries for viewing
   async listAllCacheEntries() {
     try {
@@ -1771,15 +2216,20 @@ class IndexedDBBackend {
   }
 
   // Get complete sales data cache key for a company
-  getCompleteSalesDataKey(companyInfo) {
-    return `complete_sales_${companyInfo.tallyloc_id}_${companyInfo.guid}`;
+  // Format: {email}_{guid}_{tallyloc_id}_complete_sales
+  getCompleteSalesDataKey(companyInfo, email = null) {
+    const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+    // Sanitize email for use in filename
+    const sanitizedEmail = userEmail.replace(/[^a-zA-Z0-9_-]/g, '_');
+    return `${sanitizedEmail}_${companyInfo.guid}_${companyInfo.tallyloc_id}_complete_sales`;
   }
 
   // Store complete sales data with metadata
   async setCompleteSalesData(companyInfo, data, metadata = {}) {
     try {
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const email = metadata.email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, email);
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
       
@@ -1844,10 +2294,11 @@ class IndexedDBBackend {
   }
 
   // Get complete sales data for a company
-  async getCompleteSalesData(companyInfo) {
+  async getCompleteSalesData(companyInfo, email = null) {
     try {
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, userEmail);
       
       // Get entry from IndexedDB
       const entry = await this.db.salesData.get(cacheKey);
@@ -1858,7 +2309,19 @@ class IndexedDBBackend {
       // Decrypt
       const decrypted = await this.encryption.decryptData(entry.encryptedData);
       if (!decrypted) {
-        console.warn('Failed to decrypt complete sales data');
+        console.warn('⚠️ Failed to decrypt complete sales data - cache may be corrupted');
+        // Try to delete the corrupted cache entry
+        try {
+          await this.db.salesData.delete(cacheKey);
+          // Clear metadata entry as well
+          const salesMap = this.metadataCache.get('sales') || new Map();
+          salesMap.delete(cacheKey);
+          this.metadataCache.set('sales', salesMap);
+          await this.saveMetadata();
+          console.log(`🗑️ Deleted corrupted cache entry and cleared metadata from IndexedDB: ${cacheKey}`);
+        } catch (deleteError) {
+          console.warn('Could not delete corrupted cache entry:', deleteError);
+        }
         return null;
       }
       
@@ -1872,16 +2335,33 @@ class IndexedDBBackend {
         }
       };
     } catch (error) {
+      // If it's a base64 decoding error, try to clear the corrupted cache
+      if (error.message && error.message.includes('base64')) {
+        console.warn('⚠️ Base64 decoding error - attempting to clear corrupted cache');
+        try {
+          const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+          await this.db.salesData.delete(cacheKey);
+          // Clear metadata entry as well
+          const salesMap = this.metadataCache.get('sales') || new Map();
+          salesMap.delete(cacheKey);
+          this.metadataCache.set('sales', salesMap);
+          await this.saveMetadata();
+          console.log(`🗑️ Deleted corrupted cache entry and cleared metadata due to base64 error: ${cacheKey}`);
+        } catch (deleteError) {
+          console.warn('Could not delete corrupted cache entry:', deleteError);
+        }
+      }
       console.error('Error retrieving complete sales data from IndexedDB:', error);
       return null;
     }
   }
 
   // Get lastaltid for a company
-  async getLastAlterId(companyInfo) {
+  async getLastAlterId(companyInfo, email = null) {
     try {
       await this.init();
-      const cacheKey = this.getCompleteSalesDataKey(companyInfo);
+      const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
+      const cacheKey = this.getCompleteSalesDataKey(companyInfo, userEmail);
       const entry = await this.db.salesData.get(cacheKey);
       if (entry && entry.isComplete) {
         return entry.lastaltid || null;
@@ -2135,6 +2615,14 @@ class HybridCache {
     return usagePercent >= thresholdPercent;
   }
 
+  // Clear metadata cache (for refreshing after clearing cache)
+  async clearMetadataCache() {
+    await this.init();
+    if (this.backend && this.backend.clearMetadataCache) {
+      await this.backend.clearMetadataCache();
+    }
+  }
+
   // List all cache entries
   async listAllCacheEntries() {
     await this.init();
@@ -2163,15 +2651,15 @@ class HybridCache {
   }
 
   // Get complete sales data for a company
-  async getCompleteSalesData(companyInfo) {
+  async getCompleteSalesData(companyInfo, email = null) {
     await this.init();
-    return await this.backend.getCompleteSalesData(companyInfo);
+    return await this.backend.getCompleteSalesData(companyInfo, email);
   }
 
   // Get lastaltid for a company
-  async getLastAlterId(companyInfo) {
+  async getLastAlterId(companyInfo, email = null) {
     await this.init();
-    return await this.backend.getLastAlterId(companyInfo);
+    return await this.backend.getLastAlterId(companyInfo, email);
   }
 
   // Get raw cache file data as JSON (for viewing)

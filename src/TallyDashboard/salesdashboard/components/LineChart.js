@@ -1,107 +1,183 @@
-import React from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { ResponsiveLine } from '@nivo/line';
 
 const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick, showBackButton, rowAction, customHeader }) => {
-  // Handle empty or invalid data
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Convert data to Nivo format
+  const nivoData = useMemo(() => {
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      return [];
+    }
+    return [{
+      id: 'value',
+      data: data.map((item, index) => ({
+        x: item.label || `Point ${index}`,
+        y: item.value || 0,
+        originalData: item
+      }))
+    }];
+  }, [data]);
+
+  // Handle empty or invalid data - return empty card structure
   if (!data || data.length === 0) {
     return (
       <div style={{
-        background: 'white',
-        borderRadius: '12px',
+        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+        borderRadius: isMobile ? '12px' : '16px',
         padding: '0',
         border: '1px solid #e2e8f0',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
         display: 'flex',
         flexDirection: 'column',
-        height: '100%'
+        height: '100%',
+        overflow: 'hidden',
+        width: '100%',
+        maxWidth: '100%'
       }}>
         {customHeader ? (
           <div style={{ 
-            padding: '12px 16px',
+            padding: isMobile ? '12px 16px' : '16px 20px',
             position: 'sticky',
             top: 0,
-            background: 'white',
+            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
             zIndex: 10,
-            borderBottom: '1px solid #e2e8f0'
+            borderBottom: '2px solid #e2e8f0',
+            marginBottom: '0'
           }}>
             {customHeader}
           </div>
         ) : (
           <div style={{
-            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: isMobile ? '12px 16px' : '16px 20px',
             position: 'sticky',
             top: 0,
-            background: 'white',
+            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
             zIndex: 10,
-            borderBottom: '1px solid #e2e8f0'
+            borderBottom: '2px solid #e2e8f0',
+            marginBottom: '0',
+            gap: isMobile ? '8px' : '12px'
           }}>
-            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+            <h3 style={{
+              margin: 0,
+              fontSize: isMobile ? '16px' : '18px',
+              fontWeight: '700',
+              color: '#1e293b',
+              letterSpacing: '-0.025em',
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
               {title}
             </h3>
+            {showBackButton && onBackClick && (
+              <button
+                onClick={onBackClick}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  padding: isMobile ? '6px 10px' : '8px 14px',
+                  background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: '8px',
+                  color: '#475569',
+                  fontSize: isMobile ? '11px' : '13px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                  boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                  flexShrink: 0
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)';
+                  e.target.style.transform = 'translateY(-1px)';
+                  e.target.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
+                  e.target.style.transform = 'translateY(0)';
+                  e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px' }}>arrow_back</span>
+                {!isMobile && <span>Back</span>}
+              </button>
+            )}
           </div>
         )}
         <div style={{
-          padding: '12px 16px',
-          textAlign: 'center',
-          color: '#64748b',
+          position: 'relative',
+          width: '100%',
+          maxWidth: '100%',
+          padding: '0',
+          overflowY: 'auto',
+          overflowX: 'hidden',
           flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
+          minHeight: 0,
+          background: 'radial-gradient(circle at top, rgba(59, 130, 246, 0.03) 0%, transparent 50%)'
         }}>
-          <p style={{ margin: 0 }}>No data available</p>
+          <div style={{ 
+            height: isMobile ? '280px' : 'min(400px, calc(100% - 40px))', 
+            minHeight: isMobile ? '280px' : '320px',
+            maxHeight: isMobile ? '350px' : '500px',
+            width: '100%',
+            maxWidth: '100%',
+            borderRadius: isMobile ? '8px' : '12px',
+            background: 'white',
+            padding: '0',
+            boxShadow: 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.06)',
+            overflow: 'hidden',
+            flexShrink: 0
+          }} />
         </div>
       </div>
     );
   }
 
-  const maxValue = Math.max(...data.map(d => d.value || 0));
-  const minValue = Math.min(...data.map(d => d.value || 0));
-  const range = maxValue - minValue || 1; // Avoid division by zero
-
-  const width = 600;
-  const height = 300;
-  const padding = 40;
-  const bottomPadding = 60; // Extra padding for rotated x-axis labels
-  const chartWidth = width - padding * 2;
-  const chartHeight = height - padding - bottomPadding;
-
-  const points = data.map((item, index) => {
-    // Handle single data point or empty data
-    const divisor = Math.max(data.length - 1, 1);
-    const x = padding + (index / divisor) * chartWidth;
-    const y = padding + chartHeight - ((item.value || 0) - minValue) / range * chartHeight;
-    return { ...item, x, y };
-  });
-  
-  const bottomY = height - bottomPadding;
-
-  const pathD = points.length > 0 
-    ? points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
-    : '';
-
-  const areaPathD = points.length > 0
-    ? `${pathD} L ${points[points.length - 1].x} ${bottomY} L ${padding} ${bottomY} Z`
-    : '';
+  // Handle click events
+  const handleClick = (point) => {
+    console.log('📈 LineChart click:', { point, pointData: point.data, label: point.data.originalData?.label });
+    if (onPointClick && point.data.originalData) {
+      onPointClick(point.data.originalData.label);
+    }
+  };
 
   return (
     <div style={{
-      background: 'white',
-      borderRadius: '12px',
+      background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+      borderRadius: isMobile ? '12px' : '16px',
       padding: '0',
       border: '1px solid #e2e8f0',
-      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
       display: 'flex',
       flexDirection: 'column',
-      height: '100%'
+      height: '100%',
+      overflow: 'hidden',
+      width: '100%',
+      maxWidth: '100%'
     }}>
       {customHeader ? (
         <div style={{ 
-          padding: '12px 16px',
+          padding: isMobile ? '12px 16px' : '16px 20px',
           position: 'sticky',
           top: 0,
-          background: 'white',
+          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           zIndex: 10,
-          borderBottom: '1px solid #e2e8f0',
+          borderBottom: '2px solid #e2e8f0',
           marginBottom: '0'
         }}>
           {customHeader}
@@ -111,19 +187,25 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '12px 16px',
+          padding: isMobile ? '12px 16px' : '16px 20px',
           position: 'sticky',
           top: 0,
-          background: 'white',
+          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           zIndex: 10,
-          borderBottom: '1px solid #e2e8f0',
-          marginBottom: '0'
+          borderBottom: '2px solid #e2e8f0',
+          marginBottom: '0',
+          gap: isMobile ? '8px' : '12px'
         }}>
           <h3 style={{
             margin: 0,
-            fontSize: '16px',
-            fontWeight: '600',
-            color: '#1e293b'
+            fontSize: isMobile ? '16px' : '18px',
+            fontWeight: '700',
+            color: '#1e293b',
+            letterSpacing: '-0.025em',
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
           }}>
             {title}
           </h3>
@@ -133,26 +215,32 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
-                padding: '6px 12px',
-                background: '#f1f5f9',
-                border: '1px solid #e2e8f0',
-                borderRadius: '6px',
-                color: '#64748b',
-                fontSize: '12px',
-                fontWeight: '500',
+                gap: '4px',
+                padding: isMobile ? '6px 10px' : '8px 14px',
+                background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+                border: '1px solid #cbd5e1',
+                borderRadius: '8px',
+                color: '#475569',
+                fontSize: isMobile ? '11px' : '13px',
+                fontWeight: '600',
                 cursor: 'pointer',
-                transition: 'all 0.2s ease'
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                flexShrink: 0
               }}
               onMouseEnter={(e) => {
-                e.target.style.background = '#e2e8f0';
+                e.target.style.background = 'linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)';
+                e.target.style.transform = 'translateY(-1px)';
+                e.target.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
               }}
               onMouseLeave={(e) => {
-                e.target.style.background = '#f1f5f9';
+                e.target.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
               }}
             >
-              <span className="material-icons" style={{ fontSize: '16px' }}>arrow_back</span>
-              Back
+              <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px' }}>arrow_back</span>
+              {!isMobile && <span>Back</span>}
             </button>
           )}
         </div>
@@ -160,147 +248,214 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
       <div style={{
         position: 'relative',
         width: '100%',
-        padding: '12px 16px',
+        maxWidth: '100%',
+        padding: '0',
         overflowY: 'auto',
-        flex: 1
+        overflowX: 'hidden',
+        flex: 1,
+        minHeight: 0,
+        background: 'radial-gradient(circle at top, rgba(59, 130, 246, 0.03) 0%, transparent 50%)'
       }}>
-        <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', height: 'auto', minHeight: '300px' }}>
-          {/* Grid lines */}
-          {[0, 1, 2, 3, 4].map((i) => {
-            const y = padding + (i / 4) * chartHeight;
-            const value = maxValue - (i / 4) * range;
-            return (
-              <g key={i}>
-                <line
-                  x1={padding}
-                  y1={y}
-                  x2={width - padding}
-                  y2={y}
-                  stroke="#e5e7eb"
-                  strokeWidth="1"
-                />
-                <text
-                  x={padding - 10}
-                  y={y + 4}
-                  textAnchor="end"
-                  style={{ fontSize: '10px', fill: '#6b7280' }}
-                >
-                  {valuePrefix}{value.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                </text>
-              </g>
-            );
-          })}
-
-          {/* Area under line */}
-          <path
-            d={areaPathD}
-            fill="url(#gradient)"
-            opacity="0.2"
-          />
-
-          {/* Line */}
-          <path
-            d={pathD}
-            fill="none"
-            stroke="#3b82f6"
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-
-          {/* Points */}
-          {points.map((point, index) => (
-            <g key={index}>
-              <circle
-                cx={point.x}
-                cy={point.y}
-                r="5"
-                fill="white"
-                stroke="#3b82f6"
-                strokeWidth="3"
-                style={{
-                  cursor: onPointClick ? 'pointer' : 'default',
-                  transition: 'all 0.2s ease'
-                }}
-                onClick={() => onPointClick?.(point.label)}
-                onMouseEnter={(e) => {
-                  if (onPointClick) {
-                    e.target.setAttribute('r', '6');
+        <div style={{ 
+          height: isMobile ? '280px' : 'min(400px, calc(100% - 40px))', 
+          minHeight: isMobile ? '280px' : '320px',
+          maxHeight: isMobile ? '350px' : '500px',
+          width: '100%',
+          maxWidth: '100%',
+          borderRadius: isMobile ? '8px' : '12px',
+          background: 'white',
+          padding: '0',
+          boxShadow: 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.06)',
+          overflow: 'hidden',
+          flexShrink: 0
+        }}>
+          <ResponsiveLine
+            data={nivoData}
+            margin={isMobile ? { top: 15, right: 10, bottom: 60, left: 50 } : { top: 20, right: 25, bottom: 70, left: 60 }}
+            xScale={{ type: 'point' }}
+            yScale={{
+              type: 'linear',
+              min: 'auto',
+              max: 'auto',
+              stacked: false,
+              reverse: false
+            }}
+            curve="monotoneX"
+            axisTop={null}
+            axisRight={null}
+            axisBottom={{
+              tickSize: isMobile ? 5 : 8,
+              tickPadding: isMobile ? 6 : 10,
+              tickRotation: -45,
+              legend: '',
+              legendOffset: isMobile ? 40 : 50,
+              legendPosition: 'middle',
+              format: (value) => {
+                const maxLength = isMobile ? 8 : 12;
+                return value.length > maxLength ? value.substring(0, maxLength) + '...' : value;
+              }
+            }}
+            axisLeft={{
+              tickSize: isMobile ? 5 : 8,
+              tickPadding: isMobile ? 4 : 10,
+              tickRotation: 0,
+              legend: '',
+              legendOffset: isMobile ? -30 : -50,
+              legendPosition: 'middle',
+              format: (value) => {
+                const formatted = `${valuePrefix}${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+                return isMobile && formatted.length > 8 ? formatted.substring(0, 6) + '...' : formatted;
+              }
+            }}
+            pointSize={isMobile ? 8 : 10}
+            pointColor="#ffffff"
+            pointBorderWidth={isMobile ? 2.5 : 3}
+            pointBorderColor="#3b82f6"
+            pointLabelYOffset={-12}
+            enableArea={true}
+            areaOpacity={0.25}
+            areaBaselineValue={Math.min(...data.map(d => d.value || 0))}
+            useMesh={true}
+            colors={['#3b82f6']}
+            lineWidth={isMobile ? 3 : 4}
+            enableGridX={false}
+            enableGridY={true}
+            gridYValues={isMobile ? 4 : 5}
+            animate={true}
+            motionConfig={{
+              stiffness: 90,
+              damping: 15,
+              mass: 1
+            }}
+            onClick={handleClick}
+            tooltip={({ point }) => {
+              return (
+                <div style={{
+                  background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+                  padding: isMobile ? '8px 12px' : '12px 16px',
+                  borderRadius: isMobile ? '8px' : '12px',
+                  border: '2px solid #e2e8f0',
+                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                  fontSize: isMobile ? '11px' : '13px',
+                  minWidth: isMobile ? '140px' : '180px',
+                  maxWidth: isMobile ? '200px' : 'none'
+                }}>
+                  <div style={{ 
+                    fontWeight: '700', 
+                    marginBottom: isMobile ? '4px' : '8px', 
+                    color: '#1e293b',
+                    fontSize: isMobile ? '12px' : '14px',
+                    letterSpacing: '-0.025em',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {point.data.x}
+                  </div>
+                  <div style={{ 
+                    color: '#475569',
+                    fontSize: isMobile ? '13px' : '15px',
+                    fontWeight: '600'
+                  }}>
+                    {valuePrefix}{point.data.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              );
+            }}
+            theme={{
+              tooltip: {
+                container: {
+                  background: 'transparent',
+                  padding: 0
+                }
+              },
+              axis: {
+                ticks: {
+                  text: {
+                    fontSize: isMobile ? 10 : 12,
+                    fill: '#64748b',
+                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                    fontWeight: 600
+                  },
+                  line: {
+                    stroke: '#cbd5e1',
+                    strokeWidth: 1
                   }
-                }}
-                onMouseLeave={(e) => {
-                  if (onPointClick) {
-                    e.target.setAttribute('r', '5');
+                },
+                grid: {
+                  line: {
+                    stroke: '#e2e8f0',
+                    strokeWidth: 1,
+                    strokeDasharray: '4 4'
                   }
-                }}
-              />
-            </g>
-          ))}
-
-          {/* X-axis labels */}
-          {points.map((point, index) => {
-            // Show labels at intervals to avoid crowding (show every nth label based on total count)
-            const totalPoints = points.length;
-            let labelInterval = 1;
-            if (totalPoints > 10) labelInterval = Math.ceil(totalPoints / 8); // Show max 8 labels
-            
-            // Always show first and last labels, and labels at intervals
-            const shouldShow = index === 0 || index === totalPoints - 1 || index % labelInterval === 0;
-            if (!shouldShow) return null;
-            
-            // Truncate long labels
-            const maxLabelLength = 12;
-            const displayLabel = point.label.length > maxLabelLength 
-              ? point.label.substring(0, maxLabelLength) + '...' 
-              : point.label;
-            
-            return (
-              <text
-                key={index}
-                x={point.x}
-                y={bottomY + 25}
-                textAnchor="middle"
-                style={{ fontSize: '10px', fill: '#4b5563' }}
-                transform={`rotate(-45 ${point.x} ${bottomY + 25})`}
-              >
-                {displayLabel}
-              </text>
-            );
-          })}
-
-          {/* Gradient definition */}
-          <defs>
-            <linearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stopColor="#3b82f6" stopOpacity="1" />
-              <stop offset="100%" stopColor="#3b82f6" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-        </svg>
+                }
+              }
+            }}
+          />
+        </div>
         {rowAction && (
           <div style={{
-            marginTop: '16px',
+            marginTop: isMobile ? '12px' : '20px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px'
+            gap: isMobile ? '8px' : '10px',
+            width: '100%',
+            maxWidth: '100%'
           }}>
-            {points.map((point, index) => (
+            {data.map((point, index) => (
               <div
                 key={`${point.label}-${index}`}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  background: '#f8fafc',
+                  background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
                   border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  padding: '8px 12px'
+                  borderRadius: isMobile ? '8px' : '10px',
+                  padding: isMobile ? '10px 12px' : '12px 16px',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                  gap: isMobile ? '8px' : '12px'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)';
+                  if (!isMobile) {
+                    e.currentTarget.style.transform = 'translateX(4px)';
+                  }
+                  e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)';
+                  e.currentTarget.style.transform = 'translateX(0)';
+                  e.currentTarget.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '500', color: '#475569' }}>{point.label}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px', flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    width: isMobile ? '8px' : '10px',
+                    height: isMobile ? '8px' : '10px',
+                    borderRadius: '50%',
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)',
+                    flexShrink: 0
+                  }} />
+                  <span style={{ 
+                    fontSize: isMobile ? '11px' : '13px', 
+                    fontWeight: '600', 
+                    color: '#475569',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {point.label}
+                  </span>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '12px', flexShrink: 0 }}>
+                  <span style={{ 
+                    fontSize: isMobile ? '11px' : '13px', 
+                    fontWeight: '700', 
+                    color: '#1e293b'
+                  }}>
                     {valuePrefix}{(point.value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <button
@@ -309,22 +464,31 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
                     title={rowAction.title || 'View raw data'}
                     style={{
                       border: 'none',
-                      background: 'transparent',
+                      background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)',
                       cursor: 'pointer',
                       color: '#1e40af',
-                      padding: '2px',
-                      borderRadius: '50%'
+                      padding: isMobile ? '4px' : '6px',
+                      borderRadius: '8px',
+                      transition: 'all 0.2s ease',
+                      boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#e0e7ff';
-                      e.currentTarget.style.color = '#1e3a8a';
+                      e.currentTarget.style.background = 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)';
+                      if (!isMobile) {
+                        e.currentTarget.style.transform = 'scale(1.1)';
+                      }
+                      e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'transparent';
-                      e.currentTarget.style.color = '#1e40af';
+                      e.currentTarget.style.background = 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
                     }}
                   >
-                    <span className="material-icons" style={{ fontSize: '16px' }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px' }}>
                       {rowAction.icon || 'table_view'}
                     </span>
                   </button>
@@ -339,3 +503,4 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
 };
 
 export default LineChart;
+

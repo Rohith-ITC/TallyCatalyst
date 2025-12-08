@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiGet, apiPost, apiPut } from '../utils/apiUtils';
+import { getValidGoogleTokenFromConfigs, refreshGoogleTokenAndUpdateBackend } from '../utils/googleDriveUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 
 function TallyConfig() {
@@ -31,7 +32,7 @@ function TallyConfig() {
   // Link Account Modal State
   const [showLinkAccountModal, setShowLinkAccountModal] = useState(false);
   const [googleAccessToken, setGoogleAccessToken] = useState(null);
-  const [googleUserEmail, setGoogleUserEmail] = useState(null);
+  const [googleUserDisplayName, setGoogleUserDisplayName] = useState(null);
   const [googleConfigStatus, setGoogleConfigStatus] = useState(null);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
@@ -67,30 +68,100 @@ function TallyConfig() {
       if (activeCompany && configurations[activeCompany.guid]) {
         const companyConfig = configurations[activeCompany.guid];
         if (companyConfig && companyConfig.configs) {
-          const emailConfig = companyConfig.configs.find(c => c.config_key === 'google_email');
+          const displayNameConfig = companyConfig.configs.find(c => c.config_key === 'google_display_name');
           const tokenConfig = companyConfig.configs.find(c => c.config_key === 'google_token');
           
           // Load from configurations first (if saved)
-          if (emailConfig && emailConfig.permission_value) {
-            setGoogleUserEmail(emailConfig.permission_value);
+          if (displayNameConfig && displayNameConfig.permission_value) {
+            setGoogleUserDisplayName(displayNameConfig.permission_value);
           }
+          
           if (tokenConfig && tokenConfig.permission_value) {
-            setGoogleAccessToken(tokenConfig.permission_value);
-            // Also fetch email if we have token but no email
-            // Only try if we don't already have the email stored
-            if (!emailConfig?.permission_value) {
-              // Try to fetch email, but don't show errors if token is expired
-              fetchGoogleUserEmail(tokenConfig.permission_value).catch(() => {
-                // Silently handle - token might be expired
-              });
-            }
+            // Validate and refresh token if needed
+            const validateAndRefreshToken = async () => {
+              try {
+                const tallylocId = selectedConnection?.tallyloc_id || selectedConnection?.id;
+                const coGuid = activeCompany.guid;
+                
+                if (tallylocId && coGuid) {
+                  // Get valid token (will auto-refresh if expired)
+                  const validToken = await getValidGoogleTokenFromConfigs(tallylocId, coGuid);
+                  
+                  if (validToken) {
+                    setGoogleAccessToken(validToken);
+                    localStorage.setItem('google_access_token', validToken);
+                    localStorage.setItem('google_access_token_timestamp', Date.now().toString());
+                    
+                    // Fetch display name if not already stored
+                    if (!displayNameConfig?.permission_value) {
+                      try {
+                        const displayName = await fetchGoogleUserDisplayName(validToken);
+                        setGoogleUserDisplayName(displayName);
+                        // Update the config object in state so it displays in the input field
+                        setConfigurations(prev => {
+                          const updated = { ...prev };
+                          if (updated[coGuid] && updated[coGuid].configs) {
+                            updated[coGuid] = {
+                              ...updated[coGuid],
+                              configs: updated[coGuid].configs.map(c => 
+                                c.config_key === 'google_display_name' 
+                                  ? { ...c, permission_value: displayName }
+                                  : c
+                              )
+                            };
+                          }
+                          return updated;
+                        });
+                      } catch (err) {
+                        console.warn('Could not fetch display name:', err);
+                      }
+                    }
+                  } else {
+                    // Token couldn't be refreshed - clear it
+                    setGoogleAccessToken(null);
+                    localStorage.removeItem('google_access_token');
+                  }
+                } else {
+                  // Fallback: use stored token as-is (legacy support)
+                  setGoogleAccessToken(tokenConfig.permission_value);
+                  localStorage.setItem('google_access_token', tokenConfig.permission_value);
+                }
+              } catch (error) {
+                console.error('Error validating/refreshing token:', error);
+                // Fallback to stored token
+                setGoogleAccessToken(tokenConfig.permission_value);
+              }
+            };
+            
+            validateAndRefreshToken();
           } else {
             // Fallback to localStorage if not in configs (legacy support)
             const token = localStorage.getItem('google_access_token');
             if (token) {
               setGoogleAccessToken(token);
-              // Try to fetch email, but don't show errors if token is expired
-              fetchGoogleUserEmail(token).catch(() => {
+              // Try to fetch display name, but don't show errors if token is expired
+              fetchGoogleUserDisplayName(token).then(displayName => {
+                if (displayName) {
+                  // Update the config object in state if we have company info
+                  const activeCompany = configCompanies[activeConfigTab];
+                  if (activeCompany) {
+                    setConfigurations(prev => {
+                      const updated = { ...prev };
+                      if (updated[activeCompany.guid] && updated[activeCompany.guid].configs) {
+                        updated[activeCompany.guid] = {
+                          ...updated[activeCompany.guid],
+                          configs: updated[activeCompany.guid].configs.map(c => 
+                            c.config_key === 'google_display_name' 
+                              ? { ...c, permission_value: displayName }
+                              : c
+                          )
+                        };
+                      }
+                      return updated;
+                    });
+                  }
+                }
+              }).catch(() => {
                 // Silently handle - token might be expired
               });
             }
@@ -98,7 +169,7 @@ function TallyConfig() {
         }
       }
     }
-  }, [showLinkAccountModal, configurations, configCompanies, activeConfigTab]);
+  }, [showLinkAccountModal, configurations, configCompanies, activeConfigTab, selectedConnection]);
 
   const fetchConnectionCompanies = useCallback(async () => {
     setCompaniesLoading(true);
@@ -329,7 +400,19 @@ function TallyConfig() {
       const updatedConfigs = companyConfig.configs.map(config => {
         // Match by either config_id or id
         if ((config.config_id === configId) || (config.id === configId)) {
-          return { ...config, [field]: value };
+          const updatedConfig = { ...config, [field]: value };
+          
+          // If updating permission_value, also update config_value to keep them in sync
+          // This ensures both fields are available when reading back
+          if (field === 'permission_value') {
+            updatedConfig.config_value = value;
+          }
+          // If updating config_value, also update permission_value to keep them in sync
+          else if (field === 'config_value') {
+            updatedConfig.permission_value = value;
+          }
+          
+          return updatedConfig;
         }
         return config;
       });
@@ -373,8 +456,8 @@ function TallyConfig() {
   // Track failed token attempts to avoid repeated calls
   const failedTokenAttempts = useRef(new Set());
 
-  // Fetch Google user email
-  const fetchGoogleUserEmail = async (token) => {
+  // Fetch Google user display name
+  const fetchGoogleUserDisplayName = async (token) => {
     if (!token) {
       return null;
     }
@@ -393,13 +476,13 @@ function TallyConfig() {
 
       if (response.ok) {
         const userInfo = await response.json();
-        const email = userInfo.email || userInfo.emailAddress || '';
-        if (email) {
-          setGoogleUserEmail(email);
+        const displayName = userInfo.name || userInfo.displayName || userInfo.email || '';
+        if (displayName) {
+          setGoogleUserDisplayName(displayName);
           // Remove from failed attempts if it succeeds
           failedTokenAttempts.current.delete(token);
         }
-        return email;
+        return displayName;
       } else if (response.status === 401) {
         // Token expired or invalid - mark it as failed and don't retry
         failedTokenAttempts.current.add(token);
@@ -418,7 +501,7 @@ function TallyConfig() {
   };
 
   // Update Link Account configurations with Google data
-  const updateLinkAccountConfigs = async (email, token) => {
+  const updateLinkAccountConfigs = async (displayName, token) => {
     if (!selectedConnection || configCompanies.length === 0) return;
     
     const activeCompany = configCompanies[activeConfigTab];
@@ -427,11 +510,11 @@ function TallyConfig() {
     const companyConfig = configurations[activeCompany.guid];
     if (!companyConfig || !companyConfig.configs) return;
 
-    // Find google_email and google_token configs
-    // If email/token is explicitly provided (even if empty string), use it; otherwise keep existing value
+    // Find google_display_name and google_token configs
+    // If displayName/token is explicitly provided (even if empty string), use it; otherwise keep existing value
     const updatedConfigs = companyConfig.configs.map(config => {
-      if (config.config_key === 'google_email') {
-        return { ...config, permission_value: email !== undefined ? email : (config.permission_value || '') };
+      if (config.config_key === 'google_display_name') {
+        return { ...config, permission_value: displayName !== undefined ? displayName : (config.permission_value || '') };
       }
       if (config.config_key === 'google_token') {
         return { ...config, permission_value: token !== undefined ? token : (config.permission_value || '') };
@@ -454,12 +537,25 @@ function TallyConfig() {
         tallyloc_id: companyConfig.tallyloc_id,
         co_guid: companyConfig.co_guid,
         co_name: companyConfig.co_name,
-        configurations: updatedConfigs.map(config => ({
-          config_id: config.config_id || config.id,
-          is_enabled: config.is_enabled === true || config.is_enabled === 1,
-          permission_value: config.permission_value || config.config_value || ''
-        }))
+        configurations: updatedConfigs.map(config => {
+          // Get the value - prioritize permission_value, fallback to config_value
+          const value = config.permission_value || config.config_value || '';
+          
+          return {
+            config_id: config.config_id || config.id,
+            is_enabled: config.is_enabled === true || config.is_enabled === 1,
+            permission_value: value,
+            config_value: value // Also send config_value to ensure backend compatibility
+          };
+        })
       };
+
+      console.log('💾 Auto-saving Link Account configurations:', {
+        tallyloc_id: payload.tallyloc_id,
+        co_guid: payload.co_guid,
+        googleToken: updatedConfigs.find(c => c.config_key === 'google_token')?.permission_value ? '***' + updatedConfigs.find(c => c.config_key === 'google_token')?.permission_value.substring(updatedConfigs.find(c => c.config_key === 'google_token')?.permission_value.length - 10) : 'not set',
+        googleEmail: updatedConfigs.find(c => c.config_key === 'google_email')?.permission_value || 'not set'
+      });
 
       const data = await apiPost('/api/cmpconfig/update', payload);
       if (data && data.success) {
@@ -523,12 +619,36 @@ function TallyConfig() {
             localStorage.setItem('google_access_token', response.access_token);
             localStorage.setItem('google_access_token_timestamp', Date.now().toString());
             
-            // Fetch user email
-            const email = await fetchGoogleUserEmail(response.access_token);
-            setGoogleUserEmail(email);
+            // Fetch user display name
+            const displayName = await fetchGoogleUserDisplayName(response.access_token);
+            setGoogleUserDisplayName(displayName);
             
             // Update configurations
-            await updateLinkAccountConfigs(email, response.access_token);
+            await updateLinkAccountConfigs(displayName, response.access_token);
+            
+            // Also update the config object in state immediately so it displays in the input field
+            const activeCompany = configCompanies[activeConfigTab];
+            if (activeCompany) {
+              setConfigurations(prev => {
+                const updated = { ...prev };
+                if (updated[activeCompany.guid] && updated[activeCompany.guid].configs) {
+                  updated[activeCompany.guid] = {
+                    ...updated[activeCompany.guid],
+                    configs: updated[activeCompany.guid].configs.map(c => 
+                      c.config_key === 'google_display_name' 
+                        ? { ...c, permission_value: displayName || '' }
+                        : c.config_key === 'google_token'
+                        ? { ...c, permission_value: response.access_token }
+                        : c
+                    )
+                  };
+                }
+                return updated;
+              });
+            }
+            
+            // Set up automatic token refresh (refresh 5 minutes before expiration)
+            // This will be handled by the useEffect below
             
             setGoogleConfigStatus({ 
               type: 'success', 
@@ -572,7 +692,7 @@ function TallyConfig() {
     localStorage.removeItem('google_access_token');
     localStorage.removeItem('google_access_token_timestamp');
     setGoogleAccessToken(null);
-    setGoogleUserEmail(null);
+    setGoogleUserDisplayName(null);
     
     // Clear configurations - explicitly pass empty strings to clear the values
     await updateLinkAccountConfigs('', '');
@@ -608,7 +728,7 @@ function TallyConfig() {
     localStorage.removeItem('google_access_token');
     localStorage.removeItem('google_access_token_timestamp');
     setGoogleAccessToken(null);
-    setGoogleUserEmail(null);
+    setGoogleUserDisplayName(null);
     
     // Clear configurations - explicitly pass empty strings to clear the values
     await updateLinkAccountConfigs('', '');
@@ -641,12 +761,25 @@ function TallyConfig() {
         tallyloc_id: companyConfig.tallyloc_id,
         co_guid: companyConfig.co_guid,
         co_name: companyConfig.co_name,
-        configurations: companyConfig.configs.map(config => ({
-          config_id: config.config_id || config.id, // Map id to config_id for API
-          is_enabled: config.is_enabled === true || config.is_enabled === 1, // Convert to boolean
-          permission_value: config.permission_value || config.config_value || ''
-        }))
+        configurations: companyConfig.configs.map(config => {
+          // Get the value - prioritize permission_value, fallback to config_value
+          const value = config.permission_value || config.config_value || '';
+          
+          return {
+            config_id: config.config_id || config.id, // Map id to config_id for API
+            is_enabled: config.is_enabled === true || config.is_enabled === 1, // Convert to boolean
+            permission_value: value,
+            config_value: value // Also send config_value to ensure backend compatibility
+          };
+        })
       };
+
+      console.log('💾 Saving configurations:', {
+        tallyloc_id: payload.tallyloc_id,
+        co_guid: payload.co_guid,
+        configsCount: payload.configurations.length,
+        googleTokenConfig: payload.configurations.find(c => c.config_id === (companyConfig.configs.find(cc => cc.config_key === 'google_token')?.config_id || companyConfig.configs.find(cc => cc.config_key === 'google_token')?.id))
+      });
 
       const data = await apiPost('/api/cmpconfig/update', payload);
       
@@ -1858,8 +1991,8 @@ function TallyConfig() {
                                   const token = localStorage.getItem('google_access_token');
                                   if (token) {
                                     setGoogleAccessToken(token);
-                                    // Fetch user email if token exists
-                                    fetchGoogleUserEmail(token);
+                                    // Fetch user display name if token exists
+                                    fetchGoogleUserDisplayName(token);
                                   }
                                 }}
                                 style={{
@@ -2351,7 +2484,7 @@ function TallyConfig() {
                       <span className="material-icons" style={{ fontSize: '18px' }}>
                         check_circle
                       </span>
-                      Connected
+                      {googleUserDisplayName ? `Connected as ${googleUserDisplayName}` : 'Connected'}
                     </div>
                   )}
                 </div>
@@ -2555,15 +2688,15 @@ function TallyConfig() {
                   <div style={{
                     marginTop: '16px',
                     padding: '12px 16px',
-                    background: '#f8fafc',
+                    background: '#f0fdf4',
                     borderRadius: '8px',
                     fontSize: '13px',
-                    color: '#64748b',
+                    color: '#16a34a',
                   }}>
                     <span className="material-icons" style={{ fontSize: '16px', verticalAlign: 'middle', marginRight: '6px' }}>
-                      info
+                      check_circle
                     </span>
-                    Your Google account is connected. Token expires after 1 hour of inactivity.
+                    Your Google account is connected. The connection will remain active until you unlink or switch accounts.
                   </div>
                 )}
               </div>

@@ -14,7 +14,7 @@ import UserDashboard from './UserDashboard';
 import AdminDashboard from './admindashboard/Dashboard';
 import ChangePassword from './admindashboard/ChangePassword';
 import TallyDashboard from './TallyDashboard/tallydashboard';
-import SubscriptionPlans from './subscription/SubscriptionPlans';
+import SubscriptionManagement from './admindashboard/SubscriptionManagement';
 import MasterInvitationForm from './TallyDashboard/MasterInvitationForm';
 import { APP_CONFIG } from './config';
 
@@ -167,7 +167,7 @@ function App() {
           path="/subscription"
           element={
             <ProtectedRoute>
-              <SubscriptionPlans />
+              <SubscriptionManagement />
             </ProtectedRoute>
           }
         />
