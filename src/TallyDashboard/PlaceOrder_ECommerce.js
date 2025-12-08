@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { getApiUrl, API_CONFIG } from '../config';
+import { getApiUrl, API_CONFIG, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { apiGet, apiPost } from '../utils/apiUtils';
 import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
@@ -142,6 +142,17 @@ function PlaceOrder_ECommerce() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [mediaTypeMap, setMediaTypeMap] = useState({}); // Map of mediaPath -> 'video' | 'image'
+
+  // Product image upload modal state
+  const [showImageUploadModal, setShowImageUploadModal] = useState(false);
+  const [selectedProductForImage, setSelectedProductForImage] = useState(null);
+  const [imageList, setImageList] = useState([]);
+  const [newImageLink, setNewImageLink] = useState('');
+  const [imageUploadLoading, setImageUploadLoading] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState('');
+  const [imageUploadSuccess, setImageUploadSuccess] = useState(false);
+  const [imageAddMethod, setImageAddMethod] = useState('link'); // 'link' or 'picker'
+  const [isLoadingGooglePicker, setIsLoadingGooglePicker] = useState(false);
 
   // Helper function to parse comma-separated image paths
   const parseImagePaths = (imagePath) => {
@@ -1141,6 +1152,415 @@ function PlaceOrder_ECommerce() {
     }
   };
 
+  // Handle adding new image
+  const handleAddImage = () => {
+    if (!newImageLink.trim()) {
+      setImageUploadError('Please enter a Google Drive link');
+      return;
+    }
+
+    // Validate Google Drive link format
+    const trimmedLink = newImageLink.trim();
+    const isGoogleDrive = isGoogleDriveLink(trimmedLink);
+    
+    if (!isGoogleDrive) {
+      setImageUploadError('Please enter a valid Google Drive link');
+      return;
+    }
+
+    // Check if image already exists
+    if (imageList.includes(trimmedLink)) {
+      setImageUploadError('This image is already in the list');
+      return;
+    }
+
+    // Add to list
+    setImageList([...imageList, trimmedLink]);
+    setNewImageLink('');
+    setImageUploadError('');
+  };
+
+  // Handle deleting image
+  const handleDeleteImage = (index) => {
+    const newList = imageList.filter((_, i) => i !== index);
+    setImageList(newList);
+    setImageUploadError('');
+  };
+
+  // Authenticate with Google (similar to MasterForm.js)
+  const authenticateGoogle = async () => {
+    try {
+      // Check if credentials are configured
+      if (!GOOGLE_DRIVE_CONFIG.CLIENT_ID || !GOOGLE_DRIVE_CONFIG.API_KEY) {
+        throw new Error('Google API credentials not configured.');
+      }
+
+      // Get current company
+      const currentCompany = companies.find(c => c.guid === company);
+      if (!currentCompany) {
+        throw new Error('Company information not found');
+      }
+
+      // Try to get token from backend configs first
+      const { tallyloc_id, guid } = currentCompany;
+      try {
+        const storedToken = await getGoogleTokenFromConfigs(tallyloc_id, guid);
+        if (storedToken) {
+          console.log('✅ Using Google token from backend configs');
+          return storedToken;
+        }
+      } catch (configError) {
+        console.warn('⚠️ Error fetching token from configs:', configError);
+      }
+
+      // Check if Google Identity Services is loaded
+      if (!window.google || !window.google.accounts) {
+        throw new Error('Google Identity Services not loaded yet. Please wait and try again.');
+      }
+
+      // No stored token found, prompt user for authentication
+      return new Promise((resolve, reject) => {
+        const tokenClient = window.google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_DRIVE_CONFIG.CLIENT_ID,
+          scope: GOOGLE_DRIVE_CONFIG.SCOPES,
+          callback: (response) => {
+            if (response.error) {
+              if (response.error === 'access_denied') {
+                reject(new Error('Google Drive access denied. Please grant permissions.'));
+              } else if (response.error === 'popup_closed_by_user') {
+                reject(new Error('Sign-in popup was closed. Please try again.'));
+              } else {
+                reject(new Error(response.error_description || 'Authentication failed'));
+              }
+              return;
+            }
+            
+            if (response.access_token) {
+              console.log('✅ Access token obtained from user authentication');
+              resolve(response.access_token);
+            } else {
+              reject(new Error('Failed to get access token'));
+            }
+          },
+        });
+
+        tokenClient.requestAccessToken();
+      });
+    } catch (error) {
+      console.error('Google authentication failed:', error);
+      throw error;
+    }
+  };
+
+  // Handle opening Google Drive Picker
+  const handleOpenGoogleDrivePicker = async () => {
+    if (!company) {
+      setImageUploadError('Please select a company first');
+      return;
+    }
+
+    // Check if Google Drive is configured
+    const googleConfig = isGoogleDriveFullyConfigured();
+    if (!googleConfig.configured) {
+      setImageUploadError('Google Drive is not configured. Please configure Google API credentials.');
+      return;
+    }
+
+    setIsLoadingGooglePicker(true);
+    setImageUploadError('');
+
+    try {
+      // Wait for Google Picker API to be loaded
+      if (!window.gapi || !window.google) {
+        setImageUploadError('Google APIs are still loading. Please wait a moment and try again.');
+        setIsLoadingGooglePicker(false);
+        return;
+      }
+
+      // Load picker if not already loaded
+      if (!window.google.picker) {
+        await new Promise((resolve, reject) => {
+          if (window.gapi) {
+            window.gapi.load('picker', {
+              callback: resolve,
+              onerror: reject
+            });
+          } else {
+            reject(new Error('Google API not loaded'));
+          }
+        });
+      }
+
+      // Authenticate with Google
+      let accessToken;
+      try {
+        accessToken = await authenticateGoogle();
+      } catch (authError) {
+        setImageUploadError(authError.message || 'Failed to authenticate with Google Drive');
+        setIsLoadingGooglePicker(false);
+        return;
+      }
+
+      if (!accessToken) {
+        setImageUploadError('Unable to authenticate with Google Drive');
+        setIsLoadingGooglePicker(false);
+        return;
+      }
+
+      // Create and show picker with higher z-index
+      const picker = new window.google.picker.PickerBuilder()
+        .addView(window.google.picker.ViewId.DOCS_IMAGES) // Only show images
+        .setOAuthToken(accessToken)
+        .setDeveloperKey(GOOGLE_DRIVE_CONFIG.API_KEY)
+        .setCallback((data) => {
+          setIsLoadingGooglePicker(false);
+          
+          if (data[window.google.picker.Response.ACTION] === window.google.picker.Action.PICKED) {
+            const file = data[window.google.picker.Response.DOCUMENTS][0];
+            const fileId = file.id;
+            
+            // Convert file ID to CDN lh3 URL immediately
+            // This ensures the CDN URL is stored in backend and loaded directly next time
+            const cdnUrl = `https://lh3.googleusercontent.com/d/${fileId}=w800`;
+            
+            // Also create other formats for duplicate checking
+            const driveLink = `https://drive.google.com/file/d/${fileId}/view`;
+            
+            // Check if image already exists (check CDN URL, file ID, and Drive URL format)
+            const alreadyExists = imageList.some(path => {
+              // Extract file ID from various formats for comparison
+              let existingFileId = null;
+              
+              if (path.includes('lh3.googleusercontent.com')) {
+                // Extract from CDN URL: https://lh3.googleusercontent.com/d/FILE_ID=w800
+                const match = path.match(/\/d\/([a-zA-Z0-9_-]+)=/);
+                existingFileId = match ? match[1] : null;
+              } else if (path.includes('drive.google.com')) {
+                // Extract from Drive URL: https://drive.google.com/file/d/FILE_ID/view
+                const match = path.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+                existingFileId = match ? match[1] : null;
+              } else if (/^[a-zA-Z0-9_-]{15,}$/.test(path.trim())) {
+                // It's a file ID
+                existingFileId = path.trim();
+              }
+              
+              return existingFileId === fileId || path === cdnUrl || path === driveLink;
+            });
+            
+            if (alreadyExists) {
+              setImageUploadError('This image is already in the list');
+              return;
+            }
+
+            // Add CDN URL to list (will be stored in backend and loaded directly next time)
+            setImageList([...imageList, cdnUrl]);
+            setImageUploadError('');
+            console.log('Image selected from Google Drive:', {
+              file,
+              fileId,
+              cdnUrl,
+              'Note': 'CDN URL stored for direct loading from backend'
+            });
+          } else if (data[window.google.picker.Response.ACTION] === window.google.picker.Action.CANCEL) {
+            console.log('Google Drive Picker cancelled');
+            setIsLoadingGooglePicker(false);
+          }
+        })
+        .build();
+
+      // Set higher z-index for picker to appear above modal
+      picker.setVisible(true);
+      
+      // Force picker to appear above modal by adjusting z-index
+      // Google Picker creates iframes, so we need to target those
+      setTimeout(() => {
+        // Target Google Picker iframe
+        const pickerIframes = document.querySelectorAll('iframe[src*="picker"]');
+        pickerIframes.forEach(iframe => {
+          iframe.style.zIndex = '10001';
+        });
+        
+        // Also target any dialog elements created by picker
+        const pickerDialogs = document.querySelectorAll('[role="dialog"]');
+        pickerDialogs.forEach(el => {
+          const computedStyle = window.getComputedStyle(el);
+          const currentZIndex = parseInt(computedStyle.zIndex) || 0;
+          if (currentZIndex < 10001) {
+            el.style.zIndex = '10001';
+          }
+        });
+        
+        // Target Google Picker container
+        const pickerContainers = document.querySelectorAll('[id*="picker"], [class*="picker"]');
+        pickerContainers.forEach(el => {
+          const computedStyle = window.getComputedStyle(el);
+          const currentZIndex = parseInt(computedStyle.zIndex) || 0;
+          if (currentZIndex < 10001) {
+            el.style.zIndex = '10001';
+          }
+        });
+      }, 200);
+    } catch (error) {
+      console.error('Error opening Google Drive Picker:', error);
+      setImageUploadError(error.message || 'Failed to open Google Drive Picker. Please try again.');
+      setIsLoadingGooglePicker(false);
+    }
+  };
+
+  // Handle saving images
+  const handleSaveImages = async () => {
+    if (!selectedProductForImage || !company) {
+      setImageUploadError('Missing product or company information');
+      return;
+    }
+
+    const currentCompany = companies.find(c => c.guid === company);
+    if (!currentCompany) {
+      setImageUploadError('Company information not found');
+      return;
+    }
+
+    setImageUploadLoading(true);
+    setImageUploadError('');
+    setImageUploadSuccess(false);
+
+    try {
+      const { tallyloc_id, company: companyVal, guid } = currentCompany;
+
+      // Ensure imagepaths is always an array (can be empty)
+      const imagepathsArray = Array.isArray(imageList) ? imageList : [];
+
+      const payload = {
+        tallyloc_id,
+        company: companyVal,
+        guid: guid, // Use company guid (stock items don't have guid)
+        name: selectedProductForImage.NAME,
+        imagepaths: imagepathsArray // Array of image paths (can be empty)
+      };
+
+      console.log('📤 Sending image upload payload:', {
+        tallyloc_id,
+        company: companyVal,
+        guid,
+        name: selectedProductForImage.NAME,
+        imagepaths: imagepathsArray,
+        imagepathsType: Array.isArray(imagepathsArray),
+        imagepathsLength: imagepathsArray.length
+      });
+
+      const response = await apiPost('/api/tally/masterdata/itemimageupload', payload);
+
+      if (response && (response.success !== false)) {
+        // Update the product in memory immediately (before reloading from backend)
+        const updatedImagePath = imagepathsArray.join(',');
+        
+        // Update stockItems array
+        setStockItems(prevItems => {
+          return prevItems.map(item => {
+            if (item.NAME === selectedProductForImage.NAME) {
+              return {
+                ...item,
+                IMAGEPATH: updatedImagePath
+              };
+            }
+            return item;
+          });
+        });
+        
+        // Update selectedProduct if it's the same product (for product details modal)
+        if (selectedProduct && selectedProduct.NAME === selectedProductForImage.NAME) {
+          setSelectedProduct(prev => ({
+            ...prev,
+            IMAGEPATH: updatedImagePath
+          }));
+        }
+        
+        // Also update sessionStorage cache
+        try {
+          const currentCompany = companies.find(c => c.guid === company);
+          if (currentCompany) {
+            const { tallyloc_id, company: companyVal } = currentCompany;
+            const cacheKey = `stockitems_${tallyloc_id}_${companyVal}`;
+            const cachedItems = sessionStorage.getItem(cacheKey);
+            if (cachedItems) {
+              const items = JSON.parse(cachedItems);
+              const updatedItems = items.map(item => {
+                if (item.NAME === selectedProductForImage.NAME) {
+                  return {
+                    ...item,
+                    IMAGEPATH: updatedImagePath
+                  };
+                }
+                return item;
+              });
+              sessionStorage.setItem(cacheKey, JSON.stringify(updatedItems));
+            }
+          }
+        } catch (cacheError) {
+          console.warn('Failed to update cache:', cacheError);
+        }
+        
+        // Refresh stock items from backend (will happen in background)
+        setRefreshStockItems(prev => prev + 1);
+        
+        // Close modal immediately
+        setShowImageUploadModal(false);
+        setSelectedProductForImage(null);
+        setImageList([]);
+        setNewImageLink('');
+        setImageUploadError('');
+        setImageUploadSuccess(false);
+      } else {
+        setImageUploadError(response?.error || 'Failed to save images');
+      }
+    } catch (error) {
+      console.error('Error saving images:', error);
+      setImageUploadError(error.message || 'Failed to save images. Please try again.');
+    } finally {
+      setImageUploadLoading(false);
+    }
+  };
+
+  // Load Google Picker API scripts
+  useEffect(() => {
+    // Load Google Identity Services
+    if (!document.querySelector('script[src="https://accounts.google.com/gsi/client"]')) {
+      const gisScript = document.createElement('script');
+      gisScript.src = 'https://accounts.google.com/gsi/client';
+      gisScript.async = true;
+      gisScript.defer = true;
+      document.body.appendChild(gisScript);
+    }
+
+    // Load Google Picker
+    if (!document.querySelector('script[src="https://apis.google.com/js/api.js"]')) {
+      const pickerScript = document.createElement('script');
+      pickerScript.src = 'https://apis.google.com/js/api.js';
+      pickerScript.async = true;
+      pickerScript.defer = true;
+      pickerScript.onload = () => {
+        if (window.gapi) {
+          window.gapi.load('picker', () => {
+            console.log('Google Picker API loaded');
+          });
+        }
+      };
+      document.body.appendChild(pickerScript);
+    }
+  }, []);
+
+  // Initialize image list when modal opens
+  useEffect(() => {
+    if (showImageUploadModal && selectedProductForImage) {
+      const images = parseImagePaths(selectedProductForImage.IMAGEPATH);
+      setImageList(images);
+      setNewImageLink('');
+      setImageUploadError('');
+      setImageUploadSuccess(false);
+      setImageAddMethod('link'); // Reset to link method when modal opens
+    }
+  }, [showImageUploadModal, selectedProductForImage]);
+
   // Refetch data when toggle changes
   useEffect(() => {
     if (showStockModal && stockBreakdownData) {
@@ -1294,6 +1714,48 @@ function PlaceOrder_ECommerce() {
           return;
         }
 
+        // Check if it's already a CDN URL (lh3.googleusercontent.com)
+        // If so, extract file ID and generate appropriate sizes
+        const isCDNUrl = actualImagePath.includes('lh3.googleusercontent.com');
+        
+        if (isCDNUrl) {
+          console.log('✅ ProductImage: Already a CDN URL, extracting file ID for proper sizing:', actualImagePath?.substring(0, 50));
+          
+          // Extract file ID from CDN URL: https://lh3.googleusercontent.com/d/FILE_ID=w800
+          const cdnMatch = actualImagePath.match(/\/d\/([a-zA-Z0-9_-]+)=/);
+          if (cdnMatch && cdnMatch[1]) {
+            const fileId = cdnMatch[1];
+            // Generate w400 for thumbnail and w800 for full image
+            const thumbnailCDN = `https://lh3.googleusercontent.com/d/${fileId}=w400`;
+            const fullCDN = `https://lh3.googleusercontent.com/d/${fileId}=w800`;
+            
+            setThumbnailUrl(thumbnailCDN);
+            setImageUrl(fullCDN);
+            setImageLoading(false);
+            setThumbnailLoading(false);
+            setImageError(false);
+            
+            // Cache both
+            const cdnCacheKey = `${actualImagePath}_cdn`;
+            imageUrlCacheRef.current.set(cdnCacheKey, fullCDN);
+            lastLoadedRef.current = {
+              path: currentPath,
+              token: currentToken,
+              hasImage: true
+            };
+            return;
+          } else {
+            // If we can't extract file ID, use the URL as-is
+            console.warn('⚠️ ProductImage: Could not extract file ID from CDN URL, using as-is');
+            setImageUrl(actualImagePath);
+            setThumbnailUrl(actualImagePath);
+            setImageLoading(false);
+            setThumbnailLoading(false);
+            setImageError(false);
+            return;
+          }
+        }
+        
         // Check if it's a Google Drive link or file ID
         // Google Drive file IDs are typically 15-33 characters, but can vary
         // Also check if it looks like a Google Drive file ID (even if it's just the ID)
@@ -3278,19 +3740,63 @@ function PlaceOrder_ECommerce() {
                       flexDirection: 'column',
                       gap: '6px'
                     }}>
-                      {/* Item Name */}
-                      <h3 style={{
-                        fontSize: isMobile ? 14 : 16,
-                        fontWeight: 600,
-                        color: '#1e293b',
-                        margin: 0,
-                        lineHeight: 1.4,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
+                      {/* Item Name with Image Button */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '8px',
+                        width: '100%'
                       }}>
-                        {item.NAME}
-                      </h3>
+                        <h3 style={{
+                          fontSize: isMobile ? 14 : 16,
+                          fontWeight: 600,
+                          color: '#1e293b',
+                          margin: 0,
+                          lineHeight: 1.4,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          flex: 1
+                        }}>
+                          {item.NAME}
+                        </h3>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedProductForImage(item);
+                            setShowImageUploadModal(true);
+                          }}
+                          style={{
+                            background: 'transparent',
+                            border: '1px solid #3b82f6',
+                            borderRadius: '6px',
+                            padding: isMobile ? '4px 6px' : '6px 8px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#3b82f6',
+                            fontSize: isMobile ? '11px' : '12px',
+                            fontWeight: 500,
+                            transition: 'all 0.2s ease',
+                            flexShrink: 0,
+                            minWidth: isMobile ? '60px' : '70px'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.backgroundColor = '#3b82f6';
+                            e.currentTarget.style.color = '#fff';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                            e.currentTarget.style.color = '#3b82f6';
+                          }}
+                          title="Add Image"
+                        >
+                          <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px', marginRight: '4px' }}>image</span>
+                          {!isMobile && 'Image'}
+                        </button>
+                      </div>
 
                       {/* Part Number and Stock */}
                       <div style={{
@@ -4348,13 +4854,56 @@ function PlaceOrder_ECommerce() {
                                     isThumbnail={true}
                                   />
                               ) : (
-                                <ProductImage
-                                  imagePath={mediaPath}
-                                  itemName={`${selectedProduct.NAME} - Image ${index + 1}`}
-                                  googleToken={googleToken}
-                                  imageUrlCacheRef={imageUrlCache}
-                                  canShowImage={canShowImage}
-                                />
+                                <div style={{
+                                  width: '100%',
+                                  height: '100%',
+                                  position: 'relative',
+                                  overflow: 'hidden',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}>
+                                  {(() => {
+                                    // For thumbnails, extract file ID from CDN URL and use w400
+                                    let thumbnailUrl = null;
+                                    if (mediaPath.includes('lh3.googleusercontent.com')) {
+                                      const cdnMatch = mediaPath.match(/\/d\/([a-zA-Z0-9_-]+)=/);
+                                      if (cdnMatch && cdnMatch[1]) {
+                                        thumbnailUrl = `https://lh3.googleusercontent.com/d/${cdnMatch[1]}=w400`;
+                                      }
+                                    } else {
+                                      // For non-CDN URLs, use getGoogleDriveCDNUrl to get thumbnail
+                                      thumbnailUrl = getGoogleDriveCDNUrl(mediaPath, 'w400');
+                                    }
+                                    
+                                    return thumbnailUrl ? (
+                                      <img
+                                        src={thumbnailUrl}
+                                        alt={`${selectedProduct.NAME} - Thumbnail ${index + 1}`}
+                                        style={{
+                                          width: '100%',
+                                          height: '100%',
+                                          objectFit: 'cover',
+                                          borderRadius: '4px'
+                                        }}
+                                        onError={(e) => {
+                                          // Fallback to ProductImage component if CDN fails
+                                          console.warn('Thumbnail CDN failed, using ProductImage fallback');
+                                          e.target.style.display = 'none';
+                                        }}
+                                      />
+                                    ) : (
+                                      <ProductImage
+                                        imagePath={mediaPath}
+                                        itemName={`${selectedProduct.NAME} - Image ${index + 1}`}
+                                        googleToken={googleToken}
+                                        imageUrlCacheRef={imageUrlCache}
+                                        canShowImage={canShowImage}
+                                        useFirstImageAsThumbnail={true}
+                                      />
+                                    );
+                                  })()}
+                                </div>
                               )}
                             </div>
                           );
@@ -4503,8 +5052,8 @@ function PlaceOrder_ECommerce() {
                   </div>
                 )}
 
-                {/* Price Levels */}
-                {selectedProduct.PRICELEVELS && selectedProduct.PRICELEVELS.length > 0 && canShowRateAmtColumn && (
+                {/* Narration/Description */}
+                {selectedProduct.DESCRIPTION && (
                   <div style={{
                     marginBottom: '24px',
                     paddingBottom: '20px',
@@ -4514,454 +5063,22 @@ function PlaceOrder_ECommerce() {
                       fontSize: isMobile ? '16px' : '18px',
                       fontWeight: '600',
                       color: '#212121',
-                      marginBottom: '16px'
+                      marginBottom: '12px'
                     }}>
-                      Price by Quantity
+                      Narration
                     </div>
                     <div style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '10px',
-                      maxHeight: '250px',
-                      overflowY: 'auto',
-                      padding: '4px'
+                      fontSize: isMobile ? '14px' : '16px',
+                      fontWeight: '400',
+                      color: '#374151',
+                      lineHeight: 1.6,
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-word'
                     }}>
-                      {selectedProduct.PRICELEVELS.map((priceLevel, index) => (
-                        <div key={index} style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '12px 16px',
-                          backgroundColor: '#fafafa',
-                          borderRadius: '6px',
-                          border: '1px solid #e0e0e0',
-                          transition: 'all 0.2s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = '#f5f5f5';
-                          e.currentTarget.style.borderColor = '#ff6f00';
-                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.1)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = '#fafafa';
-                          e.currentTarget.style.borderColor = '#e0e0e0';
-                          e.currentTarget.style.boxShadow = 'none';
-                        }}>
-                          <div style={{
-                            display: 'flex',
-                            flexDirection: 'column',
-                            gap: '4px'
-                          }}>
-                            <span style={{
-                              fontSize: isMobile ? '14px' : '15px',
-                              fontWeight: '500',
-                              color: '#212121'
-                            }}>
-                              {priceLevel.PLNAME}
-                            </span>
-                            {priceLevel.DISCOUNT && enhancedDeobfuscateValue(priceLevel.DISCOUNT) > 0 && (
-                              <span style={{
-                                fontSize: isMobile ? '11px' : '12px',
-                                color: '#388e3c',
-                                fontWeight: '500'
-                              }}>
-                                {enhancedDeobfuscateValue(priceLevel.DISCOUNT)}% discount
-                              </span>
-                            )}
-                          </div>
-                          <span style={{
-                            fontSize: isMobile ? '16px' : '18px',
-                            fontWeight: '600',
-                            color: '#212121'
-                          }}>
-                            ₹{(enhancedDeobfuscateValue(priceLevel.RATE) || 0).toFixed(2)}
-                          </span>
-                        </div>
-                      ))}
+                      {selectedProduct.DESCRIPTION}
                     </div>
                   </div>
                 )}
-
-                {/* Additional Product Details */}
-                <div style={{
-                  marginBottom: '24px',
-                  paddingBottom: '20px',
-                  borderBottom: '1px solid #e0e0e0'
-                }}>
-                  <div style={{
-                    fontSize: isMobile ? '18px' : '20px',
-                    fontWeight: '600',
-                    color: '#212121',
-                    marginBottom: '16px'
-                  }}>
-                    Product Details
-                  </div>
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)',
-                    gap: '16px'
-                  }}>
-                    {/* Part Number */}
-                    {selectedProduct.PARTNO && (
-                      <div style={{
-                        padding: '12px',
-                        backgroundColor: '#fafafa',
-                        borderRadius: '6px',
-                        border: '1px solid #e0e0e0'
-                      }}>
-                        <div style={{
-                          fontSize: isMobile ? '12px' : '13px',
-                          fontWeight: '500',
-                          color: '#878787',
-                          marginBottom: '6px'
-                        }}>
-                          Part Number
-                        </div>
-                        <div style={{
-                          fontSize: isMobile ? '14px' : '15px',
-                          fontWeight: '500',
-                          color: '#212121'
-                        }}>
-                          {selectedProduct.PARTNO}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Last Price */}
-                    {selectedProduct.LASTPRICE && (
-                      <div style={{
-                        padding: '12px',
-                        backgroundColor: '#fafafa',
-                        borderRadius: '6px',
-                        border: '1px solid #e0e0e0'
-                      }}>
-                        <div style={{
-                          fontSize: isMobile ? '12px' : '13px',
-                          fontWeight: '500',
-                          color: '#878787',
-                          marginBottom: '6px'
-                        }}>
-                          Last Price
-                        </div>
-                        <div style={{
-                          fontSize: isMobile ? '14px' : '15px',
-                          fontWeight: '500',
-                          color: '#212121'
-                        }}>
-                          ₹{parseFloat(selectedProduct.LASTPRICE || 0).toFixed(2)}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Unit */}
-                    {selectedProduct.UNIT && (
-                      <div style={{
-                        padding: '12px',
-                        backgroundColor: '#fafafa',
-                        borderRadius: '6px',
-                        border: '1px solid #e0e0e0'
-                      }}>
-                        <div style={{
-                          fontSize: isMobile ? '12px' : '13px',
-                          fontWeight: '500',
-                          color: '#878787',
-                          marginBottom: '6px'
-                        }}>
-                          Unit
-                        </div>
-                        <div style={{
-                          fontSize: isMobile ? '14px' : '15px',
-                          fontWeight: '500',
-                          color: '#212121'
-                        }}>
-                          {selectedProduct.UNIT}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Base Unit */}
-                    {selectedProduct.BASEUNIT && (
-                      <div style={{
-                        padding: '12px',
-                        backgroundColor: '#fafafa',
-                        borderRadius: '6px',
-                        border: '1px solid #e0e0e0'
-                      }}>
-                        <div style={{
-                          fontSize: isMobile ? '12px' : '13px',
-                          fontWeight: '500',
-                          color: '#878787',
-                          marginBottom: '6px'
-                        }}>
-                          Base Unit
-                        </div>
-                        <div style={{
-                          fontSize: isMobile ? '14px' : '15px',
-                          fontWeight: '500',
-                          color: '#212121'
-                        }}>
-                          {selectedProduct.BASEUNIT}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* HSN Code */}
-                    {selectedProduct.HSN && (
-                      <div style={{
-                        padding: '12px',
-                        backgroundColor: '#fafafa',
-                        borderRadius: '6px',
-                        border: '1px solid #e0e0e0'
-                      }}>
-                        <div style={{
-                          fontSize: isMobile ? '12px' : '13px',
-                          fontWeight: '500',
-                          color: '#878787',
-                          marginBottom: '6px'
-                        }}>
-                          HSN Code
-                        </div>
-                        <div style={{
-                          fontSize: isMobile ? '14px' : '15px',
-                          fontWeight: '500',
-                          color: '#212121'
-                        }}>
-                          {selectedProduct.HSN}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* GST Rate */}
-                    {selectedProduct.GST && (
-                      <div style={{
-                        padding: '12px',
-                        backgroundColor: '#fafafa',
-                        borderRadius: '6px',
-                        border: '1px solid #e0e0e0'
-                      }}>
-                        <div style={{
-                          fontSize: isMobile ? '12px' : '13px',
-                          fontWeight: '500',
-                          color: '#878787',
-                          marginBottom: '6px'
-                        }}>
-                          GST Rate
-                        </div>
-                        <div style={{
-                          fontSize: isMobile ? '14px' : '15px',
-                          fontWeight: '500',
-                          color: '#212121'
-                        }}>
-                          {selectedProduct.GST}%
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Category */}
-                    {selectedProduct.CATEGORY && (
-                      <div style={{
-                        padding: '12px',
-                        backgroundColor: '#fafafa',
-                        borderRadius: '6px',
-                        border: '1px solid #e0e0e0'
-                      }}>
-                        <div style={{
-                          fontSize: isMobile ? '12px' : '13px',
-                          fontWeight: '500',
-                          color: '#878787',
-                          marginBottom: '6px'
-                        }}>
-                          Category
-                        </div>
-                        <div style={{
-                          fontSize: isMobile ? '14px' : '15px',
-                          fontWeight: '500',
-                          color: '#212121'
-                        }}>
-                          {selectedProduct.CATEGORY}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Brand */}
-                    {selectedProduct.BRAND && (
-                      <div style={{
-                        padding: '12px',
-                        backgroundColor: '#fafafa',
-                        borderRadius: '6px',
-                        border: '1px solid #e0e0e0'
-                      }}>
-                        <div style={{
-                          fontSize: isMobile ? '12px' : '13px',
-                          fontWeight: '500',
-                          color: '#878787',
-                          marginBottom: '6px'
-                        }}>
-                          Brand
-                        </div>
-                        <div style={{
-                          fontSize: isMobile ? '14px' : '15px',
-                          fontWeight: '500',
-                          color: '#212121'
-                        }}>
-                          {selectedProduct.BRAND}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Manufacturer */}
-                    {selectedProduct.MANUFACTURER && (
-                      <div style={{
-                        padding: '10px 14px',
-                        backgroundColor: '#fff',
-                        borderRadius: '8px',
-                        border: '1px solid #e5e7eb'
-                      }}>
-                        <div style={{
-                          fontSize: isMobile ? '11px' : '12px',
-                          fontWeight: '600',
-                          color: '#6b7280',
-                          marginBottom: '4px'
-                        }}>
-                          Manufacturer
-                        </div>
-                        <div style={{
-                          fontSize: isMobile ? '13px' : '15px',
-                          fontWeight: '600',
-                          color: '#1f2937'
-                        }}>
-                          {selectedProduct.MANUFACTURER}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Alias */}
-                    {selectedProduct.ALIAS && (
-                      <div style={{
-                        padding: '10px 14px',
-                        backgroundColor: '#fff',
-                        borderRadius: '8px',
-                        border: '1px solid #e5e7eb'
-                      }}>
-                        <div style={{
-                          fontSize: isMobile ? '11px' : '12px',
-                          fontWeight: '600',
-                          color: '#6b7280',
-                          marginBottom: '4px'
-                        }}>
-                          Alias
-                        </div>
-                        <div style={{
-                          fontSize: isMobile ? '13px' : '15px',
-                          fontWeight: '600',
-                          color: '#1f2937'
-                        }}>
-                          {selectedProduct.ALIAS}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Description */}
-                    {selectedProduct.DESCRIPTION && (
-                      <div style={{
-                        padding: '10px 14px',
-                        backgroundColor: '#fff',
-                        borderRadius: '8px',
-                        border: '1px solid #e5e7eb',
-                        gridColumn: isMobile ? '1' : '1 / -1'
-                      }}>
-                        <div style={{
-                          fontSize: isMobile ? '11px' : '12px',
-                          fontWeight: '600',
-                          color: '#6b7280',
-                          marginBottom: '4px'
-                        }}>
-                          Description
-                        </div>
-                        <div style={{
-                          fontSize: isMobile ? '13px' : '15px',
-                          fontWeight: '500',
-                          color: '#1f2937',
-                          lineHeight: 1.5
-                        }}>
-                          {selectedProduct.DESCRIPTION}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Display any other fields that might be in the API response */}
-                  {(() => {
-                    // Fields we've already displayed
-                    const displayedFields = new Set([
-                      'NAME', 'PARTNO', 'STDPRICE', 'LASTPRICE', 'CLOSINGSTOCK', 
-                      'IMAGEPATH', 'PRICELEVELS', 'UNIT', 'BASEUNIT', 'HSN', 
-                      'GST', 'CATEGORY', 'BRAND', 'MANUFACTURER', 'ALIAS', 'DESCRIPTION'
-                    ]);
-                    
-                    // Get all other fields
-                    const otherFields = Object.keys(selectedProduct).filter(key => 
-                      !displayedFields.has(key) && 
-                      selectedProduct[key] !== null && 
-                      selectedProduct[key] !== undefined && 
-                      selectedProduct[key] !== '' &&
-                      typeof selectedProduct[key] !== 'object' &&
-                      !Array.isArray(selectedProduct[key])
-                    );
-
-                    if (otherFields.length > 0) {
-                      return (
-                        <div style={{
-                          marginTop: '16px',
-                          paddingTop: '16px',
-                          borderTop: '1px solid #e5e7eb'
-                        }}>
-                          <div style={{
-                            fontSize: isMobile ? '13px' : '15px',
-                            fontWeight: '600',
-                            color: '#6b7280',
-                            marginBottom: '12px'
-                          }}>
-                            Other Details
-                          </div>
-                          <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)',
-                            gap: '12px'
-                          }}>
-                            {otherFields.map((field) => (
-                              <div key={field} style={{
-                                padding: '10px 14px',
-                                backgroundColor: '#fff',
-                                borderRadius: '8px',
-                                border: '1px solid #e5e7eb'
-                              }}>
-                                <div style={{
-                                  fontSize: isMobile ? '11px' : '12px',
-                                  fontWeight: '600',
-                                  color: '#6b7280',
-                                  marginBottom: '4px',
-                                  textTransform: 'capitalize'
-                                }}>
-                                  {field.replace(/([A-Z])/g, ' $1').trim()}
-                                </div>
-                                <div style={{
-                                  fontSize: isMobile ? '13px' : '15px',
-                                  fontWeight: '500',
-                                  color: '#1f2937',
-                                  wordBreak: 'break-word'
-                                }}>
-                                  {String(selectedProduct[field])}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-                </div>
 
                 {/* Add to Cart Section - Amazon/Flipkart Style */}
                 <div style={{
@@ -5121,6 +5238,521 @@ function PlaceOrder_ECommerce() {
                     }
                   })()}
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Product Image Upload Modal */}
+      {showImageUploadModal && (
+        <div 
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 10000
+          }}
+          onClick={(e) => {
+            // Prevent closing during save
+            if (!imageUploadLoading && e.target === e.currentTarget) {
+              setShowImageUploadModal(false);
+              setSelectedProductForImage(null);
+              setImageList([]);
+              setNewImageLink('');
+              setImageUploadError('');
+              setImageUploadSuccess(false);
+            }
+          }}
+        >
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '12px',
+            padding: isMobile ? '16px' : '24px',
+            maxWidth: isMobile ? '95%' : '600px',
+            width: isMobile ? '95%' : '90%',
+            maxHeight: '80vh',
+            overflow: 'auto',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+          }}>
+            {/* Header */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: isMobile ? '16px' : '20px',
+              paddingBottom: isMobile ? '12px' : '16px',
+              borderBottom: '1px solid #e5e7eb'
+            }}>
+              <h3 style={{
+                margin: 0,
+                fontSize: isMobile ? '16px' : '18px',
+                fontWeight: '600',
+                color: '#1f2937'
+              }}>
+                Add Image - {selectedProductForImage?.NAME || 'Product'} ({imageList.length} {imageList.length === 1 ? 'image' : 'images'})
+              </h3>
+              <button
+                onClick={() => {
+                  if (!imageUploadLoading) {
+                    setShowImageUploadModal(false);
+                    setSelectedProductForImage(null);
+                    setImageList([]);
+                    setNewImageLink('');
+                    setImageUploadError('');
+                    setImageUploadSuccess(false);
+                  }
+                }}
+                disabled={imageUploadLoading}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: isMobile ? '20px' : '24px',
+                  cursor: imageUploadLoading ? 'not-allowed' : 'pointer',
+                  color: imageUploadLoading ? '#d1d5db' : '#6b7280',
+                  padding: '4px',
+                  minWidth: isMobile ? '32px' : 'auto',
+                  minHeight: isMobile ? '32px' : 'auto',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: imageUploadLoading ? 0.5 : 1
+                }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div style={{
+              padding: isMobile ? '12px 0' : '16px 0'
+            }}>
+              {/* Success Message */}
+              {imageUploadSuccess && (
+                <div style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#d1fae5',
+                  border: '1px solid #10b981',
+                  borderRadius: '8px',
+                  marginBottom: '16px',
+                  color: '#065f46',
+                  fontSize: isMobile ? '13px' : '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
+                  Images saved successfully!
+                </div>
+              )}
+
+              {/* Error Message */}
+              {imageUploadError && (
+                <div style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#fee2e2',
+                  border: '1px solid #ef4444',
+                  borderRadius: '8px',
+                  marginBottom: '16px',
+                  color: '#991b1b',
+                  fontSize: isMobile ? '13px' : '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '18px' }}>error</span>
+                  {imageUploadError}
+                </div>
+              )}
+
+              {/* Existing Images Section */}
+              <div style={{ marginBottom: isMobile ? '20px' : '24px' }}>
+                <h4 style={{
+                  margin: '0 0 12px 0',
+                  fontSize: isMobile ? '14px' : '16px',
+                  fontWeight: '600',
+                  color: '#1f2937'
+                }}>
+                  Existing Images ({imageList.length})
+                </h4>
+                
+                {imageList.length === 0 ? (
+                  <div style={{
+                    padding: '24px',
+                    textAlign: 'center',
+                    color: '#6b7280',
+                    fontSize: isMobile ? '13px' : '14px',
+                    backgroundColor: '#f9fafb',
+                    borderRadius: '8px',
+                    border: '1px dashed #d1d5db'
+                  }}>
+                    No images added yet
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(3, 1fr)',
+                    gap: '12px',
+                    maxHeight: isMobile ? '300px' : '400px',
+                    overflowY: 'auto',
+                    padding: '4px'
+                  }}>
+                    {imageList.map((imagePath, index) => {
+                      return (
+                        <div
+                          key={index}
+                          style={{
+                            position: 'relative',
+                            aspectRatio: '1 / 1',
+                            borderRadius: '8px',
+                            overflow: 'hidden',
+                            backgroundColor: '#f3f4f6',
+                            border: '1px solid #e5e7eb',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'scale(1.02)';
+                            e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.1)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'scale(1)';
+                            e.currentTarget.style.boxShadow = 'none';
+                          }}
+                        >
+                          {/* Delete Button */}
+                          <button
+                            onClick={() => handleDeleteImage(index)}
+                            style={{
+                              position: 'absolute',
+                              top: '4px',
+                              right: '4px',
+                              background: 'rgba(239, 68, 68, 0.9)',
+                              border: 'none',
+                              borderRadius: '50%',
+                              width: '28px',
+                              height: '28px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              color: 'white',
+                              fontSize: '18px',
+                              zIndex: 10,
+                              transition: 'all 0.2s ease',
+                              boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = 'rgba(220, 38, 38, 1)';
+                              e.currentTarget.style.transform = 'scale(1.1)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'rgba(239, 68, 68, 0.9)';
+                              e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                            title="Delete image"
+                          >
+                            ×
+                          </button>
+
+                          {/* Image - Using ProductImage component like product details modal */}
+                          <div style={{
+                            width: '100%',
+                            height: '100%',
+                            position: 'relative',
+                            overflow: 'hidden'
+                          }}>
+                            <ProductImage
+                              imagePath={imagePath}
+                              itemName={selectedProductForImage?.NAME || 'Product'}
+                              googleToken={googleToken}
+                              imageUrlCacheRef={imageUrlCache}
+                              canShowImage={canShowImage}
+                              useFirstImageAsThumbnail={false}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Add Image Section */}
+              <div style={{
+                padding: isMobile ? '16px' : '20px',
+                backgroundColor: '#f9fafb',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb',
+                marginBottom: isMobile ? '20px' : '24px'
+              }}>
+                <h4 style={{
+                  margin: '0 0 12px 0',
+                  fontSize: isMobile ? '14px' : '16px',
+                  fontWeight: '600',
+                  color: '#1f2937'
+                }}>
+                  Add New Image
+                </h4>
+
+                {/* Method Toggle */}
+                <div style={{
+                  display: 'flex',
+                  gap: '8px',
+                  marginBottom: '12px',
+                  backgroundColor: '#ffffff',
+                  padding: '4px',
+                  borderRadius: '8px',
+                  border: '1px solid #e5e7eb'
+                }}>
+                  <button
+                    onClick={() => setImageAddMethod('link')}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      background: imageAddMethod === 'link' ? '#3b82f6' : 'transparent',
+                      color: imageAddMethod === 'link' ? 'white' : '#6b7280',
+                      border: 'none',
+                      borderRadius: '6px',
+                      fontSize: isMobile ? '12px' : '13px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    Enter Link
+                  </button>
+                  <button
+                    onClick={() => setImageAddMethod('picker')}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      background: imageAddMethod === 'picker' ? '#3b82f6' : 'transparent',
+                      color: imageAddMethod === 'picker' ? 'white' : '#6b7280',
+                      border: 'none',
+                      borderRadius: '6px',
+                      fontSize: isMobile ? '12px' : '13px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                  >
+                    Pick from Drive
+                  </button>
+                </div>
+
+                {/* Link Input Method */}
+                {imageAddMethod === 'link' && (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: isMobile ? 'column' : 'row',
+                    gap: '8px'
+                  }}>
+                    <input
+                      type="text"
+                      value={newImageLink}
+                      onChange={(e) => {
+                        setNewImageLink(e.target.value);
+                        setImageUploadError('');
+                      }}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                          handleAddImage();
+                        }
+                      }}
+                      placeholder="Enter Google Drive link..."
+                      style={{
+                        flex: 1,
+                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        border: '1px solid #d1d5db',
+                        borderRadius: '8px',
+                        fontSize: isMobile ? '13px' : '14px',
+                        outline: 'none',
+                        transition: 'border-color 0.2s ease'
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = '#3b82f6';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = '#d1d5db';
+                      }}
+                    />
+                    <button
+                      onClick={handleAddImage}
+                      disabled={imageUploadLoading}
+                      style={{
+                        padding: isMobile ? '10px 16px' : '12px 20px',
+                        background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '8px',
+                        fontSize: isMobile ? '13px' : '14px',
+                        fontWeight: '600',
+                        cursor: imageUploadLoading ? 'not-allowed' : 'pointer',
+                        opacity: imageUploadLoading ? 0.6 : 1,
+                        transition: 'all 0.2s ease',
+                        whiteSpace: 'nowrap',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!imageUploadLoading) {
+                          e.currentTarget.style.transform = 'translateY(-1px)';
+                          e.currentTarget.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.3)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
+                      Add
+                    </button>
+                  </div>
+                )}
+
+                {/* Google Drive Picker Method */}
+                {imageAddMethod === 'picker' && (
+                  <button
+                    onClick={handleOpenGoogleDrivePicker}
+                    disabled={imageUploadLoading || isLoadingGooglePicker}
+                    style={{
+                      width: '100%',
+                      padding: isMobile ? '12px 16px' : '14px 20px',
+                      background: isLoadingGooglePicker 
+                        ? '#9ca3af' 
+                        : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: isMobile ? '13px' : '14px',
+                      fontWeight: '600',
+                      cursor: (imageUploadLoading || isLoadingGooglePicker) ? 'not-allowed' : 'pointer',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!imageUploadLoading && !isLoadingGooglePicker) {
+                        e.currentTarget.style.transform = 'translateY(-1px)';
+                        e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = 'none';
+                    }}
+                  >
+                    {isLoadingGooglePicker ? (
+                      <>
+                        <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite' }}>refresh</span>
+                        Opening Google Drive...
+                      </>
+                    ) : (
+                      <>
+                        <span className="material-icons" style={{ fontSize: '18px' }}>cloud_upload</span>
+                        Pick from Google Drive
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'flex-end',
+                paddingTop: '16px',
+                borderTop: '1px solid #e5e7eb'
+              }}>
+                <button
+                  onClick={() => {
+                    setShowImageUploadModal(false);
+                    setSelectedProductForImage(null);
+                    setImageList([]);
+                    setNewImageLink('');
+                    setImageUploadError('');
+                    setImageUploadSuccess(false);
+                  }}
+                  disabled={imageUploadLoading}
+                  style={{
+                    padding: isMobile ? '10px 16px' : '12px 20px',
+                    background: 'white',
+                    color: '#374151',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '8px',
+                    fontSize: isMobile ? '13px' : '14px',
+                    fontWeight: '600',
+                    cursor: imageUploadLoading ? 'not-allowed' : 'pointer',
+                    opacity: imageUploadLoading ? 0.6 : 1,
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!imageUploadLoading) {
+                      e.currentTarget.style.backgroundColor = '#f9fafb';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = 'white';
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveImages}
+                  disabled={imageUploadLoading}
+                  style={{
+                    padding: isMobile ? '10px 16px' : '12px 20px',
+                    background: imageUploadLoading 
+                      ? '#9ca3af' 
+                      : 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: isMobile ? '13px' : '14px',
+                    fontWeight: '600',
+                    cursor: imageUploadLoading ? 'not-allowed' : 'pointer',
+                    transition: 'all 0.2s ease',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    minWidth: isMobile ? '100px' : '120px',
+                    justifyContent: 'center'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!imageUploadLoading) {
+                      e.currentTarget.style.transform = 'translateY(-1px)';
+                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(5, 150, 105, 0.3)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = 'none';
+                  }}
+                >
+                  {imageUploadLoading ? (
+                    <>
+                      <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite' }}>refresh</span>
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-icons" style={{ fontSize: '18px' }}>save</span>
+                      Save Changes
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>

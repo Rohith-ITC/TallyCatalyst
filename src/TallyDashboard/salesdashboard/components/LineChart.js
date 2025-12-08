@@ -28,6 +28,87 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
     }];
   }, [data]);
 
+  // Calculate dynamic left margin based on longest Y-axis value and rotated X-axis labels
+  const leftMargin = useMemo(() => {
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      return isMobile ? 50 : 60;
+    }
+    // Find the maximum value to estimate the longest Y-axis label
+    const maxValue = Math.max(...data.map(item => Math.abs(item.value || 0)));
+    
+    // Format the max value to estimate width
+    let formattedMax;
+    const absValue = Math.abs(maxValue);
+    if (absValue >= 10000000) {
+      formattedMax = `${valuePrefix}${(maxValue / 10000000).toFixed(1)}Cr`;
+    } else if (absValue >= 100000) {
+      formattedMax = `${valuePrefix}${(maxValue / 100000).toFixed(1)}L`;
+    } else if (absValue >= 1000) {
+      formattedMax = `${valuePrefix}${(maxValue / 1000).toFixed(1)}K`;
+    } else {
+      formattedMax = `${valuePrefix}${maxValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    }
+    
+    // Estimate Y-axis label width: ~7-8px per character, plus padding
+    const charWidth = isMobile ? 7 : 8;
+    const yAxisWidth = formattedMax.length * charWidth + (isMobile ? 20 : 30);
+    
+    // Also account for rotated X-axis labels that extend to the left
+    // Find the longest X-axis label
+    const maxXLabelLength = Math.max(...data.map(item => (item.label || '').length));
+    const xAxisCharWidth = isMobile ? 6 : 7;
+    const fontSize = isMobile ? 10 : 12;
+    const xAxisTextWidth = maxXLabelLength * xAxisCharWidth;
+    
+    // For -45 degree rotation, the horizontal projection to the left is approximately:
+    // textWidth * sin(45°) = textWidth * 0.707
+    const rotatedHorizontalSpace = (xAxisTextWidth * 0.707) + (fontSize * 0.707);
+    
+    // Use the maximum of Y-axis width and rotated X-axis space, plus extra padding
+    const estimatedWidth = Math.max(yAxisWidth, rotatedHorizontalSpace) + (isMobile ? 15 : 25);
+    
+    // Set minimum and maximum bounds
+    const minMargin = isMobile ? 50 : 60;
+    const maxMargin = isMobile ? 180 : 250;
+    return Math.min(Math.max(estimatedWidth, minMargin), maxMargin);
+  }, [data, isMobile, valuePrefix]);
+
+  // Calculate dynamic bottom margin based on longest X-axis label (rotated at -45 degrees)
+  const bottomMargin = useMemo(() => {
+    if (!data || !Array.isArray(data) || data.length === 0) {
+      return isMobile ? 70 : 80;
+    }
+    // Find the longest label (X-axis category name)
+    const maxLabelLength = Math.max(...data.map(item => (item.label || '').length));
+    
+    // For rotated labels at -45 degrees, we need to account for:
+    // 1. Text width when rotated (diagonal projection)
+    // 2. Text height
+    // 3. Padding for spacing
+    
+    // Character width for rotated text
+    const charWidth = isMobile ? 6 : 7;
+    const fontSize = isMobile ? 10 : 12;
+    
+    // Estimate text width
+    const textWidth = maxLabelLength * charWidth;
+    
+    // For -45 degree rotation, the vertical space needed is approximately:
+    // The diagonal projection = sqrt(width² + height²) * sin(45°)
+    // Simplified: we need space for both width and height components
+    // A practical approximation: textWidth * 0.707 (sin/cos of 45°) + fontSize * 0.707
+    const rotatedVerticalSpace = (textWidth * 0.707) + (fontSize * 0.707);
+    
+    // Add padding for spacing between labels and chart edge
+    const padding = isMobile ? 25 : 35;
+    const estimatedHeight = rotatedVerticalSpace + padding;
+    
+    // Set minimum and maximum bounds
+    const minMargin = isMobile ? 70 : 80;
+    const maxMargin = isMobile ? 120 : 150;
+    return Math.min(Math.max(estimatedHeight, minMargin), maxMargin);
+  }, [data, isMobile]);
+
   // Handle empty or invalid data - return empty card structure
   if (!data || data.length === 0) {
     return (
@@ -271,7 +352,7 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
         }}>
           <ResponsiveLine
             data={nivoData}
-            margin={isMobile ? { top: 15, right: 10, bottom: 60, left: 50 } : { top: 20, right: 25, bottom: 70, left: 60 }}
+            margin={isMobile ? { top: 15, right: 10, bottom: bottomMargin, left: leftMargin } : { top: 20, right: 25, bottom: bottomMargin, left: leftMargin }}
             xScale={{ type: 'point' }}
             yScale={{
               type: 'linear',
@@ -285,14 +366,18 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
             axisRight={null}
             axisBottom={{
               tickSize: isMobile ? 5 : 8,
-              tickPadding: isMobile ? 6 : 10,
+              tickPadding: isMobile ? 8 : 12,
               tickRotation: -45,
               legend: '',
-              legendOffset: isMobile ? 40 : 50,
+              legendOffset: isMobile ? 45 : 55,
               legendPosition: 'middle',
               format: (value) => {
-                const maxLength = isMobile ? 8 : 12;
-                return value.length > maxLength ? value.substring(0, maxLength) + '...' : value;
+                // For rotated labels, allow more characters but still truncate if too long
+                const maxLength = isMobile ? 15 : 20;
+                if (value.length > maxLength) {
+                  return value.substring(0, maxLength - 3) + '...';
+                }
+                return value;
               }
             }}
             axisLeft={{
@@ -303,8 +388,22 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
               legendOffset: isMobile ? -30 : -50,
               legendPosition: 'middle',
               format: (value) => {
-                const formatted = `${valuePrefix}${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-                return isMobile && formatted.length > 8 ? formatted.substring(0, 6) + '...' : formatted;
+                // Use abbreviated format for Y-axis labels to prevent overlap
+                const absValue = Math.abs(value);
+                let formatted;
+                
+                // Use abbreviated format for large numbers
+                if (absValue >= 10000000) {
+                  formatted = `${valuePrefix}${(value / 10000000).toFixed(1)}Cr`;
+                } else if (absValue >= 100000) {
+                  formatted = `${valuePrefix}${(value / 100000).toFixed(1)}L`;
+                } else if (absValue >= 1000) {
+                  formatted = `${valuePrefix}${(value / 1000).toFixed(1)}K`;
+                } else {
+                  formatted = `${valuePrefix}${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+                }
+                
+                return formatted;
               }
             }}
             pointSize={isMobile ? 8 : 10}

@@ -6594,6 +6594,7 @@ function PlaceOrder() {
           } else {
             qtyString = item.quantity.toString();
           }
+          
 
           // Append alternative quantity for:
           // 1. Simple base + simple additional units
@@ -14615,8 +14616,6 @@ function PlaceOrder() {
   );
 
 }
-
-
 
 export default PlaceOrder;
 
