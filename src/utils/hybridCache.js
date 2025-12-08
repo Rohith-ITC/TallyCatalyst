@@ -9,7 +9,7 @@ class DateRangeUtils {
     const end1 = new Date(range1.endDate);
     const start2 = new Date(range2.startDate);
     const end2 = new Date(range2.endDate);
-    
+
     return start1 <= end2 && start2 <= end1;
   }
 
@@ -26,18 +26,18 @@ class DateRangeUtils {
     const gaps = [];
     const requestStart = new Date(requestRange.startDate);
     const requestEnd = new Date(requestRange.endDate);
-    
+
     // Sort cached ranges by start date
-    const sorted = [...cachedRanges].sort((a, b) => 
+    const sorted = [...cachedRanges].sort((a, b) =>
       new Date(a.startDate) - new Date(b.startDate)
     );
-    
+
     let currentPos = requestStart;
-    
+
     for (const cached of sorted) {
       const cachedStart = new Date(cached.startDate);
       const cachedEnd = new Date(cached.endDate);
-      
+
       // If there's a gap before this cached range
       if (currentPos < cachedStart) {
         gaps.push({
@@ -45,13 +45,13 @@ class DateRangeUtils {
           endDate: this.formatDate(new Date(cachedStart.getTime() - 1))
         });
       }
-      
+
       // Move current position to after this cached range
       if (cachedEnd > currentPos) {
         currentPos = new Date(cachedEnd.getTime() + 1);
       }
     }
-    
+
     // If there's a gap after all cached ranges
     if (currentPos <= requestEnd) {
       gaps.push({
@@ -59,27 +59,27 @@ class DateRangeUtils {
         endDate: this.formatDate(requestEnd)
       });
     }
-    
+
     return gaps;
   }
 
   // Merge overlapping or adjacent date ranges
   static mergeDateRanges(ranges) {
     if (ranges.length === 0) return [];
-    
-    const sorted = [...ranges].sort((a, b) => 
+
+    const sorted = [...ranges].sort((a, b) =>
       new Date(a.startDate) - new Date(b.startDate)
     );
-    
+
     const merged = [sorted[0]];
-    
+
     for (let i = 1; i < sorted.length; i++) {
       const current = sorted[i];
       const last = merged[merged.length - 1];
-      
+
       const currentStart = new Date(current.startDate);
       const lastEnd = new Date(last.endDate);
-      
+
       // If overlapping or adjacent (within 1 day), merge
       if (currentStart <= new Date(lastEnd.getTime() + 24 * 60 * 60 * 1000)) {
         last.endDate = current.endDate > last.endDate ? current.endDate : last.endDate;
@@ -87,7 +87,7 @@ class DateRangeUtils {
         merged.push(current);
       }
     }
-    
+
     return merged;
   }
 
@@ -95,29 +95,29 @@ class DateRangeUtils {
   static splitDateRangeIntoGaps(requestRange, cachedRanges) {
     const requestStart = new Date(requestRange.startDate);
     const requestEnd = new Date(requestRange.endDate);
-    
+
     // Filter cached ranges that overlap with request
-    const overlapping = cachedRanges.filter(cached => 
+    const overlapping = cachedRanges.filter(cached =>
       this.dateRangesOverlap(requestRange, cached)
     );
-    
+
     if (overlapping.length === 0) {
       return {
         cached: [],
         gaps: [requestRange]
       };
     }
-    
+
     // Get gaps
     const gaps = this.getDateRangeGaps(requestRange, overlapping);
-    
+
     // Get cached ranges that are within request range
     const cached = overlapping.map(cached => ({
       startDate: cached.startDate < requestRange.startDate ? requestRange.startDate : cached.startDate,
       endDate: cached.endDate > requestRange.endDate ? requestRange.endDate : cached.endDate,
       data: cached.data
     }));
-    
+
     return { cached, gaps };
   }
 
@@ -164,7 +164,7 @@ class EncryptionUtils {
           const keysDir = await this.opfsRoot.getDirectoryHandle('keys', { create: true });
           const sanitizedEmail = email.replace(/[^a-zA-Z0-9_-]/g, '_');
           const keyFileName = `${sanitizedEmail}.json`;
-          
+
           let userKey = null;
           try {
             const keyFile = await keysDir.getFileHandle(keyFileName);
@@ -174,24 +174,24 @@ class EncryptionUtils {
           } catch (err) {
             // File doesn't exist, will create it
           }
-          
+
           if (!userKey) {
             // Generate a new salt for this user
             const salt = crypto.getRandomValues(new Uint8Array(16));
             const saltBase64 = btoa(String.fromCharCode(...salt));
-            
+
             userKey = {
               email: email,
               salt: saltBase64
             };
-            
+
             // Write to OPFS
             const keyFile = await keysDir.getFileHandle(keyFileName, { create: true });
             const writable = await keyFile.createWritable();
             await writable.write(JSON.stringify(userKey));
             await writable.close();
           }
-          
+
           return userKey.salt;
         } catch (error) {
           console.warn('OPFS salt retrieval failed, falling back to IndexedDB:', error);
@@ -202,21 +202,21 @@ class EncryptionUtils {
       // Fall back to IndexedDB if OPFS is not available or failed
       if (this.indexedDB) {
         let userKey = await this.indexedDB.userKeys.get(email);
-        
+
         if (!userKey) {
           // Generate a new salt for this user
           const salt = crypto.getRandomValues(new Uint8Array(16));
           const saltBase64 = btoa(String.fromCharCode(...salt));
-          
+
           userKey = {
             email: email,
             salt: saltBase64
           };
-          
+
           // Write to IndexedDB
           await this.indexedDB.userKeys.put(userKey);
         }
-        
+
         return userKey.salt;
       }
 
@@ -229,10 +229,41 @@ class EncryptionUtils {
 
   // Check if Web Crypto API is available
   isCryptoAvailable() {
-    return typeof crypto !== 'undefined' && 
-           crypto !== null && 
-           typeof crypto.subtle !== 'undefined' && 
-           crypto.subtle !== null;
+    return typeof crypto !== 'undefined' &&
+      crypto !== null &&
+      typeof crypto.subtle !== 'undefined' &&
+      crypto.subtle !== null;
+  }
+
+  // Validate base64 string format
+  isValidBase64(str) {
+    if (!str || typeof str !== 'string') {
+      return false;
+    }
+
+    // Remove whitespace and newlines
+    str = str.trim().replace(/\s/g, '');
+
+    // Empty string is invalid
+    if (str.length === 0) {
+      return false;
+    }
+
+    // Check if length is valid (must be multiple of 4)
+    if (str.length % 4 !== 0) {
+      return false;
+    }
+
+    // Try a simple test decode to verify it's valid base64
+    // This is more reliable than regex since atob will tell us if it's valid
+    try {
+      // Test decode just the first few characters to validate format
+      const testStr = str.substring(0, Math.min(100, str.length));
+      atob(testStr);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   // Derive encryption key from email + salt (stable across token refreshes)
@@ -244,11 +275,11 @@ class EncryptionUtils {
 
     // Check if crypto.subtle is available
     if (!this.isCryptoAvailable()) {
-      const isSecureContext = window.isSecureContext || 
-                             window.location.protocol === 'https:' || 
-                             window.location.hostname === 'localhost' || 
-                             window.location.hostname === '127.0.0.1';
-      
+      const isSecureContext = window.isSecureContext ||
+        window.location.protocol === 'https:' ||
+        window.location.hostname === 'localhost' ||
+        window.location.hostname === '127.0.0.1';
+
       if (!isSecureContext) {
         console.warn('⚠️ Web Crypto API not available (not a secure context). Cache encryption disabled.');
         console.warn('⚠️ For production, use HTTPS. For development, access via localhost or use HTTPS.');
@@ -262,17 +293,17 @@ class EncryptionUtils {
 
     try {
       const salt = await this.getUserSalt(email);
-      
+
       // Combine email and salt
       const encoder = new TextEncoder();
       const emailData = encoder.encode(email);
       const saltData = Uint8Array.from(atob(salt), c => c.charCodeAt(0));
-      
+
       // Combine email + salt
       const combined = new Uint8Array(emailData.length + saltData.length);
       combined.set(emailData);
       combined.set(saltData, emailData.length);
-      
+
       // Hash to get encryption key
       const hashBuffer = await crypto.subtle.digest('SHA-256', combined);
       return hashBuffer;
@@ -286,14 +317,14 @@ class EncryptionUtils {
   async encryptData(data) {
     try {
       const startTime = performance.now();
-      
+
       // Check if crypto is available
       if (!this.isCryptoAvailable()) {
-        const isSecureContext = window.isSecureContext || 
-                               window.location.protocol === 'https:' || 
-                               window.location.hostname === 'localhost' || 
-                               window.location.hostname === '127.0.0.1';
-        
+        const isSecureContext = window.isSecureContext ||
+          window.location.protocol === 'https:' ||
+          window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1';
+
         if (!isSecureContext) {
           // For development on HTTP, store data unencrypted (base64 encoded)
           console.warn('⚠️ Storing data unencrypted (development mode - HTTP)');
@@ -345,11 +376,11 @@ class EncryptionUtils {
         result = this.arrayBufferToBase64(combined.buffer);
       }
       const base64Time = performance.now() - base64Start;
-      
+
       const totalTime = performance.now() - startTime;
       console.log(`📝 Base64 encoding: ${(result.length / 1024).toFixed(2)} KB in ${base64Time.toFixed(2)}ms`);
       console.log(`⚡ Total encryption time: ${totalTime.toFixed(2)}ms (${(combined.length / 1024 / 1024).toFixed(2)} MB)`);
-      
+
       return result;
     } catch (error) {
       console.error('Encryption error:', error);
@@ -362,17 +393,17 @@ class EncryptionUtils {
     const bytes = new Uint8Array(buffer);
     const chunkSize = 1024 * 1024; // 1MB chunks
     const chunks = [];
-    
+
     for (let i = 0; i < bytes.length; i += chunkSize) {
       const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
       chunks.push(this.arrayBufferToBase64(chunk.buffer));
-      
+
       // Yield to browser every chunk to prevent blocking
       if (i + chunkSize < bytes.length) {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
-    
+
     return chunks.join('');
   }
 
@@ -382,14 +413,14 @@ class EncryptionUtils {
     const bytes = new Uint8Array(buffer);
     const chunkSize = 16384; // Increased chunk size for better performance (16KB)
     let binary = '';
-    
+
     // Use chunked processing to avoid blocking the main thread
     for (let i = 0; i < bytes.length; i += chunkSize) {
       const chunk = bytes.slice(i, Math.min(i + chunkSize, bytes.length));
       // Use String.fromCharCode.apply for better performance on large chunks
       binary += String.fromCharCode.apply(null, chunk);
     }
-    
+
     return btoa(binary);
   }
 
@@ -408,16 +439,16 @@ class EncryptionUtils {
       const jsonString = JSON.stringify(data);
       const encoder = new TextEncoder();
       const dataStream = new Blob([encoder.encode(jsonString)]).stream();
-      
+
       const compressedStream = dataStream.pipeThrough(new CompressionStream('gzip'));
       const compressedBlob = await new Response(compressedStream).blob();
       const compressedArrayBuffer = await compressedBlob.arrayBuffer();
-      
+
       const originalSize = new TextEncoder().encode(jsonString).length;
       const compressedSize = compressedArrayBuffer.byteLength;
       const compressionRatio = ((1 - compressedSize / originalSize) * 100).toFixed(1);
       console.log(`📦 Compression: ${(originalSize / 1024).toFixed(2)} KB → ${(compressedSize / 1024).toFixed(2)} KB (${compressionRatio}% reduction)`);
-      
+
       return compressedArrayBuffer;
     } catch (error) {
       console.warn('Compression failed, using uncompressed data:', error);
@@ -460,14 +491,30 @@ class EncryptionUtils {
   async decryptData(encryptedBase64) {
     try {
       const startTime = performance.now();
+
+      // Normalize base64 string - remove any whitespace/newlines and invalid characters that might have been added during storage
+      encryptedBase64 = encryptedBase64.trim().replace(/\s/g, '').replace(/[^A-Za-z0-9+/=]/g, '');
       
+      // Fix padding if needed (base64 length must be multiple of 4)
+      const remainder = encryptedBase64.length % 4;
+      if (remainder > 0) {
+        encryptedBase64 += '='.repeat(4 - remainder);
+      }
+
+      // Validate base64 format first
+      if (!this.isValidBase64(encryptedBase64)) {
+        console.error('❌ Invalid base64 format detected in encrypted data');
+        console.error('Data preview:', encryptedBase64?.substring(0, 100) + '...');
+        throw new Error('Corrupted cache data: Invalid base64 encoding. Please clear the cache and re-download.');
+      }
+
       // Check if crypto is available
       if (!this.isCryptoAvailable()) {
-        const isSecureContext = window.isSecureContext || 
-                               window.location.protocol === 'https:' || 
-                               window.location.hostname === 'localhost' || 
-                               window.location.hostname === '127.0.0.1';
-        
+        const isSecureContext = window.isSecureContext ||
+          window.location.protocol === 'https:' ||
+          window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1';
+
         if (!isSecureContext) {
           // For development on HTTP, data is stored as base64 encoded JSON
           console.warn('⚠️ Decrypting unencrypted data (development mode - HTTP)');
@@ -477,7 +524,7 @@ class EncryptionUtils {
           } catch (error) {
             // If base64 decode fails, try as encrypted data (might be from HTTPS session)
             console.warn('⚠️ Failed to decode as unencrypted, might be encrypted data');
-            return null;
+            throw new Error('Failed to decode cache data. The cache may be corrupted or encrypted with a different key. Please clear the cache and re-download.');
           }
         } else {
           throw new Error('Web Crypto API not available. Cannot decrypt cache data.');
@@ -496,18 +543,32 @@ class EncryptionUtils {
       // Decode from base64 - optimized for large data
       const base64Start = performance.now();
       let bytes;
-      if (encryptedBase64.length > 1024 * 1024) { // > 1MB, use chunked decoding
-        bytes = await this.base64ToArrayBufferChunked(encryptedBase64);
-      } else {
-        const binaryString = atob(encryptedBase64);
-        bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
+      try {
+        if (encryptedBase64.length > 1024 * 1024) { // > 1MB, use chunked decoding
+          bytes = await this.base64ToArrayBufferChunked(encryptedBase64);
+        } else {
+          // Ensure base64 is clean before decoding (already cleaned above, but double-check)
+          let cleanBase64 = encryptedBase64.replace(/[^A-Za-z0-9+/=]/g, '');
+          // Fix padding if needed
+          const remainder = cleanBase64.length % 4;
+          if (remainder > 0) {
+            cleanBase64 += '='.repeat(4 - remainder);
+          }
+          const binaryString = atob(cleanBase64);
+          bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
         }
+      } catch (error) {
+        console.error('❌ Base64 decoding failed:', error);
+        console.error('Encrypted data length:', encryptedBase64.length);
+        console.error('Encrypted data preview (first 200 chars):', encryptedBase64.substring(0, 200));
+        throw new Error('Failed to decode base64 data. The cache may be corrupted. Please clear the cache and re-download.');
       }
       const base64Time = performance.now() - base64Start;
       console.log(`📝 Base64 decoding: ${(bytes.length / 1024).toFixed(2)} KB in ${base64Time.toFixed(2)}ms`);
-      
+
       // Check if this looks like encrypted data (has IV) or unencrypted base64
       // Encrypted data starts with 12-byte IV, so if length < 12, it's probably unencrypted
       if (bytes.length < 12) {
@@ -516,21 +577,27 @@ class EncryptionUtils {
           const jsonString = decodeURIComponent(escape(encryptedBase64));
           return JSON.parse(jsonString);
         } catch {
-          return null;
+          throw new Error('Cache data is too short to be valid encrypted data. Please clear the cache and re-download.');
         }
       }
-      
+
       // Extract IV and encrypted data
       const iv = bytes.slice(0, 12);
       const encrypted = bytes.slice(12);
 
       // Decrypt
       const decryptStart = performance.now();
-      const decrypted = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv: iv },
-        key,
-        encrypted
-      );
+      let decrypted;
+      try {
+        decrypted = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: iv },
+          key,
+          encrypted
+        );
+      } catch (error) {
+        console.error('❌ Decryption failed:', error);
+        throw new Error('Failed to decrypt cache data. The data may have been encrypted with a different user account or key. Please clear the cache and re-download.');
+      }
       const decryptTime = performance.now() - decryptStart;
       console.log(`🔓 Decryption: ${(decrypted.byteLength / 1024).toFixed(2)} KB in ${decryptTime.toFixed(2)}ms`);
 
@@ -538,47 +605,134 @@ class EncryptionUtils {
       const decompressStart = performance.now();
       const decompressed = await this.decompressData(decrypted);
       const decompressTime = performance.now() - decompressStart;
-      
+
       const totalTime = performance.now() - startTime;
       console.log(`📦 Decompression: ${decompressTime.toFixed(2)}ms`);
       console.log(`⚡ Total decryption time: ${totalTime.toFixed(2)}ms`);
-      
+
       return decompressed;
     } catch (error) {
       console.error('Decryption error:', error);
-      // If decryption fails (e.g., wrong user or unencrypted data), try as unencrypted
-      try {
-        const jsonString = decodeURIComponent(escape(atob(encryptedBase64)));
-        return JSON.parse(jsonString);
-      } catch {
-        return null;
+      // Re-throw with the error message (don't try fallback if we already have a good error)
+      if (error.message && error.message.includes('cache')) {
+        throw error;
       }
+      // If decryption fails for unknown reason, provide generic message
+      throw new Error('Failed to decrypt cache data. The cache may be corrupted or encrypted with a different key. Please clear the cache and re-download.');
     }
   }
 
   // Chunked base64 to ArrayBuffer conversion with yield points
+  // Decodes base64 in chunks to avoid browser limits with very large strings
   async base64ToArrayBufferChunked(base64) {
-    const chunkSize = 1024 * 1024; // 1MB chunks
-    const totalLength = Math.ceil(base64.length * 3 / 4);
-    const result = new Uint8Array(totalLength);
-    let offset = 0;
+    // Normalize base64 string - remove any whitespace/newlines and invalid characters
+    base64 = base64.trim().replace(/\s/g, '').replace(/[^A-Za-z0-9+/=]/g, '');
     
-    for (let i = 0; i < base64.length; i += chunkSize) {
-      const chunk = base64.slice(i, Math.min(i + chunkSize, base64.length));
-      const binaryString = atob(chunk);
-      const chunkBytes = new Uint8Array(binaryString.length);
-      for (let j = 0; j < binaryString.length; j++) {
-        chunkBytes[j] = binaryString.charCodeAt(j);
+    // Fix padding if needed (base64 length must be multiple of 4)
+    const remainder = base64.length % 4;
+    if (remainder > 0) {
+      base64 += '='.repeat(4 - remainder);
+    }
+
+    // Validate base64 format first (test on a small sample)
+    if (!this.isValidBase64(base64)) {
+      console.error('❌ Invalid base64 format in chunked decoding');
+      console.error('Base64 length:', base64.length);
+      console.error('Base64 preview (first 200 chars):', base64.substring(0, 200));
+      throw new Error('Corrupted cache data: Invalid base64 encoding in large data chunk. Please clear the cache and re-download.');
+    }
+
+    // Try decoding the entire string first (works for most cases)
+    try {
+      const binaryString = atob(base64);
+      const result = new Uint8Array(binaryString.length);
+      const chunkSize = 1024 * 1024; // 1MB chunks for processing
+
+      for (let i = 0; i < binaryString.length; i += chunkSize) {
+        const end = Math.min(i + chunkSize, binaryString.length);
+        for (let j = i; j < end; j++) {
+          result[j] = binaryString.charCodeAt(j);
+        }
+
+        // Yield to browser every chunk to prevent blocking
+        if (end < binaryString.length) {
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
       }
-      result.set(chunkBytes, offset);
-      offset += chunkBytes.length;
+
+      return result;
+    } catch (error) {
+      // If atob fails on the full string (likely due to size), decode in chunks
+      console.warn('⚠️ Full string atob failed, falling back to chunked decoding:', error.message);
+      return await this.base64ToArrayBufferChunkedDecode(base64);
+    }
+  }
+
+  // True chunked base64 decoder - processes base64 string in chunks
+  // Each chunk must be a multiple of 4 characters to maintain base64 boundaries
+  async base64ToArrayBufferChunkedDecode(base64) {
+    // Process in chunks of 1MB base64 characters (must be multiple of 4)
+    const base64ChunkSize = 1024 * 1024; // 1MB of base64 chars
+    const alignedChunkSize = Math.floor(base64ChunkSize / 4) * 4; // Round down to multiple of 4
+    
+    const chunks = [];
+    let i = 0;
+
+    // Process base64 in aligned chunks
+    while (i < base64.length) {
+      // Calculate chunk end, ensuring it's at a 4-character boundary
+      let chunkEnd = Math.min(i + alignedChunkSize, base64.length);
       
-      // Yield to browser every chunk
-      if (i + chunkSize < base64.length) {
+      // If not at the end, ensure we end at a 4-character boundary
+      if (chunkEnd < base64.length) {
+        const chunkLength = chunkEnd - i;
+        const alignedLength = Math.floor(chunkLength / 4) * 4;
+        chunkEnd = i + alignedLength;
+      }
+      
+      if (chunkEnd <= i) {
+        // Handle remaining characters (should be < 4)
+        chunkEnd = base64.length;
+      }
+      
+      const base64Chunk = base64.substring(i, chunkEnd);
+      
+      if (base64Chunk.length === 0) break;
+
+      try {
+        const binaryChunk = atob(base64Chunk);
+        const chunkBytes = new Uint8Array(binaryChunk.length);
+        for (let j = 0; j < binaryChunk.length; j++) {
+          chunkBytes[j] = binaryChunk.charCodeAt(j);
+        }
+        
+        chunks.push(chunkBytes);
+      } catch (chunkError) {
+        console.error(`❌ Failed to decode base64 chunk at offset ${i}:`, chunkError);
+        console.error('Chunk length:', base64Chunk.length);
+        console.error('Chunk preview (first 100 chars):', base64Chunk.substring(0, 100));
+        console.error('Chunk preview (last 100 chars):', base64Chunk.substring(Math.max(0, base64Chunk.length - 100)));
+        throw new Error(`Failed to decode base64 chunk. The cache may be corrupted. Please clear the cache and re-download.`);
+      }
+
+      // Move to next chunk
+      i = chunkEnd;
+
+      // Yield to browser every chunk to prevent blocking
+      if (i < base64.length) {
         await new Promise(resolve => setTimeout(resolve, 0));
       }
     }
-    
+
+    // Combine all chunks into final result
+    const totalBytes = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const result = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      result.set(chunk, offset);
+      offset += chunk.length;
+    }
+
     return result;
   }
 }
@@ -599,7 +753,7 @@ class OPFSBackend {
       const metadataDir = await this.root.getDirectoryHandle('metadata', { create: true });
       const salesFile = await metadataDir.getFileHandle('sales.json', { create: true });
       const dashboardFile = await metadataDir.getFileHandle('dashboard.json', { create: true });
-      
+
       try {
         const salesContent = await (await salesFile.getFile()).text();
         if (salesContent) {
@@ -611,7 +765,7 @@ class OPFSBackend {
       } catch {
         this.metadataCache.set('sales', new Map());
       }
-      
+
       try {
         const dashboardContent = await (await dashboardFile.getFile()).text();
         if (dashboardContent) {
@@ -634,7 +788,7 @@ class OPFSBackend {
   async saveMetadata() {
     try {
       const metadataDir = await this.root.getDirectoryHandle('metadata', { create: true });
-      
+
       // Save sales metadata
       const salesMap = this.metadataCache.get('sales') || new Map();
       const salesData = Array.from(salesMap.entries());
@@ -642,7 +796,7 @@ class OPFSBackend {
       const salesWritable = await salesFile.createWritable();
       await salesWritable.write(JSON.stringify(salesData));
       await salesWritable.close();
-      
+
       // Save dashboard metadata
       const dashboardMap = this.metadataCache.get('dashboard') || new Map();
       const dashboardData = Array.from(dashboardMap.entries());
@@ -657,33 +811,33 @@ class OPFSBackend {
 
   async init() {
     if (this.initialized) return;
-    
+
     try {
       // Check for secure context (HTTPS or localhost)
       const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      
+
       if (!isSecureContext) {
         throw new Error('OPFS requires secure context (HTTPS or localhost)');
       }
-      
+
       // Check for OPFS support
       if (!('storage' in navigator)) {
         throw new Error('navigator.storage is not available');
       }
-      
+
       if (!('getDirectory' in navigator.storage)) {
         throw new Error('navigator.storage.getDirectory is not available');
       }
-      
+
       console.log('🔍 Attempting OPFS initialization...');
       this.root = await navigator.storage.getDirectory();
-      
+
       // Initialize encryption with OPFS root
       this.encryption.opfsRoot = this.root;
-      
+
       // Load metadata
       await this.loadMetadata();
-      
+
       this.initialized = true;
       console.log('✅ OPFS initialized successfully');
     } catch (error) {
@@ -738,19 +892,19 @@ class OPFSBackend {
   async setSalesData(cacheKey, data, maxAgeDays = null, startDate = null, endDate = null) {
     try {
       await this.init();
-      
+
       // Check data size and warn on mobile if large
       const dataSize = JSON.stringify(data).length;
       const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
       if (isMobile && dataSize > 5 * 1024 * 1024) { // > 5MB
         console.warn(`⚠️ Large data write on mobile: ${(dataSize / (1024 * 1024)).toFixed(2)} MB`);
       }
-      
+
       const syncStart = performance.now();
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
       console.log(`💾 Cache write started for: ${cacheKey}`);
-      
+
       // Parse date range from cache key if not provided
       let dateRange = null;
       if (startDate && endDate) {
@@ -758,16 +912,16 @@ class OPFSBackend {
       } else {
         dateRange = DateRangeUtils.parseDateRangeFromCacheKey(cacheKey);
       }
-      
+
       // Extract base key (without date range)
       const baseKey = this.extractBaseKey(cacheKey);
-      
+
       // Write encrypted data to OPFS
       const filePath = this.getSalesFilePath(cacheKey);
       const pathParts = filePath.split('/');
       const fileName = pathParts.pop();
       const dirPath = pathParts.join('/');
-      
+
       // Create directory if needed
       let dir = this.root;
       if (dirPath) {
@@ -777,10 +931,10 @@ class OPFSBackend {
           }
         }
       }
-      
+
       // Write file - try sync access handle first, fallback to async
       const fileHandle = await dir.getFileHandle(fileName, { create: true });
-      
+
       try {
         // Sync access handles may not be available on mobile browsers
         // Skip sync access on mobile for better compatibility
@@ -807,7 +961,7 @@ class OPFSBackend {
         await writable.write(encrypted);
         await writable.close();
       }
-      
+
       // Store metadata in memory (defer file write to batch operations)
       const salesMap = this.metadataCache.get('sales') || new Map();
       const metadata = {
@@ -818,7 +972,7 @@ class OPFSBackend {
       };
       salesMap.set(cacheKey, metadata);
       this.metadataCache.set('sales', salesMap);
-      
+
       // Defer metadata save to avoid blocking (use setTimeout to batch writes)
       if (this.metadataSaveTimer) {
         clearTimeout(this.metadataSaveTimer);
@@ -827,10 +981,10 @@ class OPFSBackend {
         await this.saveMetadata();
         this.metadataSaveTimer = null;
       }, 100); // Batch metadata saves within 100ms
-      
+
       const syncTime = performance.now() - syncStart;
       console.log(`✅ Cache write completed in ${syncTime.toFixed(2)}ms: ${cacheKey}`);
-      
+
       // Clean up old entries only if expiry is set (not null/never)
       if (maxAgeDays !== null && maxAgeDays !== undefined) {
         const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
@@ -843,7 +997,7 @@ class OPFSBackend {
               const expiredPathParts = expiredFilePath.split('/');
               const expiredFileName = expiredPathParts.pop();
               const expiredDirPath = expiredPathParts.join('/');
-              
+
               let expiredDir = this.root;
               if (expiredDirPath) {
                 for (const part of expiredDirPath.split('/')) {
@@ -866,7 +1020,7 @@ class OPFSBackend {
           await this.saveMetadata();
         }
       }
-      
+
       console.log(`✅ Cached sales data in OPFS: ${cacheKey}`);
     } catch (error) {
       console.error('Error storing sales data in OPFS:', error);
@@ -877,14 +1031,14 @@ class OPFSBackend {
   async getSalesData(cacheKey, maxAgeDays = null) {
     try {
       await this.init();
-      
+
       // Check metadata first
       const salesMap = this.metadataCache.get('sales') || new Map();
       const metadata = salesMap.get(cacheKey);
       if (!metadata) {
         return null;
       }
-      
+
       // Check expiry only if maxAgeDays is set (not null/never)
       if (maxAgeDays !== null && maxAgeDays !== undefined) {
         const age = Date.now() - metadata.timestamp;
@@ -896,7 +1050,7 @@ class OPFSBackend {
             const pathParts = filePath.split('/');
             const fileName = pathParts.pop();
             const dirPath = pathParts.join('/');
-            
+
             let dir = this.root;
             if (dirPath) {
               for (const part of dirPath.split('/')) {
@@ -915,13 +1069,13 @@ class OPFSBackend {
           return null;
         }
       }
-      
+
       // Read encrypted file from OPFS
       const filePath = this.getSalesFilePath(cacheKey);
       const pathParts = filePath.split('/');
       const fileName = pathParts.pop();
       const dirPath = pathParts.join('/');
-      
+
       let dir = this.root;
       if (dirPath) {
         for (const part of dirPath.split('/')) {
@@ -930,11 +1084,11 @@ class OPFSBackend {
           }
         }
       }
-      
+
       const fileHandle = await dir.getFileHandle(fileName);
       const file = await fileHandle.getFile();
       const encrypted = await file.text();
-      
+
       // Decrypt
       const decrypted = await this.encryption.decryptData(encrypted);
       if (!decrypted) {
@@ -949,7 +1103,7 @@ class OPFSBackend {
         await this.saveMetadata();
         return null;
       }
-      
+
       // Add date range to returned data
       if (metadata.startDate && metadata.endDate) {
         decrypted._cachedDateRange = {
@@ -957,7 +1111,7 @@ class OPFSBackend {
           endDate: metadata.endDate
         };
       }
-      
+
       console.log(`📋 Retrieved cached sales data from OPFS: ${cacheKey}`);
       return decrypted;
     } catch (error) {
@@ -974,13 +1128,13 @@ class OPFSBackend {
       await this.init();
       const encrypted = await this.encryption.encryptData(state);
       const timestamp = Date.now();
-      
+
       // Write encrypted data to OPFS
       const filePath = this.getDashboardFilePath(cacheKey);
       const pathParts = filePath.split('/');
       const fileName = pathParts.pop();
       const dirPath = pathParts.join('/');
-      
+
       // Create directory if needed
       let dir = this.root;
       if (dirPath) {
@@ -990,10 +1144,10 @@ class OPFSBackend {
           }
         }
       }
-      
+
       // Write file - try sync access handle first, fallback to async
       const fileHandle = await dir.getFileHandle(fileName, { create: true });
-      
+
       try {
         // Try sync access handle for better performance (if available)
         if ('createSyncAccessHandle' in fileHandle) {
@@ -1018,13 +1172,13 @@ class OPFSBackend {
         await writable.write(encrypted);
         await writable.close();
       }
-      
+
       // Store metadata
       const dashboardMap = this.metadataCache.get('dashboard') || new Map();
       dashboardMap.set(cacheKey, { cacheKey, timestamp });
       this.metadataCache.set('dashboard', dashboardMap);
       await this.saveMetadata();
-      
+
       console.log(`✅ Cached dashboard state in OPFS: ${cacheKey}`);
     } catch (error) {
       console.error('Error storing dashboard state in OPFS:', error);
@@ -1035,20 +1189,20 @@ class OPFSBackend {
   async getDashboardState(cacheKey) {
     try {
       await this.init();
-      
+
       // Check metadata
       const dashboardMap = this.metadataCache.get('dashboard') || new Map();
       const metadata = dashboardMap.get(cacheKey);
       if (!metadata) {
         return null;
       }
-      
+
       // Read encrypted file from OPFS
       const filePath = this.getDashboardFilePath(cacheKey);
       const pathParts = filePath.split('/');
       const fileName = pathParts.pop();
       const dirPath = pathParts.join('/');
-      
+
       let dir = this.root;
       if (dirPath) {
         for (const part of dirPath.split('/')) {
@@ -1057,11 +1211,11 @@ class OPFSBackend {
           }
         }
       }
-      
+
       const fileHandle = await dir.getFileHandle(fileName);
       const file = await fileHandle.getFile();
       const encrypted = await file.text();
-      
+
       // Decrypt
       const decrypted = await this.encryption.decryptData(encrypted);
       if (!decrypted) {
@@ -1076,7 +1230,7 @@ class OPFSBackend {
         await this.saveMetadata();
         return null;
       }
-      
+
       return decrypted;
     } catch (error) {
       if (error.name === 'NotFoundError') {
@@ -1087,26 +1241,60 @@ class OPFSBackend {
     }
   }
 
+  async deleteCacheKey(cacheKey) {
+    try {
+      await this.init();
+      const salesMap = this.metadataCache.get('sales') || new Map();
+
+      if (salesMap.has(cacheKey)) {
+        try {
+          const filePath = this.getSalesFilePath(cacheKey);
+          const pathParts = filePath.split('/');
+          const fileName = pathParts.pop();
+          const dirPath = pathParts.join('/');
+
+          let dir = this.root;
+          if (dirPath) {
+            for (const part of dirPath.split('/')) {
+              if (part) {
+                dir = await dir.getDirectoryHandle(part);
+              }
+            }
+          }
+          await dir.removeEntry(fileName);
+        } catch (err) {
+          // File might not exist, ignore
+        }
+        salesMap.delete(cacheKey);
+        this.metadataCache.set('sales', salesMap);
+        await this.saveMetadata();
+        console.log(`🧹 Deleted cache key from OPFS: ${cacheKey}`);
+      }
+    } catch (error) {
+      console.error('Error deleting cache key in OPFS:', error);
+    }
+  }
+
   async clearCompanyCache(companyInfo) {
     try {
       await this.init();
       const prefix = `${companyInfo.tallyloc_id}_${companyInfo.guid}_`;
-      
-      // Get all metadata entries matching prefix
+
+      // Get all metadata entries matching prefix (both sales and dashboard cache)
       const salesMap = this.metadataCache.get('sales') || new Map();
       const dashboardMap = this.metadataCache.get('dashboard') || new Map();
-      
+
       const salesToDelete = Array.from(salesMap.entries()).filter(([key]) => key.startsWith(prefix));
-      const stateToDelete = Array.from(dashboardMap.entries()).filter(([key]) => key.startsWith(prefix));
-      
-      // Delete files
+      const dashboardToDelete = Array.from(dashboardMap.entries()).filter(([key]) => key.startsWith(prefix));
+
+      // Delete sales cache files
       for (const [cacheKey] of salesToDelete) {
         try {
           const filePath = this.getSalesFilePath(cacheKey);
           const pathParts = filePath.split('/');
           const fileName = pathParts.pop();
           const dirPath = pathParts.join('/');
-          
+
           let dir = this.root;
           if (dirPath) {
             for (const part of dirPath.split('/')) {
@@ -1121,14 +1309,15 @@ class OPFSBackend {
         }
         salesMap.delete(cacheKey);
       }
-      
-      for (const [cacheKey] of stateToDelete) {
+
+      // Delete dashboard cache files
+      for (const [cacheKey] of dashboardToDelete) {
         try {
           const filePath = this.getDashboardFilePath(cacheKey);
           const pathParts = filePath.split('/');
           const fileName = pathParts.pop();
           const dirPath = pathParts.join('/');
-          
+
           let dir = this.root;
           if (dirPath) {
             for (const part of dirPath.split('/')) {
@@ -1143,14 +1332,14 @@ class OPFSBackend {
         }
         dashboardMap.delete(cacheKey);
       }
-      
-      if (salesToDelete.length > 0 || stateToDelete.length > 0) {
+
+      if (salesToDelete.length > 0 || dashboardToDelete.length > 0) {
         this.metadataCache.set('sales', salesMap);
         this.metadataCache.set('dashboard', dashboardMap);
         await this.saveMetadata();
       }
-      
-      console.log(`🧹 Cleared OPFS cache for company: ${companyInfo.company}`);
+
+      console.log(`🧹 Cleared OPFS cache for company: ${companyInfo.company} (${salesToDelete.length} sales entries, ${dashboardToDelete.length} dashboard entries)`);
     } catch (error) {
       console.error('Error clearing company cache in OPFS:', error);
     }
@@ -1160,33 +1349,33 @@ class OPFSBackend {
   async findCachedDateRanges(baseKey, requestStartDate, requestEndDate, maxAgeDays = null) {
     try {
       await this.init();
-      
+
       // Get all metadata entries with matching base key
       const salesMap = this.metadataCache.get('sales') || new Map();
       const allMetadata = Array.from(salesMap.values()).filter(meta => meta.baseKey === baseKey);
-      
+
       // Filter by expiry time only if maxAgeDays is set (not null/never)
       let validMetadata = allMetadata;
       if (maxAgeDays !== null && maxAgeDays !== undefined) {
         const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
         validMetadata = allMetadata.filter(entry => entry.timestamp >= expiryTime);
       }
-      
+
       if (validMetadata.length === 0) {
         return [];
       }
-      
+
       const requestRange = { startDate: requestStartDate, endDate: requestEndDate };
       const cachedRanges = [];
-      
+
       for (const metadata of validMetadata) {
         if (!metadata.startDate || !metadata.endDate) continue;
-        
+
         const cachedRange = {
           startDate: metadata.startDate,
           endDate: metadata.endDate
         };
-        
+
         // Check if this cached range overlaps with request
         if (DateRangeUtils.dateRangesOverlap(requestRange, cachedRange)) {
           try {
@@ -1195,7 +1384,7 @@ class OPFSBackend {
             const pathParts = filePath.split('/');
             const fileName = pathParts.pop();
             const dirPath = pathParts.join('/');
-            
+
             let dir = this.root;
             if (dirPath) {
               for (const part of dirPath.split('/')) {
@@ -1204,11 +1393,11 @@ class OPFSBackend {
                 }
               }
             }
-            
+
             const fileHandle = await dir.getFileHandle(fileName);
             const file = await fileHandle.getFile();
             const encrypted = await file.text();
-            
+
             // Decrypt the data
             const decrypted = await this.encryption.decryptData(encrypted);
             if (decrypted) {
@@ -1223,7 +1412,7 @@ class OPFSBackend {
           }
         }
       }
-      
+
       return cachedRanges;
     } catch (error) {
       console.error('Error finding cached date ranges in OPFS:', error);
@@ -1243,13 +1432,13 @@ class OPFSBackend {
   async listAllCacheEntries() {
     try {
       await this.init();
-      
+
       // Reload metadata to ensure we have the latest data
       await this.loadMetadata();
-      
+
       const salesMap = this.metadataCache.get('sales') || new Map();
       const dashboardMap = this.metadataCache.get('dashboard') || new Map();
-      
+
       const salesEntries = Array.from(salesMap.entries()).map(([cacheKey, metadata]) => ({
         type: 'sales',
         cacheKey,
@@ -1282,7 +1471,7 @@ class OPFSBackend {
             const pathParts = filePath.split('/');
             const fileName = pathParts.pop();
             const dirPath = pathParts.join('/');
-            
+
             let dir = this.root;
             if (dirPath) {
               for (const part of dirPath.split('/')) {
@@ -1291,7 +1480,7 @@ class OPFSBackend {
                 }
               }
             }
-            
+
             const fileHandle = await dir.getFileHandle(fileName);
             const file = await fileHandle.getFile();
             return {
@@ -1310,7 +1499,7 @@ class OPFSBackend {
             const pathParts = filePath.split('/');
             const fileName = pathParts.pop();
             const dirPath = pathParts.join('/');
-            
+
             let dir = this.root;
             if (dirPath) {
               for (const part of dirPath.split('/')) {
@@ -1319,7 +1508,7 @@ class OPFSBackend {
                 }
               }
             }
-            
+
             const fileHandle = await dir.getFileHandle(fileName);
             const file = await fileHandle.getFile();
             return {
@@ -1380,11 +1569,11 @@ class OPFSBackend {
       console.log(`💾 Complete sales data cache write started for: ${cacheKey}`);
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
-      
+
       // Extract date range from metadata or data
       const booksfrom = metadata.booksfrom || null;
       const lastaltid = metadata.lastaltid || null;
-      
+
       // Calculate date range from booksfrom to today if provided
       let startDate = null;
       let endDate = null;
@@ -1420,13 +1609,13 @@ class OPFSBackend {
         const today = new Date();
         endDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       }
-      
+
       // Write encrypted data to OPFS
       const filePath = this.getSalesFilePath(cacheKey);
       const pathParts = filePath.split('/');
       const fileName = pathParts.pop();
       const dirPath = pathParts.join('/');
-      
+
       // Create directory if needed
       let dir = this.root;
       if (dirPath) {
@@ -1436,10 +1625,10 @@ class OPFSBackend {
           }
         }
       }
-      
+
       // Write file
       const fileHandle = await dir.getFileHandle(fileName, { create: true });
-      
+
       try {
         if ('createSyncAccessHandle' in fileHandle) {
           const syncHandle = await fileHandle.createSyncAccessHandle();
@@ -1461,7 +1650,7 @@ class OPFSBackend {
         await writable.write(encrypted);
         await writable.close();
       }
-      
+
       // Store metadata with complete data flag
       const salesMap = this.metadataCache.get('sales') || new Map();
       const metadataEntry = {
@@ -1475,10 +1664,10 @@ class OPFSBackend {
       };
       salesMap.set(cacheKey, metadataEntry);
       this.metadataCache.set('sales', salesMap);
-      
+
       // For complete sales data, save metadata immediately (important for sync tracking)
       await this.saveMetadata();
-      
+
       const syncTime = performance.now() - syncStart;
       console.log(`✅ Cached complete sales data in OPFS: ${cacheKey}, lastaltid: ${lastaltid} (${syncTime.toFixed(2)}ms)`);
     } catch (error) {
@@ -1493,20 +1682,20 @@ class OPFSBackend {
       await this.init();
       const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
       const cacheKey = this.getCompleteSalesDataKey(companyInfo, userEmail);
-      
+
       // Check metadata first
       const salesMap = this.metadataCache.get('sales') || new Map();
       const metadata = salesMap.get(cacheKey);
       if (!metadata || !metadata.isComplete) {
         return null;
       }
-      
+
       // Read encrypted file from OPFS
       const filePath = this.getSalesFilePath(cacheKey);
       const pathParts = filePath.split('/');
       const fileName = pathParts.pop();
       const dirPath = pathParts.join('/');
-      
+
       let dir = this.root;
       if (dirPath) {
         for (const part of dirPath.split('/')) {
@@ -1515,18 +1704,18 @@ class OPFSBackend {
           }
         }
       }
-      
+
       const fileHandle = await dir.getFileHandle(fileName);
       const file = await fileHandle.getFile();
       const encrypted = await file.text();
-      
+
       // Decrypt
       const decrypted = await this.encryption.decryptData(encrypted);
       if (!decrypted) {
         console.warn('Failed to decrypt complete sales data');
         return null;
       }
-      
+
       console.log(`📋 Retrieved complete cached sales data from OPFS: ${cacheKey}`);
       return {
         data: decrypted,
@@ -1567,19 +1756,19 @@ class OPFSBackend {
   async getCacheFileAsJson(cacheKey) {
     try {
       await this.init();
-      
+
       // Check metadata first
       const salesMap = this.metadataCache.get('sales') || new Map();
       const dashboardMap = this.metadataCache.get('dashboard') || new Map();
-      
+
       let filePath, dir;
-      
+
       if (salesMap.has(cacheKey)) {
         filePath = this.getSalesFilePath(cacheKey);
         const pathParts = filePath.split('/');
         const fileName = pathParts.pop();
         const dirPath = pathParts.join('/');
-        
+
         dir = this.root;
         if (dirPath) {
           for (const part of dirPath.split('/')) {
@@ -1588,20 +1777,25 @@ class OPFSBackend {
             }
           }
         }
-        
+
         const fileHandle = await dir.getFileHandle(fileName);
         const file = await fileHandle.getFile();
         const encrypted = await file.text();
-        
+
         // Decrypt
-        const decrypted = await this.encryption.decryptData(encrypted);
-        return decrypted;
+        try {
+          const decrypted = await this.encryption.decryptData(encrypted);
+          return decrypted;
+        } catch (decryptError) {
+          console.error(`❌ Failed to decrypt cache entry: ${cacheKey}`, decryptError);
+          throw new Error(`Failed to decrypt cache entry "${cacheKey}": ${decryptError.message}`);
+        }
       } else if (dashboardMap.has(cacheKey)) {
         filePath = this.getDashboardFilePath(cacheKey);
         const pathParts = filePath.split('/');
         const fileName = pathParts.pop();
         const dirPath = pathParts.join('/');
-        
+
         dir = this.root;
         if (dirPath) {
           for (const part of dirPath.split('/')) {
@@ -1610,20 +1804,26 @@ class OPFSBackend {
             }
           }
         }
-        
+
         const fileHandle = await dir.getFileHandle(fileName);
         const file = await fileHandle.getFile();
         const encrypted = await file.text();
-        
+
         // Decrypt
-        const decrypted = await this.encryption.decryptData(encrypted);
-        return decrypted;
+        try {
+          const decrypted = await this.encryption.decryptData(encrypted);
+          return decrypted;
+        } catch (decryptError) {
+          console.error(`❌ Failed to decrypt dashboard cache entry: ${cacheKey}`, decryptError);
+          throw new Error(`Failed to decrypt dashboard cache entry "${cacheKey}": ${decryptError.message}`);
+        }
       }
-      
+
       return null;
     } catch (error) {
       console.error('Error getting cache file as JSON:', error);
-      return null;
+      // Re-throw to allow caller to handle
+      throw error;
     }
   }
 }
@@ -1643,7 +1843,7 @@ class IndexedDBBackend {
     try {
       // Create Dexie database
       this.db = new Dexie('TallyCatalystCache');
-      
+
       // Define schema
       this.db.version(1).stores({
         salesData: 'cacheKey, timestamp, baseKey, startDate, endDate, isComplete, lastaltid',
@@ -1653,10 +1853,10 @@ class IndexedDBBackend {
 
       // Open database
       await this.db.open();
-      
+
       // Initialize encryption with IndexedDB reference
       this.encryption.indexedDB = this.db;
-      
+
       this.initialized = true;
       console.log('✅ IndexedDB backend initialized successfully');
     } catch (error) {
@@ -1691,7 +1891,7 @@ class IndexedDBBackend {
       await this.init();
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
-      
+
       // Parse date range from cache key if not provided
       let dateRange = null;
       if (startDate && endDate) {
@@ -1699,10 +1899,10 @@ class IndexedDBBackend {
       } else {
         dateRange = DateRangeUtils.parseDateRangeFromCacheKey(cacheKey);
       }
-      
+
       // Extract base key (without date range)
       const baseKey = this.extractBaseKey(cacheKey);
-      
+
       // Store encrypted data in IndexedDB
       await this.db.salesData.put({
         cacheKey,
@@ -1712,11 +1912,11 @@ class IndexedDBBackend {
         startDate: dateRange ? dateRange.startDate : null,
         endDate: dateRange ? dateRange.endDate : null
       });
-      
+
       // Clean up old entries
       const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
       await this.db.salesData.where('timestamp').below(expiryTime).delete();
-      
+
       console.log(`✅ Cached sales data in IndexedDB: ${cacheKey}`);
     } catch (error) {
       console.error('Error storing sales data in IndexedDB:', error);
@@ -1727,13 +1927,13 @@ class IndexedDBBackend {
   async getSalesData(cacheKey, maxAgeDays = null) {
     try {
       await this.init();
-      
+
       // Get entry from IndexedDB
       const entry = await this.db.salesData.get(cacheKey);
       if (!entry) {
         return null;
       }
-      
+
       // Check expiry only if maxAgeDays is set (not null/never)
       if (maxAgeDays !== null && maxAgeDays !== undefined) {
         const age = Date.now() - entry.timestamp;
@@ -1744,7 +1944,7 @@ class IndexedDBBackend {
           return null;
         }
       }
-      
+
       // Decrypt
       const decrypted = await this.encryption.decryptData(entry.encryptedData);
       if (!decrypted) {
@@ -1752,7 +1952,7 @@ class IndexedDBBackend {
         await this.db.salesData.delete(cacheKey);
         return null;
       }
-      
+
       // Add date range to returned data
       if (entry.startDate && entry.endDate) {
         decrypted._cachedDateRange = {
@@ -1760,7 +1960,7 @@ class IndexedDBBackend {
           endDate: entry.endDate
         };
       }
-      
+
       console.log(`📋 Retrieved cached sales data from IndexedDB: ${cacheKey}`);
       return decrypted;
     } catch (error) {
@@ -1774,14 +1974,14 @@ class IndexedDBBackend {
       await this.init();
       const encrypted = await this.encryption.encryptData(state);
       const timestamp = Date.now();
-      
+
       // Store encrypted data in IndexedDB
       await this.db.dashboardState.put({
         cacheKey,
         encryptedData: encrypted,
         timestamp
       });
-      
+
       console.log(`✅ Cached dashboard state in IndexedDB: ${cacheKey}`);
     } catch (error) {
       console.error('Error storing dashboard state in IndexedDB:', error);
@@ -1792,13 +1992,13 @@ class IndexedDBBackend {
   async getDashboardState(cacheKey) {
     try {
       await this.init();
-      
+
       // Get entry from IndexedDB
       const entry = await this.db.dashboardState.get(cacheKey);
       if (!entry) {
         return null;
       }
-      
+
       // Decrypt
       const decrypted = await this.encryption.decryptData(entry.encryptedData);
       if (!decrypted) {
@@ -1806,7 +2006,7 @@ class IndexedDBBackend {
         await this.db.dashboardState.delete(cacheKey);
         return null;
       }
-      
+
       return decrypted;
     } catch (error) {
       console.error('Error retrieving dashboard state from IndexedDB:', error);
@@ -1814,21 +2014,31 @@ class IndexedDBBackend {
     }
   }
 
+  async deleteCacheKey(cacheKey) {
+    try {
+      await this.init();
+      await this.db.salesData.delete(cacheKey);
+      console.log(`🧹 Deleted cache key from IndexedDB: ${cacheKey}`);
+    } catch (error) {
+      console.error('Error deleting cache key in IndexedDB:', error);
+    }
+  }
+
   async clearCompanyCache(companyInfo) {
     try {
       await this.init();
       const prefix = `${companyInfo.tallyloc_id}_${companyInfo.guid}_`;
-      
+
       // Delete sales data matching prefix
       const salesEntries = await this.db.salesData.where('cacheKey').startsWith(prefix).toArray();
       const salesKeys = salesEntries.map(e => e.cacheKey);
       await this.db.salesData.bulkDelete(salesKeys);
-      
+
       // Delete dashboard state matching prefix
       const dashboardEntries = await this.db.dashboardState.where('cacheKey').startsWith(prefix).toArray();
       const dashboardKeys = dashboardEntries.map(e => e.cacheKey);
       await this.db.dashboardState.bulkDelete(dashboardKeys);
-      
+
       console.log(`🧹 Cleared IndexedDB cache for company: ${companyInfo.company}`);
     } catch (error) {
       console.error('Error clearing company cache in IndexedDB:', error);
@@ -1839,34 +2049,34 @@ class IndexedDBBackend {
   async findCachedDateRanges(baseKey, requestStartDate, requestEndDate, maxAgeDays = null) {
     try {
       await this.init();
-      
+
       // Get all entries with matching base key
       const allEntries = await this.db.salesData
         .where('baseKey').equals(baseKey)
         .toArray();
-      
+
       // Filter by expiry time only if maxAgeDays is set (not null/never)
       let validEntries = allEntries;
       if (maxAgeDays !== null && maxAgeDays !== undefined) {
         const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
         validEntries = allEntries.filter(entry => entry.timestamp >= expiryTime);
       }
-      
+
       if (validEntries.length === 0) {
         return [];
       }
-      
+
       const requestRange = { startDate: requestStartDate, endDate: requestEndDate };
       const cachedRanges = [];
-      
+
       for (const entry of validEntries) {
         if (!entry.startDate || !entry.endDate) continue;
-        
+
         const cachedRange = {
           startDate: entry.startDate,
           endDate: entry.endDate
         };
-        
+
         // Check if this cached range overlaps with request
         if (DateRangeUtils.dateRangesOverlap(requestRange, cachedRange)) {
           try {
@@ -1884,7 +2094,7 @@ class IndexedDBBackend {
           }
         }
       }
-      
+
       return cachedRanges;
     } catch (error) {
       console.error('Error finding cached date ranges in IndexedDB:', error);
@@ -1903,10 +2113,10 @@ class IndexedDBBackend {
   async listAllCacheEntries() {
     try {
       await this.init();
-      
+
       const salesEntries = await this.db.salesData.toArray();
       const dashboardEntries = await this.db.dashboardState.toArray();
-      
+
       const salesList = salesEntries.map(entry => ({
         type: 'sales',
         cacheKey: entry.cacheKey,
@@ -1938,7 +2148,7 @@ class IndexedDBBackend {
       }));
 
       const allEntries = [...salesList, ...dashboardList];
-      
+
       // Calculate totals
       const totalSize = allEntries.reduce((sum, entry) => sum + entry.size, 0);
       const totalEntries = allEntries.length;
@@ -1983,11 +2193,11 @@ class IndexedDBBackend {
       const cacheKey = this.getCompleteSalesDataKey(companyInfo, email);
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
-      
+
       // Extract date range from metadata
       const booksfrom = metadata.booksfrom || null;
       const lastaltid = metadata.lastaltid || null;
-      
+
       // Calculate date range from booksfrom to today if provided
       let startDate = null;
       let endDate = null;
@@ -2023,7 +2233,7 @@ class IndexedDBBackend {
         const today = new Date();
         endDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       }
-      
+
       // Store encrypted data in IndexedDB
       await this.db.salesData.put({
         cacheKey,
@@ -2036,7 +2246,7 @@ class IndexedDBBackend {
         startDate,
         endDate
       });
-      
+
       console.log(`✅ Cached complete sales data in IndexedDB: ${cacheKey}, lastaltid: ${lastaltid}`);
     } catch (error) {
       console.error('Error storing complete sales data in IndexedDB:', error);
@@ -2050,20 +2260,20 @@ class IndexedDBBackend {
       await this.init();
       const userEmail = email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
       const cacheKey = this.getCompleteSalesDataKey(companyInfo, userEmail);
-      
+
       // Get entry from IndexedDB
       const entry = await this.db.salesData.get(cacheKey);
       if (!entry || !entry.isComplete) {
         return null;
       }
-      
+
       // Decrypt
       const decrypted = await this.encryption.decryptData(entry.encryptedData);
       if (!decrypted) {
         console.warn('Failed to decrypt complete sales data');
         return null;
       }
-      
+
       console.log(`📋 Retrieved complete cached sales data from IndexedDB: ${cacheKey}`);
       return {
         data: decrypted,
@@ -2100,21 +2310,21 @@ class IndexedDBBackend {
   async getCacheFileAsJson(cacheKey) {
     try {
       await this.init();
-      
+
       // Try sales data first
       const salesEntry = await this.db.salesData.get(cacheKey);
       if (salesEntry) {
         const decrypted = await this.encryption.decryptData(salesEntry.encryptedData);
         return decrypted;
       }
-      
+
       // Try dashboard state
       const dashboardEntry = await this.db.dashboardState.get(cacheKey);
       if (dashboardEntry) {
         const decrypted = await this.encryption.decryptData(dashboardEntry.encryptedData);
         return decrypted;
       }
-      
+
       return null;
     } catch (error) {
       console.error('Error getting cache file as JSON:', error);
@@ -2164,16 +2374,16 @@ class HybridCache {
 
   async init() {
     if (this.initialized) return;
-    
+
     // Detect mobile device
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-    
+
     // Detect browser support with detailed logging
     const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const hasStorage = 'storage' in navigator;
     const hasGetDirectory = hasStorage && 'getDirectory' in navigator.storage;
     const supportsOPFS = isSecureContext && hasStorage && hasGetDirectory;
-    
+
     console.log('🔍 Storage Detection:', {
       isMobile,
       isSecureContext,
@@ -2184,45 +2394,45 @@ class HybridCache {
       supportsOPFS,
       userAgent: navigator.userAgent
     });
-    
+
     // On mobile browsers, OPFS support varies significantly
     // Safari iOS: Limited OPFS support, better to use IndexedDB
     // Chrome Android: Good OPFS support
     // Firefox Android: Limited OPFS support
     const isSafariIOS = isMobile && /Safari/i.test(navigator.userAgent) && /iPhone|iPad|iPod/i.test(navigator.userAgent) && !/Chrome|CriOS|FxiOS/i.test(navigator.userAgent);
     const isFirefoxMobile = isMobile && /Firefox/i.test(navigator.userAgent);
-    
+
     // Prefer IndexedDB on Safari iOS and Firefox Mobile due to better stability
     const preferIndexedDB = isSafariIOS || isFirefoxMobile;
-    
+
     if (preferIndexedDB) {
       console.log('📱 Mobile browser detected with limited OPFS support, using IndexedDB');
     }
-    
+
     if (supportsOPFS && !preferIndexedDB) {
       try {
         console.log('🚀 Initializing OPFS backend...');
         // Initialize OPFS root first with timeout for mobile
         const opfsInitPromise = navigator.storage.getDirectory();
-        const timeoutPromise = new Promise((_, reject) => 
+        const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('OPFS initialization timeout')), isMobile ? 10000 : 5000)
         );
-        
+
         const opfsRoot = await Promise.race([opfsInitPromise, timeoutPromise]);
-        
+
         // Check storage quota on mobile
         if (isMobile && 'estimate' in navigator.storage) {
           const estimate = await navigator.storage.estimate();
           const usagePercent = (estimate.usage / estimate.quota) * 100;
           console.log(`📊 Storage quota: ${(estimate.usage / (1024 * 1024)).toFixed(2)} MB / ${(estimate.quota / (1024 * 1024)).toFixed(2)} MB (${usagePercent.toFixed(1)}%)`);
-          
+
           if (usagePercent > 90) {
             console.warn('⚠️ Storage quota nearly full on mobile (>90%), consider cleanup');
           } else if (usagePercent > 75) {
             console.warn('⚠️ Storage quota getting high on mobile (>75%)');
           }
         }
-        
+
         this.encryption = new EncryptionUtils(opfsRoot);
         this.backend = new OPFSBackend(this.encryption);
         await this.backend.init();
@@ -2239,7 +2449,7 @@ class HybridCache {
         // Fall through to IndexedDB
       }
     }
-    
+
     // Fall back to IndexedDB (or use it directly if preferred)
     try {
       console.log('🚀 Initializing IndexedDB backend...' + (isMobile ? ' (mobile)' : ''));
@@ -2256,7 +2466,7 @@ class HybridCache {
       });
       throw new Error(`Failed to initialize storage backends: ${error.message}. Please ensure your browser supports modern storage APIs.`);
     }
-    
+
     this.initialized = true;
   }
 
@@ -2290,7 +2500,33 @@ class HybridCache {
 
   async clearCompanyCache(companyInfo) {
     await this.init();
-    return await this.backend.clearCompanyCache(companyInfo);
+    // Clear company cache using backend
+    await this.backend.clearCompanyCache(companyInfo);
+
+    // Also clear customer and item cache keys for this company
+    const { tallyloc_id, company } = companyInfo;
+    const customerKey = `ledgerlist-w-addrs_${tallyloc_id}_${company}`;
+    const itemKey = `stockitems_${tallyloc_id}_${company}`;
+
+    // Delete customer cache
+    try {
+      await this.deleteCacheKey(customerKey);
+    } catch (e) {
+      console.warn('Error deleting customer cache:', e);
+    }
+
+    // Delete item cache
+    try {
+      await this.deleteCacheKey(itemKey);
+    } catch (e) {
+      console.warn('Error deleting item cache:', e);
+    }
+  }
+
+  // Delete a specific cache key
+  async deleteCacheKey(cacheKey) {
+    await this.init();
+    return await this.backend.deleteCacheKey(cacheKey);
   }
 
   async getCacheStats() {
@@ -2299,7 +2535,7 @@ class HybridCache {
     const hasStorage = 'storage' in navigator;
     const hasGetDirectory = hasStorage && 'getDirectory' in navigator.storage;
     const supportsOPFS = isSecureContext && hasStorage && hasGetDirectory;
-    
+
     return {
       backend: this.backendType,
       supportsOPFS,

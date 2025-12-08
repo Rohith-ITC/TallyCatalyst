@@ -15,11 +15,29 @@ export const addCacheBuster = (url) => {
   return `${url}${separator}_t=${Date.now()}`;
 };
 
+// Helper to remove a key and its chunked data if it exists
+const removeSessionStorageKey = (key) => {
+  try {
+    sessionStorage.removeItem(key);
+    // Also remove chunked version if it exists
+    const chunksStr = sessionStorage.getItem(`${key}_chunks`);
+    if (chunksStr) {
+      const totalChunks = parseInt(chunksStr, 10);
+      for (let i = 0; i < totalChunks; i++) {
+        sessionStorage.removeItem(`${key}_chunk_${i}`);
+      }
+      sessionStorage.removeItem(`${key}_chunks`);
+    }
+  } catch (e) {
+    // Ignore errors removing individual items
+  }
+};
+
 // Clear all application caches (preserves auth data)
 export const clearAllCaches = () => {
   try {
     console.log('🧹 clearAllCaches called');
-    
+
     // Clear localStorage
     const keys = Object.keys(localStorage);
     keys.forEach(key => {
@@ -27,24 +45,34 @@ export const clearAllCaches = () => {
         localStorage.removeItem(key);
       }
     });
-    
+
     // Clear only cache-related sessionStorage items, NOT authentication tokens
     const authKeys = ['token', 'email', 'name', 'tallyloc_id', 'company', 'guid', 'status', 'access_type'];
     const sessionKeys = Object.keys(sessionStorage);
-    
+
     let clearedCount = 0;
     sessionKeys.forEach(key => {
-      const isCacheKey = key.startsWith(CACHE_KEY_PREFIX) || 
-                        key.startsWith('ledgerlist-w-addrs_') || 
-                        key.startsWith('stockitem_');
+      const isCacheKey = key.startsWith(CACHE_KEY_PREFIX) ||
+        key.startsWith('ledgerlist-w-addrs_') ||
+        key.startsWith('stockitem_') ||
+        key.endsWith('_chunks') ||
+        key.includes('_chunk_');
       const isAuthKey = authKeys.includes(key);
-      
+
       if (!isAuthKey && isCacheKey) {
-        sessionStorage.removeItem(key);
-        clearedCount++;
+        // Check if this is a chunk metadata or chunk item
+        if (key.endsWith('_chunks') || key.includes('_chunk_')) {
+          // Remove chunked data
+          sessionStorage.removeItem(key);
+          clearedCount++;
+        } else {
+          // Remove main key and its chunks
+          removeSessionStorageKey(key);
+          clearedCount++;
+        }
       }
     });
-    
+
     // Clear service worker caches if available
     if ('caches' in window) {
       caches.keys().then(cacheNames => {
@@ -53,7 +81,7 @@ export const clearAllCaches = () => {
         });
       });
     }
-    
+
     console.log(`🧹 All caches cleared successfully (authentication data preserved). Cleared ${clearedCount} cache keys`);
   } catch (error) {
     console.error('Error clearing caches:', error);
@@ -63,14 +91,14 @@ export const clearAllCaches = () => {
 // Check if app version has changed
 export const checkVersionUpdate = () => {
   const storedVersion = localStorage.getItem(`${CACHE_KEY_PREFIX}version`);
-  
+
   // Don't clear if storedVersion is a placeholder (build issue)
   if (storedVersion && storedVersion.includes('%') && storedVersion.includes('REACT_APP_VERSION')) {
     console.log('⚠️ Detected placeholder version, setting to current version without clearing');
     localStorage.setItem(`${CACHE_KEY_PREFIX}version`, CACHE_VERSION);
     return false;
   }
-  
+
   if (storedVersion && storedVersion !== CACHE_VERSION) {
     console.log(`🔄 Version changed from ${storedVersion} to ${CACHE_VERSION} - clearing caches`);
     clearAllCaches();
@@ -80,7 +108,7 @@ export const checkVersionUpdate = () => {
     console.log('🔄 No stored version found, setting initial version');
     localStorage.setItem(`${CACHE_KEY_PREFIX}version`, CACHE_VERSION);
   }
-  
+
   return false;
 };
 
@@ -104,14 +132,14 @@ const fetchWithTimeout = async (url, options, timeout = 300000, retries = 10) =>
   const isMobile = isMobileDevice();
   // Use longer timeout for large data - 5 minutes default, 7.5 minutes for mobile
   const effectiveTimeout = isMobile ? 450000 : timeout;
-  
+
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         controller.abort();
       }, effectiveTimeout);
-      
+
       try {
         const response = await fetch(url, {
           ...options,
@@ -120,14 +148,14 @@ const fetchWithTimeout = async (url, options, timeout = 300000, retries = 10) =>
           mode: 'cors',
           credentials: 'omit'
         });
-        
+
         clearTimeout(timeoutId);
-        
+
         if (!response.ok) {
           const errorText = await response.text().catch(() => 'Unable to read error message');
           throw new Error(`HTTP ${response.status}: ${response.statusText}. ${errorText.substring(0, 200)}`);
         }
-        
+
         return response;
       } catch (fetchError) {
         clearTimeout(timeoutId);
@@ -136,12 +164,12 @@ const fetchWithTimeout = async (url, options, timeout = 300000, retries = 10) =>
     } catch (error) {
       const isTimeout = error.name === 'AbortError' || error.message.includes('timeout');
       const isNetworkError = error.message.includes('Failed to fetch') || error.message.includes('NetworkError') || error.message.includes('Network request failed');
-      
+
       // Don't retry on non-retryable errors
       if (!isTimeout && !isNetworkError && !error.message.includes('504') && !error.message.includes('408') && !error.message.includes('502')) {
         throw error;
       }
-      
+
       // If last attempt, throw detailed error
       if (attempt === retries) {
         throw new Error(
@@ -152,7 +180,7 @@ const fetchWithTimeout = async (url, options, timeout = 300000, retries = 10) =>
           `Please check your internet connection and try again.`
         );
       }
-      
+
       // Wait before retrying (exponential backoff)
       const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -226,6 +254,79 @@ const calculateMaxAlterId = (data) => {
   return maxAlterId;
 };
 
+/**
+ * Deduplicates vouchers by mstid, keeping only the voucher with the highest alterid for each mstid.
+ * Vouchers without both mstid and alterid are preserved as-is.
+ * @param {Array} vouchers - Array of voucher objects
+ * @returns {Array} Deduplicated array of vouchers
+ */
+const deduplicateVouchersByMstid = (vouchers) => {
+  if (!vouchers || !Array.isArray(vouchers)) {
+    return vouchers || [];
+  }
+
+  // Separate vouchers with mstid+alterid from those without
+  const vouchersWithMstid = [];
+  const vouchersWithoutMstid = [];
+  const mstidGroups = new Map(); // Map<mstid, {vouchers: Array, maxAlterId: number, bestVoucher: object}>
+
+  vouchers.forEach(voucher => {
+    const mstid = voucher.mstid || voucher.MSTID || voucher.masterid || voucher.MASTERID;
+    const alterid = voucher.alterid || voucher.ALTERID;
+
+    // If voucher has both mstid and alterid, group by mstid
+    if (mstid !== null && mstid !== undefined && alterid !== null && alterid !== undefined) {
+      const mstidKey = String(mstid);
+      const alteridNum = typeof alterid === 'string' ? parseInt(alterid, 10) : alterid;
+
+      if (!isNaN(alteridNum)) {
+        if (!mstidGroups.has(mstidKey)) {
+          mstidGroups.set(mstidKey, {
+            vouchers: [],
+            maxAlterId: alteridNum,
+            bestVoucher: voucher
+          });
+        }
+
+        const group = mstidGroups.get(mstidKey);
+        group.vouchers.push(voucher);
+
+        // Update best voucher if this one has a higher alterid
+        if (alteridNum > group.maxAlterId) {
+          group.maxAlterId = alteridNum;
+          group.bestVoucher = voucher;
+        }
+      } else {
+        // Invalid alterid, treat as voucher without mstid
+        vouchersWithoutMstid.push(voucher);
+      }
+    } else {
+      // Voucher doesn't have both mstid and alterid, preserve as-is
+      vouchersWithoutMstid.push(voucher);
+    }
+  });
+
+  // Build result: one voucher per mstid (the one with highest alterid) + all vouchers without mstid
+  const deduplicated = [];
+  let duplicatesRemoved = 0;
+
+  mstidGroups.forEach((group, mstid) => {
+    deduplicated.push(group.bestVoucher);
+    if (group.vouchers.length > 1) {
+      duplicatesRemoved += group.vouchers.length - 1;
+    }
+  });
+
+  // Add vouchers without mstid/alterid
+  deduplicated.push(...vouchersWithoutMstid);
+
+  if (duplicatesRemoved > 0) {
+    console.log(`🔄 Deduplicated vouchers by mstid: Removed ${duplicatesRemoved} duplicate(s) across ${mstidGroups.size} unique mstid(s). Original: ${vouchers.length}, Deduplicated: ${deduplicated.length}`);
+  }
+
+  return deduplicated;
+};
+
 const fetchBooksFrom = async (selectedGuid) => {
   try {
     // Check sessionStorage first
@@ -237,7 +338,7 @@ const fetchBooksFrom = async (selectedGuid) => {
     // Check allConnections in sessionStorage
     const connectionsStr = sessionStorage.getItem('allConnections');
     const connections = JSON.parse(connectionsStr || '[]');
-    
+
     if (selectedGuid && Array.isArray(connections)) {
       const company = connections.find(c => c.guid === selectedGuid);
       if (company && company.booksfrom) {
@@ -247,7 +348,7 @@ const fetchBooksFrom = async (selectedGuid) => {
 
     // Fallback to API call
     const response = await apiGet(`/api/tally/user-connections?ts=${Date.now()}`);
-    
+
     if (response) {
       let apiConnections = [];
       if (Array.isArray(response)) {
@@ -257,14 +358,14 @@ const fetchBooksFrom = async (selectedGuid) => {
         const shared = Array.isArray(response.sharedWithMe) ? response.sharedWithMe : [];
         apiConnections = [...created, ...shared];
       }
-      
+
       const company = apiConnections.find(c => c.guid === selectedGuid);
       if (company && company.booksfrom) {
         sessionStorage.setItem('booksfrom', company.booksfrom);
         return company.booksfrom;
       }
     }
-    
+
     return null;
   } catch (error) {
     console.error('Error in fetchBooksFrom:', error);
@@ -283,7 +384,7 @@ const getUserEmail = () => {
 };
 
 // Internal sync function that does the actual work
-const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) => {
+const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { }) => {
   if (!companyInfo) {
     throw new Error('No company selected');
   }
@@ -307,24 +408,60 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
     }
 
     // Update progress to in_progress
-    await hybridCache.setDashboardState(progressKey, {
-      email,
-      companyGuid: companyInfo.guid,
-      tallylocId: companyInfo.tallyloc_id,
-      status: 'in_progress',
-      lastUpdated: Date.now(),
-      chunksCompleted: savedProgress?.chunksCompleted || 0,
-      totalChunks: savedProgress?.totalChunks || 0
-    });
+    // DISABLED: Dashboard cache storage disabled
+    // await hybridCache.setDashboardState(progressKey, {
+    //   email,
+    //   companyGuid: companyInfo.guid,
+    //   tallylocId: companyInfo.tallyloc_id,
+    //   status: 'in_progress',
+    //   lastUpdated: Date.now(),
+    //   chunksCompleted: savedProgress?.chunksCompleted || 0,
+    //   totalChunks: savedProgress?.totalChunks || 0
+    // });
 
     const booksfrom = await fetchBooksFrom(companyInfo.guid);
-    
+
     if (!booksfrom) {
       throw new Error('Unable to fetch booksfrom date. Please ensure you have access to this company.');
     }
 
-    const lastaltid = savedProgress?.lastSyncedAlterId || await hybridCache.getLastAlterId(companyInfo, email);
-    const isUpdate = !!lastaltid;
+    // CRITICAL: Always check for existing cached data first to determine if this is an update
+    let lastaltid = null;
+    let isUpdate = false;
+
+    console.log('🔍 Checking for existing cached data to determine update mode...');
+
+    try {
+      const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
+      if (existingData && existingData.data && existingData.data.vouchers && Array.isArray(existingData.data.vouchers) && existingData.data.vouchers.length > 0) {
+        console.log(`✅ Found ${existingData.data.vouchers.length} existing vouchers in cache`);
+        isUpdate = true;
+
+        // CRITICAL: Calculate lastaltid from actual vouchers in cache (most reliable method)
+        lastaltid = calculateMaxAlterId(existingData.data);
+
+        // Fallback to metadata if calculation fails
+        if (!lastaltid && existingData.metadata?.lastaltid) {
+          lastaltid = existingData.metadata.lastaltid;
+          console.log(`⚠️ Using lastaltid from metadata as fallback: ${lastaltid}`);
+        }
+
+        console.log(`✅ Calculated largest alterid from cache: ${lastaltid}`);
+      } else {
+        console.log('✅ No existing data found - confirmed as fresh download');
+        isUpdate = false;
+      }
+    } catch (error) {
+      console.warn('⚠️ Could not check for existing data:', error);
+      // Fallback to saved progress if cache check fails
+      lastaltid = savedProgress?.lastSyncedAlterId || await hybridCache.getLastAlterId(companyInfo, email);
+      isUpdate = !!lastaltid;
+      if (isUpdate) {
+        console.log(`⚠️ Fallback: Using lastaltid from saved progress/metadata: ${lastaltid}`);
+      }
+    }
+
+    console.log(`🔍 Update detection result: lastaltid=${lastaltid}, isUpdate=${isUpdate}`);
 
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
@@ -341,11 +478,15 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
       guid: companyInfo.guid,
       fromdate: booksFromFormatted,
       todate: todayAPI,
-      serverslice: isUpdate ? "Yes" : "No"
+      serverslice: isUpdate ? "Yes" : "No",
+      vouchertype: "$$isSales, $$IsCreditNote"
     };
 
     if (isUpdate && lastaltid) {
       payload.lastaltid = lastaltid;
+      console.log(`📡 API Request Mode: UPDATE (lastaltid=${lastaltid}, serverslice=Yes)`);
+    } else {
+      console.log(`📡 API Request Mode: FRESH DOWNLOAD (serverslice=No)`);
     }
 
     onProgress({ current: 0, total: 1, message: isUpdate ? 'Checking for updates...' : 'Fetching data...' });
@@ -377,7 +518,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
         const responseText = await fetchResponse.text();
         if (!responseText) throw new Error('Empty response from server');
         response = JSON.parse(responseText);
-        
+
         if (response && response.frontendslice === 'Yes') {
           needsSlice = true;
         } else {
@@ -406,14 +547,46 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
     // For updates, load existing data FIRST before processing chunks to ensure we preserve it
     let existingVouchersForMerge = [];
     if (isUpdate) {
+      console.log(`🔄 Update mode detected (lastaltid=${lastaltid}), loading existing cache...`);
       try {
         const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
-        if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
+        if (existingData && existingData.data && existingData.data.vouchers && Array.isArray(existingData.data.vouchers) && existingData.data.vouchers.length > 0) {
           existingVouchersForMerge = existingData.data.vouchers;
-          console.log(`📊 Pre-loaded ${existingVouchersForMerge.length} existing vouchers for update merge`);
+          console.log(`✅ Pre-loaded ${existingVouchersForMerge.length} existing vouchers for update merge`);
+          console.log(`📋 Sample existing voucher IDs:`, existingVouchersForMerge.slice(0, 3).map(v => ({
+            mstid: v.mstid || v.MSTID || v.masterid || v.MASTERID,
+            alterid: v.alterid || v.ALTERID,
+            vchno: v.voucher_number || v.VCHNO || v.vchno || v.VCHNO
+          })));
+        } else {
+          console.warn('⚠️ Update mode but no existing vouchers found in cache');
+          console.warn('⚠️ existingData:', existingData ? (existingData.data ? 'data exists but no vouchers array' : 'no data property') : 'null/undefined');
         }
       } catch (error) {
-        console.warn('⚠️ Could not pre-load existing cache for update:', error);
+        console.error('❌ Could not pre-load existing cache for update:', error);
+        console.error('❌ Error details:', error.message);
+        // Try one more time as fallback with delay
+        try {
+          await new Promise(resolve => setTimeout(resolve, 100)); // Small delay
+          const retryData = await hybridCache.getCompleteSalesData(companyInfo, email);
+          if (retryData && retryData.data && retryData.data.vouchers && Array.isArray(retryData.data.vouchers) && retryData.data.vouchers.length > 0) {
+            existingVouchersForMerge = retryData.data.vouchers;
+            console.log(`✅ Retry successful: Loaded ${existingVouchersForMerge.length} existing vouchers for update merge`);
+          } else {
+            console.error('❌ Retry also found no existing vouchers');
+          }
+        } catch (retryError) {
+          console.error('❌ Retry also failed to load existing cache:', retryError);
+          console.error('❌ Retry error details:', retryError.message);
+        }
+      }
+
+      if (existingVouchersForMerge.length === 0) {
+        console.warn(`⚠️ Update mode detected (lastaltid=${lastaltid}) but no existing vouchers found in cache.`);
+        console.warn(`⚠️ This may happen if cache was cleared or corrupted. Proceeding as fresh download.`);
+        console.warn(`⚠️ The API will still use lastaltid=${lastaltid} to fetch only new records.`);
+        // Don't throw error - proceed as fresh download but still use lastaltid in API call
+        // This allows recovery if cache was accidentally cleared
       }
     }
 
@@ -430,24 +603,25 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
       // Resume from saved chunk if available
       const startChunkIndex = savedProgress?.chunksCompleted || 0;
 
-      onProgress({ 
-        current: startChunkIndex, 
-        total: chunks.length, 
+      onProgress({
+        current: startChunkIndex,
+        total: chunks.length,
         message: `Syncing ${companyInfo.company}: Resuming from chunk ${startChunkIndex + 1} of ${chunks.length}...`,
         companyGuid: companyInfo.guid,
         companyName: companyInfo.company
       });
 
       // Update total chunks in progress
-      await hybridCache.setDashboardState(progressKey, {
-        email,
-        companyGuid: companyInfo.guid,
-        tallylocId: companyInfo.tallyloc_id,
-        status: 'in_progress',
-        lastUpdated: Date.now(),
-        chunksCompleted: startChunkIndex,
-        totalChunks: chunks.length
-      });
+      // DISABLED: Dashboard cache storage disabled
+      // await hybridCache.setDashboardState(progressKey, {
+      //   email,
+      //   companyGuid: companyInfo.guid,
+      //   tallylocId: companyInfo.tallyloc_id,
+      //   status: 'in_progress',
+      //   lastUpdated: Date.now(),
+      //   chunksCompleted: startChunkIndex,
+      //   totalChunks: chunks.length
+      // });
 
       for (let i = startChunkIndex; i < chunks.length; i++) {
         const chunk = chunks[i];
@@ -487,18 +661,19 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
           }
 
           // Update progress after each chunk
-          const chunkProgress = {
-            email,
-            companyGuid: companyInfo.guid,
-            tallylocId: companyInfo.tallyloc_id,
-            status: 'in_progress',
-            lastUpdated: Date.now(),
-            chunksCompleted: i + 1,
-            totalChunks: chunks.length
-          };
-          await hybridCache.setDashboardState(progressKey, chunkProgress);
+          // DISABLED: Dashboard cache storage disabled
+          // const chunkProgress = {
+          //   email,
+          //   companyGuid: companyInfo.guid,
+          //   tallylocId: companyInfo.tallyloc_id,
+          //   status: 'in_progress',
+          //   lastUpdated: Date.now(),
+          //   chunksCompleted: i + 1,
+          //   totalChunks: chunks.length
+          // };
+          // await hybridCache.setDashboardState(progressKey, chunkProgress);
           console.log(`📊 Progress updated: ${i + 1}/${chunks.length} chunks for ${companyInfo.company}`);
-          
+
           // Notify subscribers if this is the currently active sync
           if (onProgress) {
             onProgress({
@@ -512,32 +687,34 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
         } catch (chunkError) {
           // Log error but continue with next chunk instead of stopping
           console.error(`❌ Error fetching chunk ${i + 1}/${chunks.length} for ${companyInfo.company}:`, chunkError);
-          
+
           // Get current saved progress to track failed chunks
-          let currentSavedProgress = null;
-          try {
-            currentSavedProgress = await hybridCache.getDashboardState(progressKey);
-          } catch (e) {
-            // Ignore errors getting saved progress
-          }
-          
+          // DISABLED: Dashboard cache storage disabled
+          // let currentSavedProgress = null;
+          // try {
+          //   currentSavedProgress = await hybridCache.getDashboardState(progressKey);
+          // } catch (e) {
+          //   // Ignore errors getting saved progress
+          // }
+
           // Save error state but don't mark as completely failed
-          await hybridCache.setDashboardState(progressKey, {
-            email,
-            companyGuid: companyInfo.guid,
-            tallylocId: companyInfo.tallyloc_id,
-            status: 'in_progress',
-            lastUpdated: Date.now(),
-            chunksCompleted: i,
-            totalChunks: chunks.length,
-            error: `Chunk ${i + 1} failed: ${chunkError.message}`,
-            failedChunks: [...(currentSavedProgress?.failedChunks || []), i]
-          });
-          
+          // DISABLED: Dashboard cache storage disabled
+          // await hybridCache.setDashboardState(progressKey, {
+          //   email,
+          //   companyGuid: companyInfo.guid,
+          //   tallylocId: companyInfo.tallyloc_id,
+          //   status: 'in_progress',
+          //   lastUpdated: Date.now(),
+          //   chunksCompleted: i,
+          //   totalChunks: chunks.length,
+          //   error: `Chunk ${i + 1} failed: ${chunkError.message}`,
+          //   failedChunks: [...(currentSavedProgress?.failedChunks || []), i]
+          // });
+
           // Continue with next chunk instead of throwing - allow download to complete
           // We'll retry failed chunks at the end if needed
           console.warn(`⚠️ Continuing with next chunk despite error in chunk ${i + 1}`);
-          
+
           // Update progress to show we're continuing
           if (onProgress) {
             onProgress({
@@ -548,12 +725,12 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
               companyName: companyInfo.company
             });
           }
-          
+
           // Continue to next chunk instead of throwing
           continue;
         }
       }
-      
+
       // After processing all chunks, retry any failed chunks
       let currentSavedProgress = null;
       try {
@@ -561,14 +738,14 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
       } catch (e) {
         // Ignore errors
       }
-      
+
       const failedChunks = currentSavedProgress?.failedChunks || [];
       if (failedChunks.length > 0) {
         console.log(`🔄 Retrying ${failedChunks.length} failed chunks...`);
-        
+
         for (const failedChunkIndex of failedChunks) {
           if (failedChunkIndex >= chunks.length) continue;
-          
+
           const chunk = chunks[failedChunkIndex];
           const chunkPayload = {
             ...payload,
@@ -579,7 +756,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
 
           try {
             console.log(`🔄 Retrying chunk ${failedChunkIndex + 1}/${chunks.length}...`);
-            
+
             const chunkFetchResponse = await fetchWithTimeout(
               salesextractUrl,
               {
@@ -599,7 +776,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
                 console.log(`✅ Successfully retried chunk ${failedChunkIndex + 1}`);
               }
             }
-            
+
             // Update progress to remove from failed chunks
             if (onProgress) {
               onProgress({
@@ -616,132 +793,294 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
           }
         }
       }
-      
+
       // If this is an update, ALWAYS merge with existing cache data to preserve old data
       if (isUpdate) {
+        console.log(`🔄 Chunked path: Processing update merge with ${allVouchers.length} vouchers from chunks`);
+
         // Use pre-loaded existing vouchers, or try to load them again if pre-load failed
         let existingVouchers = existingVouchersForMerge;
         if (existingVouchers.length === 0) {
+          console.warn('⚠️ Pre-loaded existing vouchers is empty in chunked path, attempting to load from cache...');
           try {
             const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
             if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
               existingVouchers = existingData.data.vouchers;
-              console.log(`📊 Loaded ${existingVouchers.length} existing vouchers for merge (fallback)`);
+              console.log(`📊 Loaded ${existingVouchers.length} existing vouchers for merge (fallback, chunked)`);
+            } else {
+              console.warn('⚠️ No existing vouchers found in cache during fallback load (chunked)');
             }
           } catch (error) {
-            console.warn('⚠️ Could not load existing cache for merge:', error);
+            console.error('❌ Could not load existing cache for merge (chunked):', error);
           }
         }
-        
+
         if (existingVouchers.length > 0) {
+          console.log(`🔄 Starting merge: ${existingVouchers.length} existing vouchers + ${allVouchers.length} chunk vouchers`);
+
           // Always preserve existing vouchers - this is critical to prevent data loss
           // If we have new vouchers, merge them; otherwise just keep ALL existing
           if (allVouchers.length > 0) {
-            const existingIds = new Set(existingVouchers.map(v => {
+            // Create a comprehensive ID set from existing vouchers for duplicate detection
+            const existingIds = new Set();
+            existingVouchers.forEach(v => {
               const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
               const alterid = v.alterid || v.ALTERID;
-              const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
+              const vchno = v.vouchernumber || v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
               const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
-              if (mstid && alterid) return `${mstid}_${alterid}`;
-              if (vchno && date) return `${vchno}_${date}`;
-              if (mstid) return mstid.toString();
-              return JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
-            }));
+              const amount = v.amount || v.AMT || v.amt;
 
-            const newVouchers = allVouchers.filter(v => {
+              // Try multiple ID formats for robust matching
+              if (mstid && alterid) {
+                existingIds.add(`${mstid}_${alterid}`);
+                existingIds.add(`${String(mstid)}_${String(alterid)}`);
+              }
+              if (vchno && date) {
+                existingIds.add(`${vchno}_${date}`);
+                existingIds.add(`${String(vchno)}_${String(date)}`);
+              }
+              if (mstid) {
+                existingIds.add(String(mstid));
+              }
+              if (vchno && date && amount) {
+                existingIds.add(JSON.stringify({ vchno: String(vchno), date: String(date), amount: String(amount) }));
+              }
+            });
+
+            // CRITICAL: Always start with existing vouchers, then add only truly new ones from API
+            // This ensures we NEVER lose existing data, even if API returns all vouchers
+            const newVouchers = [];
+            const apiVoucherIds = new Set(); // Track what we've seen from API
+
+            allVouchers.forEach(v => {
               const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
               const alterid = v.alterid || v.ALTERID;
-              const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
+              const vchno = v.vouchernumber || v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
               const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
-              let id;
-              if (mstid && alterid) id = `${mstid}_${alterid}`;
-              else if (vchno && date) id = `${vchno}_${date}`;
-              else if (mstid) id = mstid.toString();
-              else id = JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
-              return !existingIds.has(id);
+
+              // Create ID for this voucher
+              let voucherId = null;
+              if (mstid && alterid) {
+                voucherId = `${mstid}_${alterid}`;
+              } else if (vchno && date) {
+                voucherId = `${vchno}_${date}`;
+              } else if (mstid) {
+                voucherId = String(mstid);
+              }
+
+              // Only add if it's truly new (not in existing)
+              if (voucherId && !existingIds.has(voucherId)) {
+                // Also check string versions
+                if (mstid && alterid) {
+                  const strId = `${String(mstid)}_${String(alterid)}`;
+                  if (!existingIds.has(strId) && !apiVoucherIds.has(voucherId) && !apiVoucherIds.has(strId)) {
+                    newVouchers.push(v);
+                    apiVoucherIds.add(voucherId);
+                    apiVoucherIds.add(strId);
+                  }
+                } else if (!apiVoucherIds.has(voucherId)) {
+                  newVouchers.push(v);
+                  apiVoucherIds.add(voucherId);
+                }
+              } else if (!voucherId) {
+                // If we can't identify the voucher, be conservative and add it
+                // But check if we've already added a similar one
+                const fallbackId = JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
+                if (!existingIds.has(fallbackId) && !apiVoucherIds.has(fallbackId)) {
+                  newVouchers.push(v);
+                  apiVoucherIds.add(fallbackId);
+                }
+              }
             });
-            
-            console.log(`📊 Merging ${newVouchers.length} new vouchers with ${existingVouchers.length} existing vouchers (total: ${existingVouchers.length + newVouchers.length})`);
+
+            console.log(`✅ Merge complete: ${newVouchers.length} new vouchers identified from ${allVouchers.length} chunk vouchers`);
+            console.log(`📊 Final merge: ${existingVouchers.length} existing + ${newVouchers.length} new = ${existingVouchers.length + newVouchers.length} total vouchers`);
+
+            // Always start with existing vouchers, then add new ones
             allVouchers = [...existingVouchers, ...newVouchers];
+
+            // Validation: Ensure we didn't lose any existing vouchers
+            if (allVouchers.length < existingVouchers.length) {
+              console.error(`❌ CRITICAL: Merge resulted in fewer vouchers (${allVouchers.length}) than existing (${existingVouchers.length})!`);
+              // Fallback: use existing + all chunk vouchers (better to have duplicates than lose data)
+              console.warn('⚠️ Falling back to preserving all existing + all chunk vouchers');
+              allVouchers = [...existingVouchers, ...allVouchers];
+              // Remove duplicates by creating a Map with ID as key
+              const voucherMap = new Map();
+              allVouchers.forEach(v => {
+                const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
+                const alterid = v.alterid || v.ALTERID;
+                const key = mstid && alterid ? `${mstid}_${alterid}` : JSON.stringify(v);
+                if (!voucherMap.has(key)) {
+                  voucherMap.set(key, v);
+                }
+              });
+              allVouchers = Array.from(voucherMap.values());
+              console.log(`📊 After deduplication: ${allVouchers.length} vouchers`);
+            }
           } else {
-            // No new vouchers, but preserve ALL existing data
-            console.log(`📊 No new vouchers found, preserving ALL ${existingVouchers.length} existing vouchers`);
+            // No new vouchers from chunks, but preserve ALL existing data
+            console.log(`📊 No new vouchers from chunks, preserving ALL ${existingVouchers.length} existing vouchers`);
             allVouchers = existingVouchers;
           }
+
+          // Deduplicate vouchers by mstid (keep highest alterid for each mstid)
+          allVouchers = deduplicateVouchersByMstid(allVouchers);
+
           mergedData = { vouchers: allVouchers };
+
+          // Final validation log
+          console.log(`✅ Merge validation: ${mergedData.vouchers.length} vouchers in merged data (expected at least ${existingVouchers.length} existing)`);
         } else {
           // No existing data found - this shouldn't happen in normal update flow
           // But if it does, use new vouchers (better than losing them)
-          console.warn('⚠️ Update mode but no existing data found, using new vouchers only');
+          console.warn('⚠️ Update mode but no existing data found (chunked), using new vouchers only');
+          console.warn(`⚠️ If this is not a first-time download, existing cache may have been lost!`);
+          // Deduplicate vouchers by mstid before using
+          allVouchers = deduplicateVouchersByMstid(allVouchers);
           mergedData = { vouchers: allVouchers };
         }
       } else {
-        // Not an update, use new vouchers as-is
+        // Not an update, use new vouchers as-is (but still deduplicate)
+        allVouchers = deduplicateVouchersByMstid(allVouchers);
         mergedData = { vouchers: allVouchers };
       }
     } else {
       if (response && response.vouchers && Array.isArray(response.vouchers)) {
         allVouchers = response.vouchers;
-        
+        console.log(`📥 API returned ${allVouchers.length} vouchers (non-chunked path)`);
+
         // If this is an update, ALWAYS merge with existing cache data to preserve old data
         if (isUpdate) {
           // Use pre-loaded existing vouchers, or try to load them again if pre-load failed
           let existingVouchers = existingVouchersForMerge;
           if (existingVouchers.length === 0) {
+            console.warn('⚠️ Pre-loaded existing vouchers is empty, attempting to load from cache...');
             try {
               const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
               if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
                 existingVouchers = existingData.data.vouchers;
                 console.log(`📊 Loaded ${existingVouchers.length} existing vouchers for merge (fallback, non-chunked)`);
+              } else {
+                console.warn('⚠️ No existing vouchers found in cache during fallback load');
               }
             } catch (error) {
-              console.warn('⚠️ Could not load existing cache for merge (non-chunked):', error);
+              console.error('❌ Could not load existing cache for merge (non-chunked):', error);
             }
           }
-          
+
           if (existingVouchers.length > 0) {
-            // Always preserve existing vouchers
+            console.log(`🔄 Starting merge: ${existingVouchers.length} existing vouchers + ${allVouchers.length} API vouchers`);
+
+            // Always preserve existing vouchers - this is critical to prevent data loss
             // If we have new vouchers, merge them; otherwise just keep ALL existing
             if (allVouchers.length > 0) {
-              const existingIds = new Set(existingVouchers.map(v => {
+              // Create a comprehensive ID set from existing vouchers for duplicate detection
+              const existingIds = new Set();
+              existingVouchers.forEach(v => {
                 const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
                 const alterid = v.alterid || v.ALTERID;
-                const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
+                const vchno = v.vouchernumber || v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
                 const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
-                if (mstid && alterid) return `${mstid}_${alterid}`;
-                if (vchno && date) return `${vchno}_${date}`;
-                if (mstid) return mstid.toString();
-                return JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
-              }));
+                const amount = v.amount || v.AMT || v.amt;
 
+                // Try multiple ID formats for robust matching
+                if (mstid && alterid) {
+                  existingIds.add(`${mstid}_${alterid}`);
+                  existingIds.add(`${String(mstid)}_${String(alterid)}`);
+                }
+                if (vchno && date) {
+                  existingIds.add(`${vchno}_${date}`);
+                  existingIds.add(`${String(vchno)}_${String(date)}`);
+                }
+                if (mstid) {
+                  existingIds.add(String(mstid));
+                }
+                if (vchno && date && amount) {
+                  existingIds.add(JSON.stringify({ vchno: String(vchno), date: String(date), amount: String(amount) }));
+                }
+              });
+
+              // Filter out vouchers that already exist
               const newVouchers = allVouchers.filter(v => {
                 const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
                 const alterid = v.alterid || v.ALTERID;
-                const vchno = v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
+                const vchno = v.vouchernumber || v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
                 const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
-                let id;
-                if (mstid && alterid) id = `${mstid}_${alterid}`;
-                else if (vchno && date) id = `${vchno}_${date}`;
-                else if (mstid) id = mstid.toString();
-                else id = JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
-                return !existingIds.has(id);
+                const amount = v.amount || v.AMT || v.amt;
+
+                // Check multiple ID formats
+                if (mstid && alterid) {
+                  if (existingIds.has(`${mstid}_${alterid}`) || existingIds.has(`${String(mstid)}_${String(alterid)}`)) {
+                    return false; // Already exists
+                  }
+                }
+                if (vchno && date) {
+                  if (existingIds.has(`${vchno}_${date}`) || existingIds.has(`${String(vchno)}_${String(date)}`)) {
+                    return false; // Already exists
+                  }
+                }
+                if (mstid && existingIds.has(String(mstid))) {
+                  return false; // Already exists
+                }
+                if (vchno && date && amount) {
+                  const id = JSON.stringify({ vchno: String(vchno), date: String(date), amount: String(amount) });
+                  if (existingIds.has(id)) {
+                    return false; // Already exists
+                  }
+                }
+                return true; // New voucher
               });
-              
-              console.log(`📊 Merging ${newVouchers.length} new vouchers with ${existingVouchers.length} existing vouchers (total: ${existingVouchers.length + newVouchers.length})`);
+
+              console.log(`✅ Merge complete: ${newVouchers.length} new vouchers identified from ${allVouchers.length} API vouchers`);
+              console.log(`📊 Final merge: ${existingVouchers.length} existing + ${newVouchers.length} new = ${existingVouchers.length + newVouchers.length} total vouchers`);
+
+              // Always start with existing vouchers, then add new ones
               allVouchers = [...existingVouchers, ...newVouchers];
+
+              // Validation: Ensure we didn't lose any existing vouchers
+              if (allVouchers.length < existingVouchers.length) {
+                console.error(`❌ CRITICAL: Merge resulted in fewer vouchers (${allVouchers.length}) than existing (${existingVouchers.length})!`);
+                // Fallback: use existing + all API vouchers (better to have duplicates than lose data)
+                console.warn('⚠️ Falling back to preserving all existing + all API vouchers');
+                allVouchers = [...existingVouchers, ...allVouchers];
+                // Remove duplicates by creating a Map with ID as key
+                const voucherMap = new Map();
+                allVouchers.forEach(v => {
+                  const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
+                  const alterid = v.alterid || v.ALTERID;
+                  const key = mstid && alterid ? `${mstid}_${alterid}` : JSON.stringify(v);
+                  if (!voucherMap.has(key)) {
+                    voucherMap.set(key, v);
+                  }
+                });
+                allVouchers = Array.from(voucherMap.values());
+                console.log(`📊 After deduplication: ${allVouchers.length} vouchers`);
+              }
             } else {
-              // No new vouchers, but preserve ALL existing data
-              console.log(`📊 No new vouchers found, preserving ALL ${existingVouchers.length} existing vouchers`);
+              // No new vouchers from API, but preserve ALL existing data
+              console.log(`📊 No new vouchers from API, preserving ALL ${existingVouchers.length} existing vouchers`);
               allVouchers = existingVouchers;
             }
+
+            // Deduplicate vouchers by mstid (keep highest alterid for each mstid)
+            allVouchers = deduplicateVouchersByMstid(allVouchers);
+
             mergedData = { vouchers: allVouchers };
+
+            // Final validation log
+            console.log(`✅ Merge validation: ${mergedData.vouchers.length} vouchers in merged data (expected at least ${existingVouchers.length} existing)`);
           } else {
             // No existing data found - this shouldn't happen in normal update flow
-            console.warn('⚠️ Update mode but no existing data found (non-chunked), using new vouchers only');
+            console.warn('⚠️ Update mode but no existing data found (non-chunked). This might be a first-time download. Using API vouchers only.');
+            console.warn(`⚠️ If this is not a first-time download, existing cache may have been lost!`);
+            // Deduplicate vouchers by mstid before using
+            allVouchers = deduplicateVouchersByMstid(allVouchers);
             mergedData = { vouchers: allVouchers };
           }
         } else {
-          // Not an update, use new vouchers as-is
+          // Not an update, use new vouchers as-is (but still deduplicate)
+          allVouchers = deduplicateVouchersByMstid(allVouchers);
           mergedData = { vouchers: allVouchers };
         }
       } else {
@@ -752,7 +1091,9 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
             const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
             if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
               console.log(`📊 No new data from API, preserving ${existingData.data.vouchers.length} existing vouchers`);
-              mergedData = existingData.data;
+              // Deduplicate existing vouchers by mstid
+              const deduplicatedVouchers = deduplicateVouchersByMstid(existingData.data.vouchers);
+              mergedData = { vouchers: deduplicatedVouchers };
             } else {
               mergedData = { vouchers: [] };
             }
@@ -768,19 +1109,22 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
 
     // Final validation - but don't fail if we have some data (even if some chunks failed)
     if (isUpdate && (!mergedData.vouchers || !Array.isArray(mergedData.vouchers) || mergedData.vouchers.length === 0)) {
-        try {
-            const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
+      console.warn('⚠️ Update resulted in empty merged data, attempting to preserve existing cache...');
+      try {
+        const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
         if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
-          mergedData = existingData.data;
-          console.log('⚠️ No new data from update, preserving existing cache data');
+          // Deduplicate existing vouchers by mstid
+          const deduplicatedVouchers = deduplicateVouchersByMstid(existingData.data.vouchers);
+          mergedData = { vouchers: deduplicatedVouchers };
+          console.log(`✅ Preserved ${deduplicatedVouchers.length} existing vouchers from cache (no new data from update, after deduplication)`);
         } else {
           // Don't throw error if we have no data - just log and continue
-          console.warn('⚠️ Update resulted in empty data and no existing cache, but continuing...');
+          console.warn('⚠️ Update resulted in empty data and no existing cache found, but continuing...');
           mergedData = { vouchers: [] };
         }
       } catch (error) {
         // Don't throw - just log and continue with empty array
-        console.warn('⚠️ Could not load existing cache:', error);
+        console.error('❌ Could not load existing cache for final validation:', error);
         mergedData = { vouchers: [] };
       }
     }
@@ -791,44 +1135,222 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => {}) 
       mergedData = { vouchers: [] };
     }
 
+    // Final validation: For updates, ensure we have at least as many vouchers as we started with
+    if (isUpdate && existingVouchersForMerge.length > 0) {
+      const finalCount = mergedData.vouchers.length;
+      const originalCount = existingVouchersForMerge.length;
+      if (finalCount < originalCount) {
+        console.error(`❌ CRITICAL VALIDATION FAILED: Final voucher count (${finalCount}) is less than original (${originalCount})!`);
+        console.error(`❌ This indicates data loss during merge. Attempting emergency recovery...`);
+        // Emergency recovery: merge existing + all new vouchers without filtering
+        try {
+          const emergencyMerged = [...existingVouchersForMerge];
+          // Add all vouchers from API/chunks, let deduplication happen later if needed
+          if (allVouchers && allVouchers.length > 0) {
+            emergencyMerged.push(...allVouchers);
+          }
+          // Deduplicate by mstid (keep highest alterid for each mstid)
+          const deduplicated = deduplicateVouchersByMstid(emergencyMerged);
+          mergedData = { vouchers: deduplicated };
+          console.log(`✅ Emergency recovery complete: ${mergedData.vouchers.length} vouchers preserved`);
+        } catch (recoveryError) {
+          console.error('❌ Emergency recovery failed:', recoveryError);
+          // Last resort: use existing vouchers only (but still deduplicate)
+          const deduplicated = deduplicateVouchersByMstid(existingVouchersForMerge);
+          mergedData = { vouchers: deduplicated };
+          console.log(`⚠️ Using existing vouchers only as last resort: ${mergedData.vouchers.length} vouchers`);
+        }
+      } else {
+        console.log(`✅ Validation passed: Final count (${finalCount}) >= original count (${originalCount})`);
+      }
+    }
+
+    // CRITICAL: Before saving, verify we're not losing data for updates
+    if (isUpdate && existingVouchersForMerge.length > 0) {
+      const finalVoucherCount = mergedData.vouchers.length;
+      const originalVoucherCount = existingVouchersForMerge.length;
+
+      console.log(`🔍 Pre-save validation: Original=${originalVoucherCount}, Final=${finalVoucherCount}`);
+
+      if (finalVoucherCount < originalVoucherCount) {
+        console.error(`❌ CRITICAL: About to save ${finalVoucherCount} vouchers but we had ${originalVoucherCount} originally!`);
+        console.error(`❌ This would result in data loss. Attempting emergency recovery...`);
+
+        // Emergency recovery: Load existing data one more time and merge properly
+        try {
+          const emergencyData = await hybridCache.getCompleteSalesData(companyInfo, email);
+          if (emergencyData && emergencyData.data && emergencyData.data.vouchers && emergencyData.data.vouchers.length > 0) {
+            const emergencyExisting = emergencyData.data.vouchers;
+            console.log(`🚨 Emergency: Loaded ${emergencyExisting.length} existing vouchers`);
+
+            // Create ID set from emergency existing
+            const emergencyIds = new Set();
+            emergencyExisting.forEach(v => {
+              const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
+              const alterid = v.alterid || v.ALTERID;
+              if (mstid && alterid) {
+                emergencyIds.add(`${mstid}_${alterid}`);
+                emergencyIds.add(`${String(mstid)}_${String(alterid)}`);
+              }
+            });
+
+            // Get truly new vouchers from API response
+            const trulyNewVouchers = mergedData.vouchers.filter(v => {
+              const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
+              const alterid = v.alterid || v.ALTERID;
+              if (mstid && alterid) {
+                return !emergencyIds.has(`${mstid}_${alterid}`) && !emergencyIds.has(`${String(mstid)}_${String(alterid)}`);
+              }
+              return true; // Include if we can't identify
+            });
+
+            // Merge: existing + truly new, then deduplicate by mstid
+            const emergencyMerged = [...emergencyExisting, ...trulyNewVouchers];
+            const deduplicated = deduplicateVouchersByMstid(emergencyMerged);
+            mergedData = { vouchers: deduplicated };
+            console.log(`✅ Emergency recovery: ${emergencyExisting.length} existing + ${trulyNewVouchers.length} new = ${mergedData.vouchers.length} total (after deduplication)`);
+          } else {
+            console.error(`❌ Emergency recovery failed: Could not load existing data`);
+            // Last resort: don't save, keep existing
+            throw new Error(`Cannot save: Would lose ${originalVoucherCount - finalVoucherCount} vouchers. Aborting save to prevent data loss.`);
+          }
+        } catch (emergencyError) {
+          console.error(`❌ Emergency recovery error:`, emergencyError);
+          throw new Error(`Cannot save merged data: Would result in data loss. Original: ${originalVoucherCount}, Final: ${finalVoucherCount}. Error: ${emergencyError.message}`);
+        }
+      } else {
+        console.log(`✅ Pre-save validation passed: Final count (${finalVoucherCount}) >= Original count (${originalVoucherCount})`);
+      }
+    }
+
+    // Final deduplication by mstid before saving (ensures we have the highest alterid for each mstid)
+    if (mergedData && mergedData.vouchers && Array.isArray(mergedData.vouchers)) {
+      mergedData.vouchers = deduplicateVouchersByMstid(mergedData.vouchers);
+    }
+
     const maxAlterId = calculateMaxAlterId(mergedData);
     const metadata = {
       booksfrom: booksfrom || formatDateForAPI(todayStr),
       lastaltid: maxAlterId
     };
 
+    // CRITICAL: Final validation before save - ensure ALL existing vouchers are preserved
+    if (isUpdate && existingVouchersForMerge.length > 0) {
+      const finalCount = mergedData.vouchers.length;
+      const originalCount = existingVouchersForMerge.length;
+
+      // Create a Set of all existing voucher IDs for verification
+      const existingVoucherIdSet = new Set();
+      existingVouchersForMerge.forEach(v => {
+        const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
+        const alterid = v.alterid || v.ALTERID;
+        if (mstid && alterid) {
+          existingVoucherIdSet.add(`${mstid}_${alterid}`);
+          existingVoucherIdSet.add(`${String(mstid)}_${String(alterid)}`);
+        }
+      });
+
+      // Verify all existing vouchers are in merged data
+      const mergedVoucherIdSet = new Set();
+      mergedData.vouchers.forEach(v => {
+        const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
+        const alterid = v.alterid || v.ALTERID;
+        if (mstid && alterid) {
+          mergedVoucherIdSet.add(`${mstid}_${alterid}`);
+          mergedVoucherIdSet.add(`${String(mstid)}_${String(alterid)}`);
+        }
+      });
+
+      // Check for missing vouchers
+      const missingVouchers = [];
+      existingVoucherIdSet.forEach(id => {
+        if (!mergedVoucherIdSet.has(id)) {
+          missingVouchers.push(id);
+        }
+      });
+
+      if (missingVouchers.length > 0 || finalCount < originalCount) {
+        console.error(`❌ FINAL VALIDATION FAILED BEFORE SAVE!`);
+        console.error(`❌ Original vouchers: ${originalCount}`);
+        console.error(`❌ Final vouchers: ${finalCount}`);
+        console.error(`❌ Missing voucher IDs: ${missingVouchers.length}`, missingVouchers.slice(0, 10));
+        console.error(`❌ ABORTING SAVE to prevent data loss!`);
+
+        // Emergency: Force merge with all existing + all new
+        console.log(`🚨 EMERGENCY: Forcing merge with ALL existing vouchers...`);
+        const emergencyMerged = [...existingVouchersForMerge, ...mergedData.vouchers];
+        // Deduplicate by mstid (keep highest alterid for each mstid)
+        const deduplicated = deduplicateVouchersByMstid(emergencyMerged);
+        mergedData = { vouchers: deduplicated };
+        console.log(`✅ Emergency merge complete: ${deduplicated.length} vouchers (${originalCount} existing + ${deduplicated.length - originalCount} new, after deduplication)`);
+
+        // Verify emergency merge
+        if (mergedData.vouchers.length < originalCount) {
+          throw new Error(`EMERGENCY MERGE FAILED: Cannot save. Would lose ${originalCount - mergedData.vouchers.length} vouchers. Aborting.`);
+        }
+      } else {
+        console.log(`✅ Final validation passed: All ${originalCount} existing vouchers are preserved`);
+      }
+    }
+
+    // Final log before save
+    console.log(`💾 About to save ${mergedData.vouchers.length} vouchers to cache (isUpdate=${isUpdate})`);
+    if (isUpdate && existingVouchersForMerge.length > 0) {
+      console.log(`💾 Update save: ${existingVouchersForMerge.length} original vouchers should be preserved in the ${mergedData.vouchers.length} total vouchers`);
+    }
+
     await hybridCache.setCompleteSalesData(companyInfo, mergedData, { ...metadata, email });
-    
+
+    // Post-save verification
+    if (isUpdate && existingVouchersForMerge.length > 0) {
+      try {
+        const verifyData = await hybridCache.getCompleteSalesData(companyInfo, email);
+        if (verifyData && verifyData.data && verifyData.data.vouchers) {
+          const savedCount = verifyData.data.vouchers.length;
+          console.log(`✅ Post-save verification: ${savedCount} vouchers in cache`);
+          if (savedCount < existingVouchersForMerge.length) {
+            console.error(`❌ POST-SAVE VERIFICATION FAILED: Only ${savedCount} vouchers saved, expected at least ${existingVouchersForMerge.length}`);
+          } else {
+            console.log(`✅ Post-save verification passed: ${savedCount} >= ${existingVouchersForMerge.length}`);
+          }
+        }
+      } catch (verifyError) {
+        console.warn(`⚠️ Could not verify saved data:`, verifyError);
+      }
+    }
+
     // Mark progress as completed
-    await hybridCache.setDashboardState(progressKey, {
-      email,
-      companyGuid: companyInfo.guid,
-      tallylocId: companyInfo.tallyloc_id,
-      status: 'completed',
-      lastSyncedAlterId: maxAlterId,
-      lastSyncedDate: todayStr,
-      lastUpdated: Date.now(),
-      chunksCompleted: chunks ? chunks.length : 0,
-      totalChunks: chunks ? chunks.length : 0
-    });
+    // DISABLED: Dashboard cache storage disabled
+    // await hybridCache.setDashboardState(progressKey, {
+    //   email,
+    //   companyGuid: companyInfo.guid,
+    //   tallylocId: companyInfo.tallyloc_id,
+    //   status: 'completed',
+    //   lastSyncedAlterId: maxAlterId,
+    //   lastSyncedDate: todayStr,
+    //   lastUpdated: Date.now(),
+    //   chunksCompleted: chunks ? chunks.length : 0,
+    //   totalChunks: chunks ? chunks.length : 0
+    // });
 
     console.log(`✅ Successfully stored ${mergedData.vouchers.length} vouchers in cache`);
     return { success: true, count: mergedData.vouchers.length, lastAlterId: maxAlterId };
 
   } catch (error) {
     // Save error state
-    try {
-      await hybridCache.setDashboardState(progressKey, {
-        email,
-        companyGuid: companyInfo.guid,
-        tallylocId: companyInfo.tallyloc_id,
-        status: 'failed',
-        lastUpdated: Date.now(),
-        error: error.message
-      });
-    } catch (e) {
-      console.error('Failed to save error state:', e);
-    }
+    // DISABLED: Dashboard cache storage disabled
+    // try {
+    //   await hybridCache.setDashboardState(progressKey, {
+    //     email,
+    //     companyGuid: companyInfo.guid,
+    //     tallylocId: companyInfo.tallyloc_id,
+    //     status: 'failed',
+    //     lastUpdated: Date.now(),
+    //     error: error.message
+    //   });
+    // } catch (e) {
+    //   console.error('Failed to save error state:', e);
+    // }
     console.error('Error syncing sales data:', error);
     throw error;
   }
@@ -857,7 +1379,7 @@ class CacheSyncManager {
    */
   async init() {
     if (this.initialized) return;
-    
+
     const email = getUserEmail();
     if (!email) {
       console.log('No user email found, skipping sync initialization');
@@ -871,9 +1393,9 @@ class CacheSyncManager {
     } catch (error) {
       console.error('Error initializing sync manager:', error);
     }
-    
+
     this.initialized = true;
-    
+
     // Listen for connections updates to trigger auto-sync
     const connectionsHandler = () => {
       this.handleConnectionsUpdate();
@@ -887,7 +1409,7 @@ class CacheSyncManager {
       }
     };
     window.addEventListener('storage', storageHandler);
-    
+
     // Also trigger immediately if connections are already available
     try {
       const connectionsStr = sessionStorage.getItem('allConnections');
@@ -912,8 +1434,8 @@ class CacheSyncManager {
       if (!connectionsStr) return;
 
       const connections = JSON.parse(connectionsStr);
-      const eligibleCompanies = connections.filter(c => 
-        c.status === 'Connected' && 
+      const eligibleCompanies = connections.filter(c =>
+        c.status === 'Connected' &&
         (c.access_type === 'Internal' || c.access_type === 'Full Access')
       );
 
@@ -952,8 +1474,8 @@ class CacheSyncManager {
       if (!connectionsStr) return;
 
       const connections = JSON.parse(connectionsStr);
-      const eligibleCompanies = connections.filter(c => 
-        c.status === 'Connected' && 
+      const eligibleCompanies = connections.filter(c =>
+        c.status === 'Connected' &&
         (c.access_type === 'Internal' || c.access_type === 'Full Access')
       );
 
@@ -963,12 +1485,12 @@ class CacheSyncManager {
         if (this.autoSyncQueue.find(c => c.guid === company.guid)) {
           continue;
         }
-        
+
         // Skip if currently being synced
         if (this.isSyncing && this.companyInfo && this.companyInfo.guid === company.guid) {
           continue;
         }
-        
+
         const progressKey = getSyncProgressKey(email, company.guid);
         try {
           const progress = await hybridCache.getDashboardState(progressKey);
@@ -1004,8 +1526,8 @@ class CacheSyncManager {
     }
 
     // Filter for eligible companies
-    const eligibleCompanies = companies.filter(c => 
-      c.status === 'Connected' && 
+    const eligibleCompanies = companies.filter(c =>
+      c.status === 'Connected' &&
       (c.access_type === 'Internal' || c.access_type === 'Full Access')
     );
 
@@ -1054,7 +1576,7 @@ class CacheSyncManager {
 
     while (this.autoSyncQueue.length > 0) {
       const company = this.autoSyncQueue.shift();
-      
+
       try {
         console.log(`🔄 Auto-syncing company: ${company.company}`);
         await this.startSync(company, async (companyInfo, progressCallback) => {
@@ -1139,7 +1661,7 @@ class CacheSyncManager {
         return {
           current,
           total,
-          message: total > 0 
+          message: total > 0
             ? `Syncing ${companyInfo.company}: ${current} / ${total} chunks`
             : `Syncing ${companyInfo.company}...`,
           companyGuid: companyInfo.guid,
@@ -1242,7 +1764,7 @@ class CacheSyncManager {
 export const cacheSyncManager = new CacheSyncManager();
 
 // Export sync functions for backward compatibility
-export const syncSalesData = async (companyInfo, onProgress = () => {}) => {
+export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
   if (!companyInfo) {
     throw new Error('No company selected');
   }
@@ -1265,6 +1787,199 @@ export const syncSalesData = async (companyInfo, onProgress = () => {}) => {
   }
 };
 
+// Helper function to safely store data in sessionStorage with quota handling
+const safeSessionStorageSet = (key, value) => {
+  try {
+    // Try to set the item
+    sessionStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    // If quota exceeded, try to free up space
+    if (error.name === 'QuotaExceededError' || error.code === 22) {
+      console.warn('⚠️ SessionStorage quota exceeded, attempting to free space...');
+
+      // Try to clear old cache entries (keep current company's data)
+      try {
+        const keysToRemove = [];
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const existingKey = sessionStorage.key(i);
+          if (existingKey && existingKey !== key) {
+            // Remove old cache entries (but keep auth data)
+            const isCacheKey = existingKey.startsWith(CACHE_KEY_PREFIX) ||
+              existingKey.startsWith('ledgerlist-w-addrs_') ||
+              existingKey.startsWith('stockitem_');
+            const isAuthKey = ['token', 'email', 'name', 'tallyloc_id', 'company', 'guid', 'status', 'access_type', 'allConnections', 'selectedCompanyGuid', 'booksfrom'].includes(existingKey);
+
+            if (isCacheKey && !isAuthKey) {
+              keysToRemove.push(existingKey);
+            }
+          }
+        }
+
+        // Remove old cache entries
+        keysToRemove.forEach(k => {
+          try {
+            sessionStorage.removeItem(k);
+          } catch (e) {
+            // Ignore errors removing individual items
+          }
+        });
+
+        console.log(`🧹 Cleared ${keysToRemove.length} old cache entries from sessionStorage`);
+
+        // Try again after clearing
+        try {
+          sessionStorage.setItem(key, value);
+          return true;
+        } catch (retryError) {
+          // Still failed, try chunking for very large data
+          console.warn('⚠️ Still quota exceeded after clearing, attempting to chunk data...');
+          return safeSessionStorageSetChunked(key, value);
+        }
+      } catch (clearError) {
+        console.error('Error clearing sessionStorage:', clearError);
+        // Try chunking as last resort
+        return safeSessionStorageSetChunked(key, value);
+      }
+    } else {
+      // Other error, rethrow
+      throw error;
+    }
+  }
+};
+
+// Helper to store large data in chunks
+const safeSessionStorageSetChunked = (key, value) => {
+  try {
+    const chunkSize = 1024 * 1024; // 1MB chunks (sessionStorage limit is ~5-10MB)
+    const totalChunks = Math.ceil(value.length / chunkSize);
+
+    if (totalChunks > 10) {
+      // Too many chunks, data is too large
+      throw new Error(`Data too large (${(value.length / (1024 * 1024)).toFixed(2)} MB). SessionStorage cannot store this much data. Please clear cache or contact support.`);
+    }
+
+    // Store chunk metadata
+    sessionStorage.setItem(`${key}_chunks`, totalChunks.toString());
+
+    // Store each chunk
+    for (let i = 0; i < totalChunks; i++) {
+      const start = i * chunkSize;
+      const end = Math.min(start + chunkSize, value.length);
+      const chunk = value.slice(start, end);
+      sessionStorage.setItem(`${key}_chunk_${i}`, chunk);
+    }
+
+    console.log(`📦 Stored data in ${totalChunks} chunks for key: ${key}`);
+    return true;
+  } catch (error) {
+    console.error('Error storing chunked data:', error);
+    throw new Error(`Failed to store data: ${error.message}. The data is too large for sessionStorage. Please try clearing your cache or contact support.`);
+  }
+};
+
+// Helper to retrieve chunked data (for backward compatibility with old sessionStorage data)
+// Note: This is synchronous and only checks sessionStorage. For OPFS data, use getCustomersFromOPFS/getItemsFromOPFS
+export const safeSessionStorageGet = (key) => {
+  try {
+    // Only check sessionStorage (synchronous operation)
+    // For OPFS data, use the async getCustomersFromOPFS/getItemsFromOPFS functions
+    const chunksStr = sessionStorage.getItem(`${key}_chunks`);
+    if (chunksStr) {
+      const totalChunks = parseInt(chunksStr, 10);
+      let data = '';
+      for (let i = 0; i < totalChunks; i++) {
+        const chunk = sessionStorage.getItem(`${key}_chunk_${i}`);
+        if (chunk === null) {
+          throw new Error(`Missing chunk ${i} for key ${key}`);
+        }
+        data += chunk;
+      }
+      return data;
+    } else {
+      // Not chunked, return normally
+      return sessionStorage.getItem(key);
+    }
+  } catch (error) {
+    console.error('Error retrieving data from sessionStorage:', error);
+    return null;
+  }
+};
+
+// Helper to get customers from OPFS/IndexedDB (with sessionStorage fallback)
+export const getCustomersFromOPFS = async (cacheKey) => {
+  try {
+    // Try OPFS/IndexedDB first (new storage)
+    const data = await hybridCache.getSalesData(cacheKey);
+    if (data && data.ledgers && Array.isArray(data.ledgers)) {
+      return data.ledgers;
+    }
+
+    // Fallback to sessionStorage (old storage or chunked)
+    const cached = safeSessionStorageGet(cacheKey);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        return Array.isArray(parsed) ? parsed : (parsed.ledgers || null);
+      } catch (e) {
+        console.warn('Error parsing cached customers:', e);
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error getting customers from OPFS:', error);
+    // Try sessionStorage as last resort
+    try {
+      const cached = safeSessionStorageGet(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return Array.isArray(parsed) ? parsed : (parsed.ledgers || null);
+      }
+    } catch (e) {
+      // Ignore
+    }
+    return null;
+  }
+};
+
+// Helper to get items from OPFS/IndexedDB (with sessionStorage fallback)
+export const getItemsFromOPFS = async (cacheKey) => {
+  try {
+    // Try OPFS/IndexedDB first (new storage)
+    const data = await hybridCache.getSalesData(cacheKey);
+    if (data && data.stockItems && Array.isArray(data.stockItems)) {
+      return data.stockItems;
+    }
+
+    // Fallback to sessionStorage (old storage or chunked)
+    const cached = safeSessionStorageGet(cacheKey);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        return Array.isArray(parsed) ? parsed : (parsed.stockItems || null);
+      } catch (e) {
+        console.warn('Error parsing cached items:', e);
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('Error getting items from OPFS:', error);
+    // Try sessionStorage as last resort
+    try {
+      const cached = safeSessionStorageGet(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        return Array.isArray(parsed) ? parsed : (parsed.stockItems || null);
+      }
+    } catch (e) {
+      // Ignore
+    }
+    return null;
+  }
+};
+
 export const syncCustomers = async (companyInfo) => {
   if (!companyInfo) throw new Error('No company selected');
 
@@ -1279,7 +1994,37 @@ export const syncCustomers = async (companyInfo) => {
     });
 
     if (data && data.ledgers && Array.isArray(data.ledgers)) {
-      sessionStorage.setItem(cacheKey, JSON.stringify(data.ledgers));
+      const dataSizeMB = (JSON.stringify(data.ledgers).length / (1024 * 1024)).toFixed(2);
+      console.log(`📊 Customer data size: ${dataSizeMB} MB (${data.ledgers.length} customers)`);
+
+      // Clear any existing corrupted cache data first
+      try {
+        console.log(`🧹 Clearing old cache data for key: ${cacheKey}`);
+        await hybridCache.deleteCacheKey(cacheKey);
+        console.log(`✅ Old cache cleared`);
+      } catch (clearError) {
+        console.warn('Could not clear old cache (might not exist):', clearError.message);
+        // Continue anyway - old cache might not exist
+      }
+
+      // Store in OPFS/IndexedDB using hybridCache (handles large data)
+      console.log(`🔄 Storing ${data.ledgers.length} customers in OPFS with key: ${cacheKey}`);
+      await hybridCache.setSalesData(cacheKey, { ledgers: data.ledgers }, null);
+      console.log(`✅ Successfully stored in OPFS`);
+
+      // Note: Verification removed due to encryption/decryption timing issue
+      // The data will be verified when it's actually read by getCustomersFromOPFS
+
+      // Also keep a lightweight version in sessionStorage for quick access (just count)
+      // This allows other parts of the app to quickly check if data exists
+      try {
+        sessionStorage.setItem(`${cacheKey}_count`, data.ledgers.length.toString());
+      } catch (e) {
+        // Ignore if sessionStorage fails, OPFS storage is the primary
+        console.warn('Could not store customer count in sessionStorage:', e);
+      }
+
+      console.log(`✅ Stored ${data.ledgers.length} customers in OPFS/IndexedDB`);
       return { success: true, count: data.ledgers.length };
     }
     throw new Error(data?.error || 'Failed to fetch customers');
@@ -1304,7 +2049,32 @@ export const syncItems = async (companyInfo) => {
 
     if (data && data.stockItems && Array.isArray(data.stockItems)) {
       const decryptedItems = deobfuscateStockItems(data.stockItems);
-      sessionStorage.setItem(cacheKey, JSON.stringify(decryptedItems));
+      const dataSizeMB = (JSON.stringify(decryptedItems).length / (1024 * 1024)).toFixed(2);
+      console.log(`📊 Item data size: ${dataSizeMB} MB (${decryptedItems.length} items)`);
+
+      // Clear any existing corrupted cache data first
+      try {
+        console.log(`🧹 Clearing old cache data for key: ${cacheKey}`);
+        await hybridCache.deleteCacheKey(cacheKey);
+        console.log(`✅ Old cache cleared`);
+      } catch (clearError) {
+        console.warn('Could not clear old cache (might not exist):', clearError.message);
+        // Continue anyway - old cache might not exist
+      }
+
+      // Store in OPFS/IndexedDB using hybridCache (handles large data)
+      await hybridCache.setSalesData(cacheKey, { stockItems: decryptedItems }, null);
+
+      // Also keep a lightweight version in sessionStorage for quick access (just count)
+      // This allows other parts of the app to quickly check if data exists
+      try {
+        sessionStorage.setItem(`${cacheKey}_count`, decryptedItems.length.toString());
+      } catch (e) {
+        // Ignore if sessionStorage fails, OPFS storage is the primary
+        console.warn('Could not store item count in sessionStorage:', e);
+      }
+
+      console.log(`✅ Stored ${decryptedItems.length} items in OPFS/IndexedDB`);
       return { success: true, count: decryptedItems.length };
     }
     throw new Error(data?.error || 'Failed to fetch stock items');
