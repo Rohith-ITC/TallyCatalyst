@@ -400,7 +400,19 @@ function TallyConfig() {
       const updatedConfigs = companyConfig.configs.map(config => {
         // Match by either config_id or id
         if ((config.config_id === configId) || (config.id === configId)) {
-          return { ...config, [field]: value };
+          const updatedConfig = { ...config, [field]: value };
+          
+          // If updating permission_value, also update config_value to keep them in sync
+          // This ensures both fields are available when reading back
+          if (field === 'permission_value') {
+            updatedConfig.config_value = value;
+          }
+          // If updating config_value, also update permission_value to keep them in sync
+          else if (field === 'config_value') {
+            updatedConfig.permission_value = value;
+          }
+          
+          return updatedConfig;
         }
         return config;
       });
@@ -525,12 +537,25 @@ function TallyConfig() {
         tallyloc_id: companyConfig.tallyloc_id,
         co_guid: companyConfig.co_guid,
         co_name: companyConfig.co_name,
-        configurations: updatedConfigs.map(config => ({
-          config_id: config.config_id || config.id,
-          is_enabled: config.is_enabled === true || config.is_enabled === 1,
-          permission_value: config.permission_value || config.config_value || ''
-        }))
+        configurations: updatedConfigs.map(config => {
+          // Get the value - prioritize permission_value, fallback to config_value
+          const value = config.permission_value || config.config_value || '';
+          
+          return {
+            config_id: config.config_id || config.id,
+            is_enabled: config.is_enabled === true || config.is_enabled === 1,
+            permission_value: value,
+            config_value: value // Also send config_value to ensure backend compatibility
+          };
+        })
       };
+
+      console.log('💾 Auto-saving Link Account configurations:', {
+        tallyloc_id: payload.tallyloc_id,
+        co_guid: payload.co_guid,
+        googleToken: updatedConfigs.find(c => c.config_key === 'google_token')?.permission_value ? '***' + updatedConfigs.find(c => c.config_key === 'google_token')?.permission_value.substring(updatedConfigs.find(c => c.config_key === 'google_token')?.permission_value.length - 10) : 'not set',
+        googleEmail: updatedConfigs.find(c => c.config_key === 'google_email')?.permission_value || 'not set'
+      });
 
       const data = await apiPost('/api/cmpconfig/update', payload);
       if (data && data.success) {
@@ -736,12 +761,25 @@ function TallyConfig() {
         tallyloc_id: companyConfig.tallyloc_id,
         co_guid: companyConfig.co_guid,
         co_name: companyConfig.co_name,
-        configurations: companyConfig.configs.map(config => ({
-          config_id: config.config_id || config.id, // Map id to config_id for API
-          is_enabled: config.is_enabled === true || config.is_enabled === 1, // Convert to boolean
-          permission_value: config.permission_value || config.config_value || ''
-        }))
+        configurations: companyConfig.configs.map(config => {
+          // Get the value - prioritize permission_value, fallback to config_value
+          const value = config.permission_value || config.config_value || '';
+          
+          return {
+            config_id: config.config_id || config.id, // Map id to config_id for API
+            is_enabled: config.is_enabled === true || config.is_enabled === 1, // Convert to boolean
+            permission_value: value,
+            config_value: value // Also send config_value to ensure backend compatibility
+          };
+        })
       };
+
+      console.log('💾 Saving configurations:', {
+        tallyloc_id: payload.tallyloc_id,
+        co_guid: payload.co_guid,
+        configsCount: payload.configurations.length,
+        googleTokenConfig: payload.configurations.find(c => c.config_id === (companyConfig.configs.find(cc => cc.config_key === 'google_token')?.config_id || companyConfig.configs.find(cc => cc.config_key === 'google_token')?.id))
+      });
 
       const data = await apiPost('/api/cmpconfig/update', payload);
       

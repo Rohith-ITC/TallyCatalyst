@@ -939,6 +939,19 @@ const CacheManagement = () => {
     } catch (error) {
       console.error('Error viewing cache as JSON:', error);
 
+      // Check if file was auto-deleted due to corruption
+      if (error.message && error.message.includes('automatically deleted')) {
+        // Show as info message, not error - the system handled it correctly
+        setMessage({ 
+          type: 'info', 
+          text: `✅ Corrupted cache file automatically deleted.\n\n` +
+            `The cache file was corrupted (likely from an old write method) and has been automatically removed.\n\n` +
+            `Please re-sync/download the data to create a new cache file. The new file will use the improved storage method.`
+        });
+        setViewingJsonCache(null);
+        return;
+      }
+
       // Provide user-friendly error message with actionable guidance
       let errorMessage = 'Failed to load cache data: ' + error.message;
 
