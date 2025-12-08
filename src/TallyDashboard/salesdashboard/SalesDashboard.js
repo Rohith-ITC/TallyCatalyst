@@ -25,8 +25,6 @@ import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
 import { syncSalesData, cacheSyncManager } from '../../utils/cacheSyncManager';
 
 const SalesDashboard = ({ onNavigationAttempt }) => {
-  const RAW_DATA_PAGE_SIZE = 20;
-
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   
@@ -86,6 +84,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [topCustomersN, setTopCustomersN] = useState(10);
   const [topItemsByRevenueN, setTopItemsByRevenueN] = useState(10);
   const [topItemsByQuantityN, setTopItemsByQuantityN] = useState(10);
+  const [topCustomersNInput, setTopCustomersNInput] = useState('10');
+  const [topItemsByRevenueNInput, setTopItemsByRevenueNInput] = useState('10');
+  const [topItemsByQuantityNInput, setTopItemsByQuantityNInput] = useState('10');
   const [revenueVsProfitChartType, setRevenueVsProfitChartType] = useState('bar');
   const [topProfitableItemsChartType, setTopProfitableItemsChartType] = useState('bar');
   const [topLossItemsChartType, setTopLossItemsChartType] = useState('bar');
@@ -103,6 +104,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [rawDataModal, setRawDataModal] = useState({ open: false, title: '', rows: [], columns: [] });
   const [rawDataSearch, setRawDataSearch] = useState('');
   const [rawDataPage, setRawDataPage] = useState(1);
+  const [rawDataPageSize, setRawDataPageSize] = useState(20);
+  const [rawDataPageInput, setRawDataPageInput] = useState('1');
+  const [rawDataPageSizeInput, setRawDataPageSizeInput] = useState('20');
   
   // Bill drilldown modal state
   const [showDrilldown, setShowDrilldown] = useState(false);
@@ -129,6 +133,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [showCalendarModal, setShowCalendarModal] = useState(false);
   const [tempFromDate, setTempFromDate] = useState('');
   const [tempToDate, setTempToDate] = useState('');
+  const [tempFromDateDisplay, setTempFromDateDisplay] = useState('');
+  const [tempToDateDisplay, setTempToDateDisplay] = useState('');
   const [booksFromDate, setBooksFromDate] = useState('');
 
   // Download dropdown state
@@ -290,7 +296,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         const companyInfo = getCompanyInfo();
         const booksFrom = await fetchBooksFromDate(companyInfo.guid);
         if (booksFrom) {
+          // Ensure the date is in YYYY-MM-DD format for the date input
+          const parsedDate = parseDateFromNewFormat(booksFrom);
+          if (parsedDate) {
+            setBooksFromDate(parsedDate);
+          } else {
+            // If parsing fails, try to use as-is if it's already in YYYY-MM-DD format
+            if (/^\d{4}-\d{2}-\d{2}$/.test(booksFrom)) {
           setBooksFromDate(booksFrom);
+            } else {
+              console.warn('Unable to parse booksFrom date:', booksFrom);
+            }
+          }
         }
       } catch (err) {
         console.warn('Unable to get booksFrom date:', err);
@@ -380,30 +397,63 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     // Parse dates from format like "1-Jun-25" to "2025-06-01"
     if (!dateString) return null;
     
+    // Convert to string if not already
+    const dateStr = String(dateString).trim();
+    
     // If already in YYYY-MM-DD format, return as is
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
-      return dateString;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return dateStr;
     }
     
     // If in YYYYMMDD format, use existing parser
-    if (/^\d{8}$/.test(dateString)) {
-      return parseDateFromAPI(dateString);
+    if (/^\d{8}$/.test(dateStr)) {
+      return parseDateFromAPI(dateStr);
     }
     
     try {
-      // Parse format like "1-Jun-25" or "15-Jul-25"
-      const parts = dateString.split('-');
+      // Parse format like "1-Jun-25" or "15-Jul-25" or "1-Jun-2025"
+      // Handle both 2-digit and 4-digit years
+      const parts = dateStr.split('-');
       if (parts.length === 3) {
         const day = parseInt(parts[0], 10);
+        if (isNaN(day)) {
+          console.warn('Invalid day in date:', dateStr);
+          return null;
+        }
+        
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         const monthIndex = monthNames.findIndex(m => m.toLowerCase() === parts[1].toLowerCase());
         if (monthIndex === -1) {
-          console.warn('Unknown month in date:', dateString);
+          console.warn('Unknown month in date:', dateStr);
           return null;
         }
-        const year = parseInt(parts[2], 10);
-        // Assume years < 50 are 20XX, >= 50 are 19XX
-        const fullYear = year < 50 ? 2000 + year : 1900 + year;
+        
+        const yearStr = parts[2].trim();
+        let fullYear;
+        
+        // Check if year is 4 digits
+        if (yearStr.length === 4) {
+          fullYear = parseInt(yearStr, 10);
+        } else {
+          // 2-digit year: assume years < 50 are 20XX, >= 50 are 19XX
+          const year = parseInt(yearStr, 10);
+          if (isNaN(year)) {
+            console.warn('Invalid year in date:', dateStr);
+            return null;
+          }
+          fullYear = year < 50 ? 2000 + year : 1900 + year;
+          
+          // Debug logging for date parsing
+          if (yearStr === '25' || yearStr === '24') {
+            console.log('📅 Date parsing:', {
+              originalDate: dateStr,
+              yearStr,
+              parsedYear: year,
+              fullYear,
+              rule: year < 50 ? '2000 + year' : '1900 + year'
+            });
+          }
+        }
         
         const month = String(monthIndex + 1).padStart(2, '0');
         const dayStr = String(day).padStart(2, '0');
@@ -411,7 +461,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         return `${fullYear}-${month}-${dayStr}`;
       }
     } catch (error) {
-      console.warn('Error parsing date:', dateString, error);
+      console.warn('Error parsing date:', dateStr, error);
     }
     
     return null;
@@ -604,7 +654,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         // Filter vouchers by date range
         const filteredVouchers = completeCache.data.vouchers.filter(voucher => {
           const voucherDate = voucher.cp_date || voucher.date || voucher.DATE || voucher.CP_DATE;
-          if (!voucherDate) return false;
+          if (!voucherDate) {
+            console.warn('⚠️ Voucher missing date:', voucher);
+            return false;
+          }
           
           // Parse date - handle different formats using existing helper function
           let dateStr = parseDateFromNewFormat(voucherDate);
@@ -613,22 +666,76 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             if (/^\d{8}$/.test(voucherDate)) {
               dateStr = parseDateFromAPI(voucherDate);
             } else {
-              // Try direct parsing
+              // If still not parsed, try to use as-is if it's already in YYYY-MM-DD format
+              if (/^\d{4}-\d{2}-\d{2}$/.test(voucherDate)) {
               dateStr = voucherDate;
+              } else {
+                console.warn('⚠️ Unable to parse voucher date:', voucherDate, 'from voucher:', voucher);
+              }
             }
           }
           
-          if (!dateStr) return false;
-          
-          // Ensure dateStr is in YYYY-MM-DD format for comparison
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          if (!dateStr) {
+            console.warn('⚠️ No date string after parsing:', voucherDate);
             return false;
           }
           
-          return dateStr >= startDate && dateStr <= endDate;
+          // Ensure dateStr is in YYYY-MM-DD format for comparison
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+            console.warn('⚠️ Date not in YYYY-MM-DD format:', dateStr, 'from original:', voucherDate);
+            return false;
+          }
+          
+          const inRange = dateStr >= startDate && dateStr <= endDate;
+          
+          // Enhanced debugging for first few vouchers
+          if (completeCache.data.vouchers.indexOf(voucher) < 10) {
+            console.log('📅 Date parsing debug:', {
+              originalVoucherDate: voucherDate,
+              parsedDate: dateStr,
+              startDate,
+              endDate,
+              inRange,
+              comparison: `${dateStr} >= ${startDate} && ${dateStr} <= ${endDate}`
+            });
+          }
+          
+          return inRange;
         });
         
-        console.log(`✅ Filtered ${filteredVouchers.length} vouchers from complete cache for date range ${startDate} to ${endDate}`);
+        // Log sample dates from first few vouchers to understand date formats
+        const sampleDates = completeCache.data.vouchers.slice(0, 10).map(v => ({
+          original: v.cp_date || v.date || v.DATE || v.CP_DATE,
+          parsed: parseDateFromNewFormat(v.cp_date || v.date || v.DATE || v.CP_DATE)
+        }));
+        
+        console.log(`✅ Filtered ${filteredVouchers.length} vouchers from complete cache for date range ${startDate} to ${endDate}`, {
+          totalVouchers: completeCache.data.vouchers.length,
+          filteredCount: filteredVouchers.length,
+          startDate,
+          endDate,
+          sampleDates,
+          sampleFilteredVoucher: filteredVouchers[0],
+          sampleOriginalVoucher: completeCache.data.vouchers[0]
+        });
+        
+        // If no vouchers match the date range, check if we should return all cached data
+        // or return empty (current behavior - return empty to maintain date filtering)
+        if (filteredVouchers.length === 0 && completeCache.data.vouchers.length > 0) {
+          // Find the actual date range in cache
+          const cacheDates = completeCache.data.vouchers
+            .map(v => {
+              const d = v.cp_date || v.date || v.DATE || v.CP_DATE;
+              return d ? parseDateFromNewFormat(d) : null;
+            })
+            .filter(d => d && /^\d{4}-\d{2}-\d{2}$/.test(d))
+            .sort();
+          
+          const cacheStartDate = cacheDates[0];
+          const cacheEndDate = cacheDates[cacheDates.length - 1];
+          
+          console.warn(`⚠️ No vouchers found in cache for date range ${startDate} to ${endDate}. Cache contains data from ${cacheStartDate} to ${cacheEndDate}. Returning empty result.`);
+        }
         
         // Return filtered data from cache with timestamp - don't proceed to API calls
         return {
@@ -1105,13 +1212,22 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       
       // Fetch data for the entire date range from cache
       console.log('📥 Loading sales data from cache for date range:', startDate, 'to', endDate);
+      console.log('📥 Date range format check:', {
+        startDate,
+        endDate,
+        startDateType: typeof startDate,
+        endDateType: typeof endDate,
+        startDateMatch: /^\d{4}-\d{2}-\d{2}$/.test(startDate),
+        endDateMatch: /^\d{4}-\d{2}-\d{2}$/.test(endDate)
+      });
       const response = await fetchSalesData(startDate, endDate);
       console.log('📦 Response from fetchSalesData:', {
         hasResponse: !!response,
         hasData: !!response?.data,
         voucherCount: response?.data?.vouchers?.length || 0,
         cacheTimestamp: response?.cacheTimestamp,
-        sampleVoucher: response?.data?.vouchers?.[0]
+        sampleVoucher: response?.data?.vouchers?.[0],
+        sampleVoucherDate: response?.data?.vouchers?.[0]?.cp_date || response?.data?.vouchers?.[0]?.date || response?.data?.vouchers?.[0]?.DATE || response?.data?.vouchers?.[0]?.CP_DATE
       });
       
       // Handle both old format (direct data) and new format (wrapped with data and cacheTimestamp)
@@ -1289,17 +1405,46 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       // Transform nested response structure (vouchers -> ledgers -> inventry) into flat sale records
       const transformedSales = [];
       
-      // Filter vouchers to only include sales-related vouchers
+      // Filter vouchers to only include sales-related vouchers (support both old and new field names)
+      // Only include vouchers where:
+      // 1. reservedname = "Sales" or "Credit Note"
+      // 2. isoptional = "No"
+      // 3. iscancelled = "No"
+      // 4. Must have at least one ledger entry with ispartyledger = "Yes"
       const salesVouchers = allVouchers.filter(voucher => {
-        const vchtype = (voucher.vchtype || '').toLowerCase();
-        const reservedname = (voucher.reservedname || '').toLowerCase();
-        return vchtype.includes('sales') || reservedname === 'sales';
+        const reservedname = (voucher.reservedname || '').toLowerCase().trim();
+        const isoptional = (voucher.isoptional || voucher.isOptional || '').toString().toLowerCase().trim();
+        const iscancelled = (voucher.iscancelled || voucher.isCancelled || '').toString().toLowerCase().trim();
+        
+        // Check reservedname is "Sales" or "Credit Note"
+        const reservednameMatch = reservedname === 'sales' || reservedname === 'credit note';
+        
+        // Check isoptional is "No"
+        const isoptionalMatch = isoptional === 'no';
+        
+        // Check iscancelled is "No"
+        const iscancelledMatch = iscancelled === 'no';
+        
+        // Check if voucher has at least one ledger entry with ispartyledger = "Yes"
+        const ledgerEntries = voucher.ledgerentries || voucher.ledgers || [];
+        const hasPartyLedger = Array.isArray(ledgerEntries) && ledgerEntries.some(ledger => {
+          const ispartyledger = (ledger.ispartyledger || ledger.isPartyLedger || '').toString().toLowerCase().trim();
+          return ispartyledger === 'yes';
+        });
+        
+        return reservednameMatch && isoptionalMatch && iscancelledMatch && hasPartyLedger;
       });
       
       console.log('📊 Filtered sales vouchers:', {
         totalVouchers: allVouchers.length,
         salesVouchers: salesVouchers.length,
-        nonSalesVouchers: allVouchers.length - salesVouchers.length
+        nonSalesVouchers: allVouchers.length - salesVouchers.length,
+        filterCriteria: {
+          reservedname: 'Sales or Credit Note',
+          isoptional: 'No',
+          iscancelled: 'No',
+          ispartyledger: 'Yes (in ledger entries)'
+        }
       });
       
       // Extract salesperson from voucher (if available) or use formula
@@ -1371,11 +1516,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         let totalRoundoff = 0;
         let totalSalesAmount = 0;
         
-        // Extract tax information from ledgers
-        if (voucher.ledgers && Array.isArray(voucher.ledgers)) {
-          voucher.ledgers.forEach(ledger => {
-            const ledgerName = (ledger.ledger || '').toLowerCase();
-            const ledgerAmt = parseAmount(ledger.amt);
+        // Extract tax information from ledgers (support both old and new field names)
+        // Also extract ledger group from ledger entries where ispartyledger = "Yes"
+        const ledgerEntries = voucher.ledgerentries || voucher.ledgers || [];
+        let voucherLedgerGroup = 'Other'; // Default ledger group for the voucher
+        if (Array.isArray(ledgerEntries)) {
+          ledgerEntries.forEach(ledger => {
+            const ledgerName = (ledger.ledgername || ledger.ledger || '').toLowerCase();
+            const ledgerAmt = parseAmount(ledger.amount || ledger.amt);
+            
+            // Extract ledger group from ledger entries where ispartyledger = "Yes"
+            const ispartyledger = (ledger.ispartyledger || ledger.isPartyLedger || '').toString().toLowerCase().trim();
+            if (ispartyledger === 'yes' && ledger.group) {
+              voucherLedgerGroup = ledger.group;
+            }
             
             // Extract tax information from tax ledgers
             if (ledgerName.includes('cgst')) {
@@ -1388,17 +1542,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           });
         }
         
-        // Calculate total sales amount from inventory items
-        if (voucher.inventry && Array.isArray(voucher.inventry)) {
-          voucher.inventry.forEach(inventoryItem => {
-            const itemAmount = parseAmount(inventoryItem.amt);
+        // Calculate total sales amount from inventory items (support both old and new field names)
+        const inventoryEntries = voucher.allinventoryentries || voucher.inventry || [];
+        if (Array.isArray(inventoryEntries)) {
+          inventoryEntries.forEach(inventoryItem => {
+            const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt);
             totalSalesAmount += itemAmount;
           });
         }
         
-        // Process inventory items directly from voucher.inventry
-        if (voucher.inventry && Array.isArray(voucher.inventry) && voucher.inventry.length > 0) {
-          voucher.inventry.forEach((inventoryItem) => {
+        // Process inventory items directly from voucher (support both old and new field names)
+        const inventoryItems = voucher.allinventoryentries || voucher.inventry || [];
+        if (Array.isArray(inventoryItems) && inventoryItems.length > 0) {
+          inventoryItems.forEach((inventoryItem) => {
             // Parse quantity
             const parseQuantity = (qtyStr) => {
               if (!qtyStr) return 0;
@@ -1406,34 +1562,39 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               return parseInt(cleaned, 10) || 0;
             };
             
-            const itemAmount = parseAmount(inventoryItem.amt);
+            const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt);
             // Calculate proportional taxes based on item amount vs total sales amount
             const taxRatio = totalSalesAmount > 0 ? itemAmount / totalSalesAmount : 0;
             const itemCgst = totalCgst * taxRatio;
             const itemSgst = totalSgst * taxRatio;
             const itemRoundoff = totalRoundoff * taxRatio;
             
-            // Get ledger group from accalloc (account allocation) if available
-            let ledgerGroup = 'Other';
-            if (inventoryItem.accalloc && Array.isArray(inventoryItem.accalloc) && inventoryItem.accalloc.length > 0) {
+            // Get ledger group from ledger entries where ispartyledger = "Yes" (preferred)
+            // Fallback to accalloc (account allocation) if ledger group not found in ledger entries
+            let ledgerGroup = voucherLedgerGroup; // Use the ledger group extracted from ledger entries
+            if (ledgerGroup === 'Other' && inventoryItem.accalloc && Array.isArray(inventoryItem.accalloc) && inventoryItem.accalloc.length > 0) {
               const accountAlloc = inventoryItem.accalloc[0]; // Usually first allocation
               ledgerGroup = accountAlloc.ledgergroupidentify || accountAlloc.group || accountAlloc.grouplist?.split('|')[0] || 'Other';
             }
             
+            // Support both old and new field names for category/stock group
+            const stockGroup = inventoryItem.stockitemgroup || inventoryItem.group || inventoryItem.stockitemgrouplist?.split('|')[0] || inventoryItem.grouplist?.split('|')[0] || 'Other';
+            const stockCategory = inventoryItem.stockitemcategory || inventoryItem.stockitemcategorylist?.split('|')[0] || stockGroup;
+            
             const saleRecord = {
-              // Item-level fields
-              category: inventoryItem.group || inventoryItem.grouplist?.split('|')[0] || 'Other',
-              item: inventoryItem.item || 'Unknown',
-              quantity: parseQuantity(inventoryItem.qty),
+              // Item-level fields (support both old and new field names)
+              category: stockCategory,
+              item: inventoryItem.stockitemname || inventoryItem.item || 'Unknown',
+              quantity: parseQuantity(inventoryItem.billedqty || inventoryItem.qty || inventoryItem.actualqty),
               amount: itemAmount,
               profit: parseAmount(inventoryItem.profit) || 0,
               
-              // Voucher-level fields
-              customer: voucher.party || 'Unknown',
+              // Voucher-level fields (support both old and new field names)
+              customer: voucher.partyledgername || voucher.party || 'Unknown',
               date: voucherDate,
               cp_date: voucherDate, // Use same date for cp_date
-              vchno: voucher.vchno || '',
-              masterid: voucher.mstid || voucher.masterid || '',
+              vchno: voucher.vouchernumber || voucher.vchno || '',
+              masterid: voucher.masterid || voucher.mstid || '',
               region: voucherState,
               country: voucherCountry,
               salesperson: voucherSalesperson,
@@ -1446,16 +1607,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               sgst: itemSgst,
               roundoff: itemRoundoff,
               
-              // Additional voucher fields
+              // Additional voucher fields (support both old and new field names)
               alterid: voucher.alterid,
-              partyid: voucher.partyid,
-              gstno: voucher.gstno || '',
+              partyid: voucher.partyledgernameid || voucher.partyid,
+              gstno: voucher.partygstin || voucher.gstno || '',
               pincode: voucher.pincode || '',
               reference: voucher.reference || '',
-              vchtype: voucher.vchtype || '',
+              vchtype: voucher.vouchertypename || voucher.vchtype || '',
               
-              // Additional inventory fields
-              itemid: inventoryItem.itemid || '',
+              // Additional inventory fields (support both old and new field names)
+              itemid: inventoryItem.stockitemnameid || inventoryItem.itemid || '',
               uom: inventoryItem.uom || '',
               grosscost: parseAmount(inventoryItem.grosscost) || 0,
               grossexpense: parseAmount(inventoryItem.grossexpense) || 0,
@@ -1465,8 +1626,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               
               // Include all other fields from voucher for custom card creation
               ...Object.keys(voucher).reduce((acc, key) => {
-                // Only add fields that aren't already mapped above
-                const mappedKeys = ['mstid', 'alterid', 'vchno', 'date', 'party', 'partyid', 'state', 'country', 'amt', 'vchtype', 'reservedname', 'gstno', 'pincode', 'reference', 'ledgers', 'inventry', 'salesprsn', 'SalesPrsn', 'SALESPRSN', 'salesperson', 'SalesPerson', 'salespersonname', 'SalesPersonName', 'sales_person', 'SALES_PERSON', 'sales_person_name', 'SALES_PERSON_NAME', 'SALESPERSONNAME'];
+                // Only add fields that aren't already mapped above (support both old and new field names)
+                const mappedKeys = ['mstid', 'masterid', 'alterid', 'vchno', 'vouchernumber', 'date', 'party', 'partyledgername', 'partyid', 'partyledgernameid', 'state', 'country', 'amt', 'amount', 'vchtype', 'vouchertypename', 'reservedname', 'gstno', 'partygstin', 'pincode', 'reference', 'ledgers', 'ledgerentries', 'inventry', 'allinventoryentries', 'salesprsn', 'SalesPrsn', 'SALESPRSN', 'salesperson', 'SalesPerson', 'salespersonname', 'SalesPersonName', 'sales_person', 'SALES_PERSON', 'sales_person_name', 'SALES_PERSON_NAME', 'SALESPERSONNAME'];
                 if (!mappedKeys.includes(key) && !key.toLowerCase().includes('sales') && !key.toLowerCase().includes('person') && !key.toLowerCase().includes('prsn')) {
                   acc[key] = voucher[key];
                 }
@@ -1643,19 +1804,68 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     }
   };
 
+  // Helper function to format date for input display (YYYY-MM-DD to DD-MMM-YY)
+  const formatDateForInput = (dateStr) => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        // Try parsing with parseDateFromNewFormat if it's already in DD-MMM-YY format
+        const parsed = parseDateFromNewFormat(dateStr);
+        if (parsed) {
+          const dateObj = new Date(parsed);
+          if (!isNaN(dateObj.getTime())) {
+            const day = String(dateObj.getDate());
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const month = monthNames[dateObj.getMonth()];
+            const year = String(dateObj.getFullYear()).slice(-2);
+            return `${day}-${month}-${year}`;
+          }
+        }
+        return dateStr; // Return as-is if can't parse
+      }
+      const day = String(date.getDate());
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const month = monthNames[date.getMonth()];
+      const year = String(date.getFullYear()).slice(-2);
+      return `${day}-${month}-${year}`;
+    } catch (e) {
+      return dateStr;
+    }
+  };
+
   // Calendar modal handlers
   const handleOpenCalendar = () => {
     setTempFromDate(fromDate);
     setTempToDate(toDate);
+    // Format dates for display in input fields
+    setTempFromDateDisplay(formatDateForInput(fromDate));
+    setTempToDateDisplay(formatDateForInput(toDate));
     setShowCalendarModal(true);
   };
 
   const handleApplyDates = () => {
-    setFromDate(tempFromDate);
-    setToDate(tempToDate);
+    // Parse the display format back to YYYY-MM-DD
+    const parsedFromDate = parseDateFromNewFormat(tempFromDateDisplay) || tempFromDateDisplay;
+    const parsedToDate = parseDateFromNewFormat(tempToDateDisplay) || tempToDateDisplay;
+    
+    // Validate that dates are in YYYY-MM-DD format
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(parsedFromDate)) {
+      alert('Invalid From Date format. Please use format like "1-Apr-25" or "15-Jan-24"');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(parsedToDate)) {
+      alert('Invalid To Date format. Please use format like "1-Apr-25" or "15-Jan-24"');
+      return;
+    }
+    
+    setFromDate(parsedFromDate);
+    setToDate(parsedToDate);
+    setTempFromDate(parsedFromDate);
+    setTempToDate(parsedToDate);
     setShowCalendarModal(false);
     // Directly submit the form
-    loadSales(tempFromDate, tempToDate, { invalidateCache: true });
+    loadSales(parsedFromDate, parsedToDate, { invalidateCache: true });
   };
 
   const handleCancelDates = () => {
@@ -3267,9 +3477,46 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
     // Apply filters from card config
     let filteredData = [...salesData];
+    const initialCount = filteredData.length;
 
     // Apply custom card filters (if specified)
+    // Filters can be either:
+    // 1. An array of filter objects: [{ filterField: 'customer', filterValues: ['Customer1', 'Customer2'] }, ...]
+    // 2. A single filter object with individual properties: { customer: 'Customer1', item: 'Item1', ... }
     if (cardConfig.filters) {
+      console.log('🔍 Applying custom card filters:', {
+        filters: cardConfig.filters,
+        filtersType: Array.isArray(cardConfig.filters) ? 'array' : typeof cardConfig.filters,
+        initialDataCount: initialCount
+      });
+      // Handle array of filters (new format from CustomCardModal)
+      if (Array.isArray(cardConfig.filters) && cardConfig.filters.length > 0) {
+        cardConfig.filters.forEach((filter, filterIndex) => {
+          if (filter.filterField && filter.filterValues && filter.filterValues.length > 0) {
+            const filterFieldName = filter.filterField;
+            const filterValuesSet = new Set(filter.filterValues.map(v => String(v).trim().toLowerCase()));
+            const beforeCount = filteredData.length;
+            filteredData = filteredData.filter(s => {
+              // Use case-insensitive field access
+              const fieldValue = getFieldValue(s, filterFieldName);
+              if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+                return false;
+              }
+              const normalizedValue = String(fieldValue).trim().toLowerCase();
+              return filterValuesSet.has(normalizedValue);
+            });
+            console.log(`✅ Applied filter ${filterIndex + 1}: ${filterFieldName} = [${filter.filterValues.join(', ')}]`, {
+              beforeCount,
+              afterCount: filteredData.length,
+              filteredOut: beforeCount - filteredData.length
+            });
+          } else {
+            console.warn(`⚠️ Filter ${filterIndex + 1} is invalid:`, filter);
+          }
+        });
+      } 
+      // Handle legacy single filter object format (for backward compatibility)
+      else if (typeof cardConfig.filters === 'object' && !Array.isArray(cardConfig.filters)) {
       if (cardConfig.filters.customer && cardConfig.filters.customer !== 'all') {
         filteredData = filteredData.filter(s => s.customer && String(s.customer).trim().toLowerCase() === String(cardConfig.filters.customer).trim().toLowerCase());
       }
@@ -3296,7 +3543,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           return salePeriod === cardConfig.filters.period;
         });
       }
-      // Handle generic filter field and values
+        // Handle generic filter field and values (legacy format)
       if (cardConfig.filters.filterField && cardConfig.filters.filterValues && cardConfig.filters.filterValues.length > 0) {
         const filterFieldName = cardConfig.filters.filterField;
         const filterValuesSet = new Set(cardConfig.filters.filterValues.map(v => String(v).trim().toLowerCase()));
@@ -3309,8 +3556,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           const normalizedValue = String(fieldValue).trim().toLowerCase();
           return filterValuesSet.has(normalizedValue);
         });
+        }
       }
     }
+
+    console.log('📊 Custom card data filtering complete:', {
+      initialCount,
+      finalCount: filteredData.length,
+      filteredOut: initialCount - filteredData.length,
+      cardTitle: cardConfig.title
+    });
 
     // Group data by selected field
     const grouped = {};
@@ -3792,11 +4047,25 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // All data is already available from the initial loadSales() call
   const openTransactionRawData = useCallback((title, predicate) => {
     // Filter the already-loaded sales data - no API call needed
+    // filteredSales already has all dashboard filters applied (date range, customer, item, region, country, period, salesperson, etc.)
+    // The predicate adds additional filtering for the specific chart entry clicked (e.g., specific customer, item, etc.)
     const filtered = filteredSales.filter(predicate);
     console.log('🔍 openTransactionRawData (using existing data, no API call):', {
       title,
       totalFilteredSales: filteredSales.length,
       filteredCount: filtered.length,
+      dashboardFilters: {
+        dateRange,
+        selectedCustomer,
+        selectedItem,
+        selectedStockGroup,
+        selectedLedgerGroup,
+        selectedRegion,
+        selectedCountry,
+        selectedPeriod,
+        selectedSalesperson,
+        enabledSalespersonsSize: enabledSalespersons.size
+      },
       sampleSale: filteredSales[0],
       sampleFiltered: filtered[0]
     });
@@ -3810,7 +4079,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     });
     setRawDataSearch('');
     setRawDataPage(1);
-  }, [buildTransactionRows, filteredSales, transactionColumns]);
+  }, [buildTransactionRows, filteredSales, transactionColumns, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedLedgerGroup, selectedRegion, selectedCountry, selectedPeriod, selectedSalesperson, enabledSalespersons]);
 
   // NOTE: fetchBillDrilldown is no longer needed - we use existing sales data
   // DISABLED: API calls removed - sales dashboard uses cache only
@@ -4163,11 +4432,28 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   }, []);
 
   // Handle voucher row click - use existing sales data
-  const handleVoucherRowClick = useCallback((masterId) => {
+  const handleVoucherRowClick = useCallback(async (masterId) => {
     if (!masterId) return;
 
     // Find the voucher in existing sales data by masterid
     const voucher = sales.find(s => s.masterid === masterId || String(s.masterid) === String(masterId));
+    
+    // Try to get the original voucher from cache to access ledgerentries
+    let originalVoucher = null;
+    try {
+      const companyInfo = getCompanyInfo();
+      if (companyInfo && companyInfo.guid && companyInfo.tallyloc_id) {
+        const completeCache = await hybridCache.getCompleteSalesData(companyInfo.guid, companyInfo.tallyloc_id);
+        if (completeCache && completeCache.data && completeCache.data.vouchers) {
+          originalVoucher = completeCache.data.vouchers.find(v => 
+            (v.masterid === masterId || String(v.masterid) === String(masterId)) ||
+            (v.mstid === masterId || String(v.mstid) === String(masterId))
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('Could not fetch original voucher from cache:', err);
+    }
     
     if (voucher) {
       // Find all items in this voucher (same masterid and vchno)
@@ -4215,6 +4501,110 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         extractedNarration: narration
       });
 
+      // Helper function to parse amount (same as used in loadSales)
+      const parseAmount = (amountStr) => {
+        if (!amountStr) return 0;
+        if (typeof amountStr === 'number') return amountStr;
+        const cleaned = String(amountStr).replace(/[^\d.-]/g, '');
+        const parsed = parseFloat(cleaned);
+        return isNaN(parsed) ? 0 : parsed;
+      };
+      
+      // Get the original voucher from cache if available (for ledger entries)
+      // Try to find the original voucher object that has ledgerentries
+      // We need to get the original voucher from the raw vouchers array, not from transformed sales
+      // For now, we'll use the voucher object but check if we can access the original voucher data
+      // The voucher object in sales array doesn't have the full structure, so we'll construct it
+      
+      // Get ledger entries from original voucher if available
+      const originalLedgerEntries = originalVoucher ? (originalVoucher.ledgerentries || originalVoucher.ledgers || []) : [];
+      
+      // Transform ledger entries to match expected format
+      const transformedLedgerEntries = originalLedgerEntries.length > 0 ? originalLedgerEntries.map(ledger => ({
+        LEDGERNAME: ledger.ledgername || ledger.ledger || ledger.LEDGERNAME || ledger.NAME || 'Unknown',
+        ledgername: ledger.ledgername || ledger.ledger || ledger.LEDGERNAME || ledger.NAME || 'Unknown',
+        DEBITAMT: ledger.debitamt || ledger.DEBITAMT || (parseAmount(ledger.amount || ledger.AMOUNT) > 0 ? parseAmount(ledger.amount || ledger.AMOUNT) : 0),
+        debitamt: ledger.debitamt || ledger.DEBITAMT || (parseAmount(ledger.amount || ledger.AMOUNT) > 0 ? parseAmount(ledger.amount || ledger.AMOUNT) : 0),
+        CREDITAMT: ledger.creditamt || ledger.CREDITAMT || (parseAmount(ledger.amount || ledger.AMOUNT) < 0 ? Math.abs(parseAmount(ledger.amount || ledger.AMOUNT)) : 0),
+        creditamt: ledger.creditamt || ledger.CREDITAMT || (parseAmount(ledger.amount || ledger.AMOUNT) < 0 ? Math.abs(parseAmount(ledger.amount || ledger.AMOUNT)) : 0),
+        amount: parseAmount(ledger.amount || ledger.AMOUNT),
+        ISPARTYLEDGER: ledger.ispartyledger || ledger.ISPARTYLEDGER || 'No',
+        ispartyledger: ledger.ispartyledger || ledger.ISPARTYLEDGER || 'No',
+        BILLALLOCATIONS: ledger.billalloc || ledger.billallocations || ledger.BILLALLOCATIONS || [],
+        billalloc: ledger.billalloc || ledger.billallocations || ledger.BILLALLOCATIONS || []
+      })) : [
+        // Fallback: Customer ledger entry (debit for sales) with bill allocation
+            {
+              LEDGERNAME: voucher.customer || 'Unknown',
+          ledgername: voucher.customer || 'Unknown',
+              DEBITAMT: voucher.issales ? totalAmount : 0,
+          debitamt: voucher.issales ? totalAmount : 0,
+              CREDITAMT: 0,
+          creditamt: 0,
+          amount: voucher.issales ? totalAmount : 0,
+          ISPARTYLEDGER: 'Yes',
+          ispartyledger: 'Yes',
+              BILLALLOCATIONS: voucher.issales ? [{
+                BILLNAME: voucher.vchno || '',
+            billname: voucher.vchno || '',
+                DEBITAMT: totalAmount,
+            debitamt: totalAmount,
+            CREDITAMT: 0,
+            creditamt: 0,
+            AMOUNT: totalAmount,
+            amount: totalAmount
+              }] : [],
+          billalloc: voucher.issales ? [{
+            BILLNAME: voucher.vchno || '',
+            billname: voucher.vchno || '',
+            DEBITAMT: totalAmount,
+            debitamt: totalAmount,
+            CREDITAMT: 0,
+            creditamt: 0,
+            AMOUNT: totalAmount,
+            amount: totalAmount
+          }] : []
+        }
+      ];
+      
+      // Get inventory entries from original voucher if available
+      const originalInventoryEntries = originalVoucher ? (originalVoucher.allinventoryentries || originalVoucher.inventry || []) : [];
+      const transformedInventoryEntries = originalInventoryEntries.length > 0 ? originalInventoryEntries.map(inv => ({
+        STOCKITEMNAME: inv.stockitemname || inv.item || inv.STOCKITEMNAME || inv.ITEMNAME || inv.ITEM || 'Unknown',
+        stockitemname: inv.stockitemname || inv.item || inv.STOCKITEMNAME || inv.ITEMNAME || inv.ITEM || 'Unknown',
+        BILLEQTY: parseAmount(inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
+        billedqty: parseAmount(inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
+        ACTUALQTY: parseAmount(inv.actualqty || inv.ACTUALQTY || inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
+        actualqty: parseAmount(inv.actualqty || inv.ACTUALQTY || inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
+        QTY: parseAmount(inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
+        qty: parseAmount(inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
+        RATE: parseAmount(inv.rate || inv.RATE || 0),
+        rate: parseAmount(inv.rate || inv.RATE || 0),
+        DISCOUNT: parseAmount(inv.discount || inv.DISCOUNT || 0),
+        discount: parseAmount(inv.discount || inv.DISCOUNT || 0),
+        AMOUNT: parseAmount(inv.amount || inv.AMOUNT || inv.amt || inv.AMT || 0),
+        amount: parseAmount(inv.amount || inv.AMOUNT || inv.amt || inv.AMT || 0),
+        VALUE: parseAmount(inv.amount || inv.AMOUNT || inv.amt || inv.AMT || 0),
+        value: parseAmount(inv.amount || inv.AMOUNT || inv.amt || inv.AMT || 0)
+      })) : voucherItems.map(item => ({
+                STOCKITEMNAME: item.item || 'Unknown',
+        stockitemname: item.item || 'Unknown',
+                BILLEQTY: item.quantity || 0,
+        billedqty: item.quantity || 0,
+                ACTUALQTY: item.quantity || 0,
+        actualqty: item.quantity || 0,
+        QTY: item.quantity || 0,
+        qty: item.quantity || 0,
+                RATE: item.quantity > 0 ? ((item.amount / item.quantity).toFixed(2)) : '0.00',
+        rate: item.quantity > 0 ? ((item.amount / item.quantity).toFixed(2)) : '0.00',
+                DISCOUNT: '0',
+        discount: '0',
+                AMOUNT: item.amount || 0,
+        amount: item.amount || 0,
+        VALUE: item.amount || 0,
+        value: item.amount || 0
+      }));
+
       // Transform to match VoucherDetailsModal format from Receivables Dashboard
       const voucherData = {
         VOUCHERS: {
@@ -4228,41 +4618,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           CREDITAMT: voucher.issales ? 0 : totalAmount,
           NARRATION: narration || '', // Always include NARRATION field
           PARTICULARS: voucher.customer || '',
-          // Format ledger entries to match expected structure
-          ALLLEDGERENTRIES: [
-            // Customer ledger entry (debit for sales) with bill allocation
-            {
-              LEDGERNAME: voucher.customer || 'Unknown',
-              DEBITAMT: voucher.issales ? totalAmount : 0,
-              CREDITAMT: 0,
-              BILLALLOCATIONS: voucher.issales ? [{
-                BILLNAME: voucher.vchno || '',
-                DEBITAMT: totalAmount,
-                CREDITAMT: 0
-              }] : [],
-              INVENTORYALLOCATIONS: []
-            },
-            // Sales ledger entry (credit for sales) with inventory allocations
-            ...(voucher.issales ? [{
-              LEDGERNAME: 'Sales',
-              DEBITAMT: 0,
-              CREDITAMT: totalAmount,
-              BILLALLOCATIONS: [],
-              INVENTORYALLOCATIONS: voucherItems.map(item => ({
-                STOCKITEMNAME: item.item || 'Unknown',
-                BILLEQTY: item.quantity || 0,
-                ACTUALQTY: item.quantity || 0,
-                RATE: item.quantity > 0 ? ((item.amount / item.quantity).toFixed(2)) : '0.00',
-                DISCOUNT: '0',
-                AMOUNT: item.amount || 0,
-                VALUE: item.amount || 0
-              })),
-              // Add CGST, SGST, and ROUND OFF to the Sales ledger entry
-              CGST: cgstValue,
-              SGST: sgstValue,
-              ROUNDOFF: roundOffValue
-            }] : [])
-          ]
+          PARTYLEDGERNAME: originalVoucher ? (originalVoucher.partyledgername || originalVoucher.party || voucher.customer || '') : (voucher.partyledgername || voucher.party || voucher.customer || ''),
+          partyledgername: originalVoucher ? (originalVoucher.partyledgername || originalVoucher.party || voucher.customer || '') : (voucher.partyledgername || voucher.party || voucher.customer || ''),
+          PARTY: originalVoucher ? (originalVoucher.partyledgername || originalVoucher.party || voucher.customer || '') : (voucher.partyledgername || voucher.party || voucher.customer || ''),
+          party: originalVoucher ? (originalVoucher.partyledgername || originalVoucher.party || voucher.customer || '') : (voucher.partyledgername || voucher.party || voucher.customer || ''),
+          // Use transformed ledger entries
+          ALLLEDGERENTRIES: transformedLedgerEntries,
+          LEDGERENTRIES: transformedLedgerEntries,
+          // Use transformed inventory entries
+          ALLINVENTORYENTRIES: transformedInventoryEntries,
+          INVENTORYENTRIES: transformedInventoryEntries
         }
       };
 
@@ -5193,6 +5558,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // NOTE: This function ONLY uses existing sales data - NO API calls are made
   // All chart data and raw data comes from the initial loadSales() call
+  // IMPORTANT: All chart data sources (categoryChartData, ledgerGroupChartData, etc.) are computed from filteredSales,
+  // which already has all dashboard filters applied (date range, customer, item, region, country, period, salesperson, etc.)
+  // Therefore, raw data opened from chart entries automatically respects all dashboard filters
   const openRawData = useCallback((type, extra) => {
     let config = null;
 
@@ -5580,7 +5948,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   }, [rawDataModal, rawDataSearch]);
 
   const totalRawPages = rawDataModal.open
-    ? Math.max(1, Math.ceil(Math.max(filteredRawRows.length, 1) / RAW_DATA_PAGE_SIZE))
+    ? Math.max(1, Math.ceil(Math.max(filteredRawRows.length, 1) / rawDataPageSize))
     : 1;
 
   useEffect(() => {
@@ -5588,13 +5956,41 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     if (rawDataPage > totalRawPages) {
       setRawDataPage(totalRawPages);
     }
-  }, [rawDataModal.open, rawDataPage, totalRawPages]);
+  }, [rawDataModal.open, rawDataPage, totalRawPages, rawDataPageSize]);
+
+  // Reset to page 1 when page size changes
+  useEffect(() => {
+    if (!rawDataModal.open) return;
+    setRawDataPage(1);
+    setRawDataPageInput('1');
+  }, [rawDataModal.open, rawDataPageSize]);
+
+  // Sync input values when actual values change
+  useEffect(() => {
+    if (rawDataModal.open) {
+      setRawDataPageInput(String(rawDataPage));
+      setRawDataPageSizeInput(String(rawDataPageSize));
+    }
+  }, [rawDataModal.open, rawDataPage, rawDataPageSize]);
+
+  // Sync top N input values when actual values change
+  useEffect(() => {
+    setTopCustomersNInput(String(topCustomersN));
+  }, [topCustomersN]);
+
+  useEffect(() => {
+    setTopItemsByRevenueNInput(String(topItemsByRevenueN));
+  }, [topItemsByRevenueN]);
+
+  useEffect(() => {
+    setTopItemsByQuantityNInput(String(topItemsByQuantityN));
+  }, [topItemsByQuantityN]);
 
   const paginatedRawRows = useMemo(() => {
     if (!rawDataModal.open) return [];
-    const start = (rawDataPage - 1) * RAW_DATA_PAGE_SIZE;
-    return filteredRawRows.slice(start, start + RAW_DATA_PAGE_SIZE);
-  }, [filteredRawRows, rawDataModal.open, rawDataPage, RAW_DATA_PAGE_SIZE]);
+    const start = (rawDataPage - 1) * rawDataPageSize;
+    return filteredRawRows.slice(start, start + rawDataPageSize);
+  }, [filteredRawRows, rawDataModal.open, rawDataPage, rawDataPageSize]);
 
   const exportRawDataToCSV = useCallback(() => {
     if (!rawDataModal.open || rawDataModal.columns.length === 0) {
@@ -5634,10 +6030,72 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     URL.revokeObjectURL(url);
   }, [filteredRawRows, rawDataModal]);
 
+  // Format date to DD-MMM-YY format (e.g., 15-Apr-25)
+  const formatDateForDisplay = (dateStr) => {
+    if (!dateStr) return '-';
+    
+    let dateObj = null;
+    
+    // Try to parse various date formats
+    if (typeof dateStr === 'string') {
+      // Format: YYYYMMDD
+      if (dateStr.length === 8 && /^\d+$/.test(dateStr)) {
+        const year = dateStr.substring(0, 4);
+        const month = dateStr.substring(4, 6);
+        const day = dateStr.substring(6, 8);
+        dateObj = new Date(`${year}-${month}-${day}`);
+      }
+      // Format: YYYY-MM-DD
+      else if (dateStr.includes('-') && dateStr.length >= 10) {
+        dateObj = new Date(dateStr);
+      }
+      // Format: D-Mon-YY or D-Mon-YYYY
+      else if (dateStr.includes('-')) {
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+          const day = parts[0];
+          const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          const monthIndex = monthNames.findIndex(m => m.toLowerCase() === parts[1].toLowerCase());
+          if (monthIndex !== -1) {
+            let year = parts[2];
+            if (year.length === 2) {
+              const yearNum = parseInt(year, 10);
+              year = yearNum < 50 ? `20${year}` : `19${year}`;
+            }
+            dateObj = new Date(`${year}-${String(monthIndex + 1).padStart(2, '0')}-${day.padStart(2, '0')}`);
+          }
+        }
+      }
+    }
+    
+    // If we couldn't parse it, try Date constructor directly
+    if (!dateObj || isNaN(dateObj.getTime())) {
+      dateObj = new Date(dateStr);
+    }
+    
+    // If still invalid, return original string
+    if (isNaN(dateObj.getTime())) {
+      return dateStr;
+    }
+    
+    // Format to DD-MMM-YY
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[dateObj.getMonth()];
+    const year = String(dateObj.getFullYear()).slice(-2);
+    
+    return `${day}-${month}-${year}`;
+  };
+
   const renderRawDataCell = (row, column) => {
     const value = row[column.key];
     if (value === null || value === undefined || value === '') {
       return '-';
+    }
+
+    // Handle date columns
+    if (column.key === 'date' || column.key === 'cp_date' || column.key === 'DATE' || column.key === 'CP_DATE') {
+      return formatDateForDisplay(value);
     }
 
     // Handle objects - convert to string representation
@@ -5681,8 +6139,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   };
 
   const totalRawRows = filteredRawRows.length;
-  const rawDataStart = totalRawRows === 0 ? 0 : (rawDataPage - 1) * RAW_DATA_PAGE_SIZE + 1;
-  const rawDataEnd = totalRawRows === 0 ? 0 : Math.min(rawDataPage * RAW_DATA_PAGE_SIZE, totalRawRows);
+  const rawDataStart = totalRawRows === 0 ? 0 : (rawDataPage - 1) * rawDataPageSize + 1;
+  const rawDataEnd = totalRawRows === 0 ? 0 : Math.min(rawDataPage * rawDataPageSize, totalRawRows);
 
   // Custom Treemap Cell component for Salesperson Chart (matching Receivables Dashboard)
   const CustomTreemapCell = ({
@@ -8994,11 +9452,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
                     type="number"
-                    value={topCustomersN}
+                    value={topCustomersNInput}
                     onChange={(e) => {
-                      const value = parseInt(e.target.value, 10);
+                      const inputValue = e.target.value;
+                      setTopCustomersNInput(inputValue);
+                      if (inputValue === '') return;
+                      const value = parseInt(inputValue, 10);
                       if (!isNaN(value) && value >= 0) {
                         setTopCustomersN(value);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const value = parseInt(e.target.value, 10);
+                      if (isNaN(value) || value < 0) {
+                        setTopCustomersN(10);
+                        setTopCustomersNInput('10');
+                      } else {
+                        setTopCustomersN(value);
+                        setTopCustomersNInput(String(value));
                       }
                     }}
                     min="0"
@@ -9077,11 +9548,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
                           type="number"
-                          value={topCustomersN}
+                          value={topCustomersNInput}
                           onChange={(e) => {
-                            const value = parseInt(e.target.value, 10);
+                            const inputValue = e.target.value;
+                            setTopCustomersNInput(inputValue);
+                            if (inputValue === '') return;
+                            const value = parseInt(inputValue, 10);
                             if (value > 0) {
                               setTopCustomersN(value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            if (isNaN(value) || value < 1) {
+                              setTopCustomersN(10);
+                              setTopCustomersNInput('10');
+                            } else {
+                              setTopCustomersN(value);
+                              setTopCustomersNInput(String(value));
                             }
                           }}
                           min="1"
@@ -9160,11 +9644,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
                           type="number"
-                          value={topCustomersN}
+                          value={topCustomersNInput}
                           onChange={(e) => {
-                            const value = parseInt(e.target.value, 10);
+                            const inputValue = e.target.value;
+                            setTopCustomersNInput(inputValue);
+                            if (inputValue === '') return;
+                            const value = parseInt(inputValue, 10);
                             if (value > 0) {
                               setTopCustomersN(value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            if (isNaN(value) || value < 1) {
+                              setTopCustomersN(10);
+                              setTopCustomersNInput('10');
+                            } else {
+                              setTopCustomersN(value);
+                              setTopCustomersNInput(String(value));
                             }
                           }}
                           min="1"
@@ -9243,11 +9740,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
                           type="number"
-                          value={topCustomersN}
+                          value={topCustomersNInput}
                           onChange={(e) => {
-                            const value = parseInt(e.target.value, 10);
+                            const inputValue = e.target.value;
+                            setTopCustomersNInput(inputValue);
+                            if (inputValue === '') return;
+                            const value = parseInt(inputValue, 10);
                             if (value > 0) {
                               setTopCustomersN(value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            if (isNaN(value) || value < 1) {
+                              setTopCustomersN(10);
+                              setTopCustomersNInput('10');
+                            } else {
+                              setTopCustomersN(value);
+                              setTopCustomersNInput(String(value));
                             }
                           }}
                           min="1"
@@ -9343,11 +9853,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
                     type="number"
-                    value={topItemsByRevenueN}
+                    value={topItemsByRevenueNInput}
                     onChange={(e) => {
-                      const value = parseInt(e.target.value, 10);
+                      const inputValue = e.target.value;
+                      setTopItemsByRevenueNInput(inputValue);
+                      if (inputValue === '') return;
+                      const value = parseInt(inputValue, 10);
                       if (!isNaN(value) && value >= 0) {
                         setTopItemsByRevenueN(value);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const value = parseInt(e.target.value, 10);
+                      if (isNaN(value) || value < 0) {
+                        setTopItemsByRevenueN(10);
+                        setTopItemsByRevenueNInput('10');
+                      } else {
+                        setTopItemsByRevenueN(value);
+                        setTopItemsByRevenueNInput(String(value));
                       }
                     }}
                     min="0"
@@ -9426,11 +9949,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
                           type="number"
-                          value={topItemsByRevenueN}
+                          value={topItemsByRevenueNInput}
                           onChange={(e) => {
-                            const value = parseInt(e.target.value, 10);
+                            const inputValue = e.target.value;
+                            setTopItemsByRevenueNInput(inputValue);
+                            if (inputValue === '') return;
+                            const value = parseInt(inputValue, 10);
                             if (value > 0) {
                               setTopItemsByRevenueN(value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            if (isNaN(value) || value < 1) {
+                              setTopItemsByRevenueN(10);
+                              setTopItemsByRevenueNInput('10');
+                            } else {
+                              setTopItemsByRevenueN(value);
+                              setTopItemsByRevenueNInput(String(value));
                             }
                           }}
                           min="1"
@@ -9509,11 +10045,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
                           type="number"
-                          value={topItemsByRevenueN}
+                          value={topItemsByRevenueNInput}
                           onChange={(e) => {
-                            const value = parseInt(e.target.value, 10);
+                            const inputValue = e.target.value;
+                            setTopItemsByRevenueNInput(inputValue);
+                            if (inputValue === '') return;
+                            const value = parseInt(inputValue, 10);
                             if (value > 0) {
                               setTopItemsByRevenueN(value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            if (isNaN(value) || value < 1) {
+                              setTopItemsByRevenueN(10);
+                              setTopItemsByRevenueNInput('10');
+                            } else {
+                              setTopItemsByRevenueN(value);
+                              setTopItemsByRevenueNInput(String(value));
                             }
                           }}
                           min="1"
@@ -9592,11 +10141,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
                           type="number"
-                          value={topItemsByRevenueN}
+                          value={topItemsByRevenueNInput}
                           onChange={(e) => {
-                            const value = parseInt(e.target.value, 10);
+                            const inputValue = e.target.value;
+                            setTopItemsByRevenueNInput(inputValue);
+                            if (inputValue === '') return;
+                            const value = parseInt(inputValue, 10);
                             if (value > 0) {
                               setTopItemsByRevenueN(value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            if (isNaN(value) || value < 1) {
+                              setTopItemsByRevenueN(10);
+                              setTopItemsByRevenueNInput('10');
+                            } else {
+                              setTopItemsByRevenueN(value);
+                              setTopItemsByRevenueNInput(String(value));
                             }
                           }}
                           min="1"
@@ -9683,11 +10245,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
                     type="number"
-                    value={topItemsByQuantityN}
+                    value={topItemsByQuantityNInput}
                     onChange={(e) => {
-                      const value = parseInt(e.target.value, 10);
+                      const inputValue = e.target.value;
+                      setTopItemsByQuantityNInput(inputValue);
+                      if (inputValue === '') return;
+                      const value = parseInt(inputValue, 10);
                       if (!isNaN(value) && value >= 0) {
                         setTopItemsByQuantityN(value);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const value = parseInt(e.target.value, 10);
+                      if (isNaN(value) || value < 0) {
+                        setTopItemsByQuantityN(10);
+                        setTopItemsByQuantityNInput('10');
+                      } else {
+                        setTopItemsByQuantityN(value);
+                        setTopItemsByQuantityNInput(String(value));
                       }
                     }}
                     min="0"
@@ -9767,11 +10342,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
                           type="number"
-                          value={topItemsByQuantityN}
+                          value={topItemsByQuantityNInput}
                           onChange={(e) => {
-                            const value = parseInt(e.target.value, 10);
+                            const inputValue = e.target.value;
+                            setTopItemsByQuantityNInput(inputValue);
+                            if (inputValue === '') return;
+                            const value = parseInt(inputValue, 10);
                             if (value > 0) {
                               setTopItemsByQuantityN(value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            if (isNaN(value) || value < 1) {
+                              setTopItemsByQuantityN(10);
+                              setTopItemsByQuantityNInput('10');
+                            } else {
+                              setTopItemsByQuantityN(value);
+                              setTopItemsByQuantityNInput(String(value));
                             }
                           }}
                           min="1"
@@ -9851,11 +10439,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
                           type="number"
-                          value={topItemsByQuantityN}
+                          value={topItemsByQuantityNInput}
                           onChange={(e) => {
-                            const value = parseInt(e.target.value, 10);
+                            const inputValue = e.target.value;
+                            setTopItemsByQuantityNInput(inputValue);
+                            if (inputValue === '') return;
+                            const value = parseInt(inputValue, 10);
                             if (value > 0) {
                               setTopItemsByQuantityN(value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            if (isNaN(value) || value < 1) {
+                              setTopItemsByQuantityN(10);
+                              setTopItemsByQuantityNInput('10');
+                            } else {
+                              setTopItemsByQuantityN(value);
+                              setTopItemsByQuantityNInput(String(value));
                             }
                           }}
                           min="1"
@@ -9935,11 +10536,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <input
                           type="number"
-                          value={topItemsByQuantityN}
+                          value={topItemsByQuantityNInput}
                           onChange={(e) => {
-                            const value = parseInt(e.target.value, 10);
+                            const inputValue = e.target.value;
+                            setTopItemsByQuantityNInput(inputValue);
+                            if (inputValue === '') return;
+                            const value = parseInt(inputValue, 10);
                             if (value > 0) {
                               setTopItemsByQuantityN(value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            const value = parseInt(e.target.value, 10);
+                            if (isNaN(value) || value < 1) {
+                              setTopItemsByQuantityN(10);
+                              setTopItemsByQuantityNInput('10');
+                            } else {
+                              setTopItemsByQuantityN(value);
+                              setTopItemsByQuantityNInput(String(value));
                             }
                           }}
                           min="1"
@@ -10007,7 +10621,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 display: 'flex',
                 flexDirection: 'column',
                 height: '500px',
-                overflow: 'hidden'
+                overflowY: 'auto',
+                overflowX: 'hidden'
               }}>
                 {revenueVsProfitChartType === 'line' && (
                 <div style={{
@@ -10328,7 +10943,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 display: 'flex',
                 flexDirection: 'column',
                 height: '500px',
-                overflow: 'hidden'
+                overflowY: 'auto',
+                overflowX: 'hidden'
               }}>
                 {monthWiseProfitChartType === 'bar' && (
                    <BarChart
@@ -11696,9 +12312,50 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 : `Showing ${rawDataStart} - ${rawDataEnd} of ${totalRawRows}`}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', color: '#64748b' }}>Show</span>
+              <input
+                type="number"
+                value={rawDataPageSizeInput}
+                onChange={(e) => {
+                  const inputValue = e.target.value;
+                  setRawDataPageSizeInput(inputValue);
+                  if (inputValue === '') return;
+                  const value = parseInt(inputValue, 10);
+                  if (!isNaN(value) && value > 0) {
+                    setRawDataPageSize(value);
+                  }
+                }}
+                onBlur={(e) => {
+                  const value = parseInt(e.target.value, 10);
+                  if (isNaN(value) || value < 1) {
+                    setRawDataPageSize(20);
+                    setRawDataPageSizeInput('20');
+                  } else {
+                    setRawDataPageSize(value);
+                    setRawDataPageSizeInput(String(value));
+                  }
+                }}
+                min="1"
+                placeholder="20"
+                style={{
+                  width: '60px',
+                  padding: '6px 8px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  textAlign: 'center'
+                }}
+              />
+              <span style={{ fontSize: '13px', color: '#64748b' }}>entries per page</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <button
                 type="button"
-                onClick={() => setRawDataPage((prev) => Math.max(1, prev - 1))}
+                onClick={() => {
+                  const newPage = Math.max(1, rawDataPage - 1);
+                  setRawDataPage(newPage);
+                  setRawDataPageInput(String(newPage));
+                }}
                 disabled={rawDataPage <= 1 || totalRawRows === 0}
                 style={{
                   background: rawDataPage <= 1 || totalRawRows === 0 ? '#f1f5f9' : '#e2e8f0',
@@ -11712,12 +12369,56 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               >
                 Prev
               </button>
-              <span style={{ fontSize: '13px', color: '#1e293b' }}>
-                Page {totalRawRows === 0 ? 0 : rawDataPage} / {totalRawRows === 0 ? 0 : totalRawPages}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '13px', color: '#1e293b' }}>
+                <span>Page</span>
+                <input
+                  type="number"
+                  value={totalRawRows === 0 ? 0 : rawDataPageInput}
+                  onChange={(e) => {
+                    const inputValue = e.target.value;
+                    setRawDataPageInput(inputValue);
+                    if (inputValue === '') return;
+                    const value = parseInt(inputValue, 10);
+                    if (!isNaN(value) && value >= 1 && value <= totalRawPages) {
+                      setRawDataPage(value);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const value = parseInt(e.target.value, 10);
+                    if (isNaN(value) || value < 1) {
+                      setRawDataPage(1);
+                      setRawDataPageInput('1');
+                    } else if (value > totalRawPages) {
+                      setRawDataPage(totalRawPages);
+                      setRawDataPageInput(String(totalRawPages));
+                    } else {
+                      setRawDataPage(value);
+                      setRawDataPageInput(String(value));
+                    }
+                  }}
+                  min="1"
+                  max={totalRawPages}
+                  disabled={totalRawRows === 0}
+                  style={{
+                    width: '40px',
+                    padding: '4px 6px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '4px',
+                    fontSize: '13px',
+                    textAlign: 'center',
+                    color: '#1e293b',
+                    background: totalRawRows === 0 ? '#f1f5f9' : 'white'
+                  }}
+                />
+                <span>/ {totalRawRows === 0 ? 0 : totalRawPages}</span>
+              </div>
               <button
                 type="button"
-                onClick={() => setRawDataPage((prev) => Math.min(totalRawPages, prev + 1))}
+                onClick={() => {
+                  const newPage = Math.min(totalRawPages, rawDataPage + 1);
+                  setRawDataPage(newPage);
+                  setRawDataPageInput(String(newPage));
+                }}
                 disabled={rawDataPage >= totalRawPages || totalRawRows === 0}
                 style={{
                   background: rawDataPage >= totalRawPages || totalRawRows === 0 ? '#f1f5f9' : '#e2e8f0',
@@ -12108,10 +12809,32 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               From Date
             </label>
             <input
-              type="date"
-              value={tempFromDate}
-              min={booksFromDate}
-              onChange={(e) => setTempFromDate(e.target.value)}
+              type="text"
+              value={tempFromDateDisplay}
+              placeholder="1-Apr-25"
+              onChange={(e) => {
+                setTempFromDateDisplay(e.target.value);
+                // Try to parse and update internal format on the fly
+                const parsed = parseDateFromNewFormat(e.target.value);
+                if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                  setTempFromDate(parsed);
+                }
+              }}
+              onBlur={(e) => {
+                // Validate and format on blur
+                const value = e.target.value.trim();
+                if (value) {
+                  const parsed = parseDateFromNewFormat(value);
+                  if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                    setTempFromDate(parsed);
+                    setTempFromDateDisplay(formatDateForInput(parsed));
+                  } else {
+                    // Invalid format, try to keep what user typed but show error
+                    e.target.style.borderColor = '#ef4444';
+                  }
+                }
+                e.target.style.boxShadow = 'none';
+              }}
               style={{
                 width: 'calc(100% - 4px)',
                 maxWidth: '100%',
@@ -12129,10 +12852,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 e.target.style.borderColor = '#7c3aed';
                 e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
               }}
-              onBlur={(e) => {
-                e.target.style.borderColor = '#e2e8f0';
-                e.target.style.boxShadow = 'none';
-              }}
             />
             {booksFromDate && (
               <p style={{
@@ -12141,7 +12860,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 marginTop: '4px',
                 marginBottom: 0
               }}>
-                Earliest available date: {booksFromDate}
+                Earliest available date: {formatDateForInput(booksFromDate)}
               </p>
             )}
           </div>
@@ -12157,9 +12876,32 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               To Date
             </label>
             <input
-              type="date"
-              value={tempToDate}
-              onChange={(e) => setTempToDate(e.target.value)}
+              type="text"
+              value={tempToDateDisplay}
+              placeholder="15-Jan-24"
+              onChange={(e) => {
+                setTempToDateDisplay(e.target.value);
+                // Try to parse and update internal format on the fly
+                const parsed = parseDateFromNewFormat(e.target.value);
+                if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                  setTempToDate(parsed);
+                }
+              }}
+              onBlur={(e) => {
+                // Validate and format on blur
+                const value = e.target.value.trim();
+                if (value) {
+                  const parsed = parseDateFromNewFormat(value);
+                  if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                    setTempToDate(parsed);
+                    setTempToDateDisplay(formatDateForInput(parsed));
+                  } else {
+                    // Invalid format, try to keep what user typed but show error
+                    e.target.style.borderColor = '#ef4444';
+                  }
+                }
+                e.target.style.boxShadow = 'none';
+              }}
               style={{
                 width: 'calc(100% - 4px)',
                 maxWidth: '100%',
@@ -12176,10 +12918,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               onFocus={(e) => {
                 e.target.style.borderColor = '#7c3aed';
                 e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
-              }}
-              onBlur={(e) => {
-                e.target.style.borderColor = '#e2e8f0';
-                e.target.style.boxShadow = 'none';
               }}
             />
           </div>
@@ -12384,6 +13122,99 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     }
   }, [editingCard]);
 
+  // Field name to user-friendly label mapping (based on new API field names)
+  const fieldLabelMap = {
+    // Customer/Party fields
+    'partyledgername': 'Party Ledger Name',
+    'customer': 'Customer',
+    'party': 'Party',
+    'partyledgernameid': 'Party Ledger Name ID',
+    'partyid': 'Party ID',
+    'partygstin': 'Party GSTIN',
+    
+    // Item/Inventory fields
+    'stockitemname': 'Stock Item Name',
+    'item': 'Item',
+    'stockitemnameid': 'Stock Item Name ID',
+    'itemid': 'Item ID',
+    'stockitemcategory': 'Stock Item Category',
+    'stockitemgroup': 'Stock Item Group',
+    'category': 'Category',
+    'uom': 'Unit of Measure',
+    
+    // Location fields
+    'region': 'State/Region',
+    'state': 'State',
+    'country': 'Country',
+    'consigneestatename': 'Consignee State',
+    'consigneecountryname': 'Consignee Country',
+    'pincode': 'PIN Code',
+    'address': 'Address',
+    'basicbuyeraddress': 'Buyer Address',
+    
+    // Ledger fields
+    'ledgername': 'Ledger Name',
+    'ledgerGroup': 'Ledger Group',
+    'group': 'Group',
+    'groupofgroup': 'Group of Group',
+    
+    // Salesperson fields
+    'salesperson': 'Salesperson',
+    'salespersonname': 'Salesperson Name',
+    
+    // Date fields
+    'date': 'Date',
+    'cp_date': 'CP Date',
+    
+    // Amount/Value fields
+    'amount': 'Amount',
+    'quantity': 'Quantity',
+    'billedqty': 'Billed Quantity',
+    'actualqty': 'Actual Quantity',
+    'qty': 'Quantity',
+    'profit': 'Profit',
+    'cgst': 'CGST',
+    'sgst': 'SGST',
+    'roundoff': 'Round Off',
+    'rate': 'Rate',
+    'grosscost': 'Gross Cost',
+    'grossexpense': 'Gross Expense',
+    'invvalue': 'Inventory Value',
+    'invtrytotal': 'Inventory Total',
+    'addlexpense': 'Additional Expense',
+    
+    // Voucher fields
+    'vouchernumber': 'Voucher Number',
+    'vchno': 'Voucher No.',
+    'vouchertypename': 'Voucher Type Name',
+    'vchtype': 'Voucher Type',
+    'reservedname': 'Reserved Name',
+    'masterid': 'Master ID',
+    'alterid': 'Alter ID',
+    'reference': 'Reference',
+    
+    // Other fields
+    'issales': 'Is Sales',
+    'narration': 'Narration'
+  };
+
+  // Helper function to get user-friendly label for a field
+  const getFieldLabel = (fieldName) => {
+    const lowerKey = fieldName.toLowerCase();
+    // Check exact match first
+    if (fieldLabelMap[lowerKey]) {
+      return fieldLabelMap[lowerKey];
+    }
+    // Check partial matches (e.g., 'stockitemcategory' contains 'category')
+    for (const [key, label] of Object.entries(fieldLabelMap)) {
+      if (lowerKey.includes(key) || key.includes(lowerKey)) {
+        return label;
+      }
+    }
+    // Fallback to formatted field name
+    return fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
+  };
+
   // Extract all available fields from sales data dynamically
   // NOTE: This only processes existing data in memory - NO API calls are made
   const allFields = useMemo(() => {
@@ -12443,7 +13274,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     
     // Add date field (grouping will be configured via settings)
     fields.push(
-      { value: 'date', label: 'Date', type: 'category' }
+      { value: 'date', label: getFieldLabel('date'), type: 'category' }
     );
     
     // Add category fields (for Axis)
@@ -12458,7 +13289,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       .forEach(key => {
         fields.push({
           value: key,
-          label: key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim(),
+          label: getFieldLabel(key),
           type: 'category'
         });
       });
@@ -12480,10 +13311,9 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     });
     
     numericFields.forEach(key => {
-      const label = key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1').trim();
       fields.push({
         value: key,
-        label: label,
+        label: getFieldLabel(key),
         type: 'value',
         aggregation: 'sum' // Default aggregation
       });
@@ -12926,11 +13756,14 @@ IMPORTANT RULES:
     return allFields.filter(field => !usedFields.has(field.value));
   }, [allFields, filters]);
   
-  // Handle field checkbox toggle
+  // Handle field checkbox toggle - Only allow one field per bucket (axis or values)
   const handleFieldToggle = (fieldValue) => {
     setSelectedFields(prev => {
       const newSet = new Set(prev);
+      const field = allFields.find(f => f.value === fieldValue);
+      
       if (newSet.has(fieldValue)) {
+        // Removing field
         newSet.delete(fieldValue);
         // Remove aggregation setting when field is deselected
         setFieldAggregations(prevAggs => {
@@ -12947,9 +13780,49 @@ IMPORTANT RULES:
           });
         }
       } else {
+        // Adding field - check if bucket already has a field
+        if (field) {
+          if (field.type === 'category') {
+            // Axis bucket - remove any existing category field
+            const existingCategoryFields = Array.from(prev)
+              .map(fv => allFields.find(f => f.value === fv))
+              .filter(f => f && f.type === 'category')
+              .map(f => f.value);
+            
+            existingCategoryFields.forEach(existingField => {
+              newSet.delete(existingField);
+              // Remove date grouping if removing date field
+              if (existingField === 'date') {
+                setDateGroupings(prev => {
+                  const newGroupings = { ...prev };
+                  delete newGroupings[existingField];
+                  return newGroupings;
+                });
+              }
+            });
+          } else if (field.type === 'value') {
+            // Values bucket - remove any existing value field
+            const existingValueFields = Array.from(prev)
+              .map(fv => allFields.find(f => f.value === fv))
+              .filter(f => f && f.type === 'value')
+              .map(f => f.value);
+            
+            existingValueFields.forEach(existingField => {
+              newSet.delete(existingField);
+              // Remove aggregation setting when removing value field
+              setFieldAggregations(prevAggs => {
+                const newAggs = { ...prevAggs };
+                delete newAggs[existingField];
+                return newAggs;
+              });
+            });
+          }
+        }
+        
+        // Add the new field
         newSet.add(fieldValue);
+        
         // Set default aggregation for value fields
-        const field = allFields.find(f => f.value === fieldValue);
         if (field && field.type === 'value') {
           setFieldAggregations(prevAggs => ({
             ...prevAggs,
@@ -13240,7 +14113,8 @@ IMPORTANT RULES:
         >
           Manual
         </button>
-        <button
+        {/* Generate with AI tab button (commented out for now) */}
+        {/* <button
           type="button"
           onClick={() => setActiveTab('ai')}
           style={{
@@ -13271,7 +14145,7 @@ IMPORTANT RULES:
         >
           <span className="material-icons" style={{ fontSize: '16px' }}>auto_awesome</span>
           Generate with AI
-        </button>
+        </button> */}
       </div>
 
       {/* AI Mode Content */}
@@ -13930,120 +14804,13 @@ IMPORTANT RULES:
             </div>
           </div>
 
-          {/* Filters Bucket */}
+          {/* Add New Filter Section - Moved before Filters Bucket */}
           <div style={{
             background: '#f8fafc',
             border: '1px solid #e2e8f0',
             borderRadius: '8px',
             padding: '12px',
-            minHeight: '120px',
             marginBottom: '12px'
-          }}>
-            <div style={{
-              background: '#ffffff',
-              border: '1px dashed #cbd5e1',
-              borderRadius: '6px',
-              padding: '8px',
-              minHeight: '80px'
-            }}>
-              {filters.length > 0 && filters.map((filter, index) => {
-                const field = allFields.find(f => f.value === filter.field);
-                const fieldLabel = field ? field.label : filter.field;
-                const valuesArray = Array.from(filter.values);
-                return (
-                  <div
-                    key={index}
-                    style={{
-                      display: 'inline-flex',
-                      flexDirection: 'column',
-                      alignItems: 'flex-start',
-                      background: '#fef3c7',
-                      border: '1px solid #fbbf24',
-                      color: '#92400e',
-                      padding: '8px 12px',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      fontWeight: '500',
-                      margin: '4px',
-                      gap: '6px',
-                      maxWidth: '100%'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
-                      <span style={{ fontWeight: '600' }}>{fieldLabel}:</span>
-                      <span 
-                        className="material-icons" 
-                        style={{ 
-                          fontSize: '16px',
-                          cursor: 'pointer',
-                          padding: '2px',
-                          borderRadius: '2px',
-                          transition: 'background 0.2s',
-                          marginLeft: 'auto'
-                        }}
-                        onClick={() => handleRemoveFilter(index)}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = '#fde68a';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'transparent';
-                        }}
-                        title="Remove filter"
-                      >
-                        close
-                      </span>
-                    </div>
-                    <div style={{ 
-                      fontSize: '11px', 
-                      color: '#78350f',
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: '4px',
-                      maxWidth: '100%'
-                    }}>
-                      {valuesArray.length > 0 ? (
-                        valuesArray.slice(0, 3).map((val, i) => (
-                          <span key={i} style={{
-                            background: '#fef3c7',
-                            padding: '2px 6px',
-                            borderRadius: '3px',
-                            border: '1px solid #fbbf24'
-                          }}>
-                            {val}
-                          </span>
-                        ))
-                      ) : null}
-                      {valuesArray.length > 3 && (
-                        <span style={{ color: '#78350f', fontStyle: 'italic' }}>
-                          +{valuesArray.length - 3} more
-                        </span>
-                      )}
-                      {valuesArray.length === 0 && (
-                        <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>No values selected</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {filters.length === 0 && (
-                <div style={{
-                  color: '#94a3b8',
-                  fontSize: '12px',
-                  textAlign: 'center',
-                  padding: '20px'
-                }}>
-                  No filters added. Select a field below to add a filter.
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Add New Filter Section */}
-          <div style={{
-            background: '#f8fafc',
-            border: '1px solid #e2e8f0',
-            borderRadius: '8px',
-            padding: '12px'
           }}>
             <div style={{
               fontSize: '12px',
@@ -14209,38 +14976,139 @@ IMPORTANT RULES:
                 fontSize: '13px',
                 marginBottom: '12px'
             }}>
-              No values found for this field
+              No values available for this field.
             </div>
           )}
 
-            {/* Add Filter Button */}
             {currentFilterField && currentFilterValues.size > 0 && (
               <button
                 type="button"
                 onClick={handleAddFilter}
                 style={{
                   width: '100%',
-                  padding: '10px',
-                  background: '#3b82f6',
-                  color: 'white',
+                padding: '10px 16px',
+                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                   border: 'none',
                   borderRadius: '8px',
+                color: '#ffffff',
                   fontSize: '14px',
-                  fontWeight: '500',
+                fontWeight: '600',
                   cursor: 'pointer',
-                  transition: 'all 0.15s ease'
+                transition: 'all 0.2s ease',
+                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)'
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.background = '#2563eb';
+                e.target.style.transform = 'translateY(-1px)';
+                e.target.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.3)';
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.background = '#3b82f6';
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2)';
                 }}
               >
                 Add Filter
               </button>
             )}
           </div>
+
+          {/* Filters Bucket - Only show when there is at least one filter */}
+          {filters.length > 0 && (
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '12px',
+            minHeight: '120px'
+          }}>
+            <div style={{
+              background: '#ffffff',
+              border: '1px dashed #cbd5e1',
+              borderRadius: '6px',
+              padding: '8px',
+              minHeight: '80px'
+            }}>
+              {filters.map((filter, index) => {
+                const field = allFields.find(f => f.value === filter.field);
+                const fieldLabel = field ? field.label : filter.field;
+                const valuesArray = Array.from(filter.values);
+                return (
+                  <div
+                    key={index}
+                    style={{
+                      display: 'inline-flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      background: '#fef3c7',
+                      border: '1px solid #fbbf24',
+                      color: '#92400e',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      margin: '4px',
+                      gap: '6px',
+                      maxWidth: '100%'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
+                      <span style={{ fontWeight: '600' }}>{fieldLabel}:</span>
+                      <span 
+                        className="material-icons" 
+                        style={{ 
+                          fontSize: '16px',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '2px',
+                          transition: 'background 0.2s',
+                          marginLeft: 'auto'
+                        }}
+                        onClick={() => handleRemoveFilter(index)}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#fde68a';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                        title="Remove filter"
+                      >
+                        close
+                      </span>
+                    </div>
+                    <div style={{ 
+                      fontSize: '11px', 
+                      color: '#78350f',
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '4px',
+                      maxWidth: '100%'
+                    }}>
+                      {valuesArray.length > 0 ? (
+                        valuesArray.slice(0, 3).map((val, i) => (
+                          <span key={i} style={{
+                            background: '#fef3c7',
+                            padding: '2px 6px',
+                            borderRadius: '3px',
+                            border: '1px solid #fbbf24'
+                          }}>
+                            {val}
+                          </span>
+                        ))
+                      ) : null}
+                      {valuesArray.length > 3 && (
+                        <span style={{ color: '#78350f', fontStyle: 'italic' }}>
+                          +{valuesArray.length - 3} more
+                        </span>
+                      )}
+                      {valuesArray.length === 0 && (
+                        <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>No values selected</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          )}
         </div>
 
         {/* Top N */}
@@ -14810,8 +15678,94 @@ const CustomCard = React.memo(({
     return matchingKey ? item[matchingKey] : null;
   };
 
+  // Helper function to check if a sale matches the card's filters
+  const matchesCardFilters = (sale) => {
+    if (!card.filters || (Array.isArray(card.filters) && card.filters.length === 0)) {
+      return true; // No filters, so all sales match
+    }
+
+    // Handle array of filters (new format)
+    if (Array.isArray(card.filters)) {
+      return card.filters.every(filter => {
+        if (!filter.filterField || !filter.filterValues || filter.filterValues.length === 0) {
+          return true; // Invalid filter, skip it
+        }
+        const filterFieldName = filter.filterField;
+        const filterValuesSet = new Set(filter.filterValues.map(v => String(v).trim().toLowerCase()));
+        const fieldValue = getFieldValueLocal(sale, filterFieldName);
+        if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+          return false;
+        }
+        const normalizedValue = String(fieldValue).trim().toLowerCase();
+        return filterValuesSet.has(normalizedValue);
+      });
+    }
+
+    // Handle legacy single filter object format
+    if (typeof card.filters === 'object' && !Array.isArray(card.filters)) {
+      if (card.filters.customer && card.filters.customer !== 'all') {
+        if (!sale.customer || String(sale.customer).trim().toLowerCase() !== String(card.filters.customer).trim().toLowerCase()) {
+          return false;
+        }
+      }
+      if (card.filters.item && card.filters.item !== 'all') {
+        if (!sale.item || String(sale.item).trim().toLowerCase() !== String(card.filters.item).trim().toLowerCase()) {
+          return false;
+        }
+      }
+      if (card.filters.stockGroup && card.filters.stockGroup !== 'all') {
+        if (!sale.category || String(sale.category).trim().toLowerCase() !== String(card.filters.stockGroup).trim().toLowerCase()) {
+          return false;
+        }
+      }
+      if (card.filters.region && card.filters.region !== 'all') {
+        if (!sale.region || String(sale.region).trim().toLowerCase() !== String(card.filters.region).trim().toLowerCase()) {
+          return false;
+        }
+      }
+      if (card.filters.country && card.filters.country !== 'all') {
+        if (!sale.country || String(sale.country).trim().toLowerCase() !== String(card.filters.country).trim().toLowerCase()) {
+          return false;
+        }
+      }
+      if (card.filters.salesperson && card.filters.salesperson !== 'all') {
+        if (sale.salesperson !== card.filters.salesperson) {
+          return false;
+        }
+      }
+      if (card.filters.period) {
+        const saleDate = sale.cp_date || sale.date;
+        const date = new Date(saleDate);
+        const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        if (salePeriod !== card.filters.period) {
+          return false;
+        }
+      }
+      if (card.filters.filterField && card.filters.filterValues && card.filters.filterValues.length > 0) {
+        const filterFieldName = card.filters.filterField;
+        const filterValuesSet = new Set(card.filters.filterValues.map(v => String(v).trim().toLowerCase()));
+        const fieldValue = getFieldValueLocal(sale, filterFieldName);
+        if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+          return false;
+        }
+        const normalizedValue = String(fieldValue).trim().toLowerCase();
+        if (!filterValuesSet.has(normalizedValue)) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  };
+
   const getFilterFn = (itemLabel) => {
     return (sale) => {
+      // First check if sale matches card filters
+      if (!matchesCardFilters(sale)) {
+        return false;
+      }
+
+      // Then check if sale matches the chart entry filter
       if (card.groupBy === 'date') {
         const saleDate = getFieldValueLocal(sale, 'cp_date') || getFieldValueLocal(sale, 'date');
         if (!saleDate) return false;
@@ -14855,6 +15809,14 @@ const CustomCard = React.memo(({
     };
   };
 
+  // Combined filter function for raw data (applies card filters + chart entry filter)
+  const getCombinedFilterFn = (itemLabel) => {
+    const chartEntryFilter = getFilterFn(itemLabel);
+    return (sale) => {
+      return matchesCardFilters(sale) && chartEntryFilter(sale);
+    };
+  };
+
   const valuePrefix = card.valueField === 'amount' || card.valueField === 'profit' || card.valueField === 'tax_amount' || card.valueField === 'order_value' || card.valueField === 'avg_order_value' || card.valueField === 'avg_amount' || card.valueField === 'avg_profit' || card.valueField === 'profit_per_quantity' ? '₹' : '';
 
   // Raw data button style (matching other cards)
@@ -14891,7 +15853,7 @@ const CustomCard = React.memo(({
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <button
           type="button"
-          onClick={() => openTransactionRawData(`Raw Data - ${card.title}`, () => true)}
+          onClick={() => openTransactionRawData(`Raw Data - ${card.title}`, (sale) => matchesCardFilters(sale))}
           style={rawDataIconButtonStyle}
           onMouseEnter={handleRawDataButtonMouseEnter}
           onMouseLeave={handleRawDataButtonMouseLeave}
@@ -15014,7 +15976,7 @@ const CustomCard = React.memo(({
               rowAction={{
                 icon: 'table_view',
                 title: 'View raw data',
-                onClick: (item) => openTransactionRawData(`Raw Data - ${card.title} - ${item.label}`, getFilterFn(item.label))
+                onClick: (item) => openTransactionRawData(`Raw Data - ${card.title} - ${item.label}`, getCombinedFilterFn(item.label))
               }}
             />
           )}
@@ -15035,7 +15997,7 @@ const CustomCard = React.memo(({
               rowAction={{
                 icon: 'table_view',
                 title: 'View raw data',
-                onClick: (item) => openTransactionRawData(`Raw Data - ${card.title} - ${item.label}`, getFilterFn(item.label))
+                onClick: (item) => openTransactionRawData(`Raw Data - ${card.title} - ${item.label}`, getCombinedFilterFn(item.label))
               }}
             />
           )}
@@ -15056,7 +16018,7 @@ const CustomCard = React.memo(({
               rowAction={{
                 icon: 'table_view',
                 title: 'View raw data',
-                onClick: (item) => openTransactionRawData(`Raw Data - ${card.title} - ${item.label}`, getFilterFn(item.label))
+                onClick: (item) => openTransactionRawData(`Raw Data - ${card.title} - ${item.label}`, getCombinedFilterFn(item.label))
               }}
             />
           )}
@@ -15077,7 +16039,7 @@ const CustomCard = React.memo(({
               rowAction={{
                 icon: 'table_view',
                 title: 'View raw data',
-                onClick: (item) => openTransactionRawData(`Raw Data - ${card.title} - ${item.label}`, getFilterFn(item.label))
+                onClick: (item) => openTransactionRawData(`Raw Data - ${card.title} - ${item.label}`, getCombinedFilterFn(item.label))
               }}
             />
           )}

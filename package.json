@@ -24,10 +24,12 @@
     "babel-loader": "^8.4.1",
     "date-fns": "^4.1.0",
     "dexie": "^4.2.1",
+    "plotly.js": "^3.3.0",
     "razorpay": "^2.9.6",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "react-icons": "^4.11.0",
+    "react-plotly.js": "^2.6.0",
     "react-router-dom": "^6.22.3",
     "react-scripts": "^5.0.1",
     "react-window": "^1.8.8",
@@ -37,10 +39,10 @@
     "xlsx": "^0.18.5"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
+    "start": "craco start",
+    "build": "craco build",
     "build:versioned": "node scripts/build-with-version.js",
-    "test": "react-scripts test",
+    "test": "craco test",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
@@ -62,8 +64,12 @@
     ]
   },
   "devDependencies": {
+    "@craco/craco": "^7.1.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "assert": "^2.1.0",
+    "buffer": "^6.0.3",
+    "stream-browserify": "^3.0.0",
     "typescript": "^5.9.3"
   }
 }
