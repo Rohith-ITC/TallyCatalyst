@@ -294,12 +294,27 @@ const ReceivablesPage = ({ company, onBack }) => {
       const apiUrl = getTallyDataUrl();
       const xmlBody = buildReceivablesRequestXml(salespersonFormula, escapedCompanyName);
       
+      // Check if URL is relative (proxy) or absolute (direct)
+      const isRelativeUrl = !apiUrl.startsWith('http');
+      const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'unknown';
+      
       console.log('🌐 [Receivables] Request details:', {
         url: apiUrl,
+        isRelativeUrl,
+        currentHost,
+        willUseProxy: isRelativeUrl && currentHost === 'localhost',
         method: 'POST',
         xmlBodyLength: xmlBody.length,
-        xmlBodyPreview: xmlBody.substring(0, 200) + '...'
+        xmlBodyPreview: xmlBody.substring(0, 200) + '...',
+        baseUrl: typeof window !== 'undefined' ? window.location.origin : 'unknown'
       });
+      
+      if (!isRelativeUrl && currentHost === 'localhost') {
+        console.warn('⚠️ [Receivables] WARNING: Using absolute URL on localhost - this will cause CORS issues!');
+        console.warn('   Current hostname:', currentHost);
+        console.warn('   API URL:', apiUrl);
+        console.warn('   This request will likely fail due to CORS policy.');
+      }
 
       // Add timeout to the fetch request
       const timeoutId = setTimeout(() => {

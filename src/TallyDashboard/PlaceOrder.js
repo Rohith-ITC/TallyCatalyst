@@ -1,15 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-
-import { getApiUrl } from '../config';
-
-import { apiGet, apiPost } from '../utils/apiUtils';
-
-import { deobfuscateStockItems, testDeobfuscation, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
-
+import { apiPost } from '../utils/apiUtils';
+import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
-
 import { getCustomersFromOPFS } from '../utils/cacheSyncManager';
-
 
 
 function PlaceOrder() {
@@ -33,30 +26,6 @@ function PlaceOrder() {
     return () => window.removeEventListener('resize', handleResize);
 
   }, []);
-
-
-
-  // Test deobfuscation on component mount
-
-  useEffect(() => {
-
-    console.log('=== Testing Deobfuscation on Mount ===');
-
-    testDeobfuscation('ZWt2'); // Test with one of the values from the API
-
-
-
-    // Test zero value specifically
-
-    console.log('=== Testing Zero Value Deobfuscation ===');
-
-    console.log('Testing "ZA==" →', enhancedDeobfuscateValue('ZA=='));
-
-    console.log('Testing "0" →', enhancedDeobfuscateValue('0'));
-
-  }, []);
-
-
 
   // Listen for company changes from top bar
 
@@ -5514,20 +5483,26 @@ function PlaceOrder() {
   }, [units, selectedItem, stockItems, selectedItemUnitConfig, quantityInput]);
 
   // Re-validate quantity input when units array is loaded or changes
+  // Skip validation if we're editing an item (editingItemId is set)
   useEffect(() => {
 
-    if (quantityInput && selectedItemUnitConfig && units && units.length > 0) {
+    if (quantityInput && selectedItemUnitConfig && units && units.length > 0 && !editingItemId) {
       const validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units);
       if (validated !== quantityInput) {
         setQuantityInput(validated);
       }
     }
-  }, [units, selectedItemUnitConfig]); // Re-validate when units array is loaded
+  }, [units, selectedItemUnitConfig, editingItemId]); // Re-validate when units array is loaded
 
   // Calculate effective quantity from parsed input (always in BASEUNITS)
   // Also update quantityInput to always display in BASEUNITS format
+  // Skip processing if we're editing an item and quantityInput hasn't been set yet
   useEffect(() => {
     if (!selectedItemUnitConfig || !quantityInput) {
+      // Don't reset everything if we're in edit mode - wait for quantityInput to be set
+      if (editingItemId && !quantityInput) {
+        return;
+      }
       setItemQuantity(0);
       setEnteredUnitType('base');
       setCustomConversion(null);
@@ -6602,7 +6577,7 @@ function PlaceOrder() {
           } else {
             qtyString = item.quantity.toString();
           }
-          
+
 
           // Append alternative quantity for:
           // 1. Simple base + simple additional units
@@ -7217,16 +7192,12 @@ function PlaceOrder() {
 
     const item = orderItems[index];
 
-    // Remove the item from the list temporarily (will be re-added when saved)
-    setOrderItems(prev => prev.filter(i => i.id !== item.id));
-
-    // Set editing item ID
+    // Set editing item ID (don't remove item from cart - it will be updated when saved)
     setEditingItemId(item.id);
 
     // Populate main form fields with item data
     setSelectedItem(item.name);
     setItemSearchTerm(item.name);
-    setQuantityInput(item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`);
     setItemQuantity(item.quantity);
     setItemRate(item.rate);
     setRateUOM(item.rateUOM || 'base');
@@ -7240,6 +7211,15 @@ function PlaceOrder() {
     setCompoundAddlQty(item.compoundAddlQty || null);
     setBaseQtyOnly(item.baseQtyOnly || null);
     setEnteredUnitType(item.enteredUnitType || 'base');
+
+    // Set quantity input AFTER unitConfig is set to prevent validation from clearing it
+    // Use setTimeout to ensure it runs after all state updates
+    setTimeout(() => {
+      const qtyDisplay = item.quantityDisplay || (item.unitConfig?.BASEUNITS
+        ? `${item.quantity} ${item.unitConfig.BASEUNITS}`
+        : `${item.quantity}`);
+      setQuantityInput(qtyDisplay);
+    }, 0);
 
     // Scroll to the form fields for better UX
     const formElement = document.querySelector('[data-item-entry-form]');
@@ -7791,11 +7771,11 @@ function PlaceOrder() {
 
           color: '#b91c1c',
 
-                borderRadius: isMobile ? 8 : 8,
+          borderRadius: isMobile ? 8 : 8,
 
           padding: isMobile ? '8px 14px' : '8px 16px',
 
-          margin: isMobile ? '12px 8px' : '0 auto 18px auto', 
+          margin: isMobile ? '12px 8px' : '0 auto 18px auto',
 
           fontWeight: 600,
 
@@ -7827,11 +7807,11 @@ function PlaceOrder() {
 
           color: '#b91c1c',
 
-                borderRadius: isMobile ? 8 : 8,
+          borderRadius: isMobile ? 8 : 8,
 
           padding: isMobile ? '8px 14px' : '8px 16px',
 
-          margin: isMobile ? '12px 8px' : '0 auto 18px auto', 
+          margin: isMobile ? '12px 8px' : '0 auto 18px auto',
 
           fontWeight: 600,
 
@@ -8095,7 +8075,7 @@ function PlaceOrder() {
 
             flexDirection: isMobile ? 'column' : 'row',
 
-            gap: isMobile ? '14px' : '20px',
+            gap: isMobile ? '14px' : '16px',
 
             alignItems: isMobile ? 'stretch' : 'end',
 
@@ -8111,7 +8091,7 @@ function PlaceOrder() {
 
               position: 'relative',
 
-              flex: isMobile ? '1 1 100%' : '0 0 300px',
+              flex: isMobile ? '1 1 100%' : '0 0 280px',
 
               width: isMobile ? '100%' : 'auto'
 
@@ -8123,13 +8103,13 @@ function PlaceOrder() {
 
                 background: 'white',
 
-                borderRadius: isMobile ? '10px' : '12px',
+                borderRadius: isMobile ? '10px' : '10px',
 
-                border: showVoucherTypeDropdown ? '2px solid #3b82f6' : '2px solid #e2e8f0',
+                border: showVoucherTypeDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
 
                 transition: 'all 0.2s ease',
 
-                boxShadow: showVoucherTypeDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
+                boxShadow: showVoucherTypeDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
 
                 zIndex: showVoucherTypeDropdown ? 1001 : 'auto'
 
@@ -8207,13 +8187,13 @@ function PlaceOrder() {
 
                     width: '100%',
 
-                    padding: '16px 20px',
+                    padding: isMobile ? '14px 18px' : '15px 18px',
 
                     border: 'none',
 
-                    borderRadius: '12px',
+                    borderRadius: '10px',
 
-                    fontSize: '15px',
+                    fontSize: isMobile ? '14px' : '15px',
 
                     color: '#1e293b',
 
@@ -8221,7 +8201,11 @@ function PlaceOrder() {
 
                     background: 'transparent',
 
-                    cursor: voucherTypesLoading ? 'not-allowed' : 'text'
+                    cursor: voucherTypesLoading ? 'not-allowed' : 'text',
+
+                    height: isMobile ? '48px' : '52px',
+
+                    boxSizing: 'border-box'
 
                   }}
 
@@ -8457,9 +8441,11 @@ function PlaceOrder() {
 
               position: 'relative',
 
-              flex: isMobile ? '1 1 100%' : '0 0 500px',
+              flex: isMobile ? '1 1 100%' : '1 1 450px',
 
-              width: isMobile ? '100%' : 'auto'
+              width: isMobile ? '100%' : 'auto',
+
+              minWidth: isMobile ? '100%' : '350px'
 
             }}>
 
@@ -8469,13 +8455,13 @@ function PlaceOrder() {
 
                 background: 'white',
 
-                borderRadius: isMobile ? '10px' : '12px',
+                borderRadius: isMobile ? '10px' : '10px',
 
-                border: showCustomerDropdown ? '2px solid #3b82f6' : '2px solid #e2e8f0',
+                border: showCustomerDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
 
                 transition: 'all 0.2s ease',
 
-                boxShadow: showCustomerDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
+                boxShadow: showCustomerDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
 
                 zIndex: showCustomerDropdown ? 1001 : 'auto'
 
@@ -8583,15 +8569,15 @@ function PlaceOrder() {
 
                     width: '100%',
 
-                    padding: '16px 20px',
+                    padding: isMobile ? '14px 18px' : '15px 18px',
 
-                    paddingRight: selectedCustomer ? '50px' : '20px',
+                    paddingRight: selectedCustomer ? '50px' : '18px',
 
                     border: 'none',
 
-                    borderRadius: '12px',
+                    borderRadius: '10px',
 
-                    fontSize: '15px',
+                    fontSize: isMobile ? '14px' : '15px',
 
                     color: '#374151',
 
@@ -8599,7 +8585,11 @@ function PlaceOrder() {
 
                     background: 'transparent',
 
-                    cursor: customerLoading ? 'not-allowed' : 'text'
+                    cursor: customerLoading ? 'not-allowed' : 'text',
+
+                    height: isMobile ? '48px' : '52px',
+
+                    boxSizing: 'border-box'
 
                   }}
 
@@ -9165,7 +9155,7 @@ function PlaceOrder() {
 
               gap: '10px',
 
-              flex: isMobile ? '1 1 100%' : '0 0 180px',
+              flex: isMobile ? '1 1 100%' : '0 0 200px',
 
               width: isMobile ? '100%' : 'auto'
 
@@ -9187,7 +9177,7 @@ function PlaceOrder() {
 
                   borderRadius: '8px',
 
-                  padding: isMobile ? '16px 24px' : '12px 24px',
+                  padding: isMobile ? '14px 20px' : '14px 24px',
 
                   cursor: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'not-allowed' : 'pointer',
 
@@ -9448,35 +9438,19 @@ function PlaceOrder() {
         {/* Add Item Form */}
         <div data-item-entry-form>
 
-        <div style={{
-
-          padding: isMobile ? '16px 12px' : '16px 32px',
-
-          paddingBottom: isMobile ? '16px' : '24px',
-
-          borderBottom: '1px solid #f3f4f6',
-
-          background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-
-          position: 'relative',
-
-          borderRadius: isMobile ? '16px 16px 0 0' : '0'
-
-        }}>
-
           <div style={{
 
-            display: 'flex',
+            padding: isMobile ? '16px 12px' : '16px 32px',
 
-            flexDirection: isMobile ? 'column' : 'row',
+            paddingBottom: isMobile ? '16px' : '24px',
 
-            alignItems: isMobile ? 'flex-start' : 'center',
+            borderBottom: '1px solid #f3f4f6',
 
-            justifyContent: 'space-between',
+            background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
 
-            gap: isMobile ? '14px' : '0',
+            position: 'relative',
 
-            marginBottom: isMobile ? '10px' : '6px'
+            borderRadius: isMobile ? '16px 16px 0 0' : '0'
 
           }}>
 
@@ -9484,613 +9458,59 @@ function PlaceOrder() {
 
               display: 'flex',
 
-              alignItems: 'center',
+              flexDirection: isMobile ? 'column' : 'row',
 
-              gap: '12px'
+              alignItems: isMobile ? 'flex-start' : 'center',
 
-            }}>
+              justifyContent: 'space-between',
 
+              gap: isMobile ? '14px' : '0',
 
-
-
-
-            </div>
-
-
-
-            {/* Total Items Counter */}
-
-            <div style={{
-
-              fontSize: isMobile ? '12px' : '14px',
-
-              color: '#64748b',
-
-              fontWeight: '500',
-
-              padding: isMobile ? '8px 14px' : '8px 16px',
-
-              backgroundColor: '#f8fafc',
-
-              borderRadius: '20px',
-
-              border: '1px solid #e2e8f0',
-
-              width: isMobile ? '100%' : 'auto'
-
-            }}>
-
-              📦 {stockItems.length.toLocaleString()} items available
-
-            </div>
-
-          </div>
-
-
-
-          <div style={{
-
-            display: 'flex',
-
-            flexDirection: isMobile ? 'column' : 'row',
-
-            flexWrap: isMobile ? 'nowrap' : 'wrap',
-
-            gap: isMobile ? '12px' : '12px',
-
-            alignItems: isMobile ? 'stretch' : 'flex-end',
-
-            position: 'relative',
-
-            minHeight: '30px',
-
-            padding: isMobile ? '16px 12px' : '20px',
-
-            background: '#f8fafc',
-
-            borderRadius: isMobile ? '12px' : '16px',
-
-            border: '1px solid #e2e8f0'
-
-          }}>
-
-            {/* Item Name */}
-
-            <div style={{
-
-              position: 'relative',
-
-              flex: isMobile ? '1 1 100%' : '1 1 300px',
-
-              minWidth: isMobile ? '100%' : '300px',
-
-              width: isMobile ? '100%' : 'auto'
+              marginBottom: isMobile ? '10px' : '6px'
 
             }}>
 
               <div style={{
 
-                position: 'relative',
+                display: 'flex',
 
-                background: 'white',
+                alignItems: 'center',
 
-                borderRadius: isMobile ? '10px' : '12px',
-
-                border: showItemDropdown ? '2px solid #3b82f6' : '2px solid #e2e8f0',
-
-                transition: 'all 0.2s ease',
-
-                boxShadow: showItemDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
-
-                zIndex: showItemDropdown ? 1001 : 'auto'
+                gap: '12px'
 
               }}>
 
-                <input
 
-                  type="text"
 
-                  value={selectedItem || itemSearchTerm}
 
-                  onChange={(e) => {
 
-                    setItemSearchTerm(e.target.value);
+              </div>
 
-                    setSelectedItem('');
 
-                    setCustomConversion(null);
-                    setCustomAddlQty(null);
-                    setCompoundBaseQty(null);
-                    setCompoundAddlQty(null);
-                    setShowItemDropdown(true);
 
-                    // Clear filtered results when clearing search
+              {/* Total Items Counter */}
 
-                    if (!e.target.value.trim()) {
+              <div style={{
 
-                      // Always show all items when no search term (like customer dropdown)
+                fontSize: isMobile ? '12px' : '14px',
 
-                      setFilteredItems(stockItems);
+                color: '#64748b',
 
-                    }
+                fontWeight: '500',
 
-                  }}
+                padding: isMobile ? '8px 14px' : '8px 16px',
 
-                  onFocus={() => {
+                backgroundColor: '#f8fafc',
 
-                    setItemFocused(true);
+                borderRadius: '20px',
 
-                    setShowItemDropdown(true);
+                border: '1px solid #e2e8f0',
 
-                    // Always show all items when focused (like customer dropdown)
+                width: isMobile ? '100%' : 'auto'
 
-                    setFilteredItems(stockItems);
+              }}>
 
-                  }}
-
-                  onBlur={() => {
-
-                    setItemFocused(false);
-
-                    // Delay hiding dropdown to allow click events
-
-                    setTimeout(() => setShowItemDropdown(false), 200);
-
-                  }}
-
-                  onKeyDown={(e) => {
-
-                    if (e.key === 'Escape') {
-
-                      setShowItemDropdown(false);
-
-                      e.target.blur();
-
-                    }
-
-                  }}
-
-                  disabled={!selectedCustomer}
-
-                  style={{
-
-                    width: '100%',
-
-                    padding: '16px 20px',
-
-                    paddingRight: selectedItem ? '50px' : '20px',
-
-                    border: 'none',
-
-                    borderRadius: '12px',
-
-                    fontSize: '15px',
-
-                    color: selectedCustomer ? '#1e293b' : '#9ca3af',
-
-                    outline: 'none',
-
-                    background: selectedCustomer ? 'transparent' : '#f1f5f9',
-
-                    cursor: selectedCustomer ? 'text' : 'not-allowed'
-
-                  }}
-
-                  placeholder=""
-
-                />
-
-
-
-                {/* Search Icon or Dropdown Arrow */}
-
-                {!selectedItem && (
-
-                  <span
-
-                    className="material-icons"
-
-                    style={{
-
-                      position: 'absolute',
-
-                      right: '16px',
-
-                      top: '50%',
-
-                      transform: 'translateY(-50%)',
-
-                      color: showItemDropdown ? '#3b82f6' : '#9ca3af',
-
-                      fontSize: '20px',
-
-                      pointerEvents: 'none',
-
-                      transition: 'color 0.2s ease'
-
-                    }}
-
-                  >
-
-                    {showItemDropdown ? 'expand_less' : 'search'}
-
-                  </span>
-
-                )}
-
-
-
-
-
-
-
-                {/* Clear Button for Item */}
-
-                {selectedItem && (
-
-                  <button
-
-                    type="button"
-
-                    onClick={() => {
-
-                      setSelectedItem('');
-
-                      setCustomConversion(null);
-                      setCustomAddlQty(null);
-                      setCompoundBaseQty(null);
-                      setCompoundAddlQty(null);
-                      setItemSearchTerm('');
-
-                      setShowItemDropdown(false);
-
-                      // Always show all items when reopening (like customer dropdown)
-
-                      setFilteredItems(stockItems);
-
-                    }}
-
-                    style={{
-
-                      position: 'absolute',
-
-                      right: '8px',
-
-                      top: '50%',
-
-                      transform: 'translateY(-50%)',
-
-                      background: 'none',
-
-                      border: 'none',
-
-                      cursor: 'pointer',
-
-                      padding: '4px',
-
-                      borderRadius: '50%',
-
-                      color: '#64748b',
-
-                      fontSize: '18px',
-
-                      display: 'flex',
-
-                      alignItems: 'center',
-
-                      justifyContent: 'center',
-
-                      transition: 'color 0.2s ease'
-
-                    }}
-
-                    title="Clear item"
-
-                  >
-
-                    ×
-
-                  </button>
-
-                )}
-
-
-
-                <label style={{
-
-                  position: 'absolute',
-
-                  left: '20px',
-
-                  top: '-10px',
-
-                  fontSize: '12px',
-
-                  fontWeight: '600',
-
-                  color: itemFocused || selectedItem ? '#3b82f6' : '#64748b',
-
-                  backgroundColor: 'white',
-
-                  padding: '0 8px',
-
-                  transition: 'all 0.2s ease',
-
-                  pointerEvents: 'none'
-
-                }}>
-
-                  Item Name
-
-                </label>
-
-
-
-                {/* Custom Dropdown */}
-
-                {showItemDropdown && (
-
-                  <div
-
-                    className="dropdown-animation"
-
-                    style={{
-
-                      position: 'absolute',
-
-                      top: 'calc(100% + 8px)',
-
-                      left: 0,
-
-                      right: 0,
-
-                      backgroundColor: 'white',
-
-                      border: '2px solid #3b82f6',
-
-                      borderRadius: '8px',
-
-                      maxHeight: '500px',
-
-                      overflowY: 'auto',
-
-                      zIndex: 9999,
-
-                      boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
-
-                      marginTop: '0',
-
-                      minHeight: '50px'
-
-                    }}
-
-                  >
-
-
-
-                    {/* Loading indicator */}
-
-                    {itemSearchTerm.trim() && filteredItems.length === 0 && (
-
-                      <div style={{
-
-                        padding: '16px',
-
-                        textAlign: 'center',
-
-                        color: '#64748b',
-
-                        fontSize: '14px'
-
-                      }}>
-
-                        <div style={{
-
-                          width: '20px',
-
-                          height: '20px',
-
-                          border: '2px solid #e2e8f0',
-
-                          borderTop: '2px solid #3b82f6',
-
-                          borderRadius: '50%',
-
-                          animation: 'spin 1s linear infinite',
-
-                          margin: '0 auto 8px auto'
-
-                        }} />
-
-                        Searching {stockItems.length.toLocaleString()} items...
-
-                      </div>
-
-                    )}
-
-
-
-                    {/* Results */}
-
-                    {filteredItems.map((item, index) => (
-
-                      <div
-
-                        key={item.NAME}
-
-                        onClick={() => {
-
-                          setSelectedItem(item.NAME);
-
-                          setItemSearchTerm('');
-
-                          setShowItemDropdown(false);
-
-                          setFilteredItems([]);
-
-                        }}
-
-                        style={{
-
-                          padding: '12px 16px',
-
-                          cursor: 'pointer',
-
-                          borderBottom: index < filteredItems.length - 1 ? '1px solid #f1f5f9' : 'none',
-
-                          transition: 'background-color 0.2s ease'
-
-                        }}
-
-                        onMouseEnter={(e) => {
-
-                          e.target.style.backgroundColor = '#f8fafc';
-
-                        }}
-
-                        onMouseLeave={(e) => {
-
-                          e.target.style.backgroundColor = 'white';
-
-                        }}
-
-                      >
-
-                        <div style={{
-
-                          fontWeight: '600',
-
-                          color: '#1e293b',
-
-                          fontSize: '14px'
-
-                        }}>
-
-                          {item.NAME}
-
-                        </div>
-
-                        <div style={{
-
-                          fontSize: '12px',
-
-                          color: '#64748b',
-
-                          marginTop: '2px'
-
-                        }}>
-
-                          {item.PARTNO && `Part No: ${item.PARTNO} | `}
-
-                          {canShowClosingStock && (
-
-                            <>
-
-                              Stock: {(() => {
-
-                                const stockValue = item.CLOSINGSTOCK || 0;
-
-                                // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
-
-                                if (canShowClosingStockYesNo) {
-
-                                  return stockValue > 0 ? 'Yes' : 'No';
-
-                                }
-
-                                return stockValue;
-
-                              })()} |
-
-                            </>
-
-                          )}
-
-                          {canShowRateAmtColumn && `Rate: ₹${computeRateForItem(item)}`}
-
-                        </div>
-
-                      </div>
-
-                    ))}
-
-
-
-                    {/* Show more results indicator */}
-
-                    {filteredItems.length === 100 && (
-
-                      <div style={{
-
-                        padding: '12px 16px',
-
-                        textAlign: 'center',
-
-                        color: '#64748b',
-
-                        fontSize: '12px',
-
-                        fontStyle: 'italic',
-
-                        borderTop: '1px solid #f1f5f9',
-
-                        backgroundColor: '#f8fafc'
-
-                      }}>
-
-                        Showing first 100 results. Refine your search for more specific results.
-
-                      </div>
-
-                    )}
-
-                  </div>
-
-                )}
-
-
-
-                {/* No Results Message */}
-
-                {showItemDropdown && itemSearchTerm.trim() && filteredItems.length === 0 && (
-
-                  <div style={{
-
-                    position: 'absolute',
-
-                    top: '100%',
-
-                    left: 0,
-
-                    right: 0,
-
-                    backgroundColor: 'white',
-
-                    border: '2px solid #e2e8f0',
-
-                    borderRadius: '8px',
-
-                    padding: '16px',
-
-                    textAlign: 'center',
-
-                    color: '#64748b',
-
-                    fontSize: '14px',
-
-                    zIndex: 1000,
-
-                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
-
-                    marginTop: '4px'
-
-                  }}>
-
-                    No items found matching "{itemSearchTerm}"
-
-                  </div>
-
-                )}
+                📦 {stockItems.length.toLocaleString()} items available
 
               </div>
 
@@ -10098,229 +9518,812 @@ function PlaceOrder() {
 
 
 
+            <div style={{
 
+              display: 'flex',
 
-            {/* Simplified Quantity Input (Tally-style) */}
-            {selectedItemUnitConfig && (
+              flexDirection: isMobile ? 'column' : 'row',
+
+              flexWrap: isMobile ? 'nowrap' : 'wrap',
+
+              gap: isMobile ? '12px' : '14px',
+
+              alignItems: isMobile ? 'stretch' : 'flex-end',
+
+              position: 'relative',
+
+              minHeight: '30px',
+
+              padding: isMobile ? '16px 12px' : '18px',
+
+              background: '#f8fafc',
+
+              borderRadius: isMobile ? '12px' : '14px',
+
+              border: '1px solid #e2e8f0'
+
+            }}>
+
+              {/* Item Name */}
 
               <div style={{
+
                 position: 'relative',
-                flex: isMobile ? '1 1 100%' : '0 0 200px',
-                minWidth: isMobile ? '100%' : '200px',
-                maxWidth: isMobile ? '100%' : '200px',
-                display: 'flex',
-                alignItems: 'flex-end',
-                gap: '8px'
+
+                flex: isMobile ? '1 1 100%' : '1 1 320px',
+
+                minWidth: isMobile ? '100%' : '280px',
+
+                width: isMobile ? '100%' : 'auto'
+
               }}>
+
                 <div style={{
 
                   position: 'relative',
 
                   background: 'white',
 
-                  borderRadius: isMobile ? '10px' : '12px',
-                  border: quantityFocused ? '2px solid #3b82f6' : '2px solid #e2e8f0',
+                  borderRadius: isMobile ? '10px' : '10px',
+
+                  border: showItemDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
+
                   transition: 'all 0.2s ease',
 
-                  boxShadow: quantityFocused ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
-                  flex: '1 1 auto',
-                  minWidth: 0
+                  boxShadow: showItemDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
+
+                  zIndex: showItemDropdown ? 1001 : 'auto'
+
                 }}>
+
                   <input
 
                     type="text"
 
-                    value={quantityInput}
+                    value={selectedItem || itemSearchTerm}
+
                     onChange={(e) => {
-                      const inputValue = e.target.value;
-                      // Filter out only obviously invalid characters (special symbols, etc.)
-                      // Allow numbers, decimal point, spaces, letters (for unit names), and = (for custom conversion)
-                      const filtered = inputValue.replace(/[^0-9.\sA-Za-z=]/g, '');
-                      if (filtered !== inputValue) {
-                        // Invalid character entered, don't update
-                        return;
+
+                      setItemSearchTerm(e.target.value);
+
+                      setSelectedItem('');
+
+                      setCustomConversion(null);
+                      setCustomAddlQty(null);
+                      setCompoundBaseQty(null);
+                      setCompoundAddlQty(null);
+                      setShowItemDropdown(true);
+
+                      // Clear filtered results when clearing search
+
+                      if (!e.target.value.trim()) {
+
+                        // Always show all items when no search term (like customer dropdown)
+
+                        setFilteredItems(stockItems);
+
                       }
-                      // While typing, just update the input - don't validate yet
-                      // Validation will happen on blur
-                      setQuantityInput(filtered);
+
                     }}
-                    onBlur={(e) => {
-                      // Final validation on blur - always round/format based on unit's decimal places
-                      const validated = validateQuantityInput(e.target.value, selectedItemUnitConfig, units, true);
 
-                      // Preserve customAddlQty and compoundAddlQty before conversion (in case it gets cleared during parsing)
-                      const preservedCustomAddlQty = customAddlQty;
-                      const preservedCustomConversion = customConversion;
-                      const preservedCompoundAddlQty = compoundAddlQty;
+                    onFocus={() => {
 
-                      // Parse the original input first to check if it's a custom conversion or component unit input
-                      // Don't use validated here because validateQuantityInput might have converted it
-                      const originalParsedQty = parseQuantityInput(quantityInput, selectedItemUnitConfig, units);
+                      setItemFocused(true);
 
-                      // Always convert to BASEUNITS format, even for custom conversions
-                      if (validated && selectedItemUnitConfig) {
-                        const parsedQty = parseQuantityInput(validated, selectedItemUnitConfig, units);
+                      setShowItemDropdown(true);
 
-                        // If the original input was a custom conversion, preserve the customAddlQty
-                        if (originalParsedQty.isCustomConversion && originalParsedQty.customAddlQty !== undefined) {
-                          // The customAddlQty is set by parseQuantityInput, but we need to ensure it's preserved
-                          // Set it immediately to ensure it's available
-                          if (customAddlQty !== originalParsedQty.customAddlQty) {
-                            setCustomAddlQty(originalParsedQty.customAddlQty);
-                          }
-                          // Also ensure customConversion is set if not already
-                          if (!customConversion && originalParsedQty.isCustomConversion) {
-                            // Calculate the custom conversion ratio from the parsed quantity
-                            const baseQty = convertToPrimaryQty(originalParsedQty, selectedItemUnitConfig, null, units);
-                            setCustomConversion({
-                              baseQty: baseQty,
-                              addlQty: originalParsedQty.customAddlQty,
-                              denominator: baseQty,
-                              conversion: originalParsedQty.customAddlQty
-                            });
-                          }
-                        } else if (originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
-                          // Preserve customAddlQty even if it's not a custom conversion (e.g., "9 pkt 2 nos 3 box")
-                          if (customAddlQty !== originalParsedQty.customAddlQty) {
-                            setCustomAddlQty(originalParsedQty.customAddlQty);
-                          }
-                        } else if (originalParsedQty.compoundAddlQty !== undefined && originalParsedQty.compoundAddlQty !== null) {
-                          // Preserve compoundAddlQty when user entered component unit (e.g., "25 pkt" or "55 nos")
-                          console.log('🔢 Preserving compoundAddlQty from original input in onBlur:', {
-                            originalCompoundAddlQty: originalParsedQty.compoundAddlQty,
-                            originalCompoundAddlMainQty: originalParsedQty.compoundAddlMainQty,
-                            originalCompoundAddlSubQty: originalParsedQty.compoundAddlSubQty,
-                            currentCompoundAddlQty: compoundAddlQty,
-                            input: quantityInput,
-                            validated: validated
-                          });
-                          if (compoundAddlQty !== originalParsedQty.compoundAddlQty) {
-                            setCompoundAddlQty(originalParsedQty.compoundAddlQty);
-                          }
-                        } else if (parsedQty.isCustomConversion && parsedQty.customAddlQty !== undefined) {
-                          // Fallback: if validated version has custom conversion, use it
-                          if (customAddlQty !== parsedQty.customAddlQty) {
-                            setCustomAddlQty(parsedQty.customAddlQty);
-                          }
-                          if (!customConversion && parsedQty.isCustomConversion) {
-                            const baseQty = convertToPrimaryQty(parsedQty, selectedItemUnitConfig, null, units);
-                            setCustomConversion({
-                              baseQty: baseQty,
-                              addlQty: parsedQty.customAddlQty,
-                              denominator: baseQty,
-                              conversion: parsedQty.customAddlQty
-                            });
-                          }
-                        } else if (preservedCustomConversion && preservedCustomAddlQty !== null && preservedCustomAddlQty !== undefined) {
-                          // If we had a custom conversion before, and the parsed quantity matches, preserve it
-                          const primaryQty = convertToPrimaryQty(parsedQty, selectedItemUnitConfig, preservedCustomConversion, units);
-                          if (Math.abs(primaryQty - preservedCustomConversion.baseQty) < 0.0001) {
-                            // Quantity matches - preserve the custom conversion
-                            if (!customConversion || customConversion.baseQty !== preservedCustomConversion.baseQty) {
-                              setCustomConversion(preservedCustomConversion);
+                      // Always show all items when focused (like customer dropdown)
+
+                      setFilteredItems(stockItems);
+
+                    }}
+
+                    onBlur={() => {
+
+                      setItemFocused(false);
+
+                      // Delay hiding dropdown to allow click events
+
+                      setTimeout(() => setShowItemDropdown(false), 200);
+
+                    }}
+
+                    onKeyDown={(e) => {
+
+                      if (e.key === 'Escape') {
+
+                        setShowItemDropdown(false);
+
+                        e.target.blur();
+
+                      }
+
+                    }}
+
+                    disabled={!selectedCustomer}
+
+                    style={{
+
+                      width: '100%',
+
+                      padding: '16px 20px',
+
+                      paddingRight: selectedItem ? '50px' : '20px',
+
+                      border: 'none',
+
+                      borderRadius: '12px',
+
+                      fontSize: '15px',
+
+                      color: selectedCustomer ? '#1e293b' : '#9ca3af',
+
+                      outline: 'none',
+
+                      background: selectedCustomer ? 'transparent' : '#f1f5f9',
+
+                      cursor: selectedCustomer ? 'text' : 'not-allowed'
+
+                    }}
+
+                    placeholder=""
+
+                  />
+
+
+
+                  {/* Search Icon or Dropdown Arrow */}
+
+                  {!selectedItem && (
+
+                    <span
+
+                      className="material-icons"
+
+                      style={{
+
+                        position: 'absolute',
+
+                        right: '16px',
+
+                        top: '50%',
+
+                        transform: 'translateY(-50%)',
+
+                        color: showItemDropdown ? '#3b82f6' : '#9ca3af',
+
+                        fontSize: '20px',
+
+                        pointerEvents: 'none',
+
+                        transition: 'color 0.2s ease'
+
+                      }}
+
+                    >
+
+                      {showItemDropdown ? 'expand_less' : 'search'}
+
+                    </span>
+
+                  )}
+
+
+
+
+
+
+
+                  {/* Clear Button for Item */}
+
+                  {selectedItem && (
+
+                    <button
+
+                      type="button"
+
+                      onClick={() => {
+
+                        setSelectedItem('');
+
+                        setCustomConversion(null);
+                        setCustomAddlQty(null);
+                        setCompoundBaseQty(null);
+                        setCompoundAddlQty(null);
+                        setItemSearchTerm('');
+
+                        setShowItemDropdown(false);
+
+                        // Always show all items when reopening (like customer dropdown)
+
+                        setFilteredItems(stockItems);
+
+                      }}
+
+                      style={{
+
+                        position: 'absolute',
+
+                        right: '8px',
+
+                        top: '50%',
+
+                        transform: 'translateY(-50%)',
+
+                        background: 'none',
+
+                        border: 'none',
+
+                        cursor: 'pointer',
+
+                        padding: '4px',
+
+                        borderRadius: '50%',
+
+                        color: '#64748b',
+
+                        fontSize: '18px',
+
+                        display: 'flex',
+
+                        alignItems: 'center',
+
+                        justifyContent: 'center',
+
+                        transition: 'color 0.2s ease'
+
+                      }}
+
+                      title="Clear item"
+
+                    >
+
+                      ×
+
+                    </button>
+
+                  )}
+
+
+
+                  <label style={{
+
+                    position: 'absolute',
+
+                    left: '20px',
+
+                    top: '-10px',
+
+                    fontSize: '12px',
+
+                    fontWeight: '600',
+
+                    color: itemFocused || selectedItem ? '#3b82f6' : '#64748b',
+
+                    backgroundColor: 'white',
+
+                    padding: '0 8px',
+
+                    transition: 'all 0.2s ease',
+
+                    pointerEvents: 'none'
+
+                  }}>
+
+                    Item Name
+
+                  </label>
+
+
+
+                  {/* Custom Dropdown */}
+
+                  {showItemDropdown && (
+
+                    <div
+
+                      className="dropdown-animation"
+
+                      style={{
+
+                        position: 'absolute',
+
+                        top: 'calc(100% + 8px)',
+
+                        left: 0,
+
+                        right: 0,
+
+                        backgroundColor: 'white',
+
+                        border: '2px solid #3b82f6',
+
+                        borderRadius: '8px',
+
+                        maxHeight: '500px',
+
+                        overflowY: 'auto',
+
+                        zIndex: 9999,
+
+                        boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
+
+                        marginTop: '0',
+
+                        minHeight: '50px'
+
+                      }}
+
+                    >
+
+
+
+                      {/* Loading indicator */}
+
+                      {itemSearchTerm.trim() && filteredItems.length === 0 && (
+
+                        <div style={{
+
+                          padding: '16px',
+
+                          textAlign: 'center',
+
+                          color: '#64748b',
+
+                          fontSize: '14px'
+
+                        }}>
+
+                          <div style={{
+
+                            width: '20px',
+
+                            height: '20px',
+
+                            border: '2px solid #e2e8f0',
+
+                            borderTop: '2px solid #3b82f6',
+
+                            borderRadius: '50%',
+
+                            animation: 'spin 1s linear infinite',
+
+                            margin: '0 auto 8px auto'
+
+                          }} />
+
+                          Searching {stockItems.length.toLocaleString()} items...
+
+                        </div>
+
+                      )}
+
+
+
+                      {/* Results */}
+
+                      {filteredItems.map((item, index) => (
+
+                        <div
+
+                          key={item.NAME}
+
+                          onClick={() => {
+
+                            setSelectedItem(item.NAME);
+
+                            setItemSearchTerm('');
+
+                            setShowItemDropdown(false);
+
+                            setFilteredItems([]);
+
+                          }}
+
+                          style={{
+
+                            padding: '12px 16px',
+
+                            cursor: 'pointer',
+
+                            borderBottom: index < filteredItems.length - 1 ? '1px solid #f1f5f9' : 'none',
+
+                            transition: 'background-color 0.2s ease'
+
+                          }}
+
+                          onMouseEnter={(e) => {
+
+                            e.target.style.backgroundColor = '#f8fafc';
+
+                          }}
+
+                          onMouseLeave={(e) => {
+
+                            e.target.style.backgroundColor = 'white';
+
+                          }}
+
+                        >
+
+                          <div style={{
+
+                            fontWeight: '600',
+
+                            color: '#1e293b',
+
+                            fontSize: '14px'
+
+                          }}>
+
+                            {item.NAME}
+
+                          </div>
+
+                          <div style={{
+
+                            fontSize: '12px',
+
+                            color: '#64748b',
+
+                            marginTop: '2px'
+
+                          }}>
+
+                            {item.PARTNO && `Part No: ${item.PARTNO} | `}
+
+                            {canShowClosingStock && (
+
+                              <>
+
+                                Stock: {(() => {
+
+                                  const stockValue = item.CLOSINGSTOCK || 0;
+
+                                  // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
+
+                                  if (canShowClosingStockYesNo) {
+
+                                    return stockValue > 0 ? 'Yes' : 'No';
+
+                                  }
+
+                                  return stockValue;
+
+                                })()} |
+
+                              </>
+
+                            )}
+
+                            {canShowRateAmtColumn && `Rate: ₹${computeRateForItem(item)}`}
+
+                          </div>
+
+                        </div>
+
+                      ))}
+
+
+
+                      {/* Show more results indicator */}
+
+                      {filteredItems.length === 100 && (
+
+                        <div style={{
+
+                          padding: '12px 16px',
+
+                          textAlign: 'center',
+
+                          color: '#64748b',
+
+                          fontSize: '12px',
+
+                          fontStyle: 'italic',
+
+                          borderTop: '1px solid #f1f5f9',
+
+                          backgroundColor: '#f8fafc'
+
+                        }}>
+
+                          Showing first 100 results. Refine your search for more specific results.
+
+                        </div>
+
+                      )}
+
+                    </div>
+
+                  )}
+
+
+
+                  {/* No Results Message */}
+
+                  {showItemDropdown && itemSearchTerm.trim() && filteredItems.length === 0 && (
+
+                    <div style={{
+
+                      position: 'absolute',
+
+                      top: '100%',
+
+                      left: 0,
+
+                      right: 0,
+
+                      backgroundColor: 'white',
+
+                      border: '2px solid #e2e8f0',
+
+                      borderRadius: '8px',
+
+                      padding: '16px',
+
+                      textAlign: 'center',
+
+                      color: '#64748b',
+
+                      fontSize: '14px',
+
+                      zIndex: 1000,
+
+                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+
+                      marginTop: '4px'
+
+                    }}>
+
+                      No items found matching "{itemSearchTerm}"
+
+                    </div>
+
+                  )}
+
+                </div>
+
+              </div>
+
+
+
+
+
+              {/* Simplified Quantity Input (Tally-style) */}
+              {selectedItemUnitConfig && (
+
+                <div style={{
+                  position: 'relative',
+                  flex: isMobile ? '1 1 100%' : '0 0 220px',
+                  minWidth: isMobile ? '100%' : '180px',
+                  maxWidth: isMobile ? '100%' : '240px',
+                  display: 'flex',
+                  alignItems: 'flex-end',
+                  gap: '8px'
+                }}>
+                  <div style={{
+
+                    position: 'relative',
+
+                    background: 'white',
+
+                    borderRadius: isMobile ? '10px' : '10px',
+                    border: quantityFocused ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
+                    transition: 'all 0.2s ease',
+
+                    boxShadow: quantityFocused ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
+                    flex: '1 1 auto',
+                    minWidth: 0
+                  }}>
+                    <input
+
+                      type="text"
+
+                      value={quantityInput}
+                      onChange={(e) => {
+                        const inputValue = e.target.value;
+                        // Filter out only obviously invalid characters (special symbols, etc.)
+                        // Allow numbers, decimal point, spaces, letters (for unit names), and = (for custom conversion)
+                        const filtered = inputValue.replace(/[^0-9.\sA-Za-z=]/g, '');
+                        if (filtered !== inputValue) {
+                          // Invalid character entered, don't update
+                          return;
+                        }
+                        // While typing, just update the input - don't validate yet
+                        // Validation will happen on blur
+                        setQuantityInput(filtered);
+                      }}
+                      onBlur={(e) => {
+                        // Final validation on blur - always round/format based on unit's decimal places
+                        const validated = validateQuantityInput(e.target.value, selectedItemUnitConfig, units, true);
+
+                        // Preserve customAddlQty and compoundAddlQty before conversion (in case it gets cleared during parsing)
+                        const preservedCustomAddlQty = customAddlQty;
+                        const preservedCustomConversion = customConversion;
+                        const preservedCompoundAddlQty = compoundAddlQty;
+
+                        // Parse the original input first to check if it's a custom conversion or component unit input
+                        // Don't use validated here because validateQuantityInput might have converted it
+                        const originalParsedQty = parseQuantityInput(quantityInput, selectedItemUnitConfig, units);
+
+                        // Always convert to BASEUNITS format, even for custom conversions
+                        if (validated && selectedItemUnitConfig) {
+                          const parsedQty = parseQuantityInput(validated, selectedItemUnitConfig, units);
+
+                          // If the original input was a custom conversion, preserve the customAddlQty
+                          if (originalParsedQty.isCustomConversion && originalParsedQty.customAddlQty !== undefined) {
+                            // The customAddlQty is set by parseQuantityInput, but we need to ensure it's preserved
+                            // Set it immediately to ensure it's available
+                            if (customAddlQty !== originalParsedQty.customAddlQty) {
+                              setCustomAddlQty(originalParsedQty.customAddlQty);
                             }
-                            if (customAddlQty !== preservedCustomAddlQty) {
-                              setCustomAddlQty(preservedCustomAddlQty);
+                            // Also ensure customConversion is set if not already
+                            if (!customConversion && originalParsedQty.isCustomConversion) {
+                              // Calculate the custom conversion ratio from the parsed quantity
+                              const baseQty = convertToPrimaryQty(originalParsedQty, selectedItemUnitConfig, null, units);
+                              setCustomConversion({
+                                baseQty: baseQty,
+                                addlQty: originalParsedQty.customAddlQty,
+                                denominator: baseQty,
+                                conversion: originalParsedQty.customAddlQty
+                              });
                             }
-                          }
-                        } else if (preservedCompoundAddlQty !== null && preservedCompoundAddlQty !== undefined && originalParsedQty.isComponentUnit) {
-                          // If we had compoundAddlQty from component unit input (e.g., "25 pkt"), preserve it
-                          // This ensures the alternative quantity shows the user-entered value instead of recalculating
-                          console.log('🔢 Preserving compoundAddlQty from preserved state in onBlur:', {
-                            preservedCompoundAddlQty,
-                            originalIsComponentUnit: originalParsedQty.isComponentUnit,
-                            currentCompoundAddlQty: compoundAddlQty,
-                            input: quantityInput,
-                            validated: validated
-                          });
-                          if (compoundAddlQty !== preservedCompoundAddlQty) {
-                            setCompoundAddlQty(preservedCompoundAddlQty);
-                          }
-                        }
-
-                        // Use originalParsedQty if it has compound structure, otherwise use parsedQty
-                        // This ensures we preserve the structure from the original input
-                        const qtyForCalculation = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
-                          ? originalParsedQty
-                          : parsedQty;
-
-                        const primaryQty = convertToPrimaryQty(qtyForCalculation, selectedItemUnitConfig, customConversion || preservedCustomConversion, units);
-
-                        // For display, use the base quantity (qty) if it's a custom conversion with totalQty
-                        // This ensures "1 box 5 pkt 3 nos" shows as "1 box" not "2 box"
-                        // Also use originalParsedQty if it has compound structure to preserve the structure
-                        let displayQty;
-                        if (originalParsedQty.isCustomConversion && originalParsedQty.totalQty !== undefined) {
-                          displayQty = originalParsedQty.qty;
-                        } else if (originalParsedQty && originalParsedQty.totalQty !== undefined && originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
-                          // Simple base + compound additional input (e.g., "1 box 9 pkt 2 nos")
-                          // Use only the base quantity (qty) for display, not the total
-                          displayQty = originalParsedQty.qty;
-                        } else if (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined) {
-                          // Preserve compound structure for display
-                          const baseUnitObj = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
-                          const conversion = baseUnitObj && baseUnitObj.CONVERSION ? parseFloat(baseUnitObj.CONVERSION) : 1;
-                          displayQty = originalParsedQty.qty + (originalParsedQty.subQty / conversion);
-                        } else {
-
-                          displayQty = primaryQty;
-                        }
-
-                        // Get decimal places for base unit
-                        let baseUnitDecimal = 0;
-                        if (units && units.length > 0) {
-                          const baseUnit = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
-                          if (baseUnit) {
-                            baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string'
-                              ? parseInt(baseUnit.DECIMALPLACES) || 0
-                              : (baseUnit.DECIMALPLACES || 0);
-                          }
-                        } else if (selectedItemUnitConfig.BASEUNIT_DECIMAL !== undefined) {
-                          baseUnitDecimal = typeof selectedItemUnitConfig.BASEUNIT_DECIMAL === 'string'
-                            ? parseInt(selectedItemUnitConfig.BASEUNIT_DECIMAL) || 0
-                            : (selectedItemUnitConfig.BASEUNIT_DECIMAL || 0);
-                        }
-
-                        // Format the quantity in BASEUNITS
-                        // If BASEUNITS is compound (like "LTR of 1000 ML"), format as "mainQty-subQty BASEUNIT" (e.g., "2-500.000 LTR")
-                        let baseUnitDisplay;
-
-                        // Check if originalParsedQty has preserved compound structure (e.g., from "9 pkt 2 nos 3 box")
-                        // Use originalParsedQty instead of parsedQty because validated string might have lost the structure
-                        const qtyToUse = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
-                          ? originalParsedQty
-                          : parsedQty;
-
-                        if (qtyToUse && qtyToUse.isCompound && qtyToUse.qty !== undefined && qtyToUse.subQty !== undefined) {
-                          // Use the preserved compound structure for display
-                          const baseUnitObj = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
-                          if (baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No') {
-                            // Get decimal places for sub unit
-                            let subDecimalPlaces = 0;
-                            if (baseUnitObj.ADDITIONALUNITS) {
-                              const subUnitObj = units.find(u => u.NAME === baseUnitObj.ADDITIONALUNITS);
-                              if (subUnitObj) {
-                                subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
-                                  ? parseInt(subUnitObj.DECIMALPLACES) || 0
-                                  : (subUnitObj.DECIMALPLACES || 0);
+                          } else if (originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
+                            // Preserve customAddlQty even if it's not a custom conversion (e.g., "9 pkt 2 nos 3 box")
+                            if (customAddlQty !== originalParsedQty.customAddlQty) {
+                              setCustomAddlQty(originalParsedQty.customAddlQty);
+                            }
+                          } else if (originalParsedQty.compoundAddlQty !== undefined && originalParsedQty.compoundAddlQty !== null) {
+                            // Preserve compoundAddlQty when user entered component unit (e.g., "25 pkt" or "55 nos")
+                            console.log('🔢 Preserving compoundAddlQty from original input in onBlur:', {
+                              originalCompoundAddlQty: originalParsedQty.compoundAddlQty,
+                              originalCompoundAddlMainQty: originalParsedQty.compoundAddlMainQty,
+                              originalCompoundAddlSubQty: originalParsedQty.compoundAddlSubQty,
+                              currentCompoundAddlQty: compoundAddlQty,
+                              input: quantityInput,
+                              validated: validated
+                            });
+                            if (compoundAddlQty !== originalParsedQty.compoundAddlQty) {
+                              setCompoundAddlQty(originalParsedQty.compoundAddlQty);
+                            }
+                          } else if (parsedQty.isCustomConversion && parsedQty.customAddlQty !== undefined) {
+                            // Fallback: if validated version has custom conversion, use it
+                            if (customAddlQty !== parsedQty.customAddlQty) {
+                              setCustomAddlQty(parsedQty.customAddlQty);
+                            }
+                            if (!customConversion && parsedQty.isCustomConversion) {
+                              const baseQty = convertToPrimaryQty(parsedQty, selectedItemUnitConfig, null, units);
+                              setCustomConversion({
+                                baseQty: baseQty,
+                                addlQty: parsedQty.customAddlQty,
+                                denominator: baseQty,
+                                conversion: parsedQty.customAddlQty
+                              });
+                            }
+                          } else if (preservedCustomConversion && preservedCustomAddlQty !== null && preservedCustomAddlQty !== undefined) {
+                            // If we had a custom conversion before, and the parsed quantity matches, preserve it
+                            const primaryQty = convertToPrimaryQty(parsedQty, selectedItemUnitConfig, preservedCustomConversion, units);
+                            if (Math.abs(primaryQty - preservedCustomConversion.baseQty) < 0.0001) {
+                              // Quantity matches - preserve the custom conversion
+                              if (!customConversion || customConversion.baseQty !== preservedCustomConversion.baseQty) {
+                                setCustomConversion(preservedCustomConversion);
+                              }
+                              if (customAddlQty !== preservedCustomAddlQty) {
+                                setCustomAddlQty(preservedCustomAddlQty);
                               }
                             }
+                          } else if (preservedCompoundAddlQty !== null && preservedCompoundAddlQty !== undefined && originalParsedQty.isComponentUnit) {
+                            // If we had compoundAddlQty from component unit input (e.g., "25 pkt"), preserve it
+                            // This ensures the alternative quantity shows the user-entered value instead of recalculating
+                            console.log('🔢 Preserving compoundAddlQty from preserved state in onBlur:', {
+                              preservedCompoundAddlQty,
+                              originalIsComponentUnit: originalParsedQty.isComponentUnit,
+                              currentCompoundAddlQty: compoundAddlQty,
+                              input: quantityInput,
+                              validated: validated
+                            });
+                            if (compoundAddlQty !== preservedCompoundAddlQty) {
+                              setCompoundAddlQty(preservedCompoundAddlQty);
+                            }
+                          }
 
-                            const formattedSubQty = subDecimalPlaces === 0
-                              ? Math.round(qtyToUse.subQty).toString()
-                              : parseFloat(qtyToUse.subQty).toFixed(subDecimalPlaces);
+                          // Use originalParsedQty if it has compound structure, otherwise use parsedQty
+                          // This ensures we preserve the structure from the original input
+                          const qtyForCalculation = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
+                            ? originalParsedQty
+                            : parsedQty;
 
-                            // Use the base component unit (e.g., "pkt") instead of the full compound unit name
-                            const displayUnit = baseUnitObj.BASEUNITS || selectedItemUnitConfig.BASEUNITS;
-                            baseUnitDisplay = `${Math.round(qtyToUse.qty)}-${formattedSubQty} ${displayUnit}`;
+                          const primaryQty = convertToPrimaryQty(qtyForCalculation, selectedItemUnitConfig, customConversion || preservedCustomConversion, units);
 
-                            // Also preserve customAddlQty if it exists in the original parsed quantity
-                            if (originalParsedQty && originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
-                              setCustomAddlQty(originalParsedQty.customAddlQty);
+                          // For display, use the base quantity (qty) if it's a custom conversion with totalQty
+                          // This ensures "1 box 5 pkt 3 nos" shows as "1 box" not "2 box"
+                          // Also use originalParsedQty if it has compound structure to preserve the structure
+                          let displayQty;
+                          if (originalParsedQty.isCustomConversion && originalParsedQty.totalQty !== undefined) {
+                            displayQty = originalParsedQty.qty;
+                          } else if (originalParsedQty && originalParsedQty.totalQty !== undefined && originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
+                            // Simple base + compound additional input (e.g., "1 box 9 pkt 2 nos")
+                            // Use only the base quantity (qty) for display, not the total
+                            displayQty = originalParsedQty.qty;
+                          } else if (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined) {
+                            // Preserve compound structure for display
+                            const baseUnitObj = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
+                            const conversion = baseUnitObj && baseUnitObj.CONVERSION ? parseFloat(baseUnitObj.CONVERSION) : 1;
+                            displayQty = originalParsedQty.qty + (originalParsedQty.subQty / conversion);
+                          } else {
+
+                            displayQty = primaryQty;
+                          }
+
+                          // Get decimal places for base unit
+                          let baseUnitDecimal = 0;
+                          if (units && units.length > 0) {
+                            const baseUnit = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
+                            if (baseUnit) {
+                              baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string'
+                                ? parseInt(baseUnit.DECIMALPLACES) || 0
+                                : (baseUnit.DECIMALPLACES || 0);
+                            }
+                          } else if (selectedItemUnitConfig.BASEUNIT_DECIMAL !== undefined) {
+                            baseUnitDecimal = typeof selectedItemUnitConfig.BASEUNIT_DECIMAL === 'string'
+                              ? parseInt(selectedItemUnitConfig.BASEUNIT_DECIMAL) || 0
+                              : (selectedItemUnitConfig.BASEUNIT_DECIMAL || 0);
+                          }
+
+                          // Format the quantity in BASEUNITS
+                          // If BASEUNITS is compound (like "LTR of 1000 ML"), format as "mainQty-subQty BASEUNIT" (e.g., "2-500.000 LTR")
+                          let baseUnitDisplay;
+
+                          // Check if originalParsedQty has preserved compound structure (e.g., from "9 pkt 2 nos 3 box")
+                          // Use originalParsedQty instead of parsedQty because validated string might have lost the structure
+                          const qtyToUse = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
+                            ? originalParsedQty
+                            : parsedQty;
+
+                          if (qtyToUse && qtyToUse.isCompound && qtyToUse.qty !== undefined && qtyToUse.subQty !== undefined) {
+                            // Use the preserved compound structure for display
+                            const baseUnitObj = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
+                            if (baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No') {
+                              // Get decimal places for sub unit
+                              let subDecimalPlaces = 0;
+                              if (baseUnitObj.ADDITIONALUNITS) {
+                                const subUnitObj = units.find(u => u.NAME === baseUnitObj.ADDITIONALUNITS);
+                                if (subUnitObj) {
+                                  subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
+                                    ? parseInt(subUnitObj.DECIMALPLACES) || 0
+                                    : (subUnitObj.DECIMALPLACES || 0);
+                                }
+                              }
+
+                              const formattedSubQty = subDecimalPlaces === 0
+                                ? Math.round(qtyToUse.subQty).toString()
+                                : parseFloat(qtyToUse.subQty).toFixed(subDecimalPlaces);
+
+                              // Use the base component unit (e.g., "pkt") instead of the full compound unit name
+                              const displayUnit = baseUnitObj.BASEUNITS || selectedItemUnitConfig.BASEUNITS;
+                              baseUnitDisplay = `${Math.round(qtyToUse.qty)}-${formattedSubQty} ${displayUnit}`;
+
+                              // Also preserve customAddlQty if it exists in the original parsed quantity
+                              if (originalParsedQty && originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
+                                setCustomAddlQty(originalParsedQty.customAddlQty);
+                              }
+                            } else {
+
+                              // Fallback to regular formatting
+                              const compoundFormat = formatCompoundBaseUnit(displayQty, selectedItemUnitConfig, units);
+                              if (compoundFormat) {
+                                baseUnitDisplay = compoundFormat;
+                              } else {
+                                const formattedQty = baseUnitDecimal === 0
+                                  ? Math.round(displayQty).toString()
+                                  : displayQty.toFixed(baseUnitDecimal);
+                                baseUnitDisplay = `${formattedQty} ${selectedItemUnitConfig.BASEUNITS}`;
+                              }
                             }
                           } else {
 
-                            // Fallback to regular formatting
+                            // Use regular formatting (recalculate from total)
                             const compoundFormat = formatCompoundBaseUnit(displayQty, selectedItemUnitConfig, units);
                             if (compoundFormat) {
                               baseUnitDisplay = compoundFormat;
@@ -10331,487 +10334,255 @@ function PlaceOrder() {
                               baseUnitDisplay = `${formattedQty} ${selectedItemUnitConfig.BASEUNITS}`;
                             }
                           }
+
+                          // Always display in BASEUNITS format (even for custom conversions)
+                          setQuantityInput(baseUnitDisplay);
                         } else {
 
-                          // Use regular formatting (recalculate from total)
-                          const compoundFormat = formatCompoundBaseUnit(displayQty, selectedItemUnitConfig, units);
-                          if (compoundFormat) {
-                            baseUnitDisplay = compoundFormat;
-                          } else {
-                            const formattedQty = baseUnitDecimal === 0
-                              ? Math.round(displayQty).toString()
-                              : displayQty.toFixed(baseUnitDecimal);
-                            baseUnitDisplay = `${formattedQty} ${selectedItemUnitConfig.BASEUNITS}`;
-                          }
+                          setQuantityInput(validated || '');
                         }
 
-                        // Always display in BASEUNITS format (even for custom conversions)
-                        setQuantityInput(baseUnitDisplay);
-                      } else {
 
-                        setQuantityInput(validated || '');
-                      }
+                        setQuantityFocused(false);
+                      }}
 
+                      onFocus={() => setQuantityFocused(true)}
 
-                      setQuantityFocused(false);
-                    }}
+                      disabled={!selectedItem}
+                      style={{
 
-                    onFocus={() => setQuantityFocused(true)}
+                        width: '100%',
 
-                    disabled={!selectedItem}
-                    style={{
+                        padding: isMobile ? '14px 18px' : '15px 18px',
+                        border: 'none',
 
-                      width: '100%',
+                        borderRadius: isMobile ? '10px' : '10px',
+                        fontSize: isMobile ? '14px' : '15px',
+                        color: selectedItem ? '#1e293b' : '#9ca3af',
+                        outline: 'none',
 
-                      padding: isMobile ? '14px 20px' : '16px 20px',
-                      border: 'none',
+                        background: selectedItem ? 'transparent' : '#f1f5f9',
+                        textAlign: 'left',
+                        cursor: selectedItem ? 'text' : 'not-allowed',
+                        height: isMobile ? '48px' : '52px',
+                        boxSizing: 'border-box'
+                      }}
 
-                      borderRadius: isMobile ? '10px' : '12px',
-                      fontSize: isMobile ? '15px' : '15px',
-                      color: selectedItem ? '#1e293b' : '#9ca3af',
-                      outline: 'none',
+                      placeholder={selectedItemUnitConfig ? `${selectedItemUnitConfig.BASEUNITS || 'Qty'}${selectedItemUnitConfig.ADDITIONALUNITS ? ` or ${selectedItemUnitConfig.ADDITIONALUNITS}` : ''}` : 'Qty'}
+                    />
 
-                      background: selectedItem ? 'transparent' : '#f1f5f9',
-                      textAlign: 'left',
-                      cursor: selectedItem ? 'text' : 'not-allowed',
-                      height: isMobile ? '48px' : '52px',
-                      boxSizing: 'border-box'
-                    }}
+                    <label style={{
 
-                    placeholder={selectedItemUnitConfig ? `${selectedItemUnitConfig.BASEUNITS || 'Qty'}${selectedItemUnitConfig.ADDITIONALUNITS ? ` or ${selectedItemUnitConfig.ADDITIONALUNITS}` : ''}` : 'Qty'}
-                  />
+                      position: 'absolute',
 
-                  <label style={{
+                      left: '20px',
 
-                    position: 'absolute',
-
-                    left: '20px',
-
-                    top: '-10px',
-                    fontSize: '12px',
-                    fontWeight: '600',
-
-                    color: quantityFocused || quantityInput ? '#3b82f6' : '#64748b',
-
-                    backgroundColor: 'white',
-
-                    padding: '0 8px',
-
-                    transition: 'all 0.2s ease',
-                    pointerEvents: 'none'
-
-                  }}>
-
-                    Qty
-                  </label>
-
-                </div>
-
-                {/* Alternative unit quantity display (Tally-style) - inline next to quantity */}
-                {selectedItemUnitConfig.ADDITIONALUNITS && (
-                  <div style={{
-                    flex: '0 0 auto',
-                    fontSize: '13px',
-                    color: '#64748b',
-                    fontStyle: 'italic',
-                    paddingBottom: isMobile ? '14px' : '16px',
-                    whiteSpace: 'nowrap',
-                    minWidth: itemQuantity > 0 ? 'auto' : '0',
-                    visibility: itemQuantity > 0 ? 'visible' : 'hidden'
-                  }}>
-                    {(() => {
-                      if (itemQuantity > 0) {
-                        // Always convert from BASEUNITS to ADDITIONALUNITS
-                        // Use custom conversion if available
-                        const altQty = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
-                        // If we have customAddlQty (from custom conversion OR compound base + simple additional), use it
-                        // This ensures "9 pkt 3 nos 2 box" shows "(2 box)" instead of converting from total
-                        // Also check compoundAddlQty (from component unit input like "25 pkt" or "55 nos")
-                        // Priority: customAddlQty > compoundAddlQty > calculated altQty
-                        const qtyToDisplay = customAddlQty !== null && customAddlQty !== undefined
-                          ? customAddlQty
-                          : (compoundAddlQty !== null && compoundAddlQty !== undefined ? compoundAddlQty : null);
-
-                        // Debug log to trace the issue
-                        if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
-                          console.log('💰 Displaying alternative quantity:', {
-                            qtyToDisplay,
-                            customAddlQty,
-                            compoundAddlQty,
-                            itemQuantity,
-                            calculatedAltQty: altQty
-                          });
-                        }
-
-                        if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
-                          // Check if ADDITIONALUNITS is compound - if so, format in hyphenated format
-                          const addlUnitObj = units && units.length > 0
-                            ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
-                            : null;
-                          const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
-                          console.log('💰 Checking compound additional unit for display:', {
-                            qtyToDisplay,
-                            addlUnitObj: addlUnitObj ? { NAME: addlUnitObj.NAME, ISSIMPLEUNIT: addlUnitObj.ISSIMPLEUNIT } : null,
-                            hasCompoundAddlUnit,
-                            ADDITIONALUNITS: selectedItemUnitConfig.ADDITIONALUNITS
-                          });
-
-                          if (hasCompoundAddlUnit && addlUnitObj) {
-                            // ADDITIONALUNITS is compound - format in hyphenated format (e.g., "25-0 pkt")
-                            const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
-                            const mainQty = Math.floor(qtyToDisplay);
-                            const subQty = (qtyToDisplay - mainQty) * addlConversion;
-
-                            // Get decimal places for sub unit
-                            let subDecimalPlaces = 0;
-                            if (addlUnitObj.ADDITIONALUNITS) {
-                              const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
-                              if (subUnitObj) {
-                                subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
-                                  ? parseInt(subUnitObj.DECIMALPLACES) || 0
-                                  : (subUnitObj.DECIMALPLACES || 0);
-                              }
-                            }
-
-                            const formattedSubQty = subDecimalPlaces === 0
-                              ? Math.round(subQty).toString()
-                              : subQty.toFixed(subDecimalPlaces);
-
-                            // Use the base component unit (e.g., "pkt") instead of the full compound unit name
-                            const displayUnit = addlUnitObj.BASEUNITS || selectedItemUnitConfig.ADDITIONALUNITS;
-
-                            const formattedDisplay = `(${mainQty}-${formattedSubQty} ${displayUnit})`;
-                            console.log('💰 Formatted compound additional quantity:', {
-                              qtyToDisplay,
-                              mainQty,
-                              subQty,
-                              formattedSubQty,
-                              displayUnit,
-                              formattedDisplay
-                            });
-
-                            return formattedDisplay;
-                          } else {
-                            // ADDITIONALUNITS is simple - use regular formatting
-                            let decimalPlaces = 0;
-                            if (units && units.length > 0) {
-                              const addlUnit = units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS);
-                              if (addlUnit) {
-                                decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string'
-                                  ? parseInt(addlUnit.DECIMALPLACES) || 0
-                                  : (addlUnit.DECIMALPLACES || 0);
-                              }
-                            } else if (selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL !== undefined) {
-                              decimalPlaces = typeof selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL === 'string'
-                                ? parseInt(selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL) || 0
-                                : (selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL || 0);
-                            }
-                            const formattedQty = decimalPlaces === 0
-                              ? Math.round(qtyToDisplay).toString()
-                              : qtyToDisplay.toFixed(decimalPlaces);
-                            return `(${formattedQty} ${selectedItemUnitConfig.ADDITIONALUNITS})`;
-                          }
-                        }
-                        // Fallback: use calculated alternative quantity
-                        console.log('💰 Using fallback calculated alternative quantity:', {
-                          altQty,
-                          qtyToDisplay,
-                          customAddlQty,
-                          compoundAddlQty
-                        });
-                        return altQty ? `(${altQty.qty} ${altQty.unit})` : '';
-                      }
-                      return '';
-                    })()}
-                  </div>
-                )}
-                {/* Helper text showing available units */}
-                {selectedItemUnitConfig && quantityFocused && (
-                  <div style={{
-
-                    position: 'absolute',
-
-                    top: '100%',
-                    left: 0,
-                    right: 0,
-                    marginTop: '4px',
-                    padding: '8px 12px',
-                    backgroundColor: '#f8fafc',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-
-                    color: '#64748b',
-                    border: '1px solid #e2e8f0',
-                    zIndex: 1000
-                  }}>
-                    Examples: {selectedItemUnitConfig.BASEUNITS}{selectedItemUnitConfig.ADDITIONALUNITS ? ` or ${selectedItemUnitConfig.ADDITIONALUNITS}` : ''}{selectedItemUnitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes' ? `, ${selectedItemUnitConfig.BASEUNITCOMP_BASEUNIT} ${selectedItemUnitConfig.BASEUNITCOMP_ADDLUNIT}` : ''}
-                  </div>
-
-                )}
-
-              </div>
-
-            )}
-
-
-
-            {/* Fallback - Old Quantity Input (when no item selected) */}
-
-            {!selectedItemUnitConfig && (
-
-              <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none' }}>
-
-                <div style={{
-
-                  position: 'relative',
-
-                  background: 'white',
-
-                  borderRadius: isMobile ? '10px' : '12px',
-
-                  border: '2px solid #e2e8f0',
-
-                  transition: 'all 0.2s ease',
-
-                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
-
-                }}>
-
-                  <input
-
-                    type="number"
-
-                    value={itemQuantity}
-
-                    onChange={(e) => setItemQuantity(parseFloat(e.target.value) || 0)}
-
-                    onFocus={() => setQuantityFocused(true)}
-
-                    onBlur={() => setQuantityFocused(false)}
-
-                    disabled={!selectedItem}
-
-                    min="1"
-
-                    style={{
-
-                      width: '100%',
-
-                      padding: isMobile ? '14px 20px' : '16px 20px',
-
-                      border: 'none',
-
-                      borderRadius: isMobile ? '10px' : '12px',
-
-                      fontSize: isMobile ? '15px' : '15px',
-
-                      color: selectedItem ? '#1e293b' : '#9ca3af',
-
-                      outline: 'none',
-
-                      background: selectedItem ? 'transparent' : '#f1f5f9',
-
-                      textAlign: 'left',
-
-                      cursor: selectedItem ? 'text' : 'not-allowed'
-
-                    }}
-
-                    placeholder="Qty"
-
-                  />
-
-                  <label style={{
-
-                    position: 'absolute',
-
-                    left: '20px',
-
-                    top: '-10px',
-
-                    fontSize: '12px',
-
-                    fontWeight: '600',
-
-                    color: quantityFocused || itemQuantity > 0 ? '#3b82f6' : '#64748b',
-
-                    backgroundColor: 'white',
-
-                    padding: '0 8px',
-
-                    transition: 'all 0.2s ease',
-
-                    pointerEvents: 'none'
-
-                  }}>
-
-                    Qty
-
-                  </label>
-
-                </div>
-
-              </div>
-
-            )}
-
-
-
-            {/* Available Stock - Only show if user has show_clsstck_Column permission */}
-
-            {canShowClosingStock && (
-
-              <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none' }}>
-
-                <div style={{
-
-                  position: 'relative',
-
-                  background: '#f8fafc',
-
-                  borderRadius: isMobile ? '10px' : '12px',
-
-                  border: '2px solid #e2e8f0',
-
-                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
-
-                }}>
-
-                  <input
-
-                    type="text"
-
-                    value={(() => {
-
-                      if (selectedItem && stockItems.length > 0) {
-
-                        const selectedStockItem = stockItems.find(item => item.NAME === selectedItem);
-
-                        if (selectedStockItem) {
-
-                          const stockValue = selectedStockItem.CLOSINGSTOCK || 0;
-
-                          // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
-
-                          if (canShowClosingStockYesNo) {
-
-                            return stockValue > 0 ? 'Yes' : 'No';
-
-                          }
-
-                          return stockValue;
-
-                        }
-
-                      }
-
-                      return '';
-
-                    })()}
-
-                    style={{
-
-                      width: '100%',
-
-                      padding: isMobile ? '14px 20px' : '16px 20px',
-
-                      border: 'none',
-
-                      borderRadius: isMobile ? '10px' : '12px',
-
-                      fontSize: isMobile ? '15px' : '15px',
-
-                      color: '#64748b',
-
-                      outline: 'none',
-
-                      background: 'transparent',
-
-                      textAlign: 'center',
-
+                      top: '-10px',
+                      fontSize: '12px',
                       fontWeight: '600',
 
-                      cursor: canShowStockBreakdown ? 'pointer' : 'default',
+                      color: quantityFocused || quantityInput ? '#3b82f6' : '#64748b',
 
-                      textDecoration: canShowStockBreakdown ? 'underline' : 'none',
+                      backgroundColor: 'white',
 
-                      textDecorationColor: canShowStockBreakdown ? '#3b82f6' : 'transparent',
+                      padding: '0 8px',
 
-                      textUnderlineOffset: '2px'
+                      transition: 'all 0.2s ease',
+                      pointerEvents: 'none'
 
-                    }}
+                    }}>
 
-                    placeholder=""
+                      Qty
+                    </label>
 
-                    readOnly
+                  </div>
 
-                    onClick={handleStockFieldClick}
+                  {/* Alternative unit quantity display (Tally-style) - inline next to quantity */}
+                  {selectedItemUnitConfig.ADDITIONALUNITS && (
+                    <div style={{
+                      flex: '0 0 auto',
+                      fontSize: '13px',
+                      color: '#64748b',
+                      fontStyle: 'italic',
+                      paddingBottom: isMobile ? '14px' : '16px',
+                      whiteSpace: 'nowrap',
+                      minWidth: itemQuantity > 0 ? 'auto' : '0',
+                      visibility: itemQuantity > 0 ? 'visible' : 'hidden'
+                    }}>
+                      {(() => {
+                        if (itemQuantity > 0) {
+                          // Always convert from BASEUNITS to ADDITIONALUNITS
+                          // Use custom conversion if available
+                          const altQty = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
+                          // If we have customAddlQty (from custom conversion OR compound base + simple additional), use it
+                          // This ensures "9 pkt 3 nos 2 box" shows "(2 box)" instead of converting from total
+                          // Also check compoundAddlQty (from component unit input like "25 pkt" or "55 nos")
+                          // Priority: customAddlQty > compoundAddlQty > calculated altQty
+                          const qtyToDisplay = customAddlQty !== null && customAddlQty !== undefined
+                            ? customAddlQty
+                            : (compoundAddlQty !== null && compoundAddlQty !== undefined ? compoundAddlQty : null);
 
-                  />
+                          // Debug log to trace the issue
+                          if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
+                            console.log('💰 Displaying alternative quantity:', {
+                              qtyToDisplay,
+                              customAddlQty,
+                              compoundAddlQty,
+                              itemQuantity,
+                              calculatedAltQty: altQty
+                            });
+                          }
 
-                  <label style={{
+                          if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
+                            // Check if ADDITIONALUNITS is compound - if so, format in hyphenated format
+                            const addlUnitObj = units && units.length > 0
+                              ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
+                              : null;
+                            const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
 
-                    position: 'absolute',
+                            console.log('💰 Checking compound additional unit for display:', {
+                              qtyToDisplay,
+                              addlUnitObj: addlUnitObj ? { NAME: addlUnitObj.NAME, ISSIMPLEUNIT: addlUnitObj.ISSIMPLEUNIT } : null,
+                              hasCompoundAddlUnit,
+                              ADDITIONALUNITS: selectedItemUnitConfig.ADDITIONALUNITS
+                            });
 
-                    left: '20px',
+                            if (hasCompoundAddlUnit && addlUnitObj) {
+                              // ADDITIONALUNITS is compound - format in hyphenated format (e.g., "25-0 pkt")
+                              const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
+                              const mainQty = Math.floor(qtyToDisplay);
+                              const subQty = (qtyToDisplay - mainQty) * addlConversion;
 
-                    top: '-10px',
+                              // Get decimal places for sub unit
+                              let subDecimalPlaces = 0;
+                              if (addlUnitObj.ADDITIONALUNITS) {
+                                const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
+                                if (subUnitObj) {
+                                  subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
+                                    ? parseInt(subUnitObj.DECIMALPLACES) || 0
+                                    : (subUnitObj.DECIMALPLACES || 0);
+                                }
+                              }
 
-                    fontSize: '12px',
+                              const formattedSubQty = subDecimalPlaces === 0
+                                ? Math.round(subQty).toString()
+                                : subQty.toFixed(subDecimalPlaces);
 
-                    fontWeight: '600',
+                              // Use the base component unit (e.g., "pkt") instead of the full compound unit name
+                              const displayUnit = addlUnitObj.BASEUNITS || selectedItemUnitConfig.ADDITIONALUNITS;
 
-                    color: '#64748b',
+                              const formattedDisplay = `(${mainQty}-${formattedSubQty} ${displayUnit})`;
+                              console.log('💰 Formatted compound additional quantity:', {
+                                qtyToDisplay,
+                                mainQty,
+                                subQty,
+                                formattedSubQty,
+                                displayUnit,
+                                formattedDisplay
+                              });
 
-                    backgroundColor: '#f8fafc',
+                              return formattedDisplay;
+                            } else {
+                              // ADDITIONALUNITS is simple - use regular formatting
+                              let decimalPlaces = 0;
+                              if (units && units.length > 0) {
+                                const addlUnit = units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS);
+                                if (addlUnit) {
+                                  decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string'
+                                    ? parseInt(addlUnit.DECIMALPLACES) || 0
+                                    : (addlUnit.DECIMALPLACES || 0);
+                                }
+                              } else if (selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL !== undefined) {
+                                decimalPlaces = typeof selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL === 'string'
+                                  ? parseInt(selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL) || 0
+                                  : (selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL || 0);
+                              }
+                              const formattedQty = decimalPlaces === 0
+                                ? Math.round(qtyToDisplay).toString()
+                                : qtyToDisplay.toFixed(decimalPlaces);
+                              return `(${formattedQty} ${selectedItemUnitConfig.ADDITIONALUNITS})`;
+                            }
+                          }
+                          // Fallback: use calculated alternative quantity
+                          console.log('💰 Using fallback calculated alternative quantity:', {
+                            altQty,
+                            qtyToDisplay,
+                            customAddlQty,
+                            compoundAddlQty
+                          });
+                          return altQty ? `(${altQty.qty} ${altQty.unit})` : '';
+                        }
+                        return '';
+                      })()}
+                    </div>
+                  )}
+                  {/* Helper text showing available units */}
+                  {selectedItemUnitConfig && quantityFocused && (
+                    <div style={{
 
-                    padding: '0 8px',
+                      position: 'absolute',
 
-                    pointerEvents: 'none'
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      marginTop: '4px',
+                      padding: '8px 12px',
+                      backgroundColor: '#f8fafc',
+                      borderRadius: '8px',
+                      fontSize: '12px',
 
-                  }}>
+                      color: '#64748b',
+                      border: '1px solid #e2e8f0',
+                      zIndex: 1000
+                    }}>
+                      Examples: {selectedItemUnitConfig.BASEUNITS}{selectedItemUnitConfig.ADDITIONALUNITS ? ` or ${selectedItemUnitConfig.ADDITIONALUNITS}` : ''}{selectedItemUnitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes' ? `, ${selectedItemUnitConfig.BASEUNITCOMP_BASEUNIT} ${selectedItemUnitConfig.BASEUNITCOMP_ADDLUNIT}` : ''}
+                    </div>
 
-                    Stock
-
-                  </label>
+                  )}
 
                 </div>
 
-              </div>
-
-            )}
+              )}
 
 
 
-            {/* Rate with UOM Selector */}
-            {canShowRateAmtColumn && (
+              {/* Fallback - Old Quantity Input (when no item selected) */}
 
-              <>
-                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 120px' }}>
+              {!selectedItemUnitConfig && (
+
+                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none' }}>
+
                   <div style={{
 
                     position: 'relative',
 
-                    background: canEditRate ? 'white' : '#f8fafc',
+                    background: 'white',
 
-                    borderRadius: isMobile ? '10px' : '12px',
+                    borderRadius: isMobile ? '10px' : '10px',
 
-                    border: '2px solid #e2e8f0',
+                    border: '1.5px solid #e2e8f0',
 
-                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
+                    transition: 'all 0.2s ease',
 
-                }}>
+                    boxShadow: isMobile ? '0 1px 2px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.08)'
+
+                  }}>
 
                     <input
 
                       type="number"
 
-                      value={itemRate}
+                      value={itemQuantity}
 
-                      onChange={canEditRate ? (e) => setItemRate(parseFloat(e.target.value) || 0) : undefined}
+                      onChange={(e) => setItemQuantity(parseFloat(e.target.value) || 0)}
 
-                      readOnly={!canEditRate}
+                      onFocus={() => setQuantityFocused(true)}
+
+                      onBlur={() => setQuantityFocused(false)}
+
+                      disabled={!selectedItem}
+
+                      min="1"
 
                       style={{
 
@@ -10825,7 +10596,123 @@ function PlaceOrder() {
 
                         fontSize: isMobile ? '15px' : '15px',
 
-                        color: canEditRate ? '#1e293b' : '#64748b',
+                        color: selectedItem ? '#1e293b' : '#9ca3af',
+
+                        outline: 'none',
+
+                        background: selectedItem ? 'transparent' : '#f1f5f9',
+
+                        textAlign: 'left',
+
+                        cursor: selectedItem ? 'text' : 'not-allowed'
+
+                      }}
+
+                      placeholder="Qty"
+
+                    />
+
+                    <label style={{
+
+                      position: 'absolute',
+
+                      left: '20px',
+
+                      top: '-10px',
+
+                      fontSize: '12px',
+
+                      fontWeight: '600',
+
+                      color: quantityFocused || itemQuantity > 0 ? '#3b82f6' : '#64748b',
+
+                      backgroundColor: 'white',
+
+                      padding: '0 8px',
+
+                      transition: 'all 0.2s ease',
+
+                      pointerEvents: 'none'
+
+                    }}>
+
+                      Qty
+
+                    </label>
+
+                  </div>
+
+                </div>
+
+              )}
+
+
+
+              {/* Available Stock - Only show if user has show_clsstck_Column permission */}
+
+              {canShowClosingStock && (
+
+                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 140px' }}>
+
+                  <div style={{
+
+                    position: 'relative',
+
+                    background: '#f8fafc',
+
+                    borderRadius: isMobile ? '10px' : '12px',
+
+                    border: '2px solid #e2e8f0',
+
+                    boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
+
+                  }}>
+
+                    <input
+
+                      type="text"
+
+                      value={(() => {
+
+                        if (selectedItem && stockItems.length > 0) {
+
+                          const selectedStockItem = stockItems.find(item => item.NAME === selectedItem);
+
+                          if (selectedStockItem) {
+
+                            const stockValue = selectedStockItem.CLOSINGSTOCK || 0;
+
+                            // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
+
+                            if (canShowClosingStockYesNo) {
+
+                              return stockValue > 0 ? 'Yes' : 'No';
+
+                            }
+
+                            return stockValue;
+
+                          }
+
+                        }
+
+                        return '';
+
+                      })()}
+
+                      style={{
+
+                        width: '100%',
+
+                        padding: isMobile ? '14px 18px' : '15px 18px',
+
+                        border: 'none',
+
+                        borderRadius: isMobile ? '10px' : '10px',
+
+                        fontSize: isMobile ? '14px' : '15px',
+
+                        color: '#64748b',
 
                         outline: 'none',
 
@@ -10835,7 +10722,581 @@ function PlaceOrder() {
 
                         fontWeight: '600',
 
-                        cursor: canEditRate ? 'text' : 'not-allowed',
+                        cursor: canShowStockBreakdown ? 'pointer' : 'default',
+
+                        height: isMobile ? '48px' : '52px',
+
+                        boxSizing: 'border-box',
+
+                        textDecoration: canShowStockBreakdown ? 'underline' : 'none',
+
+                        textDecorationColor: canShowStockBreakdown ? '#3b82f6' : 'transparent',
+
+                        textUnderlineOffset: '2px'
+
+                      }}
+
+                      placeholder=""
+
+                      readOnly
+
+                      onClick={handleStockFieldClick}
+
+                    />
+
+                    <label style={{
+
+                      position: 'absolute',
+
+                      left: '20px',
+
+                      top: '-10px',
+
+                      fontSize: '12px',
+
+                      fontWeight: '600',
+
+                      color: '#64748b',
+
+                      backgroundColor: '#f8fafc',
+
+                      padding: '0 8px',
+
+                      pointerEvents: 'none'
+
+                    }}>
+
+                      Stock
+
+                    </label>
+
+                  </div>
+
+                </div>
+
+              )}
+
+
+
+              {/* Rate with UOM Selector */}
+              {canShowRateAmtColumn && (
+
+                <>
+                  <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 140px' }}>
+                    <div style={{
+
+                      position: 'relative',
+
+                      background: canEditRate ? 'white' : '#f8fafc',
+
+                      borderRadius: isMobile ? '10px' : '12px',
+
+                      border: '2px solid #e2e8f0',
+
+                      boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
+
+                    }}>
+
+                      <input
+
+                        type="number"
+
+                        value={itemRate}
+
+                        onChange={canEditRate ? (e) => setItemRate(parseFloat(e.target.value) || 0) : undefined}
+
+                        readOnly={!canEditRate}
+
+                        style={{
+
+                          width: '100%',
+
+                          padding: isMobile ? '14px 18px' : '15px 18px',
+
+                          border: 'none',
+
+                          borderRadius: isMobile ? '10px' : '10px',
+
+                          fontSize: isMobile ? '14px' : '15px',
+
+                          color: canEditRate ? '#1e293b' : '#64748b',
+
+                          outline: 'none',
+
+                          background: 'transparent',
+
+                          textAlign: 'center',
+
+                          fontWeight: '600',
+
+                          cursor: canEditRate ? 'text' : 'not-allowed',
+
+                          height: isMobile ? '48px' : '52px',
+
+                          boxSizing: 'border-box'
+
+                        }}
+
+                        placeholder="Rate"
+
+                      />
+
+                      <label style={{
+
+                        position: 'absolute',
+
+                        left: '20px',
+
+                        top: '-10px',
+
+                        fontSize: '12px',
+
+                        fontWeight: '600',
+
+                        color: '#64748b',
+
+                        backgroundColor: 'white',
+
+                        padding: '0 8px',
+
+                        pointerEvents: 'none'
+
+                      }}>
+
+                        Rate
+
+                      </label>
+
+                    </div>
+
+                  </div>
+
+                  {/* Rate UOM Selector - Always show, readonly if only one unit */}
+                  {selectedItemUnitConfig && (() => {
+                    // Check if BASEUNITS is compound and has component units
+                    const baseUnitObj = units && units.length > 0
+                      ? units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS)
+                      : null;
+                    const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
+                    const hasMultipleUnits = selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit;
+
+                    return (
+                      <div style={{ position: 'relative', width: isMobile ? '100%' : '150px', flex: isMobile ? '1 1 100%' : 'none' }}>
+                        <div style={{
+                          position: 'relative',
+                          background: 'white',
+                          borderRadius: isMobile ? '10px' : '10px',
+                          border: showRateUOMDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
+                          transition: 'all 0.2s ease',
+                          boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                          cursor: hasMultipleUnits ? 'pointer' : 'default'
+                        }}
+                          onClick={() => {
+                            if (hasMultipleUnits) {
+                              setShowRateUOMDropdown(!showRateUOMDropdown);
+                            }
+                          }}
+                        >
+                          <input
+                            type="text"
+                            value={(() => {
+                              // For compound base units, default to main component if not set
+                              if (hasCompoundBaseUnit && baseUnitObj) {
+                                if (rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
+                                if (rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
+                                // Default to main component for compound units
+                                if (!rateUOM || rateUOM === 'base') {
+                                  setRateUOM('component-main');
+                                  return baseUnitObj.BASEUNITS;
+                                }
+                              }
+
+                              // Check if ADDITIONALUNITS is compound
+                              const addlUnitObj = units && units.length > 0 && selectedItemUnitConfig.ADDITIONALUNITS
+                                ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
+                                : null;
+                              const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+
+                              if (hasCompoundAddlUnit && addlUnitObj) {
+                                // Show component units for compound additional unit
+                                if (rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
+                                if (rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
+                                // If rateUOM is 'additional' but ADDITIONALUNITS is compound, default to main component
+                                if (rateUOM === 'additional') {
+                                  setRateUOM('additional-component-main');
+                                  return addlUnitObj.BASEUNITS;
+                                }
+                              }
+
+                              // For non-compound units
+                              if (rateUOM === 'base') return selectedItemUnitConfig.BASEUNITS;
+                              return (selectedItemUnitConfig.ADDITIONALUNITS || selectedItemUnitConfig.BASEUNITS);
+                            })()}
+                            readOnly
+                            onFocus={() => {
+                              if (hasMultipleUnits) {
+                                setRateUOMFocused(true);
+                              }
+                            }}
+                            onBlur={() => setTimeout(() => setRateUOMFocused(false), 200)}
+                            style={{
+                              width: '100%',
+                              padding: isMobile ? '14px 36px 14px 16px' : '15px 36px 15px 16px',
+                              border: 'none',
+                              borderRadius: isMobile ? '10px' : '10px',
+                              fontSize: isMobile ? '14px' : '14px',
+                              color: '#1e293b',
+                              outline: 'none',
+                              background: hasMultipleUnits ? 'transparent' : '#f8fafc',
+                              cursor: hasMultipleUnits ? 'pointer' : 'default',
+                              pointerEvents: 'none',
+                              fontWeight: '500',
+                              height: isMobile ? '48px' : '52px',
+                              boxSizing: 'border-box'
+                            }}
+                          />
+                          {hasMultipleUnits && (
+                            <span className="material-icons" style={{
+                              position: 'absolute',
+                              right: '10px',
+                              top: '50%',
+                              transform: 'translateY(-50%)',
+                              fontSize: '18px',
+                              color: showRateUOMDropdown ? '#3b82f6' : '#64748b',
+                              transition: 'color 0.2s ease',
+                              pointerEvents: 'none'
+                            }}>
+                              {showRateUOMDropdown ? 'expand_less' : 'expand_more'}
+                            </span>
+                          )}
+                          <label style={{
+                            position: 'absolute',
+                            left: '16px',
+                            top: '-9px',
+                            fontSize: '11px',
+                            fontWeight: '600',
+                            color: '#3b82f6',
+                            backgroundColor: 'white',
+                            padding: '0 6px',
+                            pointerEvents: 'none',
+                            letterSpacing: '0.3px'
+                          }}>
+                            Rate UOM
+                          </label>
+
+                          {/* Rate UOM Dropdown Menu - Only show if multiple units exist */}
+                          {showRateUOMDropdown && hasMultipleUnits && (
+                            <div
+                              className="dropdown-animation"
+                              style={{
+                                position: 'absolute',
+                                top: 'calc(100% + 8px)',
+                                left: 0,
+                                right: 0,
+                                backgroundColor: 'white',
+                                border: '2px solid #3b82f6',
+                                borderRadius: '8px',
+                                maxHeight: '200px',
+                                overflowY: 'auto',
+                                zIndex: 9999,
+                                boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)'
+                              }}
+                            >
+                              {/* Base Unit Option - Only show if BASEUNITS is NOT compound */}
+                              {!hasCompoundBaseUnit && (
+                                <div
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onClick={() => {
+                                    setRateUOM('base');
+                                    setShowRateUOMDropdown(false);
+                                  }}
+                                  style={{
+                                    padding: '12px 16px',
+                                    cursor: 'pointer',
+                                    borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit) ? '1px solid #f1f5f9' : 'none',
+                                    transition: 'background-color 0.2s ease',
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    backgroundColor: rateUOM === 'base' ? '#eff6ff' : 'white'
+                                  }}
+                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'base' ? '#eff6ff' : 'white'}
+                                >
+                                  <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                    {selectedItemUnitConfig.BASEUNITS}
+                                  </span>
+                                  <span style={{
+                                    fontSize: '11px',
+                                    fontWeight: '600',
+                                    padding: '2px 8px',
+                                    borderRadius: '4px',
+                                    backgroundColor: '#dbeafe',
+                                    color: '#1e40af'
+                                  }}>
+                                    Base
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Component Units for Compound Base Unit (if BASEUNITS is compound) */}
+                              {hasCompoundBaseUnit && baseUnitObj && (
+                                <>
+                                  <div
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      setRateUOM('component-main');
+                                      setShowRateUOMDropdown(false);
+                                    }}
+                                    style={{
+                                      padding: '12px 16px',
+                                      cursor: 'pointer',
+                                      borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || baseUnitObj.ADDITIONALUNITS) ? '1px solid #f1f5f9' : 'none',
+                                      transition: 'background-color 0.2s ease',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      backgroundColor: rateUOM === 'component-main' ? '#eff6ff' : 'white'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-main' ? '#eff6ff' : 'white'}
+                                  >
+                                    <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                      {baseUnitObj.BASEUNITS}
+                                    </span>
+                                    <span style={{
+                                      fontSize: '11px',
+                                      fontWeight: '600',
+                                      padding: '2px 8px',
+                                      borderRadius: '4px',
+                                      backgroundColor: '#fef3c7',
+                                      color: '#92400e'
+                                    }}>
+                                      Component
+                                    </span>
+                                  </div>
+                                  {baseUnitObj.ADDITIONALUNITS && (
+                                    <div
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => {
+                                        setRateUOM('component-sub');
+                                        setShowRateUOMDropdown(false);
+                                      }}
+                                      style={{
+                                        padding: '12px 16px',
+                                        cursor: 'pointer',
+                                        borderBottom: selectedItemUnitConfig.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
+                                        transition: 'background-color 0.2s ease',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        backgroundColor: rateUOM === 'component-sub' ? '#eff6ff' : 'white'
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-sub' ? '#eff6ff' : 'white'}
+                                    >
+                                      <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                        {baseUnitObj.ADDITIONALUNITS}
+                                      </span>
+                                      <span style={{
+                                        fontSize: '11px',
+                                        fontWeight: '600',
+                                        padding: '2px 8px',
+                                        borderRadius: '4px',
+                                        backgroundColor: '#fef3c7',
+                                        color: '#92400e'
+                                      }}>
+                                        Component
+                                      </span>
+                                    </div>
+                                  )}
+                                </>
+                              )}
+
+                              {/* Additional Unit Option (if exists) */}
+                              {selectedItemUnitConfig.ADDITIONALUNITS && (() => {
+                                // Check if ADDITIONALUNITS is compound
+                                const addlUnitObj = units && units.length > 0
+                                  ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
+                                  : null;
+                                const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+
+                                if (hasCompoundAddlUnit && addlUnitObj) {
+                                  // ADDITIONALUNITS is compound - show component options
+                                  return (
+                                    <>
+                                      <div
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                          setRateUOM('additional-component-main');
+                                          setShowRateUOMDropdown(false);
+                                        }}
+                                        style={{
+                                          padding: '12px 16px',
+                                          cursor: 'pointer',
+                                          borderBottom: addlUnitObj.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
+                                          transition: 'background-color 0.2s ease',
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'center',
+                                          backgroundColor: rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'}
+                                      >
+                                        <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                          {addlUnitObj.BASEUNITS}
+                                        </span>
+                                        <span style={{
+                                          fontSize: '11px',
+                                          fontWeight: '600',
+                                          padding: '2px 8px',
+                                          borderRadius: '4px',
+                                          backgroundColor: '#fef3c7',
+                                          color: '#92400e'
+                                        }}>
+                                          Component
+                                        </span>
+                                      </div>
+                                      {addlUnitObj.ADDITIONALUNITS && (
+                                        <div
+                                          onMouseDown={(e) => e.preventDefault()}
+                                          onClick={() => {
+                                            setRateUOM('additional-component-sub');
+                                            setShowRateUOMDropdown(false);
+                                          }}
+                                          style={{
+                                            padding: '12px 16px',
+                                            cursor: 'pointer',
+                                            borderBottom: '1px solid #f1f5f9',
+                                            transition: 'background-color 0.2s ease',
+                                            display: 'flex',
+                                            justifyContent: 'space-between',
+                                            alignItems: 'center',
+                                            backgroundColor: rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'
+                                          }}
+                                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'}
+                                        >
+                                          <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                            {addlUnitObj.ADDITIONALUNITS}
+                                          </span>
+                                          <span style={{
+                                            fontSize: '11px',
+                                            fontWeight: '600',
+                                            padding: '2px 8px',
+                                            borderRadius: '4px',
+                                            backgroundColor: '#fef3c7',
+                                            color: '#92400e'
+                                          }}>
+                                            Component
+                                          </span>
+                                        </div>
+                                      )}
+                                    </>
+                                  );
+                                } else {
+                                  // ADDITIONALUNITS is simple - show full unit
+                                  return (
+                                    <div
+                                      onMouseDown={(e) => e.preventDefault()}
+                                      onClick={() => {
+                                        setRateUOM('additional');
+                                        setShowRateUOMDropdown(false);
+                                      }}
+                                      style={{
+                                        padding: '12px 16px',
+                                        cursor: 'pointer',
+                                        transition: 'background-color 0.2s ease',
+                                        display: 'flex',
+                                        justifyContent: 'space-between',
+                                        alignItems: 'center',
+                                        backgroundColor: rateUOM === 'additional' ? '#eff6ff' : 'white'
+                                      }}
+                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional' ? '#eff6ff' : 'white'}
+                                    >
+                                      <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                        {selectedItemUnitConfig.ADDITIONALUNITS}
+                                      </span>
+                                      <span style={{
+                                        fontSize: '11px',
+                                        fontWeight: '600',
+                                        padding: '2px 8px',
+                                        borderRadius: '4px',
+                                        backgroundColor: '#dbeafe',
+                                        color: '#1e40af'
+                                      }}>
+                                        Additional
+                                      </span>
+                                    </div>
+                                  );
+                                }
+                              })()}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+
+
+
+              {/* Discount */}
+
+              {canShowRateAmtColumn && canShowDiscColumn && (
+
+                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 120px' }}>
+
+                  <div style={{
+
+                    position: 'relative',
+
+                    background: canEditDiscount ? 'white' : '#f8fafc',
+
+                    borderRadius: isMobile ? '10px' : '12px',
+
+                    border: '2px solid #e2e8f0',
+
+                    boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
+
+                  }}>
+
+                    <input
+
+                      type="number"
+
+                      value={itemDiscountPercent}
+
+                      onChange={canEditDiscount ? (e) => setItemDiscountPercent(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))) : undefined}
+
+                      readOnly={!canEditDiscount}
+
+                      style={{
+
+                        width: '100%',
+
+                        padding: isMobile ? '14px 18px' : '15px 18px',
+
+                        border: 'none',
+
+                        borderRadius: isMobile ? '10px' : '10px',
+
+                        fontSize: isMobile ? '14px' : '15px',
+
+                        color: canEditDiscount ? '#1e293b' : '#64748b',
+
+                        outline: 'none',
+
+                        background: 'transparent',
+
+                        textAlign: 'center',
+
+                        fontWeight: '600',
+
+                        cursor: canEditDiscount ? 'text' : 'not-allowed',
 
                         height: isMobile ? '48px' : '52px',
 
@@ -10843,7 +11304,7 @@ function PlaceOrder() {
 
                       }}
 
-                      placeholder="Rate"
+                      placeholder="Disc %"
 
                     />
 
@@ -10869,7 +11330,7 @@ function PlaceOrder() {
 
                     }}>
 
-                      Rate
+                      Disc %
 
                     </label>
 
@@ -10877,846 +11338,67 @@ function PlaceOrder() {
 
                 </div>
 
-                {/* Rate UOM Selector - Always show, readonly if only one unit */}
-                {selectedItemUnitConfig && (() => {
-                  // Check if BASEUNITS is compound and has component units
-                  const baseUnitObj = units && units.length > 0
-                    ? units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS)
-                    : null;
-                  const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-                  const hasMultipleUnits = selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit;
-
-                  return (
-                    <div style={{ position: 'relative', width: isMobile ? '100%' : '160px', flex: isMobile ? '1 1 100%' : 'none' }}>
-                      <div style={{
-                        position: 'relative',
-                        background: 'white',
-                        borderRadius: isMobile ? '10px' : '10px',
-                        border: showRateUOMDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
-                        transition: 'all 0.2s ease',
-                        boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
-                        cursor: hasMultipleUnits ? 'pointer' : 'default'
-                      }}
-                        onClick={() => {
-                          if (hasMultipleUnits) {
-                            setShowRateUOMDropdown(!showRateUOMDropdown);
-                          }
-                        }}
-                      >
-                        <input
-                          type="text"
-                          value={(() => {
-                            // For compound base units, default to main component if not set
-                            if (hasCompoundBaseUnit && baseUnitObj) {
-                              if (rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
-                              if (rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
-                              // Default to main component for compound units
-                              if (!rateUOM || rateUOM === 'base') {
-                                setRateUOM('component-main');
-                                return baseUnitObj.BASEUNITS;
-                              }
-                            }
-
-                            // Check if ADDITIONALUNITS is compound
-                            const addlUnitObj = units && units.length > 0 && selectedItemUnitConfig.ADDITIONALUNITS
-                              ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
-                              : null;
-                            const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
-                            if (hasCompoundAddlUnit && addlUnitObj) {
-                              // Show component units for compound additional unit
-                              if (rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
-                              if (rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
-                              // If rateUOM is 'additional' but ADDITIONALUNITS is compound, default to main component
-                              if (rateUOM === 'additional') {
-                                setRateUOM('additional-component-main');
-                                return addlUnitObj.BASEUNITS;
-                              }
-                            }
-
-                            // For non-compound units
-                            if (rateUOM === 'base') return selectedItemUnitConfig.BASEUNITS;
-                            return (selectedItemUnitConfig.ADDITIONALUNITS || selectedItemUnitConfig.BASEUNITS);
-                          })()}
-                          readOnly
-                          onFocus={() => {
-                            if (hasMultipleUnits) {
-                              setRateUOMFocused(true);
-                            }
-                          }}
-                          onBlur={() => setTimeout(() => setRateUOMFocused(false), 200)}
-                          style={{
-                            width: '100%',
-                            padding: isMobile ? '14px 36px 14px 16px' : '16px 36px 16px 16px',
-                            border: 'none',
-                            borderRadius: isMobile ? '10px' : '10px',
-                            fontSize: isMobile ? '15px' : '14px',
-                            color: '#1e293b',
-                            outline: 'none',
-                            background: hasMultipleUnits ? 'transparent' : '#f8fafc',
-                            cursor: hasMultipleUnits ? 'pointer' : 'default',
-                            pointerEvents: 'none',
-                            fontWeight: '500',
-                            height: isMobile ? '48px' : '52px',
-                            boxSizing: 'border-box'
-                          }}
-                        />
-                        {hasMultipleUnits && (
-                          <span className="material-icons" style={{
-                            position: 'absolute',
-                            right: '10px',
-                            top: '50%',
-                            transform: 'translateY(-50%)',
-                            fontSize: '18px',
-                            color: showRateUOMDropdown ? '#3b82f6' : '#64748b',
-                            transition: 'color 0.2s ease',
-                            pointerEvents: 'none'
-                          }}>
-                            {showRateUOMDropdown ? 'expand_less' : 'expand_more'}
-                          </span>
-                        )}
-                        <label style={{
-                          position: 'absolute',
-                          left: '16px',
-                          top: '-9px',
-                          fontSize: '11px',
-                          fontWeight: '600',
-                          color: '#3b82f6',
-                          backgroundColor: 'white',
-                          padding: '0 6px',
-                          pointerEvents: 'none',
-                          letterSpacing: '0.3px'
-                        }}>
-                          Rate UOM
-                        </label>
-
-                        {/* Rate UOM Dropdown Menu - Only show if multiple units exist */}
-                        {showRateUOMDropdown && hasMultipleUnits && (
-                          <div
-                            className="dropdown-animation"
-                            style={{
-                              position: 'absolute',
-                              top: 'calc(100% + 8px)',
-                              left: 0,
-                              right: 0,
-                              backgroundColor: 'white',
-                              border: '2px solid #3b82f6',
-                              borderRadius: '8px',
-                              maxHeight: '200px',
-                              overflowY: 'auto',
-                              zIndex: 9999,
-                              boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)'
-                            }}
-                          >
-                            {/* Base Unit Option - Only show if BASEUNITS is NOT compound */}
-                            {!hasCompoundBaseUnit && (
-                              <div
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => {
-                                  setRateUOM('base');
-                                  setShowRateUOMDropdown(false);
-                                }}
-                                style={{
-                                  padding: '12px 16px',
-                                  cursor: 'pointer',
-                                  borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit) ? '1px solid #f1f5f9' : 'none',
-                                  transition: 'background-color 0.2s ease',
-                                  display: 'flex',
-                                  justifyContent: 'space-between',
-                                  alignItems: 'center',
-                                  backgroundColor: rateUOM === 'base' ? '#eff6ff' : 'white'
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'base' ? '#eff6ff' : 'white'}
-                              >
-                                <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                  {selectedItemUnitConfig.BASEUNITS}
-                                </span>
-                                <span style={{
-                                  fontSize: '11px',
-                                  fontWeight: '600',
-                                  padding: '2px 8px',
-                                  borderRadius: '4px',
-                                  backgroundColor: '#dbeafe',
-                                  color: '#1e40af'
-                                }}>
-                                  Base
-                                </span>
-                              </div>
-                            )}
-
-                            {/* Component Units for Compound Base Unit (if BASEUNITS is compound) */}
-                            {hasCompoundBaseUnit && baseUnitObj && (
-                              <>
-                                <div
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    setRateUOM('component-main');
-                                    setShowRateUOMDropdown(false);
-                                  }}
-                                  style={{
-                                    padding: '12px 16px',
-                                    cursor: 'pointer',
-                                    borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || baseUnitObj.ADDITIONALUNITS) ? '1px solid #f1f5f9' : 'none',
-                                    transition: 'background-color 0.2s ease',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    backgroundColor: rateUOM === 'component-main' ? '#eff6ff' : 'white'
-                                  }}
-                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-main' ? '#eff6ff' : 'white'}
-                                >
-                                  <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                    {baseUnitObj.BASEUNITS}
-                                  </span>
-                                  <span style={{
-                                    fontSize: '11px',
-                                    fontWeight: '600',
-                                    padding: '2px 8px',
-                                    borderRadius: '4px',
-                                    backgroundColor: '#fef3c7',
-                                    color: '#92400e'
-                                  }}>
-                                    Component
-                                  </span>
-                                </div>
-                                {baseUnitObj.ADDITIONALUNITS && (
-                                  <div
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => {
-                                      setRateUOM('component-sub');
-                                      setShowRateUOMDropdown(false);
-                                    }}
-                                    style={{
-                                      padding: '12px 16px',
-                                      cursor: 'pointer',
-                                      borderBottom: selectedItemUnitConfig.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
-                                      transition: 'background-color 0.2s ease',
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      backgroundColor: rateUOM === 'component-sub' ? '#eff6ff' : 'white'
-                                    }}
-                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-sub' ? '#eff6ff' : 'white'}
-                                  >
-                                    <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                      {baseUnitObj.ADDITIONALUNITS}
-                                    </span>
-                                    <span style={{
-                                      fontSize: '11px',
-                                      fontWeight: '600',
-                                      padding: '2px 8px',
-                                      borderRadius: '4px',
-                                      backgroundColor: '#fef3c7',
-                                      color: '#92400e'
-                                    }}>
-                                      Component
-                                    </span>
-                                  </div>
-                                )}
-                              </>
-                            )}
-
-                            {/* Additional Unit Option (if exists) */}
-                            {selectedItemUnitConfig.ADDITIONALUNITS && (() => {
-                              // Check if ADDITIONALUNITS is compound
-                              const addlUnitObj = units && units.length > 0
-                                ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
-                                : null;
-                              const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
-                              if (hasCompoundAddlUnit && addlUnitObj) {
-                                // ADDITIONALUNITS is compound - show component options
-                                return (
-                                  <>
-                                    <div
-                                      onMouseDown={(e) => e.preventDefault()}
-                                      onClick={() => {
-                                        setRateUOM('additional-component-main');
-                                        setShowRateUOMDropdown(false);
-                                      }}
-                                      style={{
-                                        padding: '12px 16px',
-                                        cursor: 'pointer',
-                                        borderBottom: addlUnitObj.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
-                                        transition: 'background-color 0.2s ease',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        backgroundColor: rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'
-                                      }}
-                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'}
-                                    >
-                                      <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                        {addlUnitObj.BASEUNITS}
-                                      </span>
-                                      <span style={{
-                                        fontSize: '11px',
-                                        fontWeight: '600',
-                                        padding: '2px 8px',
-                                        borderRadius: '4px',
-                                        backgroundColor: '#fef3c7',
-                                        color: '#92400e'
-                                      }}>
-                                        Component
-                                      </span>
-                                    </div>
-                                    {addlUnitObj.ADDITIONALUNITS && (
-                                      <div
-                                        onMouseDown={(e) => e.preventDefault()}
-                                        onClick={() => {
-                                          setRateUOM('additional-component-sub');
-                                          setShowRateUOMDropdown(false);
-                                        }}
-                                        style={{
-                                          padding: '12px 16px',
-                                          cursor: 'pointer',
-                                          borderBottom: '1px solid #f1f5f9',
-                                          transition: 'background-color 0.2s ease',
-                                          display: 'flex',
-                                          justifyContent: 'space-between',
-                                          alignItems: 'center',
-                                          backgroundColor: rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'}
-                                      >
-                                        <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                          {addlUnitObj.ADDITIONALUNITS}
-                                        </span>
-                                        <span style={{
-                                          fontSize: '11px',
-                                          fontWeight: '600',
-                                          padding: '2px 8px',
-                                          borderRadius: '4px',
-                                          backgroundColor: '#fef3c7',
-                                          color: '#92400e'
-                                        }}>
-                                          Component
-                                        </span>
-                                      </div>
-                                    )}
-                                  </>
-                                );
-                              } else {
-                                // ADDITIONALUNITS is simple - show full unit
-                                return (
-                                  <div
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => {
-                                      setRateUOM('additional');
-                                      setShowRateUOMDropdown(false);
-                                    }}
-                                    style={{
-                                      padding: '12px 16px',
-                                      cursor: 'pointer',
-                                      transition: 'background-color 0.2s ease',
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      backgroundColor: rateUOM === 'additional' ? '#eff6ff' : 'white'
-                                    }}
-                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional' ? '#eff6ff' : 'white'}
-                                  >
-                                    <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                      {selectedItemUnitConfig.ADDITIONALUNITS}
-                                    </span>
-                                    <span style={{
-                                      fontSize: '11px',
-                                      fontWeight: '600',
-                                      padding: '2px 8px',
-                                      borderRadius: '4px',
-                                      backgroundColor: '#dbeafe',
-                                      color: '#1e40af'
-                                    }}>
-                                      Additional
-                                    </span>
-                                  </div>
-                                );
-                              }
-                            })()}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-              </>
-            )}
-
-
-
-            {/* Discount */}
-
-            {canShowRateAmtColumn && canShowDiscColumn && (
-
-              <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none' }}>
-
-                <div style={{
-
-                  position: 'relative',
-
-                  background: canEditDiscount ? 'white' : '#f8fafc',
-
-                  borderRadius: isMobile ? '10px' : '12px',
-
-                  border: '2px solid #e2e8f0',
-
-                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
-
-                }}>
-
-                  <input
-
-                    type="number"
-
-                    value={itemDiscountPercent}
-
-                    onChange={canEditDiscount ? (e) => setItemDiscountPercent(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))) : undefined}
-
-                    readOnly={!canEditDiscount}
-
-                    style={{
-
-                      width: '100%',
-
-                      padding: isMobile ? '14px 20px' : '16px 20px',
-
-                      border: 'none',
-
-                      borderRadius: isMobile ? '10px' : '12px',
-
-                      fontSize: isMobile ? '15px' : '15px',
-
-                      color: canEditDiscount ? '#1e293b' : '#64748b',
-
-                      outline: 'none',
-
-                      background: 'transparent',
-
-                      textAlign: 'center',
-
-                      fontWeight: '600',
-
-                      cursor: canEditDiscount ? 'text' : 'not-allowed'
-
-                    }}
-
-                    placeholder="Disc %"
-
-                  />
-
-                  <label style={{
-
-                    position: 'absolute',
-
-                    left: '20px',
-
-                    top: '-10px',
-
-                    fontSize: '12px',
-
-                    fontWeight: '600',
-
-                    color: '#64748b',
-
-                    backgroundColor: 'white',
-
-                    padding: '0 8px',
-
-                    pointerEvents: 'none'
-
-                  }}>
-
-                    Disc %
-
-                  </label>
-
-                </div>
-
-              </div>
-
-            )}
-
-
-
-            {/* GST */}
-
-            {canShowRateAmtColumn && (
-
-              <div style={{ position: 'relative' }}>
-
-                <div style={{
-
-                  position: 'relative',
-
-                  background: '#f8fafc',
-
-                  borderRadius: isMobile ? '10px' : '12px',
-
-                  border: '2px solid #e2e8f0',
-
-                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
-
-                }}>
-
-                  <input
-
-                    type="number"
-
-                    value={itemGstPercent}
-
-                    style={{
-
-                      width: '100%',
-
-                      padding: isMobile ? '14px 20px' : '16px 20px',
-
-                      border: 'none',
-
-                      borderRadius: isMobile ? '10px' : '12px',
-
-                      fontSize: isMobile ? '15px' : '15px',
-
-                      color: '#64748b',
-
-                      outline: 'none',
-
-                      background: 'transparent',
-
-                      textAlign: 'center',
-
-                      fontWeight: '600'
-
-                    }}
-
-                    placeholder="GST %"
-
-                    readOnly
-
-                  />
-
-                  <label style={{
-
-                    position: 'absolute',
-
-                    left: '20px',
-
-                    top: '-10px',
-
-                    fontSize: '12px',
-
-                    fontWeight: '600',
-
-                    color: '#64748b',
-
-                    backgroundColor: '#f8fafc',
-
-                    padding: '0 8px',
-
-                    pointerEvents: 'none'
-
-                  }}>
-
-                    GST %
-
-                  </label>
-
-                </div>
-
-              </div>
-
-            )}
-
-
-
-            {/* Amount Display */}
-
-            {canShowRateAmtColumn && (
-
-              <div style={{
-
-                padding: isMobile ? '14px 20px' : '16px 20px',
-
-                background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-
-                borderRadius: isMobile ? '10px' : '12px',
-
-                border: '2px solid #0ea5e9',
-
-                fontSize: isMobile ? '15px' : '16px',
-
-                fontWeight: '700',
-
-                color: '#0369a1',
-
-                textAlign: 'center',
-
-                minWidth: isMobile ? '100%' : '110px',
-
-                boxShadow: isMobile ? '0 2px 6px rgba(14, 165, 233, 0.25)' : '0 2px 4px rgba(14, 165, 233, 0.2)'
-
-              }}>
-
-                ₹{itemAmount.toFixed(2)}
-
-              </div>
-
-            )}
-
-
-
-            {/* Add Button */}
-
-            <button
-
-              type="button"
-
-              onClick={addOrderItem}
-
-              disabled={!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)}
-
-              style={{
-
-                background: editingItemId ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-
-                color: 'white',
-
-                border: 'none',
-
-                borderRadius: isMobile ? '10px' : '12px',
-
-                padding: isMobile ? '16px 24px' : '16px 28px',
-
-                cursor: 'pointer',
-
-                fontSize: isMobile ? '15px' : '15px',
-
-                fontWeight: '700',
-
-                transition: 'all 0.3s ease',
-
-                opacity: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)) ? 0.5 : 1,
-
-                boxShadow: '0 4px 6px rgba(16, 185, 129, 0.25)',
-
-                display: 'flex',
-
-                alignItems: 'center',
-
-                gap: '8px',
-
-                minWidth: isMobile ? '100%' : '140px',
-
-                width: isMobile ? '100%' : 'auto',
-
-                justifyContent: 'center'
-
-              }}
-
-            >
-
-              <span className="material-icons" style={{ fontSize: '18px' }}>
-
-                {editingItemId ? 'edit' : 'add_shopping_cart'}
-
-              </span>
-
-              {editingItemId ? 'Update Item' : 'Add Item'}
-
-            </button>
-
-          </div>
-
-
-
-          {/* Description Field - Below the entire item line */}
-
-          {selectedItem && (
-
-            <div style={{
-
-              marginTop: '16px',
-
-              display: 'flex',
-
-              alignItems: 'center',
-
-              gap: '12px'
-
-            }}>
-
-              {/* Toggle Switch - Only show if user doesn't have show_itemdesc permission */}
-
-              {!canShowItemDesc && (
-
-                <div style={{
-
-                  display: 'flex',
-
-                  alignItems: 'center',
-
-                  gap: '8px',
-
-                  padding: '8px 12px',
-
-                  background: '#f8fafc',
-
-                  borderRadius: '8px',
-
-                  border: '1px solid #e2e8f0',
-
-                  cursor: 'pointer',
-
-                  transition: 'all 0.2s ease'
-
-                }}
-
-                  onClick={() => setShowDescription(!showDescription)}
-
-                  onMouseEnter={(e) => {
-
-                    e.currentTarget.style.background = '#f1f5f9';
-
-                  }}
-
-                  onMouseLeave={(e) => {
-
-                    e.currentTarget.style.background = '#f8fafc';
-
-                  }}>
-
-                  <div style={{
-
-                    width: '20px',
-
-                    height: '12px',
-
-                    background: showDescription ? '#3b82f6' : '#cbd5e1',
-
-                    borderRadius: '6px',
-
-                    position: 'relative',
-
-                    transition: 'all 0.2s ease'
-
-                  }}>
-
-                    <div style={{
-
-                      width: '10px',
-
-                      height: '10px',
-
-                      background: 'white',
-
-                      borderRadius: '50%',
-
-                      position: 'absolute',
-
-                      top: '1px',
-
-                      left: showDescription ? '9px' : '1px',
-
-                      transition: 'all 0.2s ease',
-
-                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.2)'
-
-                    }} />
-
-                  </div>
-
-                  <span style={{
-
-                    fontSize: '14px',
-
-                    fontWeight: '500',
-
-                    color: '#374151',
-
-                    userSelect: 'none'
-
-                  }}>
-
-                    Add Description
-
-                  </span>
-
-                </div>
-
               )}
 
 
 
-              {/* Description Field - Show always if permission exists, or when toggle is on */}
+              {/* GST */}
 
-              {(canShowItemDesc || showDescription) && (
+              {canShowRateAmtColumn && (
 
-                <div style={{
-
-                  width: '34%',
-
-                  maxWidth: '600px'
-
-                }}>
+                <div style={{ position: 'relative' }}>
 
                   <div style={{
 
                     position: 'relative',
 
-                    background: 'white',
+                    background: '#f8fafc',
 
-                    borderRadius: '12px',
+                    borderRadius: isMobile ? '10px' : '12px',
 
                     border: '2px solid #e2e8f0',
 
-                    transition: 'all 0.2s ease',
-
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                    boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
 
                   }}>
 
-                    <textarea
+                    <input
 
-                      value={itemDescription}
+                      type="number"
 
-                      onChange={(e) => setItemDescription(e.target.value)}
-
-                      onFocus={() => setDescriptionFocused(true)}
-
-                      onBlur={() => setDescriptionFocused(false)}
+                      value={itemGstPercent}
 
                       style={{
 
                         width: '100%',
 
-                        padding: '16px 20px',
+                        padding: isMobile ? '14px 18px' : '15px 18px',
 
                         border: 'none',
 
-                        borderRadius: '12px',
+                        borderRadius: isMobile ? '10px' : '10px',
 
-                        fontSize: '15px',
+                        fontSize: isMobile ? '14px' : '15px',
 
-                        color: '#1e293b',
+                        color: '#64748b',
 
                         outline: 'none',
 
                         background: 'transparent',
 
-                        resize: 'vertical',
+                        textAlign: 'center',
 
-                        minHeight: '60px',
+                        fontWeight: '600',
 
-                        fontFamily: 'inherit'
+                        height: isMobile ? '48px' : '52px',
+
+                        boxSizing: 'border-box'
 
                       }}
 
-                      placeholder="Enter item description (optional)"
+                      placeholder="GST %"
+
+                      readOnly
 
                     />
 
@@ -11726,25 +11408,23 @@ function PlaceOrder() {
 
                       left: '20px',
 
-                      top: descriptionFocused || itemDescription ? '-10px' : '16px',
+                      top: '-10px',
 
-                      fontSize: descriptionFocused || itemDescription ? '12px' : '15px',
+                      fontSize: '12px',
 
                       fontWeight: '600',
 
-                      color: descriptionFocused || itemDescription ? '#3b82f6' : '#6b7280',
+                      color: '#64748b',
 
-                      backgroundColor: 'white',
+                      backgroundColor: '#f8fafc',
 
                       padding: '0 8px',
-
-                      transition: 'all 0.2s ease',
 
                       pointerEvents: 'none'
 
                     }}>
 
-                      Item Description
+                      GST %
 
                     </label>
 
@@ -11754,11 +11434,333 @@ function PlaceOrder() {
 
               )}
 
+
+
+              {/* Amount Display */}
+
+              {canShowRateAmtColumn && (
+
+                <div style={{
+
+                  padding: isMobile ? '14px 20px' : '16px 20px',
+
+                  background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+
+                  borderRadius: isMobile ? '10px' : '12px',
+
+                  border: '2px solid #0ea5e9',
+
+                  fontSize: isMobile ? '15px' : '16px',
+
+                  fontWeight: '700',
+
+                  color: '#0369a1',
+
+                  textAlign: 'center',
+
+                  minWidth: isMobile ? '100%' : '110px',
+
+                  boxShadow: isMobile ? '0 2px 6px rgba(14, 165, 233, 0.25)' : '0 2px 4px rgba(14, 165, 233, 0.2)'
+
+                }}>
+
+                  ₹{itemAmount.toFixed(2)}
+
+                </div>
+
+              )}
+
+
+
+              {/* Add Button */}
+
+              <button
+
+                type="button"
+
+                onClick={addOrderItem}
+
+                disabled={!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)}
+
+                style={{
+
+                  background: editingItemId ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+
+                  color: 'white',
+
+                  border: 'none',
+
+                  borderRadius: isMobile ? '10px' : '12px',
+
+                  padding: isMobile ? '16px 24px' : '16px 28px',
+
+                  cursor: 'pointer',
+
+                  fontSize: isMobile ? '15px' : '15px',
+
+                  fontWeight: '700',
+
+                  transition: 'all 0.3s ease',
+
+                  opacity: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)) ? 0.5 : 1,
+
+                  boxShadow: '0 4px 6px rgba(16, 185, 129, 0.25)',
+
+                  display: 'flex',
+
+                  alignItems: 'center',
+
+                  gap: '8px',
+
+                  minWidth: isMobile ? '100%' : '140px',
+
+                  width: isMobile ? '100%' : 'auto',
+
+                  justifyContent: 'center'
+
+                }}
+
+              >
+
+                <span className="material-icons" style={{ fontSize: '18px' }}>
+
+                  {editingItemId ? 'edit' : 'add_shopping_cart'}
+
+                </span>
+
+                {editingItemId ? 'Update Item' : 'Add Item'}
+
+              </button>
+
             </div>
 
-          )}
 
-        </div>
+
+            {/* Description Field - Below the entire item line */}
+
+            {selectedItem && (
+
+              <div style={{
+
+                marginTop: '16px',
+
+                display: 'flex',
+
+                alignItems: 'center',
+
+                gap: '12px'
+
+              }}>
+
+                {/* Toggle Switch - Only show if user doesn't have show_itemdesc permission */}
+
+                {!canShowItemDesc && (
+
+                  <div style={{
+
+                    display: 'flex',
+
+                    alignItems: 'center',
+
+                    gap: '8px',
+
+                    padding: '8px 12px',
+
+                    background: '#f8fafc',
+
+                    borderRadius: '8px',
+
+                    border: '1px solid #e2e8f0',
+
+                    cursor: 'pointer',
+
+                    transition: 'all 0.2s ease'
+
+                  }}
+
+                    onClick={() => setShowDescription(!showDescription)}
+
+                    onMouseEnter={(e) => {
+
+                      e.currentTarget.style.background = '#f1f5f9';
+
+                    }}
+
+                    onMouseLeave={(e) => {
+
+                      e.currentTarget.style.background = '#f8fafc';
+
+                    }}>
+
+                    <div style={{
+
+                      width: '20px',
+
+                      height: '12px',
+
+                      background: showDescription ? '#3b82f6' : '#cbd5e1',
+
+                      borderRadius: '6px',
+
+                      position: 'relative',
+
+                      transition: 'all 0.2s ease'
+
+                    }}>
+
+                      <div style={{
+
+                        width: '10px',
+
+                        height: '10px',
+
+                        background: 'white',
+
+                        borderRadius: '50%',
+
+                        position: 'absolute',
+
+                        top: '1px',
+
+                        left: showDescription ? '9px' : '1px',
+
+                        transition: 'all 0.2s ease',
+
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.2)'
+
+                      }} />
+
+                    </div>
+
+                    <span style={{
+
+                      fontSize: '14px',
+
+                      fontWeight: '500',
+
+                      color: '#374151',
+
+                      userSelect: 'none'
+
+                    }}>
+
+                      Add Description
+
+                    </span>
+
+                  </div>
+
+                )}
+
+
+
+                {/* Description Field - Show always if permission exists, or when toggle is on */}
+
+                {(canShowItemDesc || showDescription) && (
+
+                  <div style={{
+
+                    width: '34%',
+
+                    maxWidth: '600px'
+
+                  }}>
+
+                    <div style={{
+
+                      position: 'relative',
+
+                      background: 'white',
+
+                      borderRadius: '12px',
+
+                      border: '2px solid #e2e8f0',
+
+                      transition: 'all 0.2s ease',
+
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+
+                    }}>
+
+                      <textarea
+
+                        value={itemDescription}
+
+                        onChange={(e) => setItemDescription(e.target.value)}
+
+                        onFocus={() => setDescriptionFocused(true)}
+
+                        onBlur={() => setDescriptionFocused(false)}
+
+                        style={{
+
+                          width: '100%',
+
+                          padding: '16px 20px',
+
+                          border: 'none',
+
+                          borderRadius: '12px',
+
+                          fontSize: '15px',
+
+                          color: '#1e293b',
+
+                          outline: 'none',
+
+                          background: 'transparent',
+
+                          resize: 'vertical',
+
+                          minHeight: '60px',
+
+                          fontFamily: 'inherit'
+
+                        }}
+
+                        placeholder="Enter item description (optional)"
+
+                      />
+
+                      <label style={{
+
+                        position: 'absolute',
+
+                        left: '20px',
+
+                        top: descriptionFocused || itemDescription ? '-10px' : '16px',
+
+                        fontSize: descriptionFocused || itemDescription ? '12px' : '15px',
+
+                        fontWeight: '600',
+
+                        color: descriptionFocused || itemDescription ? '#3b82f6' : '#6b7280',
+
+                        backgroundColor: 'white',
+
+                        padding: '0 8px',
+
+                        transition: 'all 0.2s ease',
+
+                        pointerEvents: 'none'
+
+                      }}>
+
+                        Item Description
+
+                      </label>
+
+                    </div>
+
+                  </div>
+
+                )}
+
+              </div>
+
+            )}
+
+          </div>
         </div>
 
 
@@ -11859,17 +11861,17 @@ function PlaceOrder() {
 
                 }}
 
-                onMouseEnter={(e) => {
+                  onMouseEnter={(e) => {
 
-                  e.currentTarget.style.backgroundColor = '#f8fafc';
+                    e.currentTarget.style.backgroundColor = '#f8fafc';
 
-                }}
+                  }}
 
-                onMouseLeave={(e) => {
+                  onMouseLeave={(e) => {
 
-                  e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.backgroundColor = 'transparent';
 
-                }}
+                  }}
 
                 >
 
@@ -12005,7 +12007,7 @@ function PlaceOrder() {
 
                     }}>
 
-                      `₹${item.rate.toFixed(2)}`
+                      ₹{item.rate.toFixed(2)}
 
                     </div>
 
@@ -12071,7 +12073,7 @@ function PlaceOrder() {
 
                     }}>
 
-                      `${item.discountPercent || 0}%`
+                      {item.discountPercent || 0}%
 
                     </div>
 
@@ -12109,7 +12111,7 @@ function PlaceOrder() {
 
                     }}>
 
-                      `₹${item.amount.toFixed(2)}`
+                      ₹{item.amount.toFixed(2)}
 
                     </div>
 
@@ -14039,4 +14041,3 @@ function PlaceOrder() {
 }
 
 export default PlaceOrder;
-

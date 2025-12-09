@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { hybridCache } from '../utils/hybridCache';
-import { apiPost, apiGet } from '../utils/apiUtils';
+import { apiGet } from '../utils/apiUtils';
 import { syncSalesData, syncCustomers, syncItems, cacheSyncManager, safeSessionStorageGet, getCustomersFromOPFS, getItemsFromOPFS, checkInterruptedDownload, clearDownloadProgress } from '../utils/cacheSyncManager';
 import ResumeDownloadModal from './components/ResumeDownloadModal';
 import { useIsMobile } from './MobileViewConfig';
@@ -156,12 +156,25 @@ const CacheManagement = () => {
 
     // Check after a short delay to ensure company is loaded
     const timer = setTimeout(checkForInterrupted, 1000);
-    return () => clearTimeout(timer);
 
     // Listen for company changes from header
-    const handleCompanyChange = () => {
-      console.log('🔄 CacheManagement: Company changed event received');
-      loadCurrentCompany();
+    const handleCompanyChange = (event) => {
+      console.log('🔄 CacheManagement: Company changed event received', event.detail);
+      
+      // Use company data from event detail if available, otherwise fall back to sessionStorage
+      if (event.detail && event.detail.guid) {
+        const companyConnection = event.detail;
+        setSelectedCompany({
+          tallyloc_id: companyConnection.tallyloc_id,
+          guid: companyConnection.guid,
+          company: companyConnection.company
+        });
+        console.log('✅ CacheManagement: Company updated from event:', companyConnection.company);
+      } else {
+        // Fallback to loading from sessionStorage
+        loadCurrentCompany();
+      }
+      
       loadCacheStats();
       // Reload progress for new company
       setTimeout(() => {
@@ -176,6 +189,7 @@ const CacheManagement = () => {
     window.addEventListener('companyChanged', handleCompanyChange);
 
     return () => {
+      clearTimeout(timer);
       unsubscribe();
       window.removeEventListener('companyChanged', handleCompanyChange);
     };
@@ -964,23 +978,43 @@ const CacheManagement = () => {
       // Provide more helpful error messages
       let errorMsg = error.message || 'Unknown error occurred';
 
-      if (!navigator.onLine) {
+      // Check for 500 errors or CORS errors - show retry message
+      const is500Error = error.message.includes('HTTP 500') || 
+                        error.message.includes('500') ||
+                        error.message.includes('Internal Server Error');
+      
+      const isCorsError = error.message.includes('CORS') || 
+                         error.message.includes('cors') ||
+                         error.message.includes('Access-Control');
+
+      if (is500Error || isCorsError) {
+        errorMsg = 'Download stopped due to server error. Please retry the download.';
+        if (is500Error) {
+          errorMsg = 'Download stopped due to server error (500 Internal Server Error). Please retry the download.';
+        } else if (isCorsError) {
+          errorMsg = 'Download stopped due to CORS error. Please check your connection and retry the download.';
+        }
+      } else if (!navigator.onLine) {
         errorMsg = 'Lost internet connection during download. Please check your network and try again.';
       } else if (error.message.includes('Failed to fetch')) {
         errorMsg = 'Cannot reach the server. Please check if you have internet access and the server is available.';
       } else if (error.message.includes('timeout')) {
         errorMsg = 'Request timed out. Your connection might be too slow. Try using WiFi or reducing the data range.';
-      } else if (error.message.includes('CORS')) {
-        errorMsg = 'Security error (CORS). This usually means the server configuration needs updating.';
       } else if (error.message.includes('401') || error.message.includes('Unauthorized')) {
         errorMsg = 'Your session has expired. Please log in again.';
       } else if (error.message.includes('404')) {
         errorMsg = 'API endpoint not found. The server might be misconfigured.';
-      } else if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
+      } else if (error.message.includes('502') || error.message.includes('503')) {
         errorMsg = 'Server error. Please try again later or contact support.';
       }
 
       setMessage({ type: 'error', text: 'Failed to download data: ' + errorMsg });
+      
+      // Reset download state so user can retry
+      setDownloadingComplete(false);
+      setDownloadProgress({ current: 0, total: 0, message: '' });
+      setDownloadStartTime(null);
+      downloadStartTimeRef.current = null;
     }
   };
 
@@ -2447,6 +2481,7 @@ const CacheManagement = () => {
         isOpen={showResumeModal}
         onContinue={handleResumeContinue}
         onStartFresh={handleResumeStartFresh}
+        onClose={() => setShowResumeModal(false)}
         progress={interruptedProgress || { current: 0, total: 0 }}
         companyName={interruptedProgress?.companyName || selectedCompany?.company || 'this company'}
       />

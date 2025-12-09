@@ -350,68 +350,6 @@ class EncryptionUtils {
     }
   }
 
-  // Compress data using native CompressionStream API (available in modern browsers)
-  async compressData(data) {
-    try {
-      // Check if CompressionStream is available
-      if (typeof CompressionStream === 'undefined') {
-        console.warn('CompressionStream not available, skipping compression');
-        // Fallback to uncompressed
-        const jsonString = JSON.stringify(data);
-        const encoder = new TextEncoder();
-        return encoder.encode(jsonString).buffer;
-      }
-
-      const jsonString = JSON.stringify(data);
-      const encoder = new TextEncoder();
-      const dataStream = new Blob([encoder.encode(jsonString)]).stream();
-
-      const compressedStream = dataStream.pipeThrough(new CompressionStream('gzip'));
-      const compressedBlob = await new Response(compressedStream).blob();
-      const compressedArrayBuffer = await compressedBlob.arrayBuffer();
-
-      const originalSize = new TextEncoder().encode(jsonString).length;
-      const compressedSize = compressedArrayBuffer.byteLength;
-      const compressionRatio = ((1 - compressedSize / originalSize) * 100).toFixed(1);
-      console.log(`📦 Compression: ${(originalSize / 1024).toFixed(2)} KB → ${(compressedSize / 1024).toFixed(2)} KB (${compressionRatio}% reduction)`);
-
-      return compressedArrayBuffer;
-    } catch (error) {
-      console.warn('Compression failed, using uncompressed data:', error);
-      // Fallback to uncompressed
-      const jsonString = JSON.stringify(data);
-      const encoder = new TextEncoder();
-      return encoder.encode(jsonString).buffer;
-    }
-  }
-
-  // Decompress data using native DecompressionStream API
-  async decompressData(compressedBuffer) {
-    try {
-      // Check if DecompressionStream is available
-      if (typeof DecompressionStream === 'undefined') {
-        console.warn('DecompressionStream not available, assuming uncompressed');
-        const decoder = new TextDecoder();
-        return JSON.parse(decoder.decode(new Uint8Array(compressedBuffer)));
-      }
-
-      const compressedStream = new Blob([compressedBuffer]).stream();
-      const decompressedStream = compressedStream.pipeThrough(new DecompressionStream('gzip'));
-      const decompressedBlob = await new Response(decompressedStream).blob();
-      const decompressedArrayBuffer = await decompressedBlob.arrayBuffer();
-      const decoder = new TextDecoder();
-      return JSON.parse(decoder.decode(decompressedArrayBuffer));
-    } catch (error) {
-      // Try as uncompressed data
-      try {
-        const decoder = new TextDecoder();
-        return JSON.parse(decoder.decode(new Uint8Array(compressedBuffer)));
-      } catch (e) {
-        console.error('Decompression failed:', error);
-        throw error;
-      }
-    }
-  }
 
   // Decrypt data from Uint8Array or ArrayBuffer (no base64 decoding)
   async decryptData(encryptedData) {
@@ -1400,29 +1338,61 @@ class OPFSBackend {
         }
       }
 
-      // Write file
+      // Write file - delete existing file first to ensure complete replacement
+      // This is critical for updates to ensure old data is completely removed
+      try {
+        // Try to remove existing file first to ensure clean write
+        try {
+          await dir.removeEntry(fileName);
+          console.log(`🗑️ Removed existing cache file: ${fileName}`);
+        } catch (removeError) {
+          // File might not exist, which is fine for first-time writes
+          if (removeError.name !== 'NotFoundError') {
+            console.warn(`⚠️ Could not remove existing file: ${removeError.message}`);
+          }
+        }
+      } catch (error) {
+        // Ignore errors during removal attempt
+        console.warn(`⚠️ Error during file removal attempt: ${error.message}`);
+      }
+
+      // Create new file handle (file was deleted above, so this creates fresh)
       const fileHandle = await dir.getFileHandle(fileName, { create: true });
 
       try {
         if ('createSyncAccessHandle' in fileHandle) {
+          // Use sync access handle for better performance and guaranteed overwrite
           const syncHandle = await fileHandle.createSyncAccessHandle();
           try {
             const encoder = new TextEncoder();
             const dataToWrite = encoder.encode(encrypted);
+            // Write at position 0 and truncate to ensure complete replacement
             syncHandle.write(dataToWrite, { at: 0 });
             syncHandle.truncate(dataToWrite.length);
+            console.log(`✅ Wrote ${dataToWrite.length} bytes using sync access handle`);
           } finally {
             syncHandle.close();
           }
         } else {
+          // Fallback: use writable stream (file was already deleted, so this is a fresh write)
           const writable = await fileHandle.createWritable();
           await writable.write(encrypted);
           await writable.close();
+          console.log(`✅ Wrote ${encrypted.length} bytes using writable stream`);
         }
       } catch (writeError) {
-        const writable = await fileHandle.createWritable();
+        console.error(`❌ Error writing file, attempting recovery: ${writeError.message}`);
+        // Recovery: delete and recreate
+        try {
+          await dir.removeEntry(fileName);
+        } catch (removeError) {
+          // Ignore removal errors during recovery
+        }
+        const newFileHandle = await dir.getFileHandle(fileName, { create: true });
+        const writable = await newFileHandle.createWritable();
         await writable.write(encrypted);
         await writable.close();
+        console.log(`✅ Recovery write completed`);
       }
 
       // Store metadata with complete data flag
@@ -2644,35 +2614,6 @@ class HybridCache {
     };
   }
 
-  // Add this method to HybridCache class
-  async getStorageQuota() {
-    try {
-      if ('storage' in navigator && 'estimate' in navigator.storage) {
-        const estimate = await navigator.storage.estimate();
-        return {
-          quota: estimate.quota,
-          usage: estimate.usage,
-          available: estimate.quota - estimate.usage,
-          usagePercent: ((estimate.usage / estimate.quota) * 100).toFixed(2),
-          quotaMB: (estimate.quota / (1024 * 1024)).toFixed(2),
-          usageMB: (estimate.usage / (1024 * 1024)).toFixed(2),
-          availableMB: ((estimate.quota - estimate.usage) / (1024 * 1024)).toFixed(2)
-        };
-      }
-      return null;
-    } catch (error) {
-      console.error('Error getting storage quota:', error);
-      return null;
-    }
-  }
-
-  // Add this method to check if storage is getting low
-  async isStorageLow(thresholdPercent = 80) {
-    const quota = await this.getStorageQuota();
-    if (!quota) return false;
-    const usagePercent = (quota.usage / quota.quota) * 100;
-    return usagePercent >= thresholdPercent;
-  }
 
   // Clear metadata cache (for refreshing after clearing cache)
   async clearMetadataCache() {

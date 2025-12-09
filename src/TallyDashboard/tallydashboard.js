@@ -8,7 +8,7 @@ import PlaceOrder from './PlaceOrder';
 import PlaceOrder_ECommerce from './PlaceOrder_ECommerce';
 import SalesDashboard from './salesdashboard';
 import ReceivablesDashboard from '../RecvDashboard';
-import VoucherAuthorization from '../vchauth/vchauth';
+import VoucherAuthorization from './vchauth';
 import ReceiptListScreenWrapper from './ReceiptListScreenWrapper';
 import CompanyOrdersScreenWrapper from './CompanyOrdersScreenWrapper';
 import TallyConfig from '../admindashboard/tallyconfig';
@@ -21,6 +21,9 @@ import MasterForm from './MasterForm';
 import MasterAuthorization from './MasterAuthorization';
 import MasterList from './MasterList';
 import CacheManagement from './CacheManagement';
+import SalesOrderReport from './SalesOrderReport';
+import PaymentVoucherReport from './PaymentVoucherReport';
+import VendorExpenses from './VendorExpenses';
 import { 
   MODULE_SEQUENCE, 
   hasModuleAccess, 
@@ -35,6 +38,7 @@ import {
 import { apiGet } from '../utils/apiUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { MobileMenu, useIsMobile } from './MobileViewConfig';
+import { syncCustomers, syncItems } from '../utils/cacheSyncManager';
 
 function TallyDashboard() {
   console.log('🎯 TallyDashboard component loading...');
@@ -78,6 +82,17 @@ function TallyDashboard() {
   const isMobile = useIsMobile();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
+  // Window width state for responsive header
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  
   // Check if user is admin
   const isAdmin = () => {
     try {
@@ -102,6 +117,10 @@ function TallyDashboard() {
   const masterManagementDropdownRef = useRef(null);
   const [masterDropdownPosition, setMasterDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const masterButtonRef = useRef(null);
+  const [reportsDropdownOpen, setReportsDropdownOpen] = useState(false);
+  const reportsDropdownRef = useRef(null);
+  const [reportsDropdownPosition, setReportsDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const reportsButtonRef = useRef(null);
   const controlPanelButtonRef = useRef(null);
   const accessControlButtonRef = useRef(null);
   const [controlPanelDropdownPosition, setControlPanelDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
@@ -374,8 +393,12 @@ function TallyDashboard() {
           accessControlButtonRef.current && !accessControlButtonRef.current.contains(event.target)) {
         setAccessControlDropdownOpen(false);
       }
+      if (reportsDropdownRef.current && !reportsDropdownRef.current.contains(event.target) && 
+          reportsButtonRef.current && !reportsButtonRef.current.contains(event.target)) {
+        setReportsDropdownOpen(false);
+      }
     }
-    if (profileDropdownOpen || masterManagementDropdownOpen || controlPanelOpen || accessControlDropdownOpen) {
+    if (profileDropdownOpen || masterManagementDropdownOpen || controlPanelOpen || accessControlDropdownOpen || reportsDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     } else {
       document.removeEventListener('mousedown', handleClickOutside);
@@ -383,7 +406,7 @@ function TallyDashboard() {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [profileDropdownOpen, masterManagementDropdownOpen, controlPanelOpen, accessControlDropdownOpen]);
+  }, [profileDropdownOpen, masterManagementDropdownOpen, controlPanelOpen, accessControlDropdownOpen, reportsDropdownOpen]);
 
   // Filter companies based on search term for top bar
   useEffect(() => {
@@ -616,7 +639,7 @@ function TallyDashboard() {
 
   // Global refresh function for all pages
   const handleGlobalRefresh = async () => {
-    console.log('🔄 Global refresh triggered - clearing all caches...');
+    console.log('🔄 Global refresh triggered - updating customers and stock items cache...');
     console.log('🔄 Refresh button clicked!');
     
     // Get current company info
@@ -628,9 +651,26 @@ function TallyDashboard() {
     }
     
     const { tallyloc_id, company: companyVal } = currentCompany;
-    console.log('🔄 Clearing caches for:', { tallyloc_id, companyVal });
+    console.log('🔄 Refreshing cache for:', { tallyloc_id, companyVal });
     
-    // Clear all relevant caches
+    // Refresh customers and stock items cache
+    try {
+      console.log('🔄 Starting customers cache refresh...');
+      const customersResult = await syncCustomers(currentCompany);
+      console.log('✅ Customers cache refreshed:', customersResult);
+    } catch (error) {
+      console.error('❌ Failed to refresh customers cache:', error);
+    }
+    
+    try {
+      console.log('🔄 Starting stock items cache refresh...');
+      const itemsResult = await syncItems(currentCompany);
+      console.log('✅ Stock items cache refreshed:', itemsResult);
+    } catch (error) {
+      console.error('❌ Failed to refresh stock items cache:', error);
+    }
+    
+    // Clear old sessionStorage cache keys (for backward compatibility)
     const cacheKeys = [
       `ledgerlist_${tallyloc_id}_${companyVal}`,
       `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`,
@@ -640,7 +680,7 @@ function TallyDashboard() {
     
     cacheKeys.forEach(key => {
       sessionStorage.removeItem(key);
-      console.log(`🗑️ Cleared cache: ${key}`);
+      console.log(`🗑️ Cleared old sessionStorage cache: ${key}`);
     });
     
     // Refresh user connections so latest companies are available after cache clear
@@ -681,7 +721,7 @@ function TallyDashboard() {
     console.log('🔄 Dispatching globalRefresh event...');
     window.dispatchEvent(new CustomEvent('globalRefresh'));
     
-    console.log('✅ Global refresh completed - all components will reload data');
+    console.log('✅ Global refresh completed - customers and stock items cache updated');
   };
 
   const handleLogout = () => {
@@ -779,12 +819,34 @@ function TallyDashboard() {
       
       // For modules with sub-modules (like Ledger Book or Master Management)
       if (module.hasSubModules) {
-        // Check if this module should use right-side dropdown (Master Management)
+        // Debug: Log Reports module specifically
+        if (module.key === 'reports') {
+          console.log('🔍 Reports module found:', {
+            key: module.key,
+            hasSubModules: module.hasSubModules,
+            useRightSideDropdown: shouldUseRightSideDropdown(module.key),
+            isAlwaysVisible: isAlwaysVisible(module.key),
+            hasAnySubModuleAccess: hasAnySubModuleAccess(module.key, userModules)
+          });
+        }
+        // Check if this module should use right-side dropdown (Master Management or Reports)
         if (shouldUseRightSideDropdown(module.key)) {
-          // For master management, always show if alwaysVisible or has access
+          // For master management and reports, always show if alwaysVisible or has access
           if (isAlwaysVisible(module.key) || hasAnySubModuleAccess(module.key, userModules)) {
-            console.log('✅ Rendering master management with dropdown:', module.key);
-            return renderMasterManagementWithDropdown(module, userModules);
+            if (module.key === 'master_management') {
+              console.log('✅ Rendering master management with dropdown:', module.key);
+              return renderMasterManagementWithDropdown(module, userModules);
+            } else if (module.key === 'reports') {
+              console.log('✅ Rendering reports with dropdown:', module.key);
+              return renderReportsWithDropdown(module, userModules);
+            }
+          } else {
+            if (module.key === 'reports') {
+              console.log('❌ Reports module not showing - condition failed:', {
+                isAlwaysVisible: isAlwaysVisible(module.key),
+                hasAnySubModuleAccess: hasAnySubModuleAccess(module.key, userModules)
+              });
+            }
           }
           return null;
         }
@@ -1299,6 +1361,290 @@ function TallyDashboard() {
     );
   };
 
+  const renderReportsWithDropdown = (module, userModules) => {
+    // If parent module is alwaysVisible, show all submodules; otherwise filter by access
+    const accessibleSubModules = isAlwaysVisible(module.key) 
+      ? module.subModules 
+      : module.subModules.filter(subModule => 
+          isAlwaysVisible(subModule.key) || hasSubModuleAccess(subModule.key, userModules)
+        );
+    const isParentActive = activeSidebar === module.id || accessibleSubModules.some(sub => sub.id === activeSidebar);
+    
+    const updateButtonPosition = () => {
+      if (reportsButtonRef.current) {
+        const rect = reportsButtonRef.current.getBoundingClientRect();
+        const dropdownWidth = 220;
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        
+        // Calculate dropdown height based on actual item count
+        const itemCount = accessibleSubModules.length;
+        const estimatedDropdownHeight = (itemCount * 50) + 16; // 50px per item + 16px padding
+        
+        // Calculate initial top position
+        let topPosition = rect.top;
+        
+        // Check if dropdown would overflow bottom of viewport
+        if (topPosition + estimatedDropdownHeight > viewportHeight) {
+          // Move dropdown up so it fits within viewport
+          topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
+        }
+        
+        // Check if dropdown would overflow to the right
+        const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
+        let leftPosition;
+        
+        if (wouldOverflowRight) {
+          // Position to the left of button
+          leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
+        } else {
+          // Position to the right of button
+          leftPosition = rect.left + rect.width + 8;
+        }
+        
+        setReportsDropdownPosition({
+          top: topPosition,
+          left: leftPosition,
+          width: rect.width
+        });
+      }
+    };
+    
+    return (
+      <div key={module.key} style={{ marginBottom: 4, position: 'relative' }} ref={reportsDropdownRef}>
+        <button
+          ref={reportsButtonRef}
+          onClick={() => { 
+            setReportsDropdownOpen(!reportsDropdownOpen);
+            if (!reportsDropdownOpen) {
+              setTimeout(updateButtonPosition, 0);
+            }
+          }}
+          style={{
+            color: isParentActive ? '#ff9800' : '#fff',
+            background: isParentActive 
+              ? 'rgba(255, 152, 0, 0.08)' 
+              : 'transparent',
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 14,
+            borderRadius: '12px',
+            fontWeight: isParentActive ? 700 : 500,
+            margin: '0',
+            border: isParentActive 
+              ? '1px solid rgba(255, 255, 255, 0.2)' 
+              : '1px solid transparent',
+            cursor: 'pointer',
+            justifyContent: sidebarOpen ? 'flex-start' : 'center',
+            position: 'relative',
+            width: '100%',
+            textAlign: 'left',
+            fontSize: '14px',
+            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+            flexWrap: 'nowrap',
+            boxShadow: isParentActive 
+              ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)' 
+              : 'none',
+          }}
+          title={module.label}
+          onMouseEnter={e => {
+            if (sidebarOpen) {
+              setReportsDropdownOpen(true);
+            }
+            if (!isParentActive) {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+              e.currentTarget.style.color = '#fff';
+              e.currentTarget.style.transform = 'translateX(4px)';
+            }
+            if (!sidebarOpen) {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setSidebarTooltip({ show: true, text: module.label, top: rect.top + window.scrollY });
+              if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+              sidebarTooltipTimeout = setTimeout(() => {
+                setSidebarTooltip({ show: false, text: '', top: 0 });
+              }, 1500);
+            }
+          }}
+          onMouseLeave={e => {
+            if (!isParentActive) {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.85)';
+              e.currentTarget.style.transform = 'translateX(0)';
+            }
+            if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+            setSidebarTooltip({ show: false, text: '', top: 0 });
+          }}
+        >
+          <span 
+            className="material-icons" 
+            style={{ 
+              fontSize: 22, 
+              color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
+              transition: 'color 0.2s',
+              flexShrink: 0,
+              marginTop: '2px',
+            }}
+          >
+            {module.icon}
+          </span>
+          {sidebarOpen && (
+            <>
+              <span 
+                className="sidebar-link-label" 
+                style={{
+                  fontSize: '14px',
+                  letterSpacing: '0.3px',
+                  whiteSpace: 'normal',
+                  wordWrap: 'break-word',
+                  lineHeight: '1.4',
+                  flex: 1,
+                }}
+              >
+                {module.label}
+              </span>
+              <span 
+                className="material-icons" 
+                style={{ 
+                  fontSize: 18, 
+                  color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
+                  transition: 'transform 0.2s',
+                  transform: reportsDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  flexShrink: 0,
+                }}
+              >
+                arrow_drop_down
+              </span>
+            </>
+          )}
+        </button>
+        
+        {/* Right-side dropdown menu */}
+        {sidebarOpen && reportsDropdownOpen && accessibleSubModules.length > 0 && (
+          <div 
+            ref={reportsDropdownRef}
+            style={{
+              position: 'fixed',
+              top: `${reportsDropdownPosition.top}px`,
+              left: `${reportsDropdownPosition.left}px`,
+              backgroundColor: '#1e3a8a',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '12px',
+              padding: '8px 0',
+              minWidth: '220px',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
+              zIndex: 10000,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+            }}
+            onMouseEnter={() => {
+              setReportsDropdownOpen(true);
+              if (reportsButtonRef.current) {
+                const rect = reportsButtonRef.current.getBoundingClientRect();
+                const dropdownWidth = 220;
+                const viewportWidth = window.innerWidth;
+                const viewportHeight = window.innerHeight;
+                
+                // Calculate dropdown height based on actual item count
+                const itemCount = accessibleSubModules.length;
+                const estimatedDropdownHeight = (itemCount * 50) + 16; // 50px per item + 16px padding
+                
+                // Calculate initial top position
+                let topPosition = rect.top;
+                
+                // Check if dropdown would overflow bottom of viewport
+                if (topPosition + estimatedDropdownHeight > viewportHeight) {
+                  // Move dropdown up so it fits within viewport
+                  topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
+                }
+                
+                // Check if dropdown would overflow to the right
+                const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
+                let leftPosition;
+                
+                if (wouldOverflowRight) {
+                  // Position to the left of button
+                  leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
+                } else {
+                  // Position to the right of button
+                  leftPosition = rect.left + rect.width + 8;
+                }
+                
+                setReportsDropdownPosition({
+                  top: topPosition,
+                  left: leftPosition,
+                  width: rect.width
+                });
+              }
+            }}
+            onMouseLeave={() => setReportsDropdownOpen(false)}
+          >
+            {accessibleSubModules.map(subModule => {
+              const isSubActive = activeSidebar === subModule.id;
+              return (
+                <button
+                  key={subModule.key}
+                  onClick={(e) => { 
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🖱️ Reports dropdown item clicked:', subModule.key, subModule.id);
+                    const canNavigate = handleSafeNavigation(subModule.id);
+                    setReportsDropdownOpen(false);
+                    if (canNavigate && showControlPanel) {
+                      handleCloseControlPanel();
+                    }
+                  }}
+                  style={{
+                    color: isSubActive ? '#ff9800' : '#fff',
+                    background: isSubActive 
+                      ? 'rgba(255, 152, 0, 0.15)' 
+                      : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: isSubActive ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isSubActive) {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (!isSubActive) {
+                      e.currentTarget.style.background = 'transparent';
+                    }
+                  }}
+                >
+                  <span 
+                    className="material-icons" 
+                    style={{ 
+                      fontSize: 20, 
+                      color: isSubActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {subModule.icon}
+                  </span>
+                  <span>{subModule.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Render sidebar item with sub-modules and their permissions
   const renderSidebarItemWithSubModules = (module, userModules) => {
     const accessibleSubModules = module.subModules.filter(subModule => 
@@ -1587,17 +1933,17 @@ function TallyDashboard() {
         alignItems: 'center',
         zIndex: 4001,
         boxShadow: '0 4px 20px 0 rgba(30, 58, 138, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
-        padding: '0 16px',
+        padding: windowWidth < 1000 ? '0 8px' : '0 16px',
         justifyContent: 'space-between',
         backdropFilter: 'blur(10px)',
-        gap: 12,
+        gap: windowWidth < 1000 ? 6 : 12,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-          <img src={TallyLogo} alt="Tally Logo" style={{ height: 40, width: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: windowWidth < 1000 ? 8 : 12, flexShrink: 0 }}>
+          <img src={TallyLogo} alt="Tally Logo" style={{ height: windowWidth < 1000 ? 32 : 40, width: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
           <span style={{ 
             color: '#fff', 
             fontWeight: 700, 
-            fontSize: 24, 
+            fontSize: windowWidth < 1000 ? (windowWidth < 900 ? 18 : 20) : 24, 
             letterSpacing: 0.5, 
             textShadow: '0 2px 8px rgba(0,0,0,0.15)',
             background: 'linear-gradient(180deg, #ffffff 0%, #e0e7ff 100%)',
@@ -1605,6 +1951,7 @@ function TallyDashboard() {
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text',
             whiteSpace: 'nowrap',
+            display: windowWidth < 800 ? 'none' : 'inline',
           }}>DataLynkr</span>
         </div>
         
@@ -1615,19 +1962,20 @@ function TallyDashboard() {
           position: 'relative', 
           flex: '1 1 auto', 
           minWidth: 0, 
-          marginLeft: '20px', 
-          marginRight: '20px',
-          maxWidth: '800px',
+          marginLeft: windowWidth < 1200 ? '12px' : '20px', 
+          marginRight: windowWidth < 1200 ? '12px' : '20px',
+          maxWidth: windowWidth < 1200 ? '500px' : '800px',
         }}>
           {/* Company Title */}
           <span style={{ 
             color: 'rgba(255, 255, 255, 0.95)', 
-            fontSize: '13px', 
+            fontSize: windowWidth < 1000 ? '12px' : '13px', 
             fontWeight: '600', 
-            marginRight: '12px',
+            marginRight: windowWidth < 1000 ? '8px' : '12px',
             whiteSpace: 'nowrap',
             textShadow: '0 1px 2px rgba(0,0,0,0.1)',
             flexShrink: 0,
+            display: windowWidth < 900 ? 'none' : 'inline',
           }}>
             Company:
           </span>
@@ -1637,7 +1985,7 @@ function TallyDashboard() {
             borderRadius: '10px',
             border: topBarCompanyDropdownOpen ? '2px solid rgba(255, 255, 255, 0.6)' : '2px solid rgba(255, 255, 255, 0.25)',
             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            minWidth: '400px',
+            minWidth: windowWidth < 1000 ? (windowWidth < 900 ? '200px' : '250px') : '400px',
             maxWidth: '100%',
             width: '100%',
             flex: '1 1 auto',
@@ -1822,17 +2170,17 @@ function TallyDashboard() {
         <div style={{ 
           display: 'flex', 
           alignItems: 'center', 
-          gap: 12, 
+          gap: windowWidth < 1000 ? 6 : 12, 
           flexShrink: 0,
-          paddingLeft: '16px',
-          paddingRight: '20px',
+          paddingLeft: windowWidth < 1000 ? '8px' : '16px',
+          paddingRight: windowWidth < 1000 ? '12px' : '20px',
         }}>
           {/* Icon Buttons Group */}
           <div style={{ 
             display: 'flex', 
             alignItems: 'center', 
-            gap: 8,
-            paddingRight: '16px',
+            gap: windowWidth < 1000 ? 6 : 8,
+            paddingRight: windowWidth < 1000 ? '8px' : '16px',
             borderRight: '1px solid rgba(255, 255, 255, 0.2)',
           }}>
             {/* Control Panel Button */}
@@ -1855,7 +2203,7 @@ function TallyDashboard() {
                 background: showControlPanel ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.12)',
                 border: showControlPanel ? '2px solid rgba(255, 255, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.25)',
                 borderRadius: '10px',
-                padding: '10px 14px',
+                padding: windowWidth < 1000 ? '8px 10px' : '10px 14px',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -1865,8 +2213,8 @@ function TallyDashboard() {
                 zIndex: 10,
                 position: 'relative',
                 boxShadow: showControlPanel ? '0 4px 12px rgba(0,0,0,0.15)' : '0 2px 6px rgba(0,0,0,0.1)',
-                minWidth: '44px',
-                height: '44px',
+                minWidth: windowWidth < 1000 ? '38px' : '44px',
+                height: windowWidth < 1000 ? '38px' : '44px',
               }}
               title="Control Panel"
               onMouseEnter={(e) => {
@@ -1882,7 +2230,7 @@ function TallyDashboard() {
                 e.currentTarget.style.boxShadow = showControlPanel ? '0 4px 12px rgba(0,0,0,0.15)' : '0 2px 6px rgba(0,0,0,0.1)';
               }}
             >
-              <span className="material-icons" style={{ fontSize: '22px', pointerEvents: 'none' }}>
+              <span className="material-icons" style={{ fontSize: windowWidth < 1000 ? '20px' : '22px', pointerEvents: 'none' }}>
                 admin_panel_settings
               </span>
             </button>
@@ -1904,7 +2252,7 @@ function TallyDashboard() {
                 background: 'rgba(255, 255, 255, 0.12)',
                 border: '1px solid rgba(255, 255, 255, 0.25)',
                 borderRadius: '10px',
-                padding: '10px 14px',
+                padding: windowWidth < 1000 ? '8px 10px' : '10px 14px',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -1914,8 +2262,8 @@ function TallyDashboard() {
                 zIndex: 10,
                 position: 'relative',
                 boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                minWidth: '44px',
-                height: '44px',
+                minWidth: windowWidth < 1000 ? '38px' : '44px',
+                height: windowWidth < 1000 ? '38px' : '44px',
               }}
               title="Refresh all data (ledgers & stock items)"
               onMouseEnter={(e) => {
@@ -1932,7 +2280,7 @@ function TallyDashboard() {
                 e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.1)';
               }}
             >
-              <span className="material-icons" style={{ fontSize: '22px', pointerEvents: 'none' }}>
+              <span className="material-icons" style={{ fontSize: windowWidth < 1000 ? '20px' : '22px', pointerEvents: 'none' }}>
                 refresh
               </span>
             </button>
@@ -1950,9 +2298,9 @@ function TallyDashboard() {
               style={{ 
                 display: 'flex', 
                 alignItems: 'center', 
-                gap: 10, 
+                gap: windowWidth < 1000 ? 6 : 10, 
                 cursor: 'pointer',
-                padding: '8px 14px',
+                padding: windowWidth < 1000 ? '6px 10px' : '8px 14px',
                 borderRadius: '10px',
                 background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
                 transition: 'all 0.3s ease',
@@ -1976,7 +2324,7 @@ function TallyDashboard() {
                 className="material-icons profile-icon" 
                 style={{ 
                   color: '#fff', 
-                  fontSize: '26px', 
+                  fontSize: windowWidth < 1000 ? '22px' : '26px', 
                   filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' 
                 }}
               >
@@ -1988,24 +2336,29 @@ function TallyDashboard() {
                   style={{ 
                     color: '#fff', 
                     fontWeight: 600, 
-                    fontSize: '14px', 
+                    fontSize: windowWidth < 1000 ? '13px' : '14px', 
                     textShadow: '0 1px 2px rgba(0,0,0,0.1)', 
                     whiteSpace: 'nowrap',
                     lineHeight: '1.2',
+                    maxWidth: windowWidth < 1000 ? '120px' : 'none',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                   }}
                 >
                   {name || 'User'}
                 </span>
-                <span 
-                  style={{ 
-                    color: 'rgba(255, 255, 255, 0.8)', 
-                    fontSize: '12px', 
-                    fontWeight: 400,
-                    lineHeight: '1.2',
-                  }}
-                >
-                  {email || ''}
-                </span>
+                {windowWidth >= 1000 && (
+                  <span 
+                    style={{ 
+                      color: 'rgba(255, 255, 255, 0.8)', 
+                      fontSize: '12px', 
+                      fontWeight: 400,
+                      lineHeight: '1.2',
+                    }}
+                  >
+                    {email || ''}
+                  </span>
+                )}
               </div>
               <span 
                 className="material-icons" 
@@ -2029,9 +2382,9 @@ function TallyDashboard() {
                 background: 'rgba(220, 38, 38, 0.15)', 
                 color: '#fff', 
                 border: '1px solid rgba(220, 38, 38, 0.3)', 
-                minWidth: '100px',
+                minWidth: windowWidth < 1000 ? '44px' : '100px',
                 height: '44px',
-                padding: '10px 20px 10px 16px',
+                padding: windowWidth < 1000 ? '10px' : '10px 20px 10px 16px',
                 borderRadius: '10px',
                 fontWeight: 600,
                 fontSize: '14px',
@@ -2060,7 +2413,7 @@ function TallyDashboard() {
               }}
             >
               <span className="material-icons" style={{ fontSize: 18 }}>logout</span>
-              <span>Logout</span>
+              {windowWidth >= 1000 && <span>Logout</span>}
             </button>
           {profileDropdownOpen && (
             <div className="profile-dropdown" style={{ 
@@ -2955,6 +3308,11 @@ function TallyDashboard() {
               <ReceivablesDashboard company={currentReceivablesCompany} />
             </div>
           )}
+          {activeSidebar === 'vendor_expenses' && (
+            <div style={{ margin: '-20px', padding: '0' }}>
+              <VendorExpenses />
+            </div>
+          )}
           {activeSidebar === 'receipt_find_party' && (
             <div style={{ margin: '-20px', padding: '0' }}>
               <ReceiptListScreenWrapper />
@@ -2966,6 +3324,8 @@ function TallyDashboard() {
             </div>
           )}
           {activeSidebar === 'voucher_authorization' && <VoucherAuthorization />}
+          {activeSidebar === 'sales_order_report' && <SalesOrderReport />}
+          {activeSidebar === 'payment_voucher_report' && <PaymentVoucherReport />}
           {activeSidebar === 'cache_management' && <CacheManagement />}
           {activeSidebar === 'master_form' && <MasterForm key="master-form" />}
           {activeSidebar === 'master_authorization' && <MasterAuthorization />}

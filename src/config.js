@@ -8,27 +8,63 @@ const getBaseUrl = () => {
     // Check if we're running from localhost - use proxy to avoid CORS issues
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
+      const port = window.location.port;
+      const origin = window.location.origin;
+      
+      console.log('🔧 [Config] Development mode detected:', {
+        hostname,
+        port,
+        origin,
+        willCheckProxy: true
+      });
+      
       // If accessing from localhost, use proxy (return empty string for relative paths)
       // This avoids CORS issues with custom headers like x-company, x-tallyloc-id, x-guid
-      if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
         console.log('🔧 [Config] Using proxy for localhost to avoid CORS issues');
         return ''; // Empty string means use relative path, which will go through proxy
       }
       // For local network IPs, also use proxy
-      if (hostname === '192.168.29.72' || hostname.startsWith('192.168.')) {
+      if (hostname === '192.168.29.72' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
         console.log('🔧 [Config] Using proxy for local network IP to avoid CORS issues');
         return '';
       }
+      
+      console.warn('⚠️ [Config] Not localhost or local IP - may use production URL which could cause CORS issues');
     }
 
     const devUrl = process.env.REACT_APP_DEV_API_URL || '';
 
-    // If devUrl is set and not localhost, use it directly
-    if (devUrl && !devUrl.includes('localhost') && !devUrl.includes('127.0.0.1') && !devUrl.includes('itcatalystindia.com') && !devUrl.includes('itcatalystindia.com/Development/CustomerPortal') && !devUrl.includes('192.168.29.72')) {
+    // If devUrl is set and points to production server, force proxy usage on localhost to avoid CORS
+    if (devUrl && (devUrl.includes('itcatalystindia.com') || devUrl.includes('https://'))) {
+      // Check again if we're on localhost - if so, use proxy even if devUrl is set
+      if (typeof window !== 'undefined') {
+        const hostname = window.location.hostname;
+        if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || 
+            hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+          console.log('🔧 [Config] Dev URL points to production server, but using proxy for localhost to avoid CORS');
+          return ''; // Force proxy usage
+        }
+      }
+      // Not on localhost, use the devUrl directly
       return devUrl;
     }
 
-    // Fallback: use production API URL (but this may have CORS issues with custom headers)
+    // If devUrl is set and not pointing to production, use it directly
+    if (devUrl && !devUrl.includes('localhost') && !devUrl.includes('127.0.0.1') && !devUrl.includes('itcatalystindia.com')) {
+      return devUrl;
+    }
+
+    // Fallback: use production API URL only if not on localhost (but this may have CORS issues)
+    // If we're on localhost, we should have returned empty string above, but double-check
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
+        console.warn('⚠️ [Config] Fallback: Forcing proxy usage for localhost to avoid CORS');
+        return ''; // Force proxy even in fallback
+      }
+    }
+    
     console.warn('⚠️ [Config] Using production URL in development - CORS issues may occur with custom headers');
     return DEFAULT_API_URL;
   }
@@ -91,6 +127,12 @@ export const API_CONFIG = {
     SUBSCRIPTION_PAYMENTS: '/api/subscription/payments',
     SUBSCRIPTION_TRIAL_STATUS: '/api/subscription/trial-status',
     SUBSCRIPTION_DISMISS_REMINDER: '/api/subscription/dismiss-reminder',
+    
+    // Custom Card endpoints
+    CUSTOM_CARD_CREATE: '/api/dashboard/cards',
+    CUSTOM_CARD_GET: '/api/dashboard/cards',
+    CUSTOM_CARD_UPDATE: (id) => `/api/dashboard/cards/${id}`,
+    CUSTOM_CARD_DELETE: (id) => `/api/dashboard/cards/${id}`,
   }
 };
 
@@ -114,6 +156,20 @@ export const isProduction = process.env.NODE_ENV === 'production';
 // API URL builder
 export const getApiUrl = (endpoint) => {
   const baseUrl = API_CONFIG.BASE_URL; // This will call the getter dynamically
+  
+  // Log the URL construction in development
+  if (process.env.NODE_ENV === 'development' && typeof window !== 'undefined') {
+    const finalUrl = !baseUrl ? endpoint : `${baseUrl}${endpoint}`;
+    console.log('🔧 [getApiUrl] URL construction:', {
+      endpoint,
+      baseUrl: baseUrl || '(empty - using proxy)',
+      finalUrl,
+      isRelative: !finalUrl.startsWith('http'),
+      currentOrigin: window.location.origin,
+      hostname: window.location.hostname
+    });
+  }
+  
   // If BASE_URL is empty, use relative path (will go through proxy in dev)
   if (!baseUrl) {
     return endpoint;
@@ -123,10 +179,11 @@ export const getApiUrl = (endpoint) => {
 
 // Log configuration in development
 if (isDevelopment && typeof window !== 'undefined') {
-  console.log('API Configuration:', {
-    BASE_URL: API_CONFIG.BASE_URL,
+  console.log('🔧 [Config] API Configuration:', {
+    BASE_URL: API_CONFIG.BASE_URL || '(empty - will use proxy)',
     currentHost: window.location.hostname,
-    devApiUrl: process.env.REACT_APP_DEV_API_URL
+    currentOrigin: window.location.origin,
+    devApiUrl: process.env.REACT_APP_DEV_API_URL || '(not set)'
   });
 }
 

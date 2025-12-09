@@ -1,6 +1,6 @@
 import React from 'react';
 
-const ResumeDownloadModal = ({ isOpen, onContinue, onStartFresh, progress, companyName }) => {
+const ResumeDownloadModal = ({ isOpen, onContinue, onStartFresh, onClose, progress, companyName }) => {
   if (!isOpen) return null;
 
   const progressPercentage = progress.total > 0 
@@ -40,6 +40,42 @@ const ResumeDownloadModal = ({ isOpen, onContinue, onStartFresh, progress, compa
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Close Button */}
+        {onClose && (
+          <button
+            onClick={onClose}
+            style={{
+              position: 'absolute',
+              top: '16px',
+              right: '16px',
+              background: 'transparent',
+              border: 'none',
+              fontSize: '28px',
+              color: '#64748b',
+              cursor: 'pointer',
+              width: '32px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              transition: 'all 0.2s',
+              padding: 0,
+              lineHeight: 1
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#f1f5f9';
+              e.currentTarget.style.color = '#1e293b';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = '#64748b';
+            }}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        )}
         {/* Icon */}
         <div style={{
           display: 'flex',

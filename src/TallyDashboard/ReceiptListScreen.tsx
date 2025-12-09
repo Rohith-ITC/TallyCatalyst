@@ -977,11 +977,8 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
 
   // Handle Find All button - find matches for all receipts
   const handleFindAll = useCallback((skipCancelCheck: boolean = false) => {
-    console.log('handleFindAll called, findAllLoading:', findAllLoading, 'filteredReceipts.length:', filteredReceipts.length);
-    
     if (!skipCancelCheck && findAllLoading) {
       // Cancel if already running
-      console.log('Cancelling Find All...');
       findAllCancelRef.current = true;
       setFindAllLoading(false);
       setFindAllProgress(0);
@@ -1011,11 +1008,8 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
     const CHUNK_SIZE = 10; // Process 10 receipts per chunk for Find All
     
     const processChunk = (startIndex: number) => {
-      console.log('processChunk called with startIndex:', startIndex, 'total:', receiptsToProcess.length);
-      
       // Check if we should stop
       if (findAllCancelRef.current) {
-        console.log('Cancelled, stopping...');
         setFindAllLoading(false);
         setFindAllProgress(0);
         setFindAllMode(false);
@@ -1023,7 +1017,6 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
       }
       
       if (startIndex >= receiptsToProcess.length) {
-        console.log('Finished processing all receipts');
         setFindAllLoading(false);
         setFindAllProgress(100);
         setExpandedReceipts(results);
@@ -1033,7 +1026,6 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
       }
       
       const endIndex = Math.min(startIndex + CHUNK_SIZE, receiptsToProcess.length);
-      console.log(`Processing chunk ${startIndex} to ${endIndex - 1}`);
       
       // Process chunk of receipts
       for (let i = startIndex; i < endIndex; i++) {
@@ -1051,7 +1043,6 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
             matches,
             isLoading: false,
           };
-          console.log(`Found ${matches.length} matches for receipt ${receiptKey}`);
         }
         
         processedCount++;
@@ -1059,7 +1050,6 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
       
       const progress = Math.round((processedCount / receiptsToProcess.length) * 100);
       setFindAllProgress(progress);
-      console.log(`Progress: ${progress}% (${processedCount}/${receiptsToProcess.length})`);
       
       // Update results incrementally
       setExpandedReceipts({...results});
@@ -1077,51 +1067,56 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
     };
     
     // Start processing
-    console.log('Starting Find All processing...', 'Total receipts to process:', receiptsToProcess.length);
-    
     // Use a small delay to ensure state is updated
     setTimeout(() => {
-      console.log('Starting processChunk(0)...');
       processChunk(0);
     }, 100);
   }, [findAllLoading, filteredReceipts, findMatchingReceipts]);
 
   return (
     <div className="receipt-list-container">
-      <header className="receipt-list-header">
-        <button onClick={onBack} className="back-button">
-          ← Back
-        </button>
-        <h1 className="header-title">{company.company || company.conn_name}</h1>
-        <div className="header-actions" style={{display: 'flex', gap: isMobile ? '4px' : '8px', flexWrap: isMobile ? 'wrap' : 'nowrap'}}>
-          <button
-            onClick={() => setShowHelp(true)}
-            className="config-button"
-            title="View help and instructions"
-            style={{backgroundColor: '#007bff', fontSize: isMobile ? '12px' : '14px', padding: isMobile ? '6px 10px' : '8px 16px'}}>
-            {isMobile ? '❓' : '❓ Help'}
-          </button>
-          <button
-            onClick={() => setShowExcludedStringsConfig(true)}
-            className="config-button"
-            title="Configure excluded strings for matching"
-            style={{fontSize: isMobile ? '12px' : '14px', padding: isMobile ? '6px 10px' : '8px 16px'}}>
-            {isMobile ? '⚙️' : '⚙️ Excluded Strings'}
-          </button>
-          <button
-            onClick={() => setShowSettings(true)}
-            className="config-button"
-            title="Configure settings"
-            style={{fontSize: isMobile ? '12px' : '14px', padding: isMobile ? '6px 10px' : '8px 16px'}}>
-            {isMobile ? '⚙️' : '⚙️ Settings'}
-          </button>
-        </div>
-      </header>
-
       <div className="receipt-list-content">
+        {/* Header Section */}
+        <div className="receipt-header-section">
+          <h1 className="receipt-main-title">
+            <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '32px', color: '#3b82f6' }}>
+              search
+            </span>
+            Receipt Find Party
+          </h1>
+          <p className="receipt-subtitle">
+            Find and match receipts by comparing narration text across your receipt history
+          </p>
+          <div className="receipt-header-actions">
+            <button
+              onClick={() => setShowHelp(true)}
+              className="header-action-button"
+              title="View help and instructions">
+              <span>❓</span>
+              <span>Help</span>
+            </button>
+            <button
+              onClick={() => setShowExcludedStringsConfig(true)}
+              className="header-action-button"
+              title="Configure excluded strings for matching">
+              <span>⚙️</span>
+              <span>Excluded Strings</span>
+            </button>
+            <button
+              onClick={() => setShowSettings(true)}
+              className="header-action-button"
+              title="Configure settings">
+              <span>⚙️</span>
+              <span>Settings</span>
+            </button>
+          </div>
+        </div>
         {/* Section 1: Get All Receipts from Tally, Download, and Load Cache */}
-        <div className="date-filter-section" style={{marginBottom: isMobile ? '16px' : '20px', padding: isMobile ? '12px' : '15px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#f9f9f9'}}>
-          <h3 style={{marginTop: 0, marginBottom: isMobile ? '10px' : '12px', fontSize: isMobile ? '14px' : '16px', fontWeight: '600'}}>Option 1: Get All Receipts from Tally (for Cache)</h3>
+        <div className="date-filter-section" style={{marginBottom: isMobile ? '16px' : '20px'}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px'}}>
+            <span className="material-icons" style={{fontSize: '28px', color: '#10b981'}}>download</span>
+            <h3 style={{margin: 0, fontSize: isMobile ? '16px' : '18px', fontWeight: 600, color: '#1e293b'}}>Get All Receipts from Tally (for Cache)</h3>
+          </div>
           <div className="date-inputs">
             <div className="date-input-group">
               <label htmlFor="cacheFromDate" className="date-label">From Date</label>
@@ -1198,8 +1193,11 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
         </div>
 
         {/* Section 2: Get Ledger Receipts (for matching) */}
-        <div className="date-filter-section" style={{marginBottom: isMobile ? '16px' : '20px', padding: isMobile ? '12px' : '15px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#fff9e6'}}>
-          <h3 style={{marginTop: 0, marginBottom: isMobile ? '10px' : '12px', fontSize: isMobile ? '14px' : '16px', fontWeight: '600'}}>Option 2: Get Ledger Receipts (for Matching)</h3>
+        <div className="date-filter-section" style={{marginBottom: isMobile ? '16px' : '20px'}}>
+          <div style={{display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px'}}>
+            <span className="material-icons" style={{fontSize: '28px', color: '#3b82f6'}}>search</span>
+            <h3 style={{margin: 0, fontSize: isMobile ? '16px' : '18px', fontWeight: 600, color: '#1e293b'}}>Get Ledger Receipts (for Matching)</h3>
+          </div>
           <div className="date-inputs">
             <div className="date-input-group">
               <label htmlFor="ledgerName" className="date-label">Ledger Name</label>
