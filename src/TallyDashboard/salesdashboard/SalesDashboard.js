@@ -13189,6 +13189,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       isOpen={showResumeModal}
       onContinue={handleResumeContinue}
       onStartFresh={handleResumeStartFresh}
+      onClose={() => setShowResumeModal(false)}
       progress={interruptedProgress || { current: 0, total: 0 }}
       companyName={interruptedProgress?.companyName || 'this company'}
     />

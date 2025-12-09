@@ -160,6 +160,14 @@ export const MODULE_SEQUENCE = [
       permissions: {}
     },
     {
+      key               : 'reports',
+      id                : 'reports',
+      label             : 'Reports',
+      icon              : 'description',
+      alwaysVisible     : true,
+      permissions       : {}
+    },
+    {
       key               : 'voucher_authorization',
       id                : 'voucher_authorization',
       label             : 'Voucher Authorization',
