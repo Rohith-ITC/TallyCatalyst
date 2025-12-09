@@ -5514,20 +5514,26 @@ function PlaceOrder() {
   }, [units, selectedItem, stockItems, selectedItemUnitConfig, quantityInput]);
 
   // Re-validate quantity input when units array is loaded or changes
+  // Skip validation if we're editing an item (editingItemId is set)
   useEffect(() => {
 
-    if (quantityInput && selectedItemUnitConfig && units && units.length > 0) {
+    if (quantityInput && selectedItemUnitConfig && units && units.length > 0 && !editingItemId) {
       const validated = validateQuantityInput(quantityInput, selectedItemUnitConfig, units);
       if (validated !== quantityInput) {
         setQuantityInput(validated);
       }
     }
-  }, [units, selectedItemUnitConfig]); // Re-validate when units array is loaded
+  }, [units, selectedItemUnitConfig, editingItemId]); // Re-validate when units array is loaded
 
   // Calculate effective quantity from parsed input (always in BASEUNITS)
   // Also update quantityInput to always display in BASEUNITS format
+  // Skip processing if we're editing an item and quantityInput hasn't been set yet
   useEffect(() => {
     if (!selectedItemUnitConfig || !quantityInput) {
+      // Don't reset everything if we're in edit mode - wait for quantityInput to be set
+      if (editingItemId && !quantityInput) {
+        return;
+      }
       setItemQuantity(0);
       setEnteredUnitType('base');
       setCustomConversion(null);
@@ -7223,7 +7229,6 @@ function PlaceOrder() {
     // Populate main form fields with item data
     setSelectedItem(item.name);
     setItemSearchTerm(item.name);
-    setQuantityInput(item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`);
     setItemQuantity(item.quantity);
     setItemRate(item.rate);
     setRateUOM(item.rateUOM || 'base');
@@ -7237,6 +7242,15 @@ function PlaceOrder() {
     setCompoundAddlQty(item.compoundAddlQty || null);
     setBaseQtyOnly(item.baseQtyOnly || null);
     setEnteredUnitType(item.enteredUnitType || 'base');
+
+    // Set quantity input AFTER unitConfig is set to prevent validation from clearing it
+    // Use setTimeout to ensure it runs after all state updates
+    setTimeout(() => {
+      const qtyDisplay = item.quantityDisplay || (item.unitConfig?.BASEUNITS 
+        ? `${item.quantity} ${item.unitConfig.BASEUNITS}` 
+        : `${item.quantity}`);
+      setQuantityInput(qtyDisplay);
+    }, 0);
 
     // Scroll to the form fields for better UX
     const formElement = document.querySelector('[data-item-entry-form]');

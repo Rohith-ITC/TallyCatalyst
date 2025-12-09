@@ -21,6 +21,7 @@ import MasterForm from './MasterForm';
 import MasterAuthorization from './MasterAuthorization';
 import MasterList from './MasterList';
 import CacheManagement from './CacheManagement';
+import Reports from './Reports';
 import { 
   MODULE_SEQUENCE, 
   hasModuleAccess, 
@@ -35,6 +36,7 @@ import {
 import { apiGet } from '../utils/apiUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { MobileMenu, useIsMobile } from './MobileViewConfig';
+import { syncCustomers, syncItems } from '../utils/cacheSyncManager';
 
 function TallyDashboard() {
   console.log('🎯 TallyDashboard component loading...');
@@ -616,7 +618,7 @@ function TallyDashboard() {
 
   // Global refresh function for all pages
   const handleGlobalRefresh = async () => {
-    console.log('🔄 Global refresh triggered - clearing all caches...');
+    console.log('🔄 Global refresh triggered - updating customers and stock items cache...');
     console.log('🔄 Refresh button clicked!');
     
     // Get current company info
@@ -628,9 +630,26 @@ function TallyDashboard() {
     }
     
     const { tallyloc_id, company: companyVal } = currentCompany;
-    console.log('🔄 Clearing caches for:', { tallyloc_id, companyVal });
+    console.log('🔄 Refreshing cache for:', { tallyloc_id, companyVal });
     
-    // Clear all relevant caches
+    // Refresh customers and stock items cache
+    try {
+      console.log('🔄 Starting customers cache refresh...');
+      const customersResult = await syncCustomers(currentCompany);
+      console.log('✅ Customers cache refreshed:', customersResult);
+    } catch (error) {
+      console.error('❌ Failed to refresh customers cache:', error);
+    }
+    
+    try {
+      console.log('🔄 Starting stock items cache refresh...');
+      const itemsResult = await syncItems(currentCompany);
+      console.log('✅ Stock items cache refreshed:', itemsResult);
+    } catch (error) {
+      console.error('❌ Failed to refresh stock items cache:', error);
+    }
+    
+    // Clear old sessionStorage cache keys (for backward compatibility)
     const cacheKeys = [
       `ledgerlist_${tallyloc_id}_${companyVal}`,
       `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`,
@@ -640,7 +659,7 @@ function TallyDashboard() {
     
     cacheKeys.forEach(key => {
       sessionStorage.removeItem(key);
-      console.log(`🗑️ Cleared cache: ${key}`);
+      console.log(`🗑️ Cleared old sessionStorage cache: ${key}`);
     });
     
     // Refresh user connections so latest companies are available after cache clear
@@ -681,7 +700,7 @@ function TallyDashboard() {
     console.log('🔄 Dispatching globalRefresh event...');
     window.dispatchEvent(new CustomEvent('globalRefresh'));
     
-    console.log('✅ Global refresh completed - all components will reload data');
+    console.log('✅ Global refresh completed - customers and stock items cache updated');
   };
 
   const handleLogout = () => {
@@ -2966,6 +2985,7 @@ function TallyDashboard() {
             </div>
           )}
           {activeSidebar === 'voucher_authorization' && <VoucherAuthorization />}
+          {activeSidebar === 'reports' && <Reports />}
           {activeSidebar === 'cache_management' && <CacheManagement />}
           {activeSidebar === 'master_form' && <MasterForm key="master-form" />}
           {activeSidebar === 'master_authorization' && <MasterAuthorization />}
