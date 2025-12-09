@@ -13,7 +13,7 @@ import {
 } from 'recharts';
 import { Tooltip } from '@mui/material';
 import BillDrilldownModal from '../../RecvDashboard/components/BillDrilldownModal';
-import VoucherDetailsModal from '../../RecvDashboard/components/VoucherDetailsModal';
+import VoucherDetailsModal from '../components/VoucherDetailsModal';
 import {
   escapeForXML,
   cleanAndEscapeForXML,
@@ -119,9 +119,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   
   // Voucher details modal state
   const [showVoucherDetails, setShowVoucherDetails] = useState(false);
-  const [voucherDetailsData, setVoucherDetailsData] = useState(null);
-  const [voucherDetailsLoading, setVoucherDetailsLoading] = useState(false);
-  const [voucherDetailsError, setVoucherDetailsError] = useState(null);
+  const [selectedMasterId, setSelectedMasterId] = useState(null);
 
   // Custom cards state
   const [customCards, setCustomCards] = useState([]);
@@ -4376,408 +4374,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   }, []);
 
   // NOTE: fetchVoucherDetails is no longer needed - we use existing sales data
-  // Keeping for backward compatibility but it's not used anymore
-  const fetchVoucherDetails_DEPRECATED = useCallback(async (masterId) => {
-    // API calls disabled - sales dashboard uses cache only
-    console.warn('⚠️ fetchVoucherDetails_DEPRECATED called but API calls are disabled. Use cached data instead.');
-    setShowVoucherDetails(true);
-    setVoucherDetailsLoading(false);
-    setVoucherDetailsError('API calls are disabled. Sales dashboard uses cache only.');
-    return;
-    
-    /* DISABLED - API calls removed
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
 
-    setShowVoucherDetails(true);
-    setVoucherDetailsLoading(true);
-    setVoucherDetailsError(null);
-
-    try {
-      const companyInfo = getCompanyInfo();
-      if (!companyInfo || !companyInfo.company || !companyInfo.tallyloc_id || !companyInfo.guid) {
-        throw new Error('Company information is missing. Please select a company first.');
-      }
-      
-      const companyName = cleanAndEscapeForXML(companyInfo.company);
-      const escapedMasterId = escapeForXML(masterId.toString());
-      
-      console.log('🔍 Fetching voucher details:', {
-        masterId,
-        companyName,
-        tallyloc_id: companyInfo.tallyloc_id,
-        guid: companyInfo.guid
-      });
-
-      const voucherXML = `<ENVELOPE>
-	<HEADER>
-		<VERSION>1</VERSION>
-		<TALLYREQUEST>Export</TALLYREQUEST>
-		<TYPE>Data</TYPE>
-		<ID>CP_Vouchers</ID>
-	</HEADER>
-	<BODY>
-		<DESC>
-			<STATICVARIABLES>
-				<EXPORTFLAG>YES</EXPORTFLAG>
-				<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-				<SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
-			</STATICVARIABLES>
-			<TDL>
-				<TDLMESSAGE>
-					<REPORT NAME="CP_Vouchers">
-						<FORMS>CP_Vouchers</FORMS>
-						<KEEPXMLCASE>Yes</KEEPXMLCASE>
-						<OBJECTS>VOUCHER : $$Sprintf:@@VchMasterId:${escapedMasterId}</OBJECTS>
-					</REPORT>
-					<FORM NAME="CP_Vouchers">
-						<TOPPARTS>CP_Vouchers</TOPPARTS>
-					</FORM>
-					<PART NAME="CP_Vouchers">
-						<TOPLINES>CP_Vouchers</TOPLINES>
-						<SCROLLED>Vertical</SCROLLED>
-					</PART>
-					<LINE NAME="CP_Vouchers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
-						<XMLTAG>"VOUCHERS"</XMLTAG>
-						<LEFTFIELDS>CP_Temp1, CP_Temp2, CP_Temp3, CP_Temp4, CP_Temp5, CP_Temp6, CP_Temp7</LEFTFIELDS>
-						<LOCAL>Field : CP_Temp1 : Set as :$MASTERID</LOCAL>
-						<LOCAL>Field : CP_Temp2 : Set as :$DATE</LOCAL>
-						<LOCAL>Field : CP_Temp3 : Set as :$VOUCHERTYPENAME</LOCAL>
-						<LOCAL>Field : CP_Temp4 : Set as :$VOUCHERNUMBER</LOCAL>
-						<LOCAL>Field : CP_Temp5 : Set as : $$IfDr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
-						<LOCAL>Field : CP_Temp6 : Set as : $$IfCr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
-						<LOCAL>Field : CP_Temp7 : Set as : $NARRATION</LOCAL>
-						<LOCAL>Field : CP_Temp1  : XMLTag : "MASTERID"</LOCAL>
-						<LOCAL>Field : CP_Temp2  : XMLTag : "DATE"</LOCAL>
-						<LOCAL>Field : CP_Temp3  : XMLTag : "VOUCHERTYPE"</LOCAL>
-						<LOCAL>Field : CP_Temp4  : XMLTag : "VOUCHERNUMBER"</LOCAL>
-						<LOCAL>Field : CP_Temp5  : XMLTag : "DEBITAMT"</LOCAL>
-						<LOCAL>Field : CP_Temp6  : XMLTag : "CREDITAMT"</LOCAL>
-						<LOCAL>Field : CP_Temp7  : XMLTag : "NARRATION"</LOCAL>
-						<Explode>CP_Ledgers : Yes</Explode>
-					</LINE>
-					<PART NAME="CP_Ledgers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
-						<TOPLINES>CP_LedgerLine</TOPLINES>
-						<SCROLLED>Vertical</SCROLLED>
-					</PART>
-					<LINE NAME="CP_LedgerLine" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
-						<XMLTAG>"LEDGERS"</XMLTAG>
-						<LEFTFIELDS>CP_LedgerTemp1, CP_LedgerTemp2, CP_LedgerTemp3</LEFTFIELDS>
-						<LOCAL>Field : CP_LedgerTemp1 : Set as :$NAME</LOCAL>
-						<LOCAL>Field : CP_LedgerTemp2 : Set as :$LEDGERAMOUNT</LOCAL>
-						<LOCAL>Field : CP_LedgerTemp3 : Set as :$MASTERID</LOCAL>
-						<LOCAL>Field : CP_LedgerTemp1 : XMLTag : "NAME"</LOCAL>
-						<LOCAL>Field : CP_LedgerTemp2 : XMLTag : "AMOUNT"</LOCAL>
-						<LOCAL>Field : CP_LedgerTemp3 : XMLTag : "MASTERID"</LOCAL>
-					</LINE>
-				</TDLMESSAGE>
-			</TDL>
-		</DESC>
-	</BODY>
-</ENVELOPE>`;
-
-      const token = getAuthToken();
-      const apiUrl = getTallyDataUrl();
-      console.log('🔍 Voucher API URL:', apiUrl);
-      
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/xml',
-          'x-tallyloc-id': companyInfo.tallyloc_id.toString(),
-          'x-company': companyName,
-          'x-guid': companyInfo.guid,
-        },
-        body: voucherXML,
-        signal: abortController.signal,
-      });
-
-      console.log('🔍 Voucher Response status:', response.status, response.statusText);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('🔍 Voucher API Error:', errorText);
-        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
-      }
-
-      const xmlText = await response.text();
-      console.log('🔍 Voucher XML Response length:', xmlText.length);
-      const xmlDoc = new DOMParser().parseFromString(xmlText, 'text/xml');
-      const parserError = xmlDoc.getElementsByTagName('parsererror')[0];
-      if (parserError) {
-        console.error('🔍 XML Parse Error:', parserError.textContent);
-        throw new Error('Failed to parse XML response: ' + parserError.textContent);
-      }
-
-      const vouchers = xmlDoc.getElementsByTagName('VOUCHERS');
-      if (!vouchers || vouchers.length === 0) {
-        throw new Error('No voucher data found');
-      }
-
-      const groupSiblings = (vouchers) => {
-        const result = [];
-        for (let i = 0; i < vouchers.length; i++) {
-          const voucher = vouchers[i];
-          const masterId = voucher.getElementsByTagName('MASTERID')[0]?.textContent || '';
-          const date = voucher.getElementsByTagName('DATE')[0]?.textContent || '';
-          const voucherType = voucher.getElementsByTagName('VOUCHERTYPE')[0]?.textContent || '';
-          const voucherNumber = voucher.getElementsByTagName('VOUCHERNUMBER')[0]?.textContent || '';
-          const debitAmt = voucher.getElementsByTagName('DEBITAMT')[0]?.textContent || '';
-          const creditAmt = voucher.getElementsByTagName('CREDITAMT')[0]?.textContent || '';
-
-          const ledgers = [];
-          const ledgerElements = voucher.getElementsByTagName('LEDGERS');
-          for (let j = 0; j < ledgerElements.length; j++) {
-            const ledger = ledgerElements[j];
-            const name = ledger.getElementsByTagName('NAME')[0]?.textContent || '';
-            const amount = ledger.getElementsByTagName('AMOUNT')[0]?.textContent || '';
-            const ledgerMasterId = ledger.getElementsByTagName('MASTERID')[0]?.textContent || '';
-            ledgers.push({ NAME: name, AMOUNT: amount, MASTERID: ledgerMasterId });
-          }
-
-          result.push({
-            MASTERID: masterId,
-            DATE: date,
-            VOUCHERTYPE: voucherType,
-            VOUCHERNUMBER: voucherNumber,
-            DEBITAMT: debitAmt,
-            CREDITAMT: creditAmt,
-            LEDGERS: ledgers,
-          });
-        }
-        return result;
-      };
-
-      const voucherObj = groupSiblings(vouchers);
-      console.log('🔍 Voucher details parsed:', voucherObj);
-      setVoucherDetailsData({ VOUCHERS: voucherObj });
-    } catch (err) {
-      console.error('🔍 fetchVoucherDetails error:', err);
-      if (err.name !== 'AbortError') {
-        const errorMessage = err.message || 'Failed to fetch voucher details. Please check your connection and try again.';
-        setVoucherDetailsError(errorMessage);
-      }
-    } finally {
-      setVoucherDetailsLoading(false);
-      abortControllerRef.current = null;
-    }
-    */ // End of disabled code
-  }, []);
-
-  // Handle voucher row click - use existing sales data
-  const handleVoucherRowClick = useCallback(async (masterId) => {
+  // Handle voucher row click - use new component which fetches from API
+  const handleVoucherRowClick = useCallback((masterId) => {
     if (!masterId) return;
-
-    // Find the voucher in existing sales data by masterid
-    const voucher = sales.find(s => s.masterid === masterId || String(s.masterid) === String(masterId));
-    
-    // Try to get the original voucher from cache to access ledgerentries
-    let originalVoucher = null;
-    try {
-      const companyInfo = getCompanyInfo();
-      if (companyInfo && companyInfo.guid && companyInfo.tallyloc_id) {
-        const completeCache = await hybridCache.getCompleteSalesData(companyInfo.guid, companyInfo.tallyloc_id);
-        if (completeCache && completeCache.data && completeCache.data.vouchers) {
-          originalVoucher = completeCache.data.vouchers.find(v => 
-            (v.masterid === masterId || String(v.masterid) === String(masterId)) ||
-            (v.mstid === masterId || String(v.mstid) === String(masterId))
-          );
-        }
-      }
-    } catch (err) {
-      console.warn('Could not fetch original voucher from cache:', err);
-    }
-    
-    if (voucher) {
-      // Find all items in this voucher (same masterid and vchno)
-      const voucherItems = sales.filter(s => 
-        (s.masterid === voucher.masterid || String(s.masterid) === String(voucher.masterid)) &&
-        s.vchno === voucher.vchno
-      );
-
-      // Calculate total amount
-      const totalAmount = voucherItems.reduce((sum, item) => sum + (item.amount || 0), 0);
-      
-      // Aggregate tax values from all items in the voucher
-      const totalCGST = voucherItems.reduce((sum, item) => sum + (item.cgst || item.CGST || 0), 0);
-      const totalSGST = voucherItems.reduce((sum, item) => sum + (item.sgst || item.SGST || 0), 0);
-      const totalRoundOff = voucherItems.reduce((sum, item) => sum + (item.roundoff || item.ROUNDOFF || item.round_off || 0), 0);
-      
-      // If tax values are not available, calculate them
-      // Assuming 18% GST (9% CGST + 9% SGST) on taxable amount if not provided
-      const hasTaxData = totalCGST > 0 || totalSGST > 0;
-      let cgstValue = totalCGST;
-      let sgstValue = totalSGST;
-      
-      if (!hasTaxData && totalAmount > 0) {
-        // Calculate CGST and SGST as 9% each of taxable amount (assuming 18% GST)
-        const taxableAmount = totalAmount / 1.18; // Remove GST to get taxable amount
-        cgstValue = taxableAmount * 0.09;
-        sgstValue = taxableAmount * 0.09;
-      }
-      
-      const roundOffValue = totalRoundOff;
-
-      // Get narration from CP_Temp7 field (XML tag is "NARRATION" per line 1869)
-      // Check NARRATION first since that's the XML tag, then fallback to CP_Temp7
-      // The sales data has CP_Temp7 field from the transformation
-      const narration = voucher.CP_Temp7 || voucher.cp_temp7 || voucher.NARRATION || voucher.narration || voucher.Narration || '';
-      
-      // Debug: Log narration extraction
-      console.log('🔍 Extracting narration for voucher:', {
-        masterid: voucher.masterid,
-        vchno: voucher.vchno,
-        CP_Temp7: voucher.CP_Temp7,
-        cp_temp7: voucher.cp_temp7,
-        NARRATION: voucher.NARRATION,
-        narration: voucher.narration,
-        extractedNarration: narration
-      });
-
-      // Helper function to parse amount (same as used in loadSales)
-      const parseAmount = (amountStr) => {
-        if (!amountStr) return 0;
-        if (typeof amountStr === 'number') return amountStr;
-        const cleaned = String(amountStr).replace(/[^\d.-]/g, '');
-        const parsed = parseFloat(cleaned);
-        return isNaN(parsed) ? 0 : parsed;
-      };
-      
-      // Get the original voucher from cache if available (for ledger entries)
-      // Try to find the original voucher object that has ledgerentries
-      // We need to get the original voucher from the raw vouchers array, not from transformed sales
-      // For now, we'll use the voucher object but check if we can access the original voucher data
-      // The voucher object in sales array doesn't have the full structure, so we'll construct it
-      
-      // Get ledger entries from original voucher if available
-      const originalLedgerEntries = originalVoucher ? (originalVoucher.ledgerentries || originalVoucher.ledgers || []) : [];
-      
-      // Transform ledger entries to match expected format
-      const transformedLedgerEntries = originalLedgerEntries.length > 0 ? originalLedgerEntries.map(ledger => ({
-        LEDGERNAME: ledger.ledgername || ledger.ledger || ledger.LEDGERNAME || ledger.NAME || 'Unknown',
-        ledgername: ledger.ledgername || ledger.ledger || ledger.LEDGERNAME || ledger.NAME || 'Unknown',
-        DEBITAMT: ledger.debitamt || ledger.DEBITAMT || (parseAmount(ledger.amount || ledger.AMOUNT) > 0 ? parseAmount(ledger.amount || ledger.AMOUNT) : 0),
-        debitamt: ledger.debitamt || ledger.DEBITAMT || (parseAmount(ledger.amount || ledger.AMOUNT) > 0 ? parseAmount(ledger.amount || ledger.AMOUNT) : 0),
-        CREDITAMT: ledger.creditamt || ledger.CREDITAMT || (parseAmount(ledger.amount || ledger.AMOUNT) < 0 ? Math.abs(parseAmount(ledger.amount || ledger.AMOUNT)) : 0),
-        creditamt: ledger.creditamt || ledger.CREDITAMT || (parseAmount(ledger.amount || ledger.AMOUNT) < 0 ? Math.abs(parseAmount(ledger.amount || ledger.AMOUNT)) : 0),
-        amount: parseAmount(ledger.amount || ledger.AMOUNT),
-        ISPARTYLEDGER: ledger.ispartyledger || ledger.ISPARTYLEDGER || 'No',
-        ispartyledger: ledger.ispartyledger || ledger.ISPARTYLEDGER || 'No',
-        BILLALLOCATIONS: ledger.billalloc || ledger.billallocations || ledger.BILLALLOCATIONS || [],
-        billalloc: ledger.billalloc || ledger.billallocations || ledger.BILLALLOCATIONS || []
-      })) : [
-        // Fallback: Customer ledger entry (debit for sales) with bill allocation
-            {
-              LEDGERNAME: voucher.customer || 'Unknown',
-          ledgername: voucher.customer || 'Unknown',
-              DEBITAMT: voucher.issales ? totalAmount : 0,
-          debitamt: voucher.issales ? totalAmount : 0,
-              CREDITAMT: 0,
-          creditamt: 0,
-          amount: voucher.issales ? totalAmount : 0,
-          ISPARTYLEDGER: 'Yes',
-          ispartyledger: 'Yes',
-              BILLALLOCATIONS: voucher.issales ? [{
-                BILLNAME: voucher.vchno || '',
-            billname: voucher.vchno || '',
-                DEBITAMT: totalAmount,
-            debitamt: totalAmount,
-            CREDITAMT: 0,
-            creditamt: 0,
-            AMOUNT: totalAmount,
-            amount: totalAmount
-              }] : [],
-          billalloc: voucher.issales ? [{
-            BILLNAME: voucher.vchno || '',
-            billname: voucher.vchno || '',
-            DEBITAMT: totalAmount,
-            debitamt: totalAmount,
-            CREDITAMT: 0,
-            creditamt: 0,
-            AMOUNT: totalAmount,
-            amount: totalAmount
-          }] : []
-        }
-      ];
-      
-      // Get inventory entries from original voucher if available
-      const originalInventoryEntries = originalVoucher ? (originalVoucher.allinventoryentries || originalVoucher.inventry || []) : [];
-      const transformedInventoryEntries = originalInventoryEntries.length > 0 ? originalInventoryEntries.map(inv => ({
-        STOCKITEMNAME: inv.stockitemname || inv.item || inv.STOCKITEMNAME || inv.ITEMNAME || inv.ITEM || 'Unknown',
-        stockitemname: inv.stockitemname || inv.item || inv.STOCKITEMNAME || inv.ITEMNAME || inv.ITEM || 'Unknown',
-        BILLEQTY: parseAmount(inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
-        billedqty: parseAmount(inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
-        ACTUALQTY: parseAmount(inv.actualqty || inv.ACTUALQTY || inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
-        actualqty: parseAmount(inv.actualqty || inv.ACTUALQTY || inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
-        QTY: parseAmount(inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
-        qty: parseAmount(inv.billedqty || inv.BILLEQTY || inv.qty || inv.QTY || 0),
-        RATE: parseAmount(inv.rate || inv.RATE || 0),
-        rate: parseAmount(inv.rate || inv.RATE || 0),
-        DISCOUNT: parseAmount(inv.discount || inv.DISCOUNT || 0),
-        discount: parseAmount(inv.discount || inv.DISCOUNT || 0),
-        AMOUNT: parseAmount(inv.amount || inv.AMOUNT || inv.amt || inv.AMT || 0),
-        amount: parseAmount(inv.amount || inv.AMOUNT || inv.amt || inv.AMT || 0),
-        VALUE: parseAmount(inv.amount || inv.AMOUNT || inv.amt || inv.AMT || 0),
-        value: parseAmount(inv.amount || inv.AMOUNT || inv.amt || inv.AMT || 0)
-      })) : voucherItems.map(item => ({
-                STOCKITEMNAME: item.item || 'Unknown',
-        stockitemname: item.item || 'Unknown',
-                BILLEQTY: item.quantity || 0,
-        billedqty: item.quantity || 0,
-                ACTUALQTY: item.quantity || 0,
-        actualqty: item.quantity || 0,
-        QTY: item.quantity || 0,
-        qty: item.quantity || 0,
-                RATE: item.quantity > 0 ? ((item.amount / item.quantity).toFixed(2)) : '0.00',
-        rate: item.quantity > 0 ? ((item.amount / item.quantity).toFixed(2)) : '0.00',
-                DISCOUNT: '0',
-        discount: '0',
-                AMOUNT: item.amount || 0,
-        amount: item.amount || 0,
-        VALUE: item.amount || 0,
-        value: item.amount || 0
-      }));
-
-      // Transform to match VoucherDetailsModal format from Receivables Dashboard
-      const voucherData = {
-        VOUCHERS: {
-          MASTERID: voucher.masterid,
-          DATE: voucher.cp_date || voucher.date || '',
-          VOUCHERTYPE: voucher.issales ? 'Sales' : 'Other',
-          VOUCHERNUMBER: voucher.vchno || '',
-          VCHNO: voucher.vchno || '',
-          VCHTYPE: voucher.issales ? 'Sales' : 'Other',
-          DEBITAMT: voucher.issales ? totalAmount : 0,
-          CREDITAMT: voucher.issales ? 0 : totalAmount,
-          NARRATION: narration || '', // Always include NARRATION field
-          PARTICULARS: voucher.customer || '',
-          PARTYLEDGERNAME: originalVoucher ? (originalVoucher.partyledgername || originalVoucher.party || voucher.customer || '') : (voucher.partyledgername || voucher.party || voucher.customer || ''),
-          partyledgername: originalVoucher ? (originalVoucher.partyledgername || originalVoucher.party || voucher.customer || '') : (voucher.partyledgername || voucher.party || voucher.customer || ''),
-          PARTY: originalVoucher ? (originalVoucher.partyledgername || originalVoucher.party || voucher.customer || '') : (voucher.partyledgername || voucher.party || voucher.customer || ''),
-          party: originalVoucher ? (originalVoucher.partyledgername || originalVoucher.party || voucher.customer || '') : (voucher.partyledgername || voucher.party || voucher.customer || ''),
-          // Use transformed ledger entries
-          ALLLEDGERENTRIES: transformedLedgerEntries,
-          LEDGERENTRIES: transformedLedgerEntries,
-          // Use transformed inventory entries
-          ALLINVENTORYENTRIES: transformedInventoryEntries,
-          INVENTORYENTRIES: transformedInventoryEntries
-        }
-      };
-
-      setVoucherDetailsData(voucherData);
-      setShowVoucherDetails(true);
-      setVoucherDetailsLoading(false);
-      setVoucherDetailsError(null);
-    } else {
-      setVoucherDetailsError('Voucher not found in current data.');
-      setShowVoucherDetails(true);
-      setVoucherDetailsLoading(false);
-    }
-  }, [sales]);
+    setSelectedMasterId(masterId);
+    setShowVoucherDetails(true);
+  }, []);
 
   // Handle bill row click from raw data - go directly to voucher details modal
   const handleBillRowClick = useCallback((row) => {
@@ -4800,10 +4403,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         
         if (transaction && transaction.masterid) {
           handleVoucherRowClick(transaction.masterid);
-        } else {
-          setVoucherDetailsError('Voucher not found in current data.');
-          setShowVoucherDetails(true);
-          setVoucherDetailsLoading(false);
         }
       }
     }
@@ -12680,32 +12279,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
     {/* Voucher Details Modal */}
     {showVoucherDetails && (
-      <div 
-        style={{ 
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          zIndex: 15000,
-          pointerEvents: 'auto'
+      <VoucherDetailsModal
+        masterId={selectedMasterId}
+        onClose={() => {
+          setShowVoucherDetails(false);
+          setSelectedMasterId(null);
         }}
-      >
-        <VoucherDetailsModal
-          voucherData={voucherDetailsData}
-          loading={voucherDetailsLoading}
-          error={voucherDetailsError}
-          onClose={() => {
-            setShowVoucherDetails(false);
-            setVoucherDetailsData(null);
-            setVoucherDetailsError(null);
-            if (abortControllerRef.current) {
-              abortControllerRef.current.abort();
-              abortControllerRef.current = null;
-            }
-          }}
-        />
-      </div>
+      />
     )}
 
     {/* Navigation Warning Modal */}
