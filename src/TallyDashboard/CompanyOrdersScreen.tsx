@@ -5740,6 +5740,7 @@ ${inventoryEntriesStr}
               setVoucherDetailsData(null);
               setVoucherDetailsError(null);
             }}
+            headerActions={null}
           />
         </div>
       )}
