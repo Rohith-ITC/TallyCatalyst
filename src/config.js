@@ -85,6 +85,12 @@ export const API_CONFIG = {
     SUBSCRIPTION_PAYMENTS: '/api/subscription/payments',
     SUBSCRIPTION_TRIAL_STATUS: '/api/subscription/trial-status',
     SUBSCRIPTION_DISMISS_REMINDER: '/api/subscription/dismiss-reminder',
+    
+    // Custom Card endpoints
+    CUSTOM_CARD_CREATE: '/api/dashboard/cards',
+    CUSTOM_CARD_GET: '/api/dashboard/cards',
+    CUSTOM_CARD_UPDATE: (id) => `/api/dashboard/cards/${id}`,
+    CUSTOM_CARD_DELETE: (id) => `/api/dashboard/cards/${id}`,
   }
 };
 

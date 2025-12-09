@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-// import { apiPost } from '../../utils/apiUtils'; // REMOVED: Sales dashboard now uses cache only
+import { apiPost, apiGet, apiPut, apiDelete } from '../../utils/apiUtils';
+import { API_CONFIG, getApiUrl } from '../../config';
 import BarChart from './components/BarChart';
 import PieChart from './components/PieChart';
 import TreeMap from './components/TreeMap';
@@ -19,7 +20,6 @@ import {
   cleanAndEscapeForXML,
   parseXMLResponse,
 } from '../../RecvDashboard/utils/helpers';
-import { getApiUrl } from '../../config';
 import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/companyConfigUtils';
 import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
 import { syncSalesData, cacheSyncManager } from '../../utils/cacheSyncManager';
@@ -382,6 +382,86 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     console.log('✅ Company info for API:', companyInfo);
     return companyInfo;
   };
+
+  // Load custom cards from backend
+  const loadCustomCards = useCallback(async () => {
+    try {
+      // Check if company is selected before trying to get company info
+      const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid');
+      if (!selectedCompanyGuid) {
+        console.log('⚠️ No company selected, skipping custom cards load');
+        return;
+      }
+      
+      const companyInfo = getCompanyInfo();
+      const { tallyloc_id, guid } = companyInfo;
+      
+      if (!tallyloc_id || !guid) {
+        console.warn('⚠️ Missing company information, skipping custom cards load');
+        return;
+      }
+      
+      const endpoint = `${API_CONFIG.ENDPOINTS.CUSTOM_CARD_GET}?tallylocId=${tallyloc_id}&coGuid=${guid}&dashboardType=sales`;
+      const response = await apiGet(endpoint);
+      
+      if (response && response.status === 'success' && response.data) {
+        const cards = Array.isArray(response.data) ? response.data : [];
+        // Filter only active cards
+        const activeCards = cards.filter(card => card.isActive !== 0);
+        
+        setCustomCards(activeCards);
+        
+        // Set chart types for loaded cards
+        const chartTypes = {};
+        activeCards.forEach(card => {
+          if (card.chartType) {
+            chartTypes[card.id] = card.chartType;
+          }
+        });
+        setCustomCardChartTypes(chartTypes);
+        
+        console.log('✅ Loaded custom cards from backend:', activeCards.length);
+      } else {
+        console.warn('⚠️ No custom cards found or invalid response:', response);
+        setCustomCards([]);
+      }
+    } catch (error) {
+      console.error('❌ Error loading custom cards:', error);
+      // Don't set cards to empty array on error - keep existing cards if any
+    }
+  }, []);
+
+  // Load custom cards on mount and when company changes
+  useEffect(() => {
+    const loadCards = async () => {
+      try {
+        // Check if company is selected
+        const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid');
+        if (!selectedCompanyGuid) {
+          console.log('⚠️ No company selected, skipping custom cards load');
+          return;
+        }
+        
+        await loadCustomCards();
+      } catch (error) {
+        console.error('❌ Error in loadCards useEffect:', error);
+      }
+    };
+    
+    // Load cards on mount
+    loadCards();
+    
+    // Reload cards when company changes
+    const handleCompanyChange = () => {
+      loadCards();
+    };
+    
+    window.addEventListener('companyChanged', handleCompanyChange);
+    
+    return () => {
+      window.removeEventListener('companyChanged', handleCompanyChange);
+    };
+  }, [loadCustomCards]);
 
   const formatDateForAPI = (dateString) => {
     // Convert YYYY-MM-DD to YYYYMMDD
@@ -3858,63 +3938,177 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     }));
   }, []);
 
-  const handleCreateCustomCard = useCallback((cardConfig) => {
-    if (editingCardId) {
-      // Update existing card
-      setCustomCards(prev => prev.map(card => 
-        card.id === editingCardId 
-          ? { ...card, ...cardConfig }
-          : card
-      ));
-      // Also update the chartType state to match the updated card
-      if (cardConfig.chartType) {
-        setCustomCardChartTypes(prev => ({
-          ...prev,
-          [editingCardId]: cardConfig.chartType
-        }));
+  const handleCreateCustomCard = useCallback(async (cardConfig) => {
+    try {
+      // Check if company is selected
+      const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid');
+      if (!selectedCompanyGuid) {
+        alert('Please select a company first.');
+        return;
       }
-      setEditingCardId(null);
-    } else {
-      // Create new card
-      const newCard = {
-        id: Date.now().toString(),
-        ...cardConfig
-      };
-      setCustomCards(prev => [...prev, newCard]);
-      // Set the chartType state for the new card
-      if (cardConfig.chartType) {
-        setCustomCardChartTypes(prev => ({
-          ...prev,
-          [newCard.id]: cardConfig.chartType
-        }));
+      
+      const companyInfo = getCompanyInfo();
+      const { tallyloc_id, guid } = companyInfo;
+      
+      if (!tallyloc_id || !guid) {
+        alert('Missing company information. Please select a company first.');
+        return;
       }
-    }
-    setShowCustomCardModal(false);
-    
-    // Scroll to the newly created/edited card after a short delay to ensure DOM is updated
-    setTimeout(() => {
-      if (customCardsSectionRef.current) {
-        customCardsSectionRef.current.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'end' 
-        });
+      
+      if (editingCardId) {
+        // Update existing card
+        const cardToUpdate = customCards.find(c => c.id === editingCardId);
+        if (!cardToUpdate) {
+          console.error('❌ Card not found for update:', editingCardId);
+          return;
+        }
+        
+        const updatePayload = {
+          title: cardConfig.title,
+          chartType: cardConfig.chartType,
+          groupBy: cardConfig.groupBy,
+          valueField: cardConfig.valueField,
+          aggregation: cardConfig.aggregation,
+          topN: cardConfig.topN || null,
+          filters: cardConfig.filters || [],
+          cardConfig: cardConfig.cardConfig || {},
+          sortOrder: cardConfig.sortOrder || cardToUpdate.sortOrder || 0,
+          isActive: 1
+        };
+        
+        const endpoint = API_CONFIG.ENDPOINTS.CUSTOM_CARD_UPDATE(editingCardId);
+        const response = await apiPut(endpoint, updatePayload);
+        
+        if (response && response.status === 'success') {
+          // Update local state
+          setCustomCards(prev => prev.map(card => 
+            card.id === editingCardId 
+              ? { ...card, ...cardConfig, ...response.data }
+              : card
+          ));
+          
+          // Update chartType state
+          if (cardConfig.chartType) {
+            setCustomCardChartTypes(prev => ({
+              ...prev,
+              [editingCardId]: cardConfig.chartType
+            }));
+          }
+          
+          console.log('✅ Custom card updated successfully:', response.data);
+        } else {
+          console.error('❌ Failed to update custom card:', response);
+          alert('Failed to update custom card. Please try again.');
+          return;
+        }
+        
+        setEditingCardId(null);
       } else {
-        // Fallback: scroll to bottom of page if ref is not available
-        window.scrollTo({ 
-          top: document.documentElement.scrollHeight, 
-          behavior: 'smooth' 
-        });
+        // Create new card
+        const createPayload = {
+          tallylocId: tallyloc_id,
+          coGuid: guid,
+          dashboardType: 'sales',
+          title: cardConfig.title,
+          chartType: cardConfig.chartType,
+          groupBy: cardConfig.groupBy,
+          valueField: cardConfig.valueField,
+          aggregation: cardConfig.aggregation,
+          topN: cardConfig.topN || null,
+          filters: cardConfig.filters || [],
+          cardConfig: cardConfig.cardConfig || {},
+          sortOrder: cardConfig.sortOrder || 0
+        };
+        
+        const response = await apiPost(API_CONFIG.ENDPOINTS.CUSTOM_CARD_CREATE, createPayload);
+        
+        if (response && response.status === 'success' && response.data) {
+          const newCard = response.data;
+          
+          // Add to local state
+          setCustomCards(prev => [...prev, newCard]);
+          
+          // Set chartType state for the new card
+          if (newCard.chartType) {
+            setCustomCardChartTypes(prev => ({
+              ...prev,
+              [newCard.id]: newCard.chartType
+            }));
+          }
+          
+          console.log('✅ Custom card created successfully:', newCard);
+        } else {
+          console.error('❌ Failed to create custom card:', response);
+          alert('Failed to create custom card. Please try again.');
+          return;
+        }
       }
-    }, 100);
-  }, [editingCardId]);
+      
+      setShowCustomCardModal(false);
+      
+      // Scroll to the newly created/edited card after a short delay to ensure DOM is updated
+      setTimeout(() => {
+        if (customCardsSectionRef.current) {
+          customCardsSectionRef.current.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'end' 
+          });
+        } else {
+          // Fallback: scroll to bottom of page if ref is not available
+          window.scrollTo({ 
+            top: document.documentElement.scrollHeight, 
+            behavior: 'smooth' 
+          });
+        }
+      }, 100);
+    } catch (error) {
+      console.error('❌ Error saving custom card:', error);
+      alert('Error saving custom card: ' + (error.message || 'Unknown error'));
+    }
+  }, [editingCardId, customCards]);
 
   const handleEditCustomCard = useCallback((cardId) => {
     setEditingCardId(cardId);
     setShowCustomCardModal(true);
   }, []);
 
-  const handleDeleteCustomCard = useCallback((cardId) => {
-    setCustomCards(prev => prev.filter(card => card.id !== cardId));
+  const handleDeleteCustomCard = useCallback(async (cardId) => {
+    try {
+      const endpoint = API_CONFIG.ENDPOINTS.CUSTOM_CARD_DELETE(cardId);
+      const response = await apiDelete(endpoint);
+      
+      if (response && (response.status === 'success' || response.status === 'error')) {
+        // Remove from local state regardless of response (optimistic update)
+        setCustomCards(prev => prev.filter(card => card.id !== cardId));
+        
+        // Remove chartType state
+        setCustomCardChartTypes(prev => {
+          const updated = { ...prev };
+          delete updated[cardId];
+          return updated;
+        });
+        
+        console.log('✅ Custom card deleted successfully');
+      } else {
+        console.error('❌ Failed to delete custom card:', response);
+        // Still remove from local state for better UX
+        setCustomCards(prev => prev.filter(card => card.id !== cardId));
+        setCustomCardChartTypes(prev => {
+          const updated = { ...prev };
+          delete updated[cardId];
+          return updated;
+        });
+      }
+    } catch (error) {
+      console.error('❌ Error deleting custom card:', error);
+      // Still remove from local state for better UX
+      setCustomCards(prev => prev.filter(card => card.id !== cardId));
+      setCustomCardChartTypes(prev => {
+        const updated = { ...prev };
+        delete updated[cardId];
+        return updated;
+      });
+    }
   }, []);
 
   // Helper function for compact currency formatting (for salesperson chart)

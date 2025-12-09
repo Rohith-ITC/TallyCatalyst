@@ -195,6 +195,10 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
   
   // Calculate grand total
   const grandTotal = totalAmount + totalCgst + totalSgst + totalRoundoff;
+
+  // Ledger and transaction totals
+  const ledgerTotal = totalDebit + totalCredit;
+  const transactionTotal = totalAmount + ledgerTotal;
   
   // Get bill allocations from party ledger
   const billAllocations = normalizeToArray(partyLedger.BILLALLOCATIONS || partyLedger.billalloc || []);
@@ -411,7 +415,8 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
           </div>
 
           {/* Inventory Allocations Section */}
-          {inventoryEntries.length > 0 && (
+          {/* Show item details only when ispartyledger is "no" (i.e., no party ledger) */}
+          {inventoryEntries.length > 0 && !hasPartyLedger && (
             <div style={{ marginBottom: isMobile ? '20px' : '24px' }}>
                 <div style={{ 
                 fontSize: isMobile ? '14px' : '16px', 
@@ -730,6 +735,41 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
               </div>
             </div>
           )}
+
+          {/* Totals Summary */}
+          <div style={{ 
+            marginTop: isMobile ? '16px' : '20px',
+            padding: isMobile ? '12px' : '16px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            background: '#f8fafc'
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              fontWeight: 600,
+              fontSize: isMobile ? '13px' : '14px',
+              marginBottom: isMobile ? '8px' : '12px',
+              color: '#1e293b'
+            }}>
+              <span>Transaction Totals</span>
+            </div>
+            <div style={{ 
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr',
+              rowGap: isMobile ? '8px' : '10px',
+              fontSize: isMobile ? '12px' : '14px',
+              color: '#111827'
+            }}>
+              <div style={{ fontWeight: 500 }}>Item Total</div>
+              <div style={{ textAlign: 'right', fontWeight: 700 }}>{formatCurrencyAmount(totalAmount)}</div>
+              <div style={{ fontWeight: 500 }}>Ledger Total</div>
+              <div style={{ textAlign: 'right', fontWeight: 700 }}>{formatCurrencyAmount(ledgerTotal)}</div>
+              <div style={{ fontWeight: 600 }}>Transaction Total</div>
+              <div style={{ textAlign: 'right', fontWeight: 800, color: '#1d4ed8' }}>{formatCurrencyAmount(transactionTotal)}</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
