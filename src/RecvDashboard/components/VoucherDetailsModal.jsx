@@ -183,12 +183,18 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
   });
   
   // Extract taxes and calculate ledger totals from ledger entries
+  // Exclude party ledger entries from ledger total calculation
   ledgerEntries.forEach(entry => {
     const ledgerName = (entry.LEDGERNAME || entry.ledgername || '').toLowerCase();
+    const ispartyledger = (entry.ISPARTYLEDGER || entry.ispartyledger || '').toString().toLowerCase().trim();
     const debitAmt = parseAmount(entry.DEBITAMT || entry.debitamt || entry.amount || 0);
     const creditAmt = parseAmount(entry.CREDITAMT || entry.creditamt || 0);
-    totalDebit += debitAmt;
-    totalCredit += creditAmt;
+    
+    // Only include non-party ledger entries in ledger totals
+    if (ispartyledger !== 'yes') {
+      totalDebit += debitAmt;
+      totalCredit += creditAmt;
+    }
     
     if (ledgerName.includes('cgst')) {
       totalCgst += Math.abs(debitAmt || creditAmt);
@@ -199,12 +205,15 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
     }
   });
   
-  // Calculate grand total
+  // Calculate grand total (item total + taxes + round off)
   const grandTotal = totalAmount + totalCgst + totalSgst + totalRoundoff;
 
-  // Ledger and transaction totals
-  const ledgerTotal = totalDebit + totalCredit;
-  const transactionTotal = totalAmount + ledgerTotal;
+  // Ledger total should be sum of taxes and round off (non-item ledger entries)
+  // This represents the additional charges on top of item total
+  const ledgerTotal = totalCgst + totalSgst + totalRoundoff;
+  
+  // Transaction total is the grand total (item total + all charges)
+  const transactionTotal = grandTotal;
   
   // Get bill allocations from party ledger
   const billAllocations = normalizeToArray(partyLedger.BILLALLOCATIONS || partyLedger.billalloc || []);
@@ -421,8 +430,8 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
           </div>
 
           {/* Inventory Allocations Section */}
-          {/* Show item details only when ispartyledger is "no" (i.e., no party ledger) */}
-          {inventoryEntries.length > 0 && !hasPartyLedger && (
+          {/* Show inventory allocations for all vouchers */}
+          {inventoryEntries.length > 0 && (
             <div style={{ marginBottom: isMobile ? '20px' : '24px' }}>
                 <div style={{ 
                 fontSize: isMobile ? '14px' : '16px', 
@@ -640,8 +649,8 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
               </div>
             )}
 
-          {/* Ledger Entries Section (only shown when hasPartyLedger is true) */}
-          {hasPartyLedger && filteredLedgerEntries.length > 0 && (
+          {/* Bill Allocations for Party Ledger (shown when ispartyledger is "yes") */}
+          {hasPartyLedger && billAllocations.length > 0 && (
             <div style={{ marginBottom: isMobile ? '20px' : '24px' }}>
               <div style={{ 
                 fontSize: isMobile ? '14px' : '16px', 
@@ -652,14 +661,14 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                 alignItems: 'center',
                 gap: '8px'
               }}>
-                <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>business</span>
-                Ledger Entries
+                <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>receipt</span>
+                Bill Allocations
               </div>
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', background: '#fff' }}>
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
+                    gridTemplateColumns: isMobile ? '2fr 1fr' : '3fr 1fr',
                     padding: isMobile ? '10px 12px' : '12px 16px',
                     background: '#f8fafc',
                     borderBottom: '1px solid #e2e8f0',
@@ -669,23 +678,20 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                     gap: isMobile ? '8px' : '12px'
                   }}
                 >
-                  <div>Ledger Name</div>
-                  <div style={{ textAlign: 'right' }}>Debit Amount</div>
-                  <div style={{ textAlign: 'right' }}>Credit Amount</div>
+                  <div>Bill Name</div>
+                  <div style={{ textAlign: 'right' }}>Amount</div>
                 </div>
-                {filteredLedgerEntries.map((entry, idx) => {
-                  const ledgerName = entry.LEDGERNAME || entry.ledgername || '-';
-                  const debitAmt = parseAmount(entry.DEBITAMT || entry.debitamt || entry.amount || 0);
-                  const creditAmt = parseAmount(entry.CREDITAMT || entry.creditamt || 0);
-                  
+                {billAllocations.map((bill, billIdx) => {
+                  const billName = bill.BILLNAME || bill.REFNO || bill.billname || bill.refno || voucherNumber;
+                  const billAmount = parseAmount(bill.AMOUNT || bill.DEBITAMT || bill.CREDITAMT || bill.amount || 0);
                   return (
                     <div
-                      key={idx}
+                      key={billIdx}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
+                        gridTemplateColumns: isMobile ? '2fr 1fr' : '3fr 1fr',
                         padding: isMobile ? '10px 12px' : '12px 16px',
-                        borderBottom: idx === filteredLedgerEntries.length - 1 && billAllocations.length === 0 ? 'none' : '1px solid #e2e8f0',
+                        borderBottom: billIdx === billAllocations.length - 1 ? 'none' : '1px solid #e2e8f0',
                         fontSize: isMobile ? '12px' : '14px',
                         color: '#1e293b',
                         gap: isMobile ? '8px' : '12px',
@@ -693,49 +699,13 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                         background: '#fff'
                       }}
                     >
-                      <div style={{ fontWeight: 500 }}>{ledgerName}</div>
+                      <div style={{ fontWeight: 500 }}>{billName}</div>
                       <div style={{ textAlign: 'right', fontWeight: 500 }}>
-                        {debitAmt > 0 ? formatCurrencyAmount(debitAmt) : ''}
-                      </div>
-                      <div style={{ textAlign: 'right', fontWeight: 500 }}>
-                        {creditAmt > 0 ? formatCurrencyAmount(creditAmt) : ''}
+                        {billAmount > 0 ? formatCurrencyAmount(billAmount) : ''}
                       </div>
                     </div>
                   );
                 })}
-                
-                {/* Bill Allocations for Party Ledger (shown separately) */}
-                {billAllocations.length > 0 && (
-                        <div style={{ padding: isMobile ? '8px 12px' : '10px 16px', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
-                          <div style={{ fontSize: isMobile ? '11px' : '12px', fontWeight: 600, color: '#64748b', marginBottom: '8px' }}>
-                            Bill Allocations
-                          </div>
-                          {billAllocations.map((bill, billIdx) => {
-                            const billName = bill.BILLNAME || bill.REFNO || bill.billname || bill.refno || voucherNumber;
-                            const billAmount = parseAmount(bill.AMOUNT || bill.DEBITAMT || bill.CREDITAMT || bill.amount || 0);
-                            return (
-                              <div
-                                key={billIdx}
-                                style={{
-                                  display: 'grid',
-                                  gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
-                                  padding: isMobile ? '6px 0' : '8px 0',
-                                  fontSize: isMobile ? '11px' : '12px',
-                                  color: '#1e293b',
-                                  gap: isMobile ? '8px' : '12px',
-                                  alignItems: 'center'
-                                }}
-                              >
-                                <div style={{ fontWeight: 500, paddingLeft: isMobile ? '8px' : '12px' }}>{billName}</div>
-                                <div style={{ textAlign: 'right', fontWeight: 500 }}>
-                                  {billAmount > 0 ? formatCurrencyAmount(billAmount) : ''}
-                                </div>
-                                <div style={{ textAlign: 'right', fontWeight: 500 }}></div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
               </div>
             </div>
           )}

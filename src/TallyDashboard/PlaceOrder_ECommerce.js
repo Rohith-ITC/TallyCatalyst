@@ -2186,58 +2186,64 @@ function PlaceOrder_ECommerce() {
           hasValidToken
         });
 
-        // For Google Drive images, always try CDN first (no token needed for public/shared files)
-        // CDN works for both public and shared files, and is much faster
+        // For Google Drive images, ALWAYS convert to CDN LT3 links (no token needed)
+        // This ensures all Google Drive images are loaded through CDN LT3
         if (isGoogleDrive) {
-          // Check cache first (use 'no-token' key for CDN URLs)
-          const cdnCacheKey = `${actualImagePath}_cdn`;
-          if (imageUrlCacheRef.current.has(cdnCacheKey)) {
-            const cachedUrl = imageUrlCacheRef.current.get(cdnCacheKey);
-            console.log('✅ ProductImage: Using cached CDN URL');
-          setImageUrl(cachedUrl);
-            setThumbnailUrl(cachedUrl);
-          setImageLoading(false);
-          setThumbnailLoading(false);
-            lastLoadedRef.current = {
-              path: currentPath,
-              token: currentToken,
-              hasImage: true
-            };
-          return;
-        }
-
-          // Try lh3 CDN first (fastest, no token needed for public/shared files)
-          const cdnThumbnailUrl = getGoogleDriveCDNUrl(actualImagePath, 'w400'); // w400 for thumbnails
-          const cdnFullUrl = getGoogleDriveCDNUrl(actualImagePath, 'w800'); // w800 for full images
+          // Extract file ID from Google Drive link
+          let fileId = null;
+          if (actualImagePath.includes('drive.google.com')) {
+            const patterns = [
+              /\/file\/d\/([a-zA-Z0-9_-]+)/,
+              /\/d\/([a-zA-Z0-9_-]+)/,
+              /\/uc\?id=([a-zA-Z0-9_-]+)/,
+              /\/open\?id=([a-zA-Z0-9_-]+)/,
+              /[?&]id=([a-zA-Z0-9_-]+)/,
+            ];
+            for (const pattern of patterns) {
+              const match = actualImagePath.match(pattern);
+              if (match && match[1]) {
+                fileId = match[1];
+                break;
+              }
+            }
+          } else if (/^[a-zA-Z0-9_-]{15,}$/.test(actualImagePath.trim())) {
+            fileId = actualImagePath.trim();
+          }
           
-          if (cdnThumbnailUrl && cdnFullUrl) {
-            console.log('✅ ProductImage: Using lh3 CDN URLs (no token required)', {
+          // If we have a file ID, convert to CDN LT3 links
+          if (fileId) {
+            const cdnThumbnailUrl = `https://lh3.googleusercontent.com/d/${fileId}=w400`; // w400 for thumbnails
+            const cdnFullUrl = `https://lh3.googleusercontent.com/d/${fileId}=w800`; // w800 for full images
+            
+            console.log('✅ ProductImage: Converting Google Drive link to CDN LT3 URLs', {
+              original: actualImagePath?.substring(0, 50),
+              fileId: fileId.substring(0, 20),
               thumbnail: cdnThumbnailUrl,
-              full: cdnFullUrl,
-              imagePath: actualImagePath?.substring(0, 50)
+              full: cdnFullUrl
             });
-            // Set CDN URLs immediately - they're fast for public/shared files
+            
+            // Set CDN URLs immediately
             setThumbnailUrl(cdnThumbnailUrl);
             setImageUrl(cdnFullUrl);
             setThumbnailLoading(false);
             setImageLoading(false);
+            setImageError(false);
+            
             // Cache the URLs with CDN key
+            const cdnCacheKey = `${actualImagePath}_cdn`;
             imageUrlCacheRef.current.set(cdnCacheKey, cdnFullUrl);
+            
             // Update tracking ref
             lastLoadedRef.current = {
               path: currentPath,
               token: currentToken,
               hasImage: true
             };
-            // Return early - CDN is set, onError handler will handle if it fails
+            
+            // Return early - CDN is set
             return;
           } else {
-            console.log('⚠️ ProductImage: CDN URLs not generated, will try API fallback', {
-              hasThumbnail: !!cdnThumbnailUrl,
-              hasFull: !!cdnFullUrl,
-              imagePath: actualImagePath?.substring(0, 50),
-              isGoogleDrive
-            });
+            console.warn('⚠️ ProductImage: Could not extract file ID from Google Drive link, will try API fallback');
           }
         }
 
@@ -2681,6 +2687,25 @@ function PlaceOrder_ECommerce() {
           videoPath: videoPath?.substring(0, 50)
         });
 
+        // Auto-fetch token from company configurations if not available and it's a Google Drive video
+        let currentToken = googleToken;
+        if ((isGoogleDrive || isGoogleDriveId) && !currentToken) {
+          try {
+            const currentCompany = companies.find(c => c.guid === company);
+            if (currentCompany) {
+              const { tallyloc_id, guid } = currentCompany;
+              console.log('🔄 ProductVideo: Auto-fetching Google token from company configs');
+              const fetchedToken = await getGoogleTokenFromConfigs(tallyloc_id, guid);
+              if (fetchedToken) {
+                currentToken = fetchedToken;
+                console.log('✅ ProductVideo: Token auto-fetched from company configs');
+              }
+            }
+          } catch (error) {
+            console.warn('⚠️ ProductVideo: Could not auto-fetch token:', error);
+          }
+        }
+
         // For thumbnails, try CDN first for Google Drive videos (no token needed)
         // Also try to get thumbnail via API if token is available (better quality)
         if (isThumbnail && isGoogleDrive) {
@@ -2694,10 +2719,10 @@ function PlaceOrder_ECommerce() {
           }
           
           // Try to get thumbnail via API if token is available (better quality, uses company config token)
-          if (googleToken) {
+          if (currentToken) {
             try {
               console.log('🖼️ ProductVideo: Attempting to fetch video thumbnail via API (using company config token)');
-              const apiThumbUrl = await getGoogleDriveVideoThumbnail(videoPath, googleToken);
+              const apiThumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
               if (apiThumbUrl) {
                 console.log('✅ ProductVideo: Got better quality thumbnail via API');
                 finalThumbnailUrl = apiThumbUrl;
@@ -2747,10 +2772,10 @@ function PlaceOrder_ECommerce() {
           }
           
           // Try API thumbnail if token is available (better quality, uses company config token)
-          if (googleToken && !thumbnailUrl) {
+          if (currentToken && !thumbnailUrl) {
             try {
               console.log('🖼️ ProductVideo: Attempting to fetch video thumbnail via API for main display');
-              const apiThumbUrl = await getGoogleDriveVideoThumbnail(videoPath, googleToken);
+              const apiThumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
               if (apiThumbUrl) {
                 console.log('✅ ProductVideo: Got better quality thumbnail via API for main display');
                 setThumbnailUrl(apiThumbUrl);
@@ -2762,21 +2787,21 @@ function PlaceOrder_ECommerce() {
         }
 
         // For thumbnails, if no token and CDN didn't work, just stop loading
-        if (isGoogleDriveId && !googleToken && isThumbnail) {
+        if (isGoogleDriveId && !currentToken && isThumbnail) {
           setVideoLoading(false);
           return;
         }
 
         // Check cache first
-        const cacheKey = `${videoPath}_${googleToken || 'no-token'}`;
+        const cacheKey = `${videoPath}_${currentToken || 'no-token'}`;
         if (videoUrlCacheRef.current.has(cacheKey)) {
           const cachedUrl = videoUrlCacheRef.current.get(cacheKey);
           setVideoUrl(cachedUrl);
           setVideoLoading(false);
           // For thumbnails, try to get video thumbnail via API if CDN didn't work
-          if (isThumbnail && !thumbnailUrl && googleToken) {
+          if (isThumbnail && !thumbnailUrl && currentToken) {
             try {
-              const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, googleToken);
+              const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
               if (thumbUrl) setThumbnailUrl(thumbUrl);
             } catch (e) {
               console.warn('Could not load video thumbnail via API');
@@ -2788,8 +2813,8 @@ function PlaceOrder_ECommerce() {
         try {
           console.log('🎥 ProductVideo: Attempting to load video URL', {
             videoPath: videoPath?.substring(0, 100),
-            hasToken: !!googleToken,
-            tokenLength: googleToken?.length,
+            hasToken: !!currentToken,
+            tokenLength: currentToken?.length,
             isThumbnail,
             cacheKey,
             isGoogleDrive: isGoogleDrive
@@ -2809,7 +2834,7 @@ function PlaceOrder_ECommerce() {
             console.log('✅ ProductVideo: Using direct video URL');
           } else {
             // Try the async method for other cases (though it now just returns preview URL)
-            url = await getGoogleDriveVideoUrl(videoPath, googleToken);
+            url = await getGoogleDriveVideoUrl(videoPath, currentToken);
           }
           
           console.log('🎥 ProductVideo: Video URL result', {
@@ -2829,9 +2854,9 @@ function PlaceOrder_ECommerce() {
               setIsPlaying(true);
             }
             // For thumbnails, try to get video thumbnail via API if CDN didn't work
-            if (isThumbnail && !thumbnailUrl && googleToken) {
+            if (isThumbnail && !thumbnailUrl && currentToken) {
               try {
-                const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, googleToken);
+                const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
                 if (thumbUrl) setThumbnailUrl(thumbUrl);
               } catch (e) {
                 console.warn('⚠️ ProductVideo: Could not load video thumbnail via API', e);
@@ -2850,7 +2875,7 @@ function PlaceOrder_ECommerce() {
       };
 
       loadVideoUrl();
-    }, [videoPath, googleToken, itemName, isThumbnail]);
+    }, [videoPath, googleToken, itemName, isThumbnail, company, companies]);
 
     if (!canShowImage || !videoPath || videoError) {
       return (
