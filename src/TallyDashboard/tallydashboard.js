@@ -21,7 +21,9 @@ import MasterForm from './MasterForm';
 import MasterAuthorization from './MasterAuthorization';
 import MasterList from './MasterList';
 import CacheManagement from './CacheManagement';
-import Reports from './Reports';
+import SalesOrderReport from './SalesOrderReport';
+import PaymentVoucherReport from './PaymentVoucherReport';
+import VendorExpenses from './VendorExpenses';
 import { 
   MODULE_SEQUENCE, 
   hasModuleAccess, 
@@ -104,6 +106,10 @@ function TallyDashboard() {
   const masterManagementDropdownRef = useRef(null);
   const [masterDropdownPosition, setMasterDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const masterButtonRef = useRef(null);
+  const [reportsDropdownOpen, setReportsDropdownOpen] = useState(false);
+  const reportsDropdownRef = useRef(null);
+  const [reportsDropdownPosition, setReportsDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
+  const reportsButtonRef = useRef(null);
   const controlPanelButtonRef = useRef(null);
   const accessControlButtonRef = useRef(null);
   const [controlPanelDropdownPosition, setControlPanelDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
@@ -376,8 +382,12 @@ function TallyDashboard() {
           accessControlButtonRef.current && !accessControlButtonRef.current.contains(event.target)) {
         setAccessControlDropdownOpen(false);
       }
+      if (reportsDropdownRef.current && !reportsDropdownRef.current.contains(event.target) && 
+          reportsButtonRef.current && !reportsButtonRef.current.contains(event.target)) {
+        setReportsDropdownOpen(false);
+      }
     }
-    if (profileDropdownOpen || masterManagementDropdownOpen || controlPanelOpen || accessControlDropdownOpen) {
+    if (profileDropdownOpen || masterManagementDropdownOpen || controlPanelOpen || accessControlDropdownOpen || reportsDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     } else {
       document.removeEventListener('mousedown', handleClickOutside);
@@ -385,7 +395,7 @@ function TallyDashboard() {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [profileDropdownOpen, masterManagementDropdownOpen, controlPanelOpen, accessControlDropdownOpen]);
+  }, [profileDropdownOpen, masterManagementDropdownOpen, controlPanelOpen, accessControlDropdownOpen, reportsDropdownOpen]);
 
   // Filter companies based on search term for top bar
   useEffect(() => {
@@ -798,12 +808,34 @@ function TallyDashboard() {
       
       // For modules with sub-modules (like Ledger Book or Master Management)
       if (module.hasSubModules) {
-        // Check if this module should use right-side dropdown (Master Management)
+        // Debug: Log Reports module specifically
+        if (module.key === 'reports') {
+          console.log('🔍 Reports module found:', {
+            key: module.key,
+            hasSubModules: module.hasSubModules,
+            useRightSideDropdown: shouldUseRightSideDropdown(module.key),
+            isAlwaysVisible: isAlwaysVisible(module.key),
+            hasAnySubModuleAccess: hasAnySubModuleAccess(module.key, userModules)
+          });
+        }
+        // Check if this module should use right-side dropdown (Master Management or Reports)
         if (shouldUseRightSideDropdown(module.key)) {
-          // For master management, always show if alwaysVisible or has access
+          // For master management and reports, always show if alwaysVisible or has access
           if (isAlwaysVisible(module.key) || hasAnySubModuleAccess(module.key, userModules)) {
-            console.log('✅ Rendering master management with dropdown:', module.key);
-            return renderMasterManagementWithDropdown(module, userModules);
+            if (module.key === 'master_management') {
+              console.log('✅ Rendering master management with dropdown:', module.key);
+              return renderMasterManagementWithDropdown(module, userModules);
+            } else if (module.key === 'reports') {
+              console.log('✅ Rendering reports with dropdown:', module.key);
+              return renderReportsWithDropdown(module, userModules);
+            }
+          } else {
+            if (module.key === 'reports') {
+              console.log('❌ Reports module not showing - condition failed:', {
+                isAlwaysVisible: isAlwaysVisible(module.key),
+                hasAnySubModuleAccess: hasAnySubModuleAccess(module.key, userModules)
+              });
+            }
           }
           return null;
         }
@@ -1264,6 +1296,290 @@ function TallyDashboard() {
                     console.log('🖱️ Master dropdown item clicked:', subModule.key, subModule.id);
                     const canNavigate = handleSafeNavigation(subModule.id);
                     setMasterManagementDropdownOpen(false);
+                    if (canNavigate && showControlPanel) {
+                      handleCloseControlPanel();
+                    }
+                  }}
+                  style={{
+                    color: isSubActive ? '#ff9800' : '#fff',
+                    background: isSubActive 
+                      ? 'rgba(255, 152, 0, 0.15)' 
+                      : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: isSubActive ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                  onMouseEnter={e => {
+                    if (!isSubActive) {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                    }
+                  }}
+                  onMouseLeave={e => {
+                    if (!isSubActive) {
+                      e.currentTarget.style.background = 'transparent';
+                    }
+                  }}
+                >
+                  <span 
+                    className="material-icons" 
+                    style={{ 
+                      fontSize: 20, 
+                      color: isSubActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {subModule.icon}
+                  </span>
+                  <span>{subModule.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderReportsWithDropdown = (module, userModules) => {
+    // If parent module is alwaysVisible, show all submodules; otherwise filter by access
+    const accessibleSubModules = isAlwaysVisible(module.key) 
+      ? module.subModules 
+      : module.subModules.filter(subModule => 
+          isAlwaysVisible(subModule.key) || hasSubModuleAccess(subModule.key, userModules)
+        );
+    const isParentActive = activeSidebar === module.id || accessibleSubModules.some(sub => sub.id === activeSidebar);
+    
+    const updateButtonPosition = () => {
+      if (reportsButtonRef.current) {
+        const rect = reportsButtonRef.current.getBoundingClientRect();
+        const dropdownWidth = 220;
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        
+        // Calculate dropdown height based on actual item count
+        const itemCount = accessibleSubModules.length;
+        const estimatedDropdownHeight = (itemCount * 50) + 16; // 50px per item + 16px padding
+        
+        // Calculate initial top position
+        let topPosition = rect.top;
+        
+        // Check if dropdown would overflow bottom of viewport
+        if (topPosition + estimatedDropdownHeight > viewportHeight) {
+          // Move dropdown up so it fits within viewport
+          topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
+        }
+        
+        // Check if dropdown would overflow to the right
+        const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
+        let leftPosition;
+        
+        if (wouldOverflowRight) {
+          // Position to the left of button
+          leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
+        } else {
+          // Position to the right of button
+          leftPosition = rect.left + rect.width + 8;
+        }
+        
+        setReportsDropdownPosition({
+          top: topPosition,
+          left: leftPosition,
+          width: rect.width
+        });
+      }
+    };
+    
+    return (
+      <div key={module.key} style={{ marginBottom: 4, position: 'relative' }} ref={reportsDropdownRef}>
+        <button
+          ref={reportsButtonRef}
+          onClick={() => { 
+            setReportsDropdownOpen(!reportsDropdownOpen);
+            if (!reportsDropdownOpen) {
+              setTimeout(updateButtonPosition, 0);
+            }
+          }}
+          style={{
+            color: isParentActive ? '#ff9800' : '#fff',
+            background: isParentActive 
+              ? 'rgba(255, 152, 0, 0.08)' 
+              : 'transparent',
+            padding: '12px 16px',
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 14,
+            borderRadius: '12px',
+            fontWeight: isParentActive ? 700 : 500,
+            margin: '0',
+            border: isParentActive 
+              ? '1px solid rgba(255, 255, 255, 0.2)' 
+              : '1px solid transparent',
+            cursor: 'pointer',
+            justifyContent: sidebarOpen ? 'flex-start' : 'center',
+            position: 'relative',
+            width: '100%',
+            textAlign: 'left',
+            fontSize: '14px',
+            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+            flexWrap: 'nowrap',
+            boxShadow: isParentActive 
+              ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)' 
+              : 'none',
+          }}
+          title={module.label}
+          onMouseEnter={e => {
+            if (sidebarOpen) {
+              setReportsDropdownOpen(true);
+            }
+            if (!isParentActive) {
+              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+              e.currentTarget.style.color = '#fff';
+              e.currentTarget.style.transform = 'translateX(4px)';
+            }
+            if (!sidebarOpen) {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setSidebarTooltip({ show: true, text: module.label, top: rect.top + window.scrollY });
+              if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+              sidebarTooltipTimeout = setTimeout(() => {
+                setSidebarTooltip({ show: false, text: '', top: 0 });
+              }, 1500);
+            }
+          }}
+          onMouseLeave={e => {
+            if (!isParentActive) {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'rgba(255, 255, 255, 0.85)';
+              e.currentTarget.style.transform = 'translateX(0)';
+            }
+            if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+            setSidebarTooltip({ show: false, text: '', top: 0 });
+          }}
+        >
+          <span 
+            className="material-icons" 
+            style={{ 
+              fontSize: 22, 
+              color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
+              transition: 'color 0.2s',
+              flexShrink: 0,
+              marginTop: '2px',
+            }}
+          >
+            {module.icon}
+          </span>
+          {sidebarOpen && (
+            <>
+              <span 
+                className="sidebar-link-label" 
+                style={{
+                  fontSize: '14px',
+                  letterSpacing: '0.3px',
+                  whiteSpace: 'normal',
+                  wordWrap: 'break-word',
+                  lineHeight: '1.4',
+                  flex: 1,
+                }}
+              >
+                {module.label}
+              </span>
+              <span 
+                className="material-icons" 
+                style={{ 
+                  fontSize: 18, 
+                  color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
+                  transition: 'transform 0.2s',
+                  transform: reportsDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  flexShrink: 0,
+                }}
+              >
+                arrow_drop_down
+              </span>
+            </>
+          )}
+        </button>
+        
+        {/* Right-side dropdown menu */}
+        {sidebarOpen && reportsDropdownOpen && accessibleSubModules.length > 0 && (
+          <div 
+            ref={reportsDropdownRef}
+            style={{
+              position: 'fixed',
+              top: `${reportsDropdownPosition.top}px`,
+              left: `${reportsDropdownPosition.left}px`,
+              backgroundColor: '#1e3a8a',
+              border: '1px solid rgba(255, 255, 255, 0.2)',
+              borderRadius: '12px',
+              padding: '8px 0',
+              minWidth: '220px',
+              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
+              zIndex: 10000,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+            }}
+            onMouseEnter={() => {
+              setReportsDropdownOpen(true);
+              if (reportsButtonRef.current) {
+                const rect = reportsButtonRef.current.getBoundingClientRect();
+                const dropdownWidth = 220;
+                const viewportWidth = window.innerWidth;
+                const viewportHeight = window.innerHeight;
+                
+                // Calculate dropdown height based on actual item count
+                const itemCount = accessibleSubModules.length;
+                const estimatedDropdownHeight = (itemCount * 50) + 16; // 50px per item + 16px padding
+                
+                // Calculate initial top position
+                let topPosition = rect.top;
+                
+                // Check if dropdown would overflow bottom of viewport
+                if (topPosition + estimatedDropdownHeight > viewportHeight) {
+                  // Move dropdown up so it fits within viewport
+                  topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
+                }
+                
+                // Check if dropdown would overflow to the right
+                const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
+                let leftPosition;
+                
+                if (wouldOverflowRight) {
+                  // Position to the left of button
+                  leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
+                } else {
+                  // Position to the right of button
+                  leftPosition = rect.left + rect.width + 8;
+                }
+                
+                setReportsDropdownPosition({
+                  top: topPosition,
+                  left: leftPosition,
+                  width: rect.width
+                });
+              }
+            }}
+            onMouseLeave={() => setReportsDropdownOpen(false)}
+          >
+            {accessibleSubModules.map(subModule => {
+              const isSubActive = activeSidebar === subModule.id;
+              return (
+                <button
+                  key={subModule.key}
+                  onClick={(e) => { 
+                    e.preventDefault();
+                    e.stopPropagation();
+                    console.log('🖱️ Reports dropdown item clicked:', subModule.key, subModule.id);
+                    const canNavigate = handleSafeNavigation(subModule.id);
+                    setReportsDropdownOpen(false);
                     if (canNavigate && showControlPanel) {
                       handleCloseControlPanel();
                     }
@@ -2974,6 +3290,11 @@ function TallyDashboard() {
               <ReceivablesDashboard company={currentReceivablesCompany} />
             </div>
           )}
+          {activeSidebar === 'vendor_expenses' && (
+            <div style={{ margin: '-20px', padding: '0' }}>
+              <VendorExpenses />
+            </div>
+          )}
           {activeSidebar === 'receipt_find_party' && (
             <div style={{ margin: '-20px', padding: '0' }}>
               <ReceiptListScreenWrapper />
@@ -2985,7 +3306,8 @@ function TallyDashboard() {
             </div>
           )}
           {activeSidebar === 'voucher_authorization' && <VoucherAuthorization />}
-          {activeSidebar === 'reports' && <Reports />}
+          {activeSidebar === 'sales_order_report' && <SalesOrderReport />}
+          {activeSidebar === 'payment_voucher_report' && <PaymentVoucherReport />}
           {activeSidebar === 'cache_management' && <CacheManagement />}
           {activeSidebar === 'master_form' && <MasterForm key="master-form" />}
           {activeSidebar === 'master_authorization' && <MasterAuthorization />}
