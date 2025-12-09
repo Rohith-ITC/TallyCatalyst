@@ -18,6 +18,18 @@ function VendorExpenses() {
   const [vendors, setVendors] = useState([]);
   const [cashBankAccounts, setCashBankAccounts] = useState([]);
 
+  // Search and dropdown states for ledger/vendor
+  const [ledgerSearchTerm, setLedgerSearchTerm] = useState('');
+  const [showLedgerDropdown, setShowLedgerDropdown] = useState(false);
+  const [filteredLedgers, setFilteredLedgers] = useState([]);
+  const [ledgerFocused, setLedgerFocused] = useState(false);
+
+  // Search and dropdown states for cash/bank
+  const [cashBankSearchTerm, setCashBankSearchTerm] = useState('');
+  const [showCashBankDropdown, setShowCashBankDropdown] = useState(false);
+  const [filteredCashBankAccounts, setFilteredCashBankAccounts] = useState([]);
+  const [cashBankFocused, setCashBankFocused] = useState(false);
+
   // Loading states
   const [loadingVoucherTypes, setLoadingVoucherTypes] = useState(false);
   const [loadingExpenses, setLoadingExpenses] = useState(false);
@@ -427,9 +439,13 @@ function VendorExpenses() {
         setSuccessMessage('Payment voucher created successfully!');
         // Reset form
         setSelectedLedger('');
+        setLedgerSearchTerm('');
         setCashBank('');
+        setCashBankSearchTerm('');
         setAmount('');
         setNarration('');
+        setShowLedgerDropdown(false);
+        setShowCashBankDropdown(false);
       } else {
         setError(response?.message || 'Failed to create payment voucher');
       }
@@ -444,6 +460,127 @@ function VendorExpenses() {
   // Get current ledger options based on toggle
   const currentLedgerOptions = isExpenses ? expensesLedgers : vendors;
   const ledgerLabel = isExpenses ? 'Expense Ledger' : 'Vendor';
+
+  // Filter ledgers/vendors based on search term with debouncing
+  useEffect(() => {
+    const currentSearchTerm = ledgerSearchTerm.trim();
+
+    // Clear results immediately if search term is empty
+    if (!currentSearchTerm) {
+      return;
+    }
+
+    // Clear previous results immediately when search term changes
+    setFilteredLedgers([]);
+
+    // Debounce search to improve performance
+    const timeoutId = setTimeout(() => {
+      const searchLower = currentSearchTerm.toLowerCase();
+
+      // Search in NAME field
+      const exactMatches = [];
+      const startsWithMatches = [];
+      const containsMatches = [];
+
+      for (let i = 0; i < currentLedgerOptions.length; i++) {
+        const ledger = currentLedgerOptions[i];
+        const ledgerName = ledger.NAME || ledger.name || '';
+        const ledgerNameLower = ledgerName.toLowerCase();
+
+        if (ledgerNameLower.includes(searchLower)) {
+          // Prioritize exact matches
+          if (ledgerNameLower === searchLower) {
+            exactMatches.push(ledger);
+          } else if (ledgerNameLower.startsWith(searchLower)) {
+            startsWithMatches.push(ledger);
+          } else {
+            containsMatches.push(ledger);
+          }
+
+          // Early exit if we have enough results
+          if (exactMatches.length + startsWithMatches.length + containsMatches.length >= 50) {
+            break;
+          }
+        }
+      }
+
+      // Combine results in priority order
+      const filtered = [...exactMatches, ...startsWithMatches, ...containsMatches].slice(0, 50);
+      setFilteredLedgers(filtered);
+    }, 150); // 150ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [ledgerSearchTerm, currentLedgerOptions]);
+
+  // Show all ledgers when dropdown opens
+  useEffect(() => {
+    if (showLedgerDropdown && !ledgerSearchTerm.trim() && currentLedgerOptions.length > 0) {
+      setFilteredLedgers(currentLedgerOptions);
+    }
+  }, [showLedgerDropdown, ledgerSearchTerm, currentLedgerOptions.length]);
+
+  // Filter cash/bank accounts based on search term with debouncing
+  useEffect(() => {
+    const currentSearchTerm = cashBankSearchTerm.trim();
+
+    // Clear results immediately if search term is empty
+    if (!currentSearchTerm) {
+      return;
+    }
+
+    // Clear previous results immediately when search term changes
+    setFilteredCashBankAccounts([]);
+
+    // Debounce search to improve performance
+    const timeoutId = setTimeout(() => {
+      const searchLower = currentSearchTerm.toLowerCase();
+
+      // Search in name and parent fields
+      const exactMatches = [];
+      const startsWithMatches = [];
+      const containsMatches = [];
+
+      for (let i = 0; i < cashBankAccounts.length; i++) {
+        const account = cashBankAccounts[i];
+        const accountName = account.name || account.NAME || '';
+        const accountParent = account.parent || account.PARENT || '';
+        const accountNameLower = accountName.toLowerCase();
+        const accountParentLower = accountParent.toLowerCase();
+
+        const nameMatch = accountNameLower.includes(searchLower);
+        const parentMatch = accountParentLower.includes(searchLower);
+
+        if (nameMatch || parentMatch) {
+          // Prioritize exact matches
+          if (accountNameLower === searchLower || accountParentLower === searchLower) {
+            exactMatches.push(account);
+          } else if (accountNameLower.startsWith(searchLower) || accountParentLower.startsWith(searchLower)) {
+            startsWithMatches.push(account);
+          } else {
+            containsMatches.push(account);
+          }
+
+          // Early exit if we have enough results
+          if (exactMatches.length + startsWithMatches.length + containsMatches.length >= 50) {
+            break;
+          }
+        }
+      }
+
+      // Combine results in priority order
+      const filtered = [...exactMatches, ...startsWithMatches, ...containsMatches].slice(0, 50);
+      setFilteredCashBankAccounts(filtered);
+    }, 150); // 150ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [cashBankSearchTerm, cashBankAccounts]);
+
+  // Show all cash/bank accounts when dropdown opens
+  useEffect(() => {
+    if (showCashBankDropdown && !cashBankSearchTerm.trim() && cashBankAccounts.length > 0) {
+      setFilteredCashBankAccounts(cashBankAccounts);
+    }
+  }, [showCashBankDropdown, cashBankSearchTerm, cashBankAccounts.length]);
 
   return (
     <div style={{ 
@@ -603,6 +740,9 @@ function VendorExpenses() {
                     onClick={() => {
                       setIsExpenses(true);
                       setSelectedLedger('');
+                      setLedgerSearchTerm('');
+                      setShowLedgerDropdown(false);
+                      setFilteredLedgers([]);
                     }}
                     style={{
                       flex: 1,
@@ -625,6 +765,9 @@ function VendorExpenses() {
                     onClick={() => {
                       setIsExpenses(false);
                       setSelectedLedger('');
+                      setLedgerSearchTerm('');
+                      setShowLedgerDropdown(false);
+                      setFilteredLedgers([]);
                     }}
                     style={{
                       flex: 1,
@@ -644,7 +787,7 @@ function VendorExpenses() {
                 </div>
               </div>
 
-              {/* Ledger/Vendor Dropdown */}
+              {/* Ledger/Vendor Searchable Dropdown */}
               <div>
                 <label style={{
                   display: 'block',
@@ -656,65 +799,235 @@ function VendorExpenses() {
                 }}>
                   {ledgerLabel}
                 </label>
-                <select
-                  value={selectedLedger}
-                  onChange={(e) => setSelectedLedger(e.target.value)}
-                  disabled={isExpenses ? loadingExpenses : loadingVendors}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '15px',
-                    backgroundColor: '#fff',
-                    color: '#111827',
-                    cursor: (isExpenses ? loadingExpenses : loadingVendors) ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s',
-                    appearance: 'none',
-                    backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 12 12\'%3E%3Cpath fill=\'%236b7280\' d=\'M6 9L1 4h10z\'/%3E%3C/svg%3E")',
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 12px center',
-                    paddingRight: '40px'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                >
-                  {(isExpenses ? loadingExpenses : loadingVendors) ? (
-                    <option>Loading...</option>
-                  ) : (
-                    <>
-                      <option value="">Select {ledgerLabel}</option>
-                      {currentLedgerOptions.length === 0 ? (
-                        <option value="">No {ledgerLabel.toLowerCase()} available</option>
-                      ) : (
-                        currentLedgerOptions.map((ledger) => {
-                          const ledgerName = ledger.NAME || ledger.name || '';
-                          const groupList = ledger.GROUPLIST || ledger.groupList || '';
-                          let parentGroup = '';
-                          if (Array.isArray(groupList)) {
-                            parentGroup = groupList.find(g => 
-                              g && g.toLowerCase().includes('sundry creditors')
-                            ) || groupList[0] || '';
-                          } else if (typeof groupList === 'string') {
-                            const match = groupList.match(/sundry creditors?/i);
-                            parentGroup = match ? match[0] : groupList;
-                          }
-                          const displayName = isExpenses 
-                            ? ledgerName
-                            : parentGroup ? `${ledgerName} (${parentGroup})` : ledgerName;
-                          const value = ledgerName;
-                          const key = ledger.MASTERID || ledger.masterId || ledger.id || value || Math.random();
-                          
-                          return (
-                            <option key={key} value={value}>
-                              {displayName}
-                            </option>
-                          );
-                        })
-                      )}
-                    </>
+                <div style={{
+                  position: 'relative',
+                  background: 'white',
+                  borderRadius: '8px',
+                  border: showLedgerDropdown ? '2px solid #3b82f6' : '1px solid #d1d5db',
+                  transition: 'all 0.2s ease',
+                  boxShadow: showLedgerDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
+                  zIndex: showLedgerDropdown ? 1001 : 'auto'
+                }}>
+                  <input
+                    type="text"
+                    value={selectedLedger || ledgerSearchTerm}
+                    onChange={(e) => {
+                      const inputValue = e.target.value;
+                      setLedgerSearchTerm(inputValue);
+                      setSelectedLedger('');
+                      setShowLedgerDropdown(true);
+                      if (!inputValue.trim()) {
+                        setFilteredLedgers(currentLedgerOptions);
+                      } else {
+                        setFilteredLedgers([]);
+                      }
+                    }}
+                    onFocus={() => {
+                      setLedgerFocused(true);
+                      setShowLedgerDropdown(true);
+                      setFilteredLedgers(currentLedgerOptions);
+                    }}
+                    onBlur={(e) => {
+                      setLedgerFocused(false);
+                      setTimeout(() => {
+                        setShowLedgerDropdown(false);
+                      }, 200);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setShowLedgerDropdown(false);
+                        e.target.blur();
+                      }
+                    }}
+                    disabled={(isExpenses ? loadingExpenses : loadingVendors)}
+                    placeholder={(isExpenses ? loadingExpenses : loadingVendors) ? 'Loading...' : `Search ${ledgerLabel.toLowerCase()}...`}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      paddingRight: selectedLedger ? '50px' : '40px',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '15px',
+                      color: '#374151',
+                      outline: 'none',
+                      background: 'transparent',
+                      cursor: (isExpenses ? loadingExpenses : loadingVendors) ? 'not-allowed' : 'text',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                  {!selectedLedger && (
+                    <span
+                      className="material-icons"
+                      style={{
+                        position: 'absolute',
+                        right: '16px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: showLedgerDropdown ? '#3b82f6' : '#9ca3af',
+                        fontSize: '20px',
+                        pointerEvents: 'none',
+                        transition: 'color 0.2s ease'
+                      }}
+                    >
+                      {showLedgerDropdown ? 'expand_less' : 'search'}
+                    </span>
                   )}
-                </select>
+                  {selectedLedger && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedLedger('');
+                        setLedgerSearchTerm('');
+                        setShowLedgerDropdown(false);
+                        setFilteredLedgers(currentLedgerOptions);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        borderRadius: '50%',
+                        color: '#64748b',
+                        fontSize: '18px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'color 0.2s ease'
+                      }}
+                      title={`Clear ${ledgerLabel.toLowerCase()}`}
+                    >
+                      ×
+                    </button>
+                  )}
+                  {(isExpenses ? loadingExpenses : loadingVendors) && (
+                    <div style={{
+                      position: 'absolute',
+                      right: selectedLedger ? '40px' : '50px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: 16,
+                      height: 16,
+                      border: '2px solid #e5e7eb',
+                      borderTop: '2px solid #3b82f6',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite'
+                    }} />
+                  )}
+                  {showLedgerDropdown && (
+                    <div
+                      onMouseDown={(e) => e.preventDefault()}
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 8px)',
+                        left: 0,
+                        right: 0,
+                        backgroundColor: 'white',
+                        border: '2px solid #3b82f6',
+                        borderRadius: '8px',
+                        maxHeight: '300px',
+                        overflowY: 'auto',
+                        zIndex: 9999,
+                        boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
+                        marginTop: '0',
+                        minHeight: '50px'
+                      }}
+                    >
+                      {ledgerSearchTerm.trim() && filteredLedgers.length === 0 && (
+                        <div style={{
+                          padding: '16px',
+                          textAlign: 'center',
+                          color: '#64748b',
+                          fontSize: '14px'
+                        }}>
+                          <div style={{
+                            width: '20px',
+                            height: '20px',
+                            border: '2px solid #e2e8f0',
+                            borderTop: '2px solid #3b82f6',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite',
+                            margin: '0 auto 8px auto'
+                          }} />
+                          Searching {currentLedgerOptions.length.toLocaleString()} {ledgerLabel.toLowerCase()}...
+                        </div>
+                      )}
+                      {filteredLedgers.map((ledger, index) => {
+                        const ledgerName = ledger.NAME || ledger.name || '';
+                        return (
+                          <div
+                            key={ledger.MASTERID || ledger.masterId || ledger.id || ledgerName || index}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setSelectedLedger(ledgerName);
+                              setLedgerSearchTerm('');
+                              setShowLedgerDropdown(false);
+                              setFilteredLedgers([]);
+                            }}
+                            style={{
+                              padding: '12px 16px',
+                              cursor: 'pointer',
+                              borderBottom: index < filteredLedgers.length - 1 ? '1px solid #f1f5f9' : 'none',
+                              transition: 'background-color 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.target.style.backgroundColor = '#f8fafc';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.backgroundColor = 'white';
+                            }}
+                          >
+                            <div style={{
+                              fontWeight: '600',
+                              color: '#1e293b',
+                              fontSize: '14px'
+                            }}>
+                              {ledgerName}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {filteredLedgers.length === 50 && (
+                        <div style={{
+                          padding: '12px 16px',
+                          textAlign: 'center',
+                          color: '#64748b',
+                          fontSize: '12px',
+                          fontStyle: 'italic',
+                          borderTop: '1px solid #f1f5f9',
+                          backgroundColor: '#f8fafc'
+                        }}>
+                          Showing first 50 results. Refine your search for more specific results.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {showLedgerDropdown && ledgerSearchTerm.trim() && filteredLedgers.length === 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: 'white',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      padding: '16px',
+                      textAlign: 'center',
+                      color: '#64748b',
+                      fontSize: '14px',
+                      zIndex: 1000,
+                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+                      marginTop: '4px'
+                    }}>
+                      No {ledgerLabel.toLowerCase()} found matching "{ledgerSearchTerm}"
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -751,44 +1064,246 @@ function VendorExpenses() {
                     {cashBankError}
                   </div>
                 )}
-                <select
-                  value={cashBank}
-                  onChange={(e) => setCashBank(e.target.value)}
-                  disabled={loadingCashBank}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: cashBankError ? '1px solid #dc2626' : '1px solid #d1d5db',
-                    borderRadius: '8px',
-                    fontSize: '15px',
-                    backgroundColor: cashBankError ? '#fff5f5' : '#fff',
-                    color: '#111827',
-                    cursor: loadingCashBank ? 'not-allowed' : 'pointer',
-                    transition: 'all 0.2s',
-                    appearance: 'none',
-                    backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 12 12\'%3E%3Cpath fill=\'%236b7280\' d=\'M6 9L1 4h10z\'/%3E%3C/svg%3E")',
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 12px center',
-                    paddingRight: '40px'
-                  }}
-                  onFocus={(e) => e.target.style.borderColor = cashBankError ? '#dc2626' : '#3b82f6'}
-                  onBlur={(e) => e.target.style.borderColor = cashBankError ? '#dc2626' : '#d1d5db'}
-                >
-                  {loadingCashBank ? (
-                    <option>Loading...</option>
-                  ) : cashBankAccounts.length === 0 ? (
-                    <option value="">No accounts available</option>
-                  ) : (
-                    <>
-                      <option value="">Select Cash/Bank Account</option>
-                      {cashBankAccounts.map((account) => (
-                        <option key={account.masterId} value={account.name}>
-                          {account.name} ({account.parent})
-                        </option>
-                      ))}
-                    </>
+                <div style={{
+                  position: 'relative',
+                  background: 'white',
+                  borderRadius: '8px',
+                  border: showCashBankDropdown ? '2px solid #3b82f6' : (cashBankError ? '1px solid #dc2626' : '1px solid #d1d5db'),
+                  transition: 'all 0.2s ease',
+                  boxShadow: showCashBankDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
+                  zIndex: showCashBankDropdown ? 1001 : 'auto',
+                  backgroundColor: cashBankError ? '#fff5f5' : 'white'
+                }}>
+                  <input
+                    type="text"
+                    value={cashBank || cashBankSearchTerm}
+                    onChange={(e) => {
+                      const inputValue = e.target.value;
+                      setCashBankSearchTerm(inputValue);
+                      setCashBank('');
+                      setShowCashBankDropdown(true);
+                      if (!inputValue.trim()) {
+                        setFilteredCashBankAccounts(cashBankAccounts);
+                      } else {
+                        setFilteredCashBankAccounts([]);
+                      }
+                    }}
+                    onFocus={() => {
+                      setCashBankFocused(true);
+                      setShowCashBankDropdown(true);
+                      setFilteredCashBankAccounts(cashBankAccounts);
+                    }}
+                    onBlur={(e) => {
+                      setCashBankFocused(false);
+                      setTimeout(() => {
+                        setShowCashBankDropdown(false);
+                      }, 200);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setShowCashBankDropdown(false);
+                        e.target.blur();
+                      }
+                    }}
+                    disabled={loadingCashBank}
+                    placeholder={loadingCashBank ? 'Loading...' : 'Search cash/bank account...'}
+                    style={{
+                      width: '100%',
+                      padding: '12px 16px',
+                      paddingRight: cashBank ? '50px' : '40px',
+                      border: 'none',
+                      borderRadius: '8px',
+                      fontSize: '15px',
+                      color: '#111827',
+                      outline: 'none',
+                      background: 'transparent',
+                      cursor: loadingCashBank ? 'not-allowed' : 'text',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                  {!cashBank && (
+                    <span
+                      className="material-icons"
+                      style={{
+                        position: 'absolute',
+                        right: '16px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: showCashBankDropdown ? '#3b82f6' : '#9ca3af',
+                        fontSize: '20px',
+                        pointerEvents: 'none',
+                        transition: 'color 0.2s ease'
+                      }}
+                    >
+                      {showCashBankDropdown ? 'expand_less' : 'search'}
+                    </span>
                   )}
-                </select>
+                  {cashBank && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCashBank('');
+                        setCashBankSearchTerm('');
+                        setShowCashBankDropdown(false);
+                        setFilteredCashBankAccounts(cashBankAccounts);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        borderRadius: '50%',
+                        color: '#64748b',
+                        fontSize: '18px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'color 0.2s ease'
+                      }}
+                      title="Clear cash/bank account"
+                    >
+                      ×
+                    </button>
+                  )}
+                  {loadingCashBank && (
+                    <div style={{
+                      position: 'absolute',
+                      right: cashBank ? '40px' : '50px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: 16,
+                      height: 16,
+                      border: '2px solid #e5e7eb',
+                      borderTop: '2px solid #3b82f6',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite'
+                    }} />
+                  )}
+                  {showCashBankDropdown && (
+                    <div
+                      onMouseDown={(e) => e.preventDefault()}
+                      style={{
+                        position: 'absolute',
+                        top: 'calc(100% + 8px)',
+                        left: 0,
+                        right: 0,
+                        backgroundColor: 'white',
+                        border: '2px solid #3b82f6',
+                        borderRadius: '8px',
+                        maxHeight: '300px',
+                        overflowY: 'auto',
+                        zIndex: 9999,
+                        boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
+                        marginTop: '0',
+                        minHeight: '50px'
+                      }}
+                    >
+                      {cashBankSearchTerm.trim() && filteredCashBankAccounts.length === 0 && (
+                        <div style={{
+                          padding: '16px',
+                          textAlign: 'center',
+                          color: '#64748b',
+                          fontSize: '14px'
+                        }}>
+                          <div style={{
+                            width: '20px',
+                            height: '20px',
+                            border: '2px solid #e2e8f0',
+                            borderTop: '2px solid #3b82f6',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite',
+                            margin: '0 auto 8px auto'
+                          }} />
+                          Searching {cashBankAccounts.length.toLocaleString()} accounts...
+                        </div>
+                      )}
+                      {filteredCashBankAccounts.map((account, index) => {
+                        const accountName = account.name || account.NAME || '';
+                        const accountParent = account.parent || account.PARENT || '';
+                        return (
+                          <div
+                            key={account.masterId || account.id || accountName || index}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setCashBank(accountName);
+                              setCashBankSearchTerm('');
+                              setShowCashBankDropdown(false);
+                              setFilteredCashBankAccounts([]);
+                            }}
+                            style={{
+                              padding: '12px 16px',
+                              cursor: 'pointer',
+                              borderBottom: index < filteredCashBankAccounts.length - 1 ? '1px solid #f1f5f9' : 'none',
+                              transition: 'background-color 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.target.style.backgroundColor = '#f8fafc';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.target.style.backgroundColor = 'white';
+                            }}
+                          >
+                            <div style={{
+                              fontWeight: '600',
+                              color: '#1e293b',
+                              fontSize: '14px'
+                            }}>
+                              {accountName}
+                            </div>
+                            {accountParent && (
+                              <div style={{
+                                fontSize: '12px',
+                                color: '#64748b',
+                                marginTop: '2px'
+                              }}>
+                                {accountParent}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {filteredCashBankAccounts.length === 50 && (
+                        <div style={{
+                          padding: '12px 16px',
+                          textAlign: 'center',
+                          color: '#64748b',
+                          fontSize: '12px',
+                          fontStyle: 'italic',
+                          borderTop: '1px solid #f1f5f9',
+                          backgroundColor: '#f8fafc'
+                        }}>
+                          Showing first 50 results. Refine your search for more specific results.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {showCashBankDropdown && cashBankSearchTerm.trim() && filteredCashBankAccounts.length === 0 && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '100%',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: 'white',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      padding: '16px',
+                      textAlign: 'center',
+                      color: '#64748b',
+                      fontSize: '14px',
+                      zIndex: 1000,
+                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+                      marginTop: '4px'
+                    }}>
+                      No accounts found matching "{cashBankSearchTerm}"
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Amount - aligned under Toggle */}
