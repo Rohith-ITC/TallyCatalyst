@@ -792,66 +792,6 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-
-.filter-input-inline {
-  width: 100%;
-  min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 13px;
-  box-sizing: border-box;
-  margin: 0;
-  display: block;
-  max-width: 100%;
-}
-
-.filter-input-inline:focus {
-  outline: none;
-  border-color: #007AFF;
-}
-
-.filter-input-inline::placeholder {
-  color: #999;
-}
-
-.filter-select-inline {
-  width: 100%;
-  min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 13px;
-  box-sizing: border-box;
-  background-color: #fff;
-  margin: 0;
-  cursor: pointer;
-  display: block;
-  max-width: 100%;
-}
-
-.filter-select-inline:focus {
-  outline: none;
-  border-color: #007AFF;
-}
-
-.clear-filters-button-inline {
-  padding: 6px 10px;
-  border-radius: 4px;
-  background-color: #dc3545;
-  color: #fff;
-  border: none;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  white-space: nowrap;
-}
-
-.clear-filters-button-inline:hover {
-  background-color: #c82333;
-}
-
 .pagination-button {
   padding: 8px 16px;
   border-radius: 6px;
@@ -1287,19 +1227,6 @@
 
 /* Additional styles for very small screens */
 @media (max-width: 375px) {
-  .receipt-list-header {
-    padding: 10px 12px !important;
-  }
-
-  .header-title {
-    font-size: 16px !important;
-  }
-
-  .config-button {
-    font-size: 11px !important;
-    padding: 6px 8px !important;
-  }
-
   .receipt-list-content {
     padding: 8px !important;
   }
