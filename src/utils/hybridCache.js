@@ -1987,6 +1987,16 @@ class IndexedDBBackend {
     }
   }
 
+  async deleteDashboardState(cacheKey) {
+    try {
+      await this.init();
+      await this.db.dashboardState.delete(cacheKey);
+      console.log(`🧹 Deleted dashboard state from IndexedDB: ${cacheKey}`);
+    } catch (error) {
+      console.error('Error deleting dashboard state in IndexedDB:', error);
+    }
+  }
+
   async deleteCacheKey(cacheKey) {
     try {
       await this.init();

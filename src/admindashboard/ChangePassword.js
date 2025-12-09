@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../config';
 import { apiPost } from '../utils/apiUtils';
-import TallyLogo from '../DLlogo.png';
+import TallyLogo from '../DLrlogo.png';
 
 function ChangePassword() {
   const email = sessionStorage.getItem('email');

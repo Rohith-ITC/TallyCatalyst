@@ -1,19 +1,19 @@
 {
-  "short_name": "DataLynk",
-  "name": "DataLynk",
+  "short_name": "DataLynkr",
+  "name": "DataLynkr",
   "icons": [
     {
-      "src": "DLlogo.png",
+      "src": "DLrlogo.png",
       "sizes": "64x64 32x32 24x24 16x16",
       "type": "image/png"
     },
     {
-      "src": "DLlogo.png",
+      "src": "DLrlogo.png",
       "type": "image/png",
       "sizes": "192x192"
     },
     {
-      "src": "DLlogo.png",
+      "src": "DLrlogo.png",
       "type": "image/png",
       "sizes": "512x512"
     }
