@@ -8,6 +8,8 @@ import { deobfuscateStockItems, testDeobfuscation, enhancedDeobfuscateValue } fr
 
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
 
+import { getCustomersFromOPFS } from '../utils/cacheSyncManager';
+
 
 
 function PlaceOrder() {
@@ -16,7 +18,7 @@ function PlaceOrder() {
 
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
-  
+
 
   useEffect(() => {
 
@@ -1070,7 +1072,7 @@ function PlaceOrder() {
   const [selectedItemUnitConfig, setSelectedItemUnitConfig] = useState(null);
 
   const [quantityInput, setQuantityInput] = useState(''); // Single text input (e.g., "10 Box", "5 Nos", "2 Kgs 500 Gms")
-  
+
   // Rate UOM state (independent of quantity UOM)
   const [rateUOM, setRateUOM] = useState('base'); // 'base' or 'additional'
   const [showRateUOMDropdown, setShowRateUOMDropdown] = useState(false);
@@ -1242,13 +1244,13 @@ function PlaceOrder() {
     if (unitsArray && Array.isArray(unitsArray) && unitsArray.length > 0) {
       // Find base unit in units array (case-insensitive match)
       if (item.BASEUNITS) {
-        const baseUnit = unitsArray.find(u => 
-          u.NAME && item.BASEUNITS && 
+        const baseUnit = unitsArray.find(u =>
+          u.NAME && item.BASEUNITS &&
           u.NAME.toLowerCase() === item.BASEUNITS.toLowerCase()
         );
         if (baseUnit) {
           // DECIMALPLACES can be string or number - convert to number
-          const decimalPlaces = typeof baseUnit.DECIMALPLACES === 'string' 
+          const decimalPlaces = typeof baseUnit.DECIMALPLACES === 'string'
             ? parseInt(baseUnit.DECIMALPLACES) || 0
             : (baseUnit.DECIMALPLACES || 0);
           config.BASEUNIT_DECIMAL = decimalPlaces;
@@ -1271,7 +1273,7 @@ function PlaceOrder() {
             if (baseUnit.ADDITIONALUNITS) {
               const subUnit = unitsArray.find(u => u.NAME === baseUnit.ADDITIONALUNITS);
               if (subUnit) {
-                const subDecimalPlaces = typeof subUnit.DECIMALPLACES === 'string' 
+                const subDecimalPlaces = typeof subUnit.DECIMALPLACES === 'string'
                   ? parseInt(subUnit.DECIMALPLACES) || 0
                   : (subUnit.DECIMALPLACES || 0);
                 config.BASEUNITCOMP_ADDLUNIT_DECIMAL = subDecimalPlaces;
@@ -1285,13 +1287,13 @@ function PlaceOrder() {
 
       // Find additional unit in units array (only if ADDITIONALUNITS is not empty)
       if (item.ADDITIONALUNITS && item.ADDITIONALUNITS.trim() !== '') {
-        const addlUnit = unitsArray.find(u => 
+        const addlUnit = unitsArray.find(u =>
           u.NAME && item.ADDITIONALUNITS &&
           u.NAME.toLowerCase() === item.ADDITIONALUNITS.toLowerCase()
         );
         if (addlUnit) {
           // DECIMALPLACES can be string or number - convert to number
-          const decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string' 
+          const decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string'
             ? parseInt(addlUnit.DECIMALPLACES) || 0
             : (addlUnit.DECIMALPLACES || 0);
           config.ADDITIONALUNITS_DECIMAL = decimalPlaces;
@@ -1305,7 +1307,7 @@ function PlaceOrder() {
             if (addlUnit.ADDITIONALUNITS) {
               const subUnit = unitsArray.find(u => u.NAME === addlUnit.ADDITIONALUNITS);
               if (subUnit) {
-                const subDecimalPlaces = typeof subUnit.DECIMALPLACES === 'string' 
+                const subDecimalPlaces = typeof subUnit.DECIMALPLACES === 'string'
                   ? parseInt(subUnit.DECIMALPLACES) || 0
                   : (subUnit.DECIMALPLACES || 0);
                 config.ADDLUNITCOMP_ADDLUNIT_DECIMAL = subDecimalPlaces;
@@ -1333,7 +1335,7 @@ function PlaceOrder() {
       isBlur,
       unitsArraySample: unitsArray && unitsArray.length > 0 ? unitsArray.slice(0, 2) : 'empty'
     });
-    
+
     if (!input || !unitConfig) return input;
 
     const trimmed = input.trim();
@@ -1356,7 +1358,7 @@ function PlaceOrder() {
       if (baseCompBase) allowedUnits.push(baseCompBase);
       if (baseCompAddl) allowedUnits.push(baseCompAddl);
     }
-    
+
     // Also check if BASEUNITS itself is a compound unit name (like "LTR of 1000 ML")
     // In this case, we need to look up the unit in units array to get component units
     if (unitConfig.BASEUNITS && unitsArray && unitsArray.length > 0) {
@@ -1384,7 +1386,7 @@ function PlaceOrder() {
       if (trimmed.endsWith('.') && !trimmed.endsWith('..')) {
         // Check if unit allows decimals
         let decimalPlaces = null;
-        
+
         // First try to get decimal places from units array
         if (unitsArray && unitsArray.length > 0) {
           const baseUnit = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
@@ -1392,38 +1394,38 @@ function PlaceOrder() {
             decimalPlaces = parseInt(baseUnit.DECIMALPLACES) || 0;
           }
         }
-        
+
         // Fallback to unitConfig if units array not available or unit not found
         if (decimalPlaces === null && unitConfig.BASEUNIT_DECIMAL !== undefined) {
           decimalPlaces = parseInt(unitConfig.BASEUNIT_DECIMAL) || 0;
         }
-        
+
         // If still no decimal places info, default to 0 (no decimals allowed)
         if (decimalPlaces === null) {
           decimalPlaces = 0;
         }
-        
+
         if (decimalPlaces === 0) {
           // Remove the decimal point immediately
           return trimmed.slice(0, -1);
         }
-        
+
         return trimmed; // Allow decimal point if unit allows decimals
       }
-      
+
       const simpleNumber = parseFloat(trimmed);
       if (!isNaN(simpleNumber)) {
         let decimalPlaces = null;
-        
+
         // First try to get decimal places from units array (case-insensitive match)
         if (unitsArray && unitsArray.length > 0 && unitConfig.BASEUNITS) {
-          const baseUnit = unitsArray.find(u => 
-            u.NAME && unitConfig.BASEUNITS && 
+          const baseUnit = unitsArray.find(u =>
+            u.NAME && unitConfig.BASEUNITS &&
             u.NAME.toLowerCase() === unitConfig.BASEUNITS.toLowerCase()
           );
           if (baseUnit) {
             // DECIMALPLACES can be string or number
-            decimalPlaces = typeof baseUnit.DECIMALPLACES === 'string' 
+            decimalPlaces = typeof baseUnit.DECIMALPLACES === 'string'
               ? parseInt(baseUnit.DECIMALPLACES) || 0
               : (baseUnit.DECIMALPLACES || 0);
             console.log('validateQuantityInput: Found base unit in units array', {
@@ -1441,11 +1443,11 @@ function PlaceOrder() {
             });
           }
         }
-        
+
         // Fallback to unitConfig if units array not available or unit not found
         if (decimalPlaces === null && unitConfig.BASEUNIT_DECIMAL !== undefined) {
           // BASEUNIT_DECIMAL should already be a number, but handle both cases
-          decimalPlaces = typeof unitConfig.BASEUNIT_DECIMAL === 'string' 
+          decimalPlaces = typeof unitConfig.BASEUNIT_DECIMAL === 'string'
             ? parseInt(unitConfig.BASEUNIT_DECIMAL) || 0
             : (unitConfig.BASEUNIT_DECIMAL || 0);
           console.log('validateQuantityInput: Using unitConfig BASEUNIT_DECIMAL', {
@@ -1454,17 +1456,17 @@ function PlaceOrder() {
             parsed: decimalPlaces
           });
         }
-        
+
         // If still no decimal places info, try to look it up from units array one more time
         // (in case units array just loaded)
         if (decimalPlaces === null && unitsArray && unitsArray.length > 0 && unitConfig.BASEUNITS) {
-          const baseUnit = unitsArray.find(u => 
-            u.NAME && unitConfig.BASEUNITS && 
+          const baseUnit = unitsArray.find(u =>
+            u.NAME && unitConfig.BASEUNITS &&
             u.NAME.toLowerCase() === unitConfig.BASEUNITS.toLowerCase()
           );
           if (baseUnit) {
             // DECIMALPLACES can be string or number
-            decimalPlaces = typeof baseUnit.DECIMALPLACES === 'string' 
+            decimalPlaces = typeof baseUnit.DECIMALPLACES === 'string'
               ? parseInt(baseUnit.DECIMALPLACES) || 0
               : (baseUnit.DECIMALPLACES || 0);
             console.log('validateQuantityInput: Found unit on retry', {
@@ -1476,7 +1478,7 @@ function PlaceOrder() {
             });
           }
         }
-        
+
         // If still no decimal places info, default to 0 (round decimals)
         if (decimalPlaces === null) {
           decimalPlaces = 0;
@@ -1486,7 +1488,7 @@ function PlaceOrder() {
             baseUnitDecimal: unitConfig.BASEUNIT_DECIMAL
           });
         }
-        
+
         // Apply decimal place validation
         if (decimalPlaces === 0 && trimmed.includes('.')) {
           // No decimals allowed - round to nearest integer (10.2 -> 10, 10.6 -> 11)
@@ -1511,7 +1513,7 @@ function PlaceOrder() {
             }
           }
         }
-        
+
         return trimmed;
       }
     }
@@ -1522,22 +1524,22 @@ function PlaceOrder() {
       // Try simple format first: "number unit = number unit"
       const simpleCustomConversionPattern = /^(\d+(?:\.\d+)?)\s*(\w+)\s*[=]?\s*(\d+(?:\.\d+)?)\s*(\w+)$/i;
       let customConversionMatch = trimmed.match(simpleCustomConversionPattern);
-      
+
       // If simple format doesn't match, try compound format on right side: "number unit = number unit number unit"
       if (!customConversionMatch) {
         const compoundRightPattern = /^(\d+(?:\.\d+)?)\s*(\w+)\s*[=]?\s*(\d+(?:\.\d+)?)\s*(\w+)\s+(\d+(?:\.\d+)?)\s*(\w+)$/i;
         customConversionMatch = trimmed.match(compoundRightPattern);
       }
-      
+
       // If still no match, try compound format on left side: "number unit number unit = number unit"
       if (!customConversionMatch) {
         const compoundLeftPattern = /^(\d+(?:\.\d+)?)\s*(\w+)\s+(\d+(?:\.\d+)?)\s*(\w+)\s*[=]?\s*(\d+(?:\.\d+)?)\s*(\w+)$/i;
         customConversionMatch = trimmed.match(compoundLeftPattern);
       }
-      
+
       if (customConversionMatch) {
         let qty1, unit1, qty2, unit2, qty3, unit3;
-        
+
         if (customConversionMatch.length === 5) {
           // Simple format: "number unit = number unit"
           qty1 = parseFloat(customConversionMatch[1]);
@@ -1555,7 +1557,7 @@ function PlaceOrder() {
           qty3 = parseFloat(customConversionMatch[5]);
           unit3 = customConversionMatch[6].toLowerCase();
         }
-        
+
         // Helper function to check if a unit matches (supports full name and abbreviations)
         const unitMatches = (inputUnit, targetUnit) => {
           if (!inputUnit || !targetUnit) return false;
@@ -1578,10 +1580,10 @@ function PlaceOrder() {
           if (wordBoundaryRegex.test(targetLower)) return true;
           return false;
         };
-        
+
         const baseUnitLower = unitConfig.BASEUNITS.toLowerCase();
         const addlUnitLower = unitConfig.ADDITIONALUNITS.toLowerCase();
-        
+
         // Check if BASEUNITS is compound and get component units
         let baseCompBaseUnit = null;
         let baseCompAddlUnit = null;
@@ -1594,30 +1596,30 @@ function PlaceOrder() {
             baseCompConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
           }
         }
-        
+
         // Determine which side is base and which is additional
         let baseQty, addlQty, isBaseCompound = false, baseMainQty = 0, baseSubQty = 0;
         let baseMainUnit = '', baseSubUnit = '';
-        
+
         // FIRST: Determine which side is compound (has qty3 and unit3, and right side has 3 parts)
         // For "number unit = number unit number unit": right is compound
         // For "number unit number unit = number unit": left is compound
         const hasThreeParts = qty3 !== null && unit3 !== null;
         let rightIsCompound = false;
         let leftIsCompound = false;
-        
+
         if (hasThreeParts) {
           // Determine which side is compound by checking where the = sign is
           if (trimmed.includes('=')) {
             const parts = trimmed.split('=');
             const leftPart = parts[0].trim();
             const rightPart = parts[1].trim();
-            
+
             // Check if left part matches compound pattern (has two units)
             const leftHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(leftPart);
             // Check if right part matches compound pattern (has two units)
             const rightHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(rightPart);
-            
+
             if (leftHasTwoUnits && !rightHasTwoUnits) {
               leftIsCompound = true;
             } else if (!leftHasTwoUnits && rightHasTwoUnits) {
@@ -1628,47 +1630,47 @@ function PlaceOrder() {
             // If unit1 and unit2 match base component units, left is compound
             if (baseCompBaseUnit && baseCompAddlUnit) {
               if ((unitMatches(unit1, baseCompBaseUnit) || unitMatches(unit1, baseCompAddlUnit)) &&
-                  (unitMatches(unit2, baseCompBaseUnit) || unitMatches(unit2, baseCompAddlUnit)) &&
-                  unitMatches(unit3, addlUnitLower)) {
+                (unitMatches(unit2, baseCompBaseUnit) || unitMatches(unit2, baseCompAddlUnit)) &&
+                unitMatches(unit3, addlUnitLower)) {
                 leftIsCompound = true;
               } else if (unitMatches(unit1, addlUnitLower) &&
-                         (unitMatches(unit2, baseCompBaseUnit) || unitMatches(unit2, baseCompAddlUnit)) &&
-                         (unitMatches(unit3, baseCompBaseUnit) || unitMatches(unit3, baseCompAddlUnit))) {
+                (unitMatches(unit2, baseCompBaseUnit) || unitMatches(unit2, baseCompAddlUnit)) &&
+                (unitMatches(unit3, baseCompBaseUnit) || unitMatches(unit3, baseCompAddlUnit))) {
                 rightIsCompound = true;
               }
             }
           }
         }
-        
+
         // THEN: Check unit matches based on which side is compound
         // Check if left side matches additional unit (only if not compound)
         const leftMatchesAddl = !leftIsCompound && unitMatches(unit1, addlUnitLower);
         // Check if right side matches additional unit (simple or compound)
         // If left is compound, check unit3; otherwise check unit2
-        const rightMatchesAddl = leftIsCompound 
+        const rightMatchesAddl = leftIsCompound
           ? unitMatches(unit3, addlUnitLower)
           : (rightIsCompound ? false : unitMatches(unit2, addlUnitLower));
-        
+
         // Check if left side matches base unit (simple or compound)
         // If left is compound, check if unit1 and unit2 match component units
         const leftMatchesBase = leftIsCompound
-          ? (baseCompBaseUnit && baseCompAddlUnit && 
-             ((unitMatches(unit1, baseCompBaseUnit) && unitMatches(unit2, baseCompAddlUnit)) ||
+          ? (baseCompBaseUnit && baseCompAddlUnit &&
+            ((unitMatches(unit1, baseCompBaseUnit) && unitMatches(unit2, baseCompAddlUnit)) ||
               (unitMatches(unit1, baseCompAddlUnit) && unitMatches(unit2, baseCompBaseUnit))))
-          : (unitMatches(unit1, baseUnitLower) || 
-             (baseCompBaseUnit && unitMatches(unit1, baseCompBaseUnit)) ||
-             (baseCompAddlUnit && unitMatches(unit1, baseCompAddlUnit)));
-        
+          : (unitMatches(unit1, baseUnitLower) ||
+            (baseCompBaseUnit && unitMatches(unit1, baseCompBaseUnit)) ||
+            (baseCompAddlUnit && unitMatches(unit1, baseCompAddlUnit)));
+
         // Check if right side matches base unit (simple or compound)
         // If right is compound, check if unit2 and unit3 match component units
         const rightMatchesBase = rightIsCompound
           ? (baseCompBaseUnit && baseCompAddlUnit &&
-             ((unitMatches(unit2, baseCompBaseUnit) && unitMatches(unit3, baseCompAddlUnit)) ||
+            ((unitMatches(unit2, baseCompBaseUnit) && unitMatches(unit3, baseCompAddlUnit)) ||
               (unitMatches(unit2, baseCompAddlUnit) && unitMatches(unit3, baseCompBaseUnit))))
           : (unitMatches(unit2, baseUnitLower) ||
-             (baseCompBaseUnit && unitMatches(unit2, baseCompBaseUnit)) ||
-             (baseCompAddlUnit && unitMatches(unit2, baseCompAddlUnit)));
-        
+            (baseCompBaseUnit && unitMatches(unit2, baseCompBaseUnit)) ||
+            (baseCompAddlUnit && unitMatches(unit2, baseCompAddlUnit)));
+
         if (leftMatchesAddl && (rightMatchesBase || (rightIsCompound && baseCompBaseUnit && baseCompAddlUnit))) {
           // Format: addlQty addlUnit = baseQty baseUnit (or compound)
           // Example: "1 box = 15 pkt 3 nos"
@@ -1757,18 +1759,18 @@ function PlaceOrder() {
             return ''; // No valid match for compound format
           }
         }
-        
+
         // Check if it's a valid custom conversion
         if (baseQty > 0 && addlQty > 0) {
           // Validate decimal places for both quantities
           let baseDecimalPlaces = 0;
           let addlDecimalPlaces = 0;
-          
+
           // Get decimal places for base unit
           if (unitsArray && unitsArray.length > 0) {
             const baseUnitObj = unitsArray.find(u => u.NAME && u.NAME.toLowerCase() === unitConfig.BASEUNITS.toLowerCase());
             if (baseUnitObj) {
-              baseDecimalPlaces = typeof baseUnitObj.DECIMALPLACES === 'string' 
+              baseDecimalPlaces = typeof baseUnitObj.DECIMALPLACES === 'string'
                 ? parseInt(baseUnitObj.DECIMALPLACES) || 0
                 : (baseUnitObj.DECIMALPLACES || 0);
             }
@@ -1777,12 +1779,12 @@ function PlaceOrder() {
               ? parseInt(unitConfig.BASEUNIT_DECIMAL) || 0
               : (unitConfig.BASEUNIT_DECIMAL || 0);
           }
-          
+
           // Get decimal places for additional unit
           if (unitsArray && unitsArray.length > 0) {
             const addlUnitObj = unitsArray.find(u => u.NAME && u.NAME.toLowerCase() === unitConfig.ADDITIONALUNITS.toLowerCase());
             if (addlUnitObj) {
-              addlDecimalPlaces = typeof addlUnitObj.DECIMALPLACES === 'string' 
+              addlDecimalPlaces = typeof addlUnitObj.DECIMALPLACES === 'string'
                 ? parseInt(addlUnitObj.DECIMALPLACES) || 0
                 : (addlUnitObj.DECIMALPLACES || 0);
             }
@@ -1791,16 +1793,16 @@ function PlaceOrder() {
               ? parseInt(unitConfig.ADDITIONALUNITS_DECIMAL) || 0
               : (unitConfig.ADDITIONALUNITS_DECIMAL || 0);
           }
-          
+
           // Format quantities based on decimal places
-          let formattedBaseQty = baseDecimalPlaces === 0 
+          let formattedBaseQty = baseDecimalPlaces === 0
             ? Math.round(baseQty).toString()
             : (isBlur ? baseQty.toFixed(baseDecimalPlaces) : baseQty.toString());
-          
-          let formattedAddlQty = addlDecimalPlaces === 0 
+
+          let formattedAddlQty = addlDecimalPlaces === 0
             ? Math.round(addlQty).toString()
             : (isBlur ? addlQty.toFixed(addlDecimalPlaces) : addlQty.toString());
-          
+
           // Format compound base unit if needed
           let formattedBaseDisplay = '';
           if (isBaseCompound && baseCompBaseUnit && baseCompAddlUnit) {
@@ -1810,29 +1812,29 @@ function PlaceOrder() {
             const subUnitObj = unitsArray.find(u => u.NAME && unitMatches(u.NAME, baseSubUnit));
             const mainUnitName = mainUnitObj ? mainUnitObj.NAME : baseMainUnit;
             const subUnitName = subUnitObj ? subUnitObj.NAME : baseSubUnit;
-            
+
             // Get decimal places for sub unit
             let subDecimalPlaces = 0;
             if (subUnitObj) {
-              subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string' 
+              subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
                 ? parseInt(subUnitObj.DECIMALPLACES) || 0
                 : (subUnitObj.DECIMALPLACES || 0);
             }
-            
-            const formattedSubQty = subDecimalPlaces === 0 
+
+            const formattedSubQty = subDecimalPlaces === 0
               ? Math.round(baseSubQty).toString()
               : (isBlur ? baseSubQty.toFixed(subDecimalPlaces) : baseSubQty.toString());
-            
+
             formattedBaseDisplay = `${baseMainQty} ${mainUnitName} ${formattedSubQty} ${subUnitName}`;
           } else {
             // Simple base unit
             const baseUnitName = unitConfig.BASEUNITS;
             formattedBaseDisplay = `${formattedBaseQty} ${baseUnitName}`;
           }
-          
+
           // Preserve original unit name for additional unit
           const addlUnitName = unitConfig.ADDITIONALUNITS;
-          
+
           // Return formatted custom conversion (preserve = if it was there, otherwise use space)
           const hasEquals = trimmed.includes('=');
           return `${formattedBaseDisplay}${hasEquals ? ' = ' : ' '}${formattedAddlQty} ${addlUnitName}`;
@@ -1845,14 +1847,14 @@ function PlaceOrder() {
     // This should be checked BEFORE compound unit matching to avoid false matches
     // Pattern: number unit number unit number unit (3 numbers, 3 units)
     let baseCompoundAddlMatch = null;
-    
+
     if (isBlur) {
       console.log('validateQuantityInput: Starting baseCompoundAddlMatch check', { input: trimmed });
     }
-    
+
     // Pattern 1: With spaces (e.g., "1 box 5 pkt 3 nos")
     baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s+([A-Za-z]+)$/i);
-    
+
     // Pattern 2: No space between first number and unit, but spaces between units (e.g., "1box 5pkt 3nos" or "9p 2n 3b")
     if (!baseCompoundAddlMatch) {
       baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)([A-Za-z]+)$/i);
@@ -1860,7 +1862,7 @@ function PlaceOrder() {
         console.log('validateQuantityInput: Pattern 2 matched!', { input: trimmed, match: baseCompoundAddlMatch.slice(1) });
       }
     }
-    
+
     // Pattern 3: Mixed spacing (e.g., "1 box 5pkt 3nos", "1box 5 pkt 3nos")
     if (!baseCompoundAddlMatch) {
       baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/i);
@@ -1868,7 +1870,7 @@ function PlaceOrder() {
         console.log('validateQuantityInput: Pattern 3 matched!', { input: trimmed, match: baseCompoundAddlMatch.slice(1) });
       }
     }
-    
+
     // Pattern 4: Absolutely no spaces (e.g., "1box5pkt3nos")
     if (!baseCompoundAddlMatch) {
       baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)(\d+(?:\.\d+)?)([A-Za-z]+)(\d+(?:\.\d+)?)([A-Za-z]+)$/i);
@@ -1876,7 +1878,7 @@ function PlaceOrder() {
         console.log('validateQuantityInput: Pattern 4 matched!', { input: trimmed, match: baseCompoundAddlMatch.slice(1) });
       }
     }
-    
+
     if (isBlur) {
       console.log('validateQuantityInput: After all patterns, baseCompoundAddlMatch =', {
         input: trimmed,
@@ -1885,7 +1887,7 @@ function PlaceOrder() {
         unitsArrayLength: unitsArray?.length
       });
     }
-    
+
     if (baseCompoundAddlMatch && unitsArray && unitsArray.length > 0) {
       const baseQty = parseFloat(baseCompoundAddlMatch[1]);
       const baseUnit = baseCompoundAddlMatch[2].toLowerCase();
@@ -1893,7 +1895,7 @@ function PlaceOrder() {
       const addlMainUnit = baseCompoundAddlMatch[4].toLowerCase();
       const addlSubQty = parseFloat(baseCompoundAddlMatch[5]);
       const addlSubUnit = baseCompoundAddlMatch[6].toLowerCase();
-      
+
       // Helper function to check if a unit matches
       const unitMatches = (inputUnit, targetUnit) => {
         const inputLower = inputUnit.toLowerCase();
@@ -1903,7 +1905,7 @@ function PlaceOrder() {
         if (targetLower.length >= 1 && inputLower.startsWith(targetLower)) return true;
         return false;
       };
-      
+
       // FIRST: Check if BASEUNITS is compound and ADDITIONALUNITS is simple
       // This should be checked BEFORE the simple base + compound additional check
       // to avoid false matches (e.g., "9 pkt 2 nos 3 box" where BASEUNITS is compound)
@@ -1915,7 +1917,7 @@ function PlaceOrder() {
           const baseCompBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
           const baseCompAddlUnit = baseUnitObj.ADDITIONALUNITS?.toLowerCase();
           const addlUnitLower = unitConfig.ADDITIONALUNITS?.toLowerCase();
-          
+
           // Debug logging
           if (isBlur) {
             console.log('validateQuantityInput: Checking compound base + simple additional', {
@@ -1934,42 +1936,42 @@ function PlaceOrder() {
               addlSubMatches: unitMatches(addlSubUnit, addlUnitLower)
             });
           }
-          
+
           // Check if the pattern matches: baseCompMain baseCompSub addlUnit
           // Try all 6 orderings
           if (baseCompBaseUnit && baseCompAddlUnit) {
             // Order 1: main-sub-addl (e.g., "9 pkt 2 nos 3 box" or "9p 2n 3b")
-            if (unitMatches(baseUnit, baseCompBaseUnit) && 
-                unitMatches(addlMainUnit, baseCompAddlUnit) && 
-                unitMatches(addlSubUnit, addlUnitLower)) {
+            if (unitMatches(baseUnit, baseCompBaseUnit) &&
+              unitMatches(addlMainUnit, baseCompAddlUnit) &&
+              unitMatches(addlSubUnit, addlUnitLower)) {
               const baseMainQty = baseQty;
               const baseSubQty = addlMainQty;
               const addlQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
                 if (baseUnitObj2) {
-                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string' 
+                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string'
                     ? parseInt(baseUnitObj2.DECIMALPLACES) || 0
                     : (baseUnitObj2.DECIMALPLACES || 0);
                 }
               }
-              
-              const formattedBaseQty = baseUnitDecimal === 0 
+
+              const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-              
+
               handledCompoundBaseSimpleAddl = true;
               const result = `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
               if (isBlur) {
@@ -1983,190 +1985,190 @@ function PlaceOrder() {
               }
               return result;
             }
-            
+
             // Order 2: sub-main-addl (e.g., "2 nos 9 pkt 3 box" or "2n 9p 3b")
-            if (unitMatches(baseUnit, baseCompAddlUnit) && 
-                unitMatches(addlMainUnit, baseCompBaseUnit) && 
-                unitMatches(addlSubUnit, addlUnitLower)) {
+            if (unitMatches(baseUnit, baseCompAddlUnit) &&
+              unitMatches(addlMainUnit, baseCompBaseUnit) &&
+              unitMatches(addlSubUnit, addlUnitLower)) {
               const baseSubQty = baseQty;
               const baseMainQty = addlMainQty;
               const addlQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
                 if (baseUnitObj2) {
-                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string' 
+                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string'
                     ? parseInt(baseUnitObj2.DECIMALPLACES) || 0
                     : (baseUnitObj2.DECIMALPLACES || 0);
                 }
               }
-              
-              const formattedBaseQty = baseUnitDecimal === 0 
+
+              const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-              
+
               handledCompoundBaseSimpleAddl = true;
               return `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
             }
-            
+
             // Order 3: main-addl-sub (e.g., "9 pkt 3 box 2 nos" or "9p 3b 2n")
-            if (unitMatches(baseUnit, baseCompBaseUnit) && 
-                unitMatches(addlMainUnit, addlUnitLower) && 
-                unitMatches(addlSubUnit, baseCompAddlUnit)) {
+            if (unitMatches(baseUnit, baseCompBaseUnit) &&
+              unitMatches(addlMainUnit, addlUnitLower) &&
+              unitMatches(addlSubUnit, baseCompAddlUnit)) {
               const baseMainQty = baseQty;
               const addlQty = addlMainQty;
               const baseSubQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
                 if (baseUnitObj2) {
-                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string' 
+                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string'
                     ? parseInt(baseUnitObj2.DECIMALPLACES) || 0
                     : (baseUnitObj2.DECIMALPLACES || 0);
                 }
               }
-              
-              const formattedBaseQty = baseUnitDecimal === 0 
+
+              const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-              
+
               handledCompoundBaseSimpleAddl = true;
               return `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
             }
-            
+
             // Order 4: sub-addl-main (e.g., "2 nos 3 box 9 pkt" or "2n 3b 9p")
-            if (unitMatches(baseUnit, baseCompAddlUnit) && 
-                unitMatches(addlMainUnit, addlUnitLower) && 
-                unitMatches(addlSubUnit, baseCompBaseUnit)) {
+            if (unitMatches(baseUnit, baseCompAddlUnit) &&
+              unitMatches(addlMainUnit, addlUnitLower) &&
+              unitMatches(addlSubUnit, baseCompBaseUnit)) {
               const baseSubQty = baseQty;
               const addlQty = addlMainQty;
               const baseMainQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
                 if (baseUnitObj2) {
-                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string' 
+                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string'
                     ? parseInt(baseUnitObj2.DECIMALPLACES) || 0
                     : (baseUnitObj2.DECIMALPLACES || 0);
                 }
               }
-              
-              const formattedBaseQty = baseUnitDecimal === 0 
+
+              const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-              
+
               handledCompoundBaseSimpleAddl = true;
               return `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
             }
-            
+
             // Order 5: addl-main-sub (e.g., "3 box 9 pkt 2 nos" or "3b 9p 2n")
-            if (unitMatches(baseUnit, addlUnitLower) && 
-                unitMatches(addlMainUnit, baseCompBaseUnit) && 
-                unitMatches(addlSubUnit, baseCompAddlUnit)) {
+            if (unitMatches(baseUnit, addlUnitLower) &&
+              unitMatches(addlMainUnit, baseCompBaseUnit) &&
+              unitMatches(addlSubUnit, baseCompAddlUnit)) {
               const addlQty = baseQty;
               const baseMainQty = addlMainQty;
               const baseSubQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
                 if (baseUnitObj2) {
-                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string' 
+                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string'
                     ? parseInt(baseUnitObj2.DECIMALPLACES) || 0
                     : (baseUnitObj2.DECIMALPLACES || 0);
                 }
               }
-              
-              const formattedBaseQty = baseUnitDecimal === 0 
+
+              const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-              
+
               handledCompoundBaseSimpleAddl = true;
               return `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
             }
-            
+
             // Order 6: addl-sub-main (e.g., "3 box 2 nos 9 pkt" or "3b 2n 9p")
-            if (unitMatches(baseUnit, addlUnitLower) && 
-                unitMatches(addlMainUnit, baseCompAddlUnit) && 
-                unitMatches(addlSubUnit, baseCompBaseUnit)) {
+            if (unitMatches(baseUnit, addlUnitLower) &&
+              unitMatches(addlMainUnit, baseCompAddlUnit) &&
+              unitMatches(addlSubUnit, baseCompBaseUnit)) {
               const addlQty = baseQty;
               const baseSubQty = addlMainQty;
               const baseMainQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
                 if (baseUnitObj2) {
-                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string' 
+                  baseUnitDecimal = typeof baseUnitObj2.DECIMALPLACES === 'string'
                     ? parseInt(baseUnitObj2.DECIMALPLACES) || 0
                     : (baseUnitObj2.DECIMALPLACES || 0);
                 }
               }
-              
-              const formattedBaseQty = baseUnitDecimal === 0 
+
+              const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-              
+
               handledCompoundBaseSimpleAddl = true;
               return `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
             }
           }
         }
       }
-      
+
       // SECOND: Check if baseUnit matches BASEUNITS and ADDITIONALUNITS is compound
       // Only check this if compound base + simple additional was not handled
       if (!handledCompoundBaseSimpleAddl) {
@@ -2174,115 +2176,115 @@ function PlaceOrder() {
         if (baseUnitMatches && unitConfig.ADDITIONALUNITS) {
           const addlUnitObj = unitsArray.find(u => u.NAME === unitConfig.ADDITIONALUNITS);
           if (addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No') {
-          // ADDITIONALUNITS is compound - check if addlMainUnit and addlSubUnit match components
-          const addlCompBaseUnit = addlUnitObj.BASEUNITS?.toLowerCase();
-          const addlCompAddlUnit = addlUnitObj.ADDITIONALUNITS?.toLowerCase();
-          
-          // Check order: main-sub or sub-main
-          if (addlCompBaseUnit && addlCompAddlUnit) {
-            if (unitMatches(addlMainUnit, addlCompBaseUnit) && unitMatches(addlSubUnit, addlCompAddlUnit)) {
-              // Order: main sub (e.g., "5 pkt 3 nos")
-              const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
-              const addlQtyInCompound = addlMainQty + (addlSubQty / addlConversion);
-              
-              const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
-              const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
-              const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
-              const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
-              
-              // Get decimal places for base unit
-              let baseUnitDecimal = 0;
-              if (unitsArray && unitsArray.length > 0) {
-                const baseUnitObj = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
-                if (baseUnitObj) {
-                  baseUnitDecimal = typeof baseUnitObj.DECIMALPLACES === 'string' 
-                    ? parseInt(baseUnitObj.DECIMALPLACES) || 0
-                    : (baseUnitObj.DECIMALPLACES || 0);
+            // ADDITIONALUNITS is compound - check if addlMainUnit and addlSubUnit match components
+            const addlCompBaseUnit = addlUnitObj.BASEUNITS?.toLowerCase();
+            const addlCompAddlUnit = addlUnitObj.ADDITIONALUNITS?.toLowerCase();
+
+            // Check order: main-sub or sub-main
+            if (addlCompBaseUnit && addlCompAddlUnit) {
+              if (unitMatches(addlMainUnit, addlCompBaseUnit) && unitMatches(addlSubUnit, addlCompAddlUnit)) {
+                // Order: main sub (e.g., "5 pkt 3 nos")
+                const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
+                const addlQtyInCompound = addlMainQty + (addlSubQty / addlConversion);
+
+                const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
+                const conversion = parseFloat(unitConfig.CONVERSION) || 1;
+
+                const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
+                const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
+
+                // Get decimal places for base unit
+                let baseUnitDecimal = 0;
+                if (unitsArray && unitsArray.length > 0) {
+                  const baseUnitObj = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
+                  if (baseUnitObj) {
+                    baseUnitDecimal = typeof baseUnitObj.DECIMALPLACES === 'string'
+                      ? parseInt(baseUnitObj.DECIMALPLACES) || 0
+                      : (baseUnitObj.DECIMALPLACES || 0);
+                  }
+                } else if (unitConfig.BASEUNIT_DECIMAL !== undefined) {
+                  baseUnitDecimal = typeof unitConfig.BASEUNIT_DECIMAL === 'string'
+                    ? parseInt(unitConfig.BASEUNIT_DECIMAL) || 0
+                    : (unitConfig.BASEUNIT_DECIMAL || 0);
                 }
-              } else if (unitConfig.BASEUNIT_DECIMAL !== undefined) {
-                baseUnitDecimal = typeof unitConfig.BASEUNIT_DECIMAL === 'string'
-                  ? parseInt(unitConfig.BASEUNIT_DECIMAL) || 0
-                  : (unitConfig.BASEUNIT_DECIMAL || 0);
-              }
-              
-              // Format the total base quantity
-              const totalBaseQty = baseQty + calculatedBaseQty;
-              const formattedBaseQty = baseUnitDecimal === 0 
-                ? Math.round(totalBaseQty).toString()
-                : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-              
-              // Format the compound additional unit quantity for display
-              let addlMainDecimal = 0;
-              let addlSubDecimal = 0;
-              const addlMainUnitObj = unitsArray.find(u => u.NAME && unitMatches(u.NAME, addlMainUnit));
-              const addlSubUnitObj = unitsArray.find(u => u.NAME && unitMatches(u.NAME, addlSubUnit));
-              if (addlMainUnitObj) {
-                addlMainDecimal = typeof addlMainUnitObj.DECIMALPLACES === 'string' 
-                  ? parseInt(addlMainUnitObj.DECIMALPLACES) || 0
-                  : (addlMainUnitObj.DECIMALPLACES || 0);
-              }
-              if (addlSubUnitObj) {
-                addlSubDecimal = typeof addlSubUnitObj.DECIMALPLACES === 'string' 
-                  ? parseInt(addlSubUnitObj.DECIMALPLACES) || 0
-                  : (addlSubUnitObj.DECIMALPLACES || 0);
-              }
-              
-              const formattedAddlMainQty = addlMainDecimal === 0 
-                ? Math.round(addlMainQty).toString()
-                : (isBlur ? addlMainQty.toFixed(addlMainDecimal) : addlMainQty.toString());
-              
-              const formattedAddlSubQty = addlSubDecimal === 0 
-                ? Math.round(addlSubQty).toString()
-                : (isBlur ? addlSubQty.toFixed(addlSubDecimal) : addlSubQty.toString());
-              
-              // Get original unit names
-              const baseUnitName = unitConfig.BASEUNITS;
-              const addlMainUnitName = addlMainUnitObj ? addlMainUnitObj.NAME : addlMainUnit;
-              const addlSubUnitName = addlSubUnitObj ? addlSubUnitObj.NAME : addlSubUnit;
-              
-              // Return formatted: "baseQty baseUnit" (the compound additional will be shown in brackets by the display logic)
-              return `${formattedBaseQty} ${baseUnitName}`;
-            } else if (unitMatches(addlMainUnit, addlCompAddlUnit) && unitMatches(addlSubUnit, addlCompBaseUnit)) {
-              // Order: sub main (e.g., "3 nos 5 pkt")
-              const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
-              const addlQtyInCompound = addlSubQty + (addlMainQty / addlConversion);
-              
-              const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
-              const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
-              const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
-              const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
-              
-              // Get decimal places for base unit
-              let baseUnitDecimal = 0;
-              if (unitsArray && unitsArray.length > 0) {
-                const baseUnitObj = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
-                if (baseUnitObj) {
-                  baseUnitDecimal = typeof baseUnitObj.DECIMALPLACES === 'string' 
-                    ? parseInt(baseUnitObj.DECIMALPLACES) || 0
-                    : (baseUnitObj.DECIMALPLACES || 0);
+
+                // Format the total base quantity
+                const totalBaseQty = baseQty + calculatedBaseQty;
+                const formattedBaseQty = baseUnitDecimal === 0
+                  ? Math.round(totalBaseQty).toString()
+                  : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
+
+                // Format the compound additional unit quantity for display
+                let addlMainDecimal = 0;
+                let addlSubDecimal = 0;
+                const addlMainUnitObj = unitsArray.find(u => u.NAME && unitMatches(u.NAME, addlMainUnit));
+                const addlSubUnitObj = unitsArray.find(u => u.NAME && unitMatches(u.NAME, addlSubUnit));
+                if (addlMainUnitObj) {
+                  addlMainDecimal = typeof addlMainUnitObj.DECIMALPLACES === 'string'
+                    ? parseInt(addlMainUnitObj.DECIMALPLACES) || 0
+                    : (addlMainUnitObj.DECIMALPLACES || 0);
                 }
-              } else if (unitConfig.BASEUNIT_DECIMAL !== undefined) {
-                baseUnitDecimal = typeof unitConfig.BASEUNIT_DECIMAL === 'string'
-                  ? parseInt(unitConfig.BASEUNIT_DECIMAL) || 0
-                  : (unitConfig.BASEUNIT_DECIMAL || 0);
+                if (addlSubUnitObj) {
+                  addlSubDecimal = typeof addlSubUnitObj.DECIMALPLACES === 'string'
+                    ? parseInt(addlSubUnitObj.DECIMALPLACES) || 0
+                    : (addlSubUnitObj.DECIMALPLACES || 0);
+                }
+
+                const formattedAddlMainQty = addlMainDecimal === 0
+                  ? Math.round(addlMainQty).toString()
+                  : (isBlur ? addlMainQty.toFixed(addlMainDecimal) : addlMainQty.toString());
+
+                const formattedAddlSubQty = addlSubDecimal === 0
+                  ? Math.round(addlSubQty).toString()
+                  : (isBlur ? addlSubQty.toFixed(addlSubDecimal) : addlSubQty.toString());
+
+                // Get original unit names
+                const baseUnitName = unitConfig.BASEUNITS;
+                const addlMainUnitName = addlMainUnitObj ? addlMainUnitObj.NAME : addlMainUnit;
+                const addlSubUnitName = addlSubUnitObj ? addlSubUnitObj.NAME : addlSubUnit;
+
+                // Return formatted: "baseQty baseUnit" (the compound additional will be shown in brackets by the display logic)
+                return `${formattedBaseQty} ${baseUnitName}`;
+              } else if (unitMatches(addlMainUnit, addlCompAddlUnit) && unitMatches(addlSubUnit, addlCompBaseUnit)) {
+                // Order: sub main (e.g., "3 nos 5 pkt")
+                const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
+                const addlQtyInCompound = addlSubQty + (addlMainQty / addlConversion);
+
+                const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
+                const conversion = parseFloat(unitConfig.CONVERSION) || 1;
+
+                const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
+                const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
+
+                // Get decimal places for base unit
+                let baseUnitDecimal = 0;
+                if (unitsArray && unitsArray.length > 0) {
+                  const baseUnitObj = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
+                  if (baseUnitObj) {
+                    baseUnitDecimal = typeof baseUnitObj.DECIMALPLACES === 'string'
+                      ? parseInt(baseUnitObj.DECIMALPLACES) || 0
+                      : (baseUnitObj.DECIMALPLACES || 0);
+                  }
+                } else if (unitConfig.BASEUNIT_DECIMAL !== undefined) {
+                  baseUnitDecimal = typeof unitConfig.BASEUNIT_DECIMAL === 'string'
+                    ? parseInt(unitConfig.BASEUNIT_DECIMAL) || 0
+                    : (unitConfig.BASEUNIT_DECIMAL || 0);
+                }
+
+                // Format the total base quantity
+                const totalBaseQty = baseQty + calculatedBaseQty;
+                const formattedBaseQty = baseUnitDecimal === 0
+                  ? Math.round(totalBaseQty).toString()
+                  : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
+
+                // Get original unit name
+                const baseUnitName = unitConfig.BASEUNITS;
+
+                // Return formatted: "baseQty baseUnit"
+                return `${formattedBaseQty} ${baseUnitName}`;
               }
-              
-              // Format the total base quantity
-              const totalBaseQty = baseQty + calculatedBaseQty;
-              const formattedBaseQty = baseUnitDecimal === 0 
-                ? Math.round(totalBaseQty).toString()
-                : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-              
-              // Get original unit name
-              const baseUnitName = unitConfig.BASEUNITS;
-              
-              // Return formatted: "baseQty baseUnit"
-              return `${formattedBaseQty} ${baseUnitName}`;
             }
           }
-        }
         }
       }
     }
@@ -2291,20 +2293,20 @@ function PlaceOrder() {
     // Pattern allows optional spaces between number and unit, and between units
     // Try multiple patterns to handle different spacing scenarios
     let compoundMatch = null;
-    
+
     // Pattern 1: With spaces (e.g., "2 LTR 10 ML", "2LTR 10ML")
     compoundMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/i);
-    
+
     // Pattern 2: No space between first number and unit, but space between units (e.g., "2LTR 10ML")
     if (!compoundMatch) {
       compoundMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/i);
     }
-    
+
     // Pattern 3: Space between first number and unit, but no space between units (e.g., "2 LTR10ML")
     if (!compoundMatch) {
       compoundMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z]+)(\d+(?:\.\d+)?)([A-Za-z]+)$/i);
     }
-    
+
     // Pattern 4: Absolutely no spaces (e.g., "2LTR10ML", "2L10M", "10ML2L", "20ML2LTR")
     if (!compoundMatch) {
       compoundMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)(\d+(?:\.\d+)?)([A-Za-z]+)$/i);
@@ -2326,16 +2328,16 @@ function PlaceOrder() {
         if (targetLower.length >= 1 && inputLower.startsWith(targetLower)) return true;
         return false;
       };
-      
+
       // Validate that both units are allowed for this item
       // Check both orders and support abbreviations
       let mainUnitAllowed = false;
       let subUnitAllowed = false;
-      
+
       // Try order 1: mainUnit, subUnit
       mainUnitAllowed = allowedUnits.some(u => unitMatches(mainUnit, u));
       subUnitAllowed = allowedUnits.some(u => unitMatches(subUnit, u));
-      
+
       // If order 1 doesn't work, try order 2: subUnit, mainUnit (reversed)
       if (!mainUnitAllowed || !subUnitAllowed) {
         const tempMainAllowed = allowedUnits.some(u => unitMatches(subUnit, u));
@@ -2352,25 +2354,25 @@ function PlaceOrder() {
           subUnitAllowed = true;
         }
       }
-      
+
       if (!mainUnitAllowed || !subUnitAllowed) {
         return ''; // Invalid units
       }
-      
+
       // Convert to lowercase for further processing
       const mainUnitLower = mainUnit.toLowerCase();
       const subUnitLower = subUnit.toLowerCase();
 
       // Validate main unit decimal places
-      const mainUnitObj = unitsArray && unitsArray.length > 0 
+      const mainUnitObj = unitsArray && unitsArray.length > 0
         ? unitsArray.find(u => {
-            const unitNameLower = u.NAME?.toLowerCase() || '';
-            return unitNameLower === mainUnitLower || 
-                   (mainUnitLower.length >= 1 && unitNameLower.startsWith(mainUnitLower)) ||
-                   (unitNameLower.length >= 1 && mainUnitLower.startsWith(unitNameLower));
-          })
+          const unitNameLower = u.NAME?.toLowerCase() || '';
+          return unitNameLower === mainUnitLower ||
+            (mainUnitLower.length >= 1 && unitNameLower.startsWith(mainUnitLower)) ||
+            (unitNameLower.length >= 1 && mainUnitLower.startsWith(unitNameLower));
+        })
         : null;
-      
+
       let mainDecimalPlaces = 0;
       if (mainUnitObj) {
         mainDecimalPlaces = parseInt(mainUnitObj.DECIMALPLACES) || 0;
@@ -2390,7 +2392,7 @@ function PlaceOrder() {
       // Validate sub unit decimal places
       // For compound units, check if this is a compound base or additional unit
       let subDecimalPlaces = 0;
-      
+
       // Check if this matches compound base unit structure
       if (unitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes') {
         const baseCompAddl = unitConfig.BASEUNITCOMP_ADDLUNIT?.toLowerCase();
@@ -2404,11 +2406,11 @@ function PlaceOrder() {
             // Fallback to units array lookup
             const subUnitObj = unitsArray && unitsArray.length > 0
               ? unitsArray.find(u => {
-                  const unitNameLower = u.NAME?.toLowerCase() || '';
-                  return unitNameLower === subUnitLower || 
-                         (subUnitLower.length >= 1 && unitNameLower.startsWith(subUnitLower)) ||
-                         (unitNameLower.length >= 1 && subUnitLower.startsWith(unitNameLower));
-                })
+                const unitNameLower = u.NAME?.toLowerCase() || '';
+                return unitNameLower === subUnitLower ||
+                  (subUnitLower.length >= 1 && unitNameLower.startsWith(subUnitLower)) ||
+                  (unitNameLower.length >= 1 && subUnitLower.startsWith(unitNameLower));
+              })
               : null;
             if (subUnitObj) {
               subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
@@ -2418,7 +2420,7 @@ function PlaceOrder() {
           }
         }
       }
-      
+
       // Check if this matches compound additional unit structure
       if (unitConfig.ADDITIONALUNITHASCOMPOUNDUNIT === 'Yes') {
         const addlCompAddl = unitConfig.ADDLUNITCOMP_ADDLUNIT?.toLowerCase();
@@ -2432,11 +2434,11 @@ function PlaceOrder() {
             // Fallback to units array lookup
             const subUnitObj = unitsArray && unitsArray.length > 0
               ? unitsArray.find(u => {
-                  const unitNameLower = u.NAME?.toLowerCase() || '';
-                  return unitNameLower === subUnitLower || 
-                         (subUnitLower.length >= 1 && unitNameLower.startsWith(subUnitLower)) ||
-                         (unitNameLower.length >= 1 && subUnitLower.startsWith(unitNameLower));
-                })
+                const unitNameLower = u.NAME?.toLowerCase() || '';
+                return unitNameLower === subUnitLower ||
+                  (subUnitLower.length >= 1 && unitNameLower.startsWith(subUnitLower)) ||
+                  (unitNameLower.length >= 1 && subUnitLower.startsWith(unitNameLower));
+              })
               : null;
             if (subUnitObj) {
               subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
@@ -2446,16 +2448,16 @@ function PlaceOrder() {
           }
         }
       }
-      
+
       // If still not found, try direct lookup in units array
       if (subDecimalPlaces === 0) {
         const subUnitObj = unitsArray && unitsArray.length > 0
           ? unitsArray.find(u => {
-              const unitNameLower = u.NAME?.toLowerCase() || '';
-              return unitNameLower === subUnitLower || 
-                     (subUnitLower.length >= 1 && unitNameLower.startsWith(subUnitLower)) ||
-                     (unitNameLower.length >= 1 && subUnitLower.startsWith(unitNameLower));
-            })
+            const unitNameLower = u.NAME?.toLowerCase() || '';
+            return unitNameLower === subUnitLower ||
+              (subUnitLower.length >= 1 && unitNameLower.startsWith(subUnitLower)) ||
+              (unitNameLower.length >= 1 && subUnitLower.startsWith(unitNameLower));
+          })
           : null;
         if (subUnitObj) {
           subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
@@ -2488,18 +2490,18 @@ function PlaceOrder() {
       // Try pattern without space: number directly followed by letters (e.g., "10ML", "10M")
       simpleMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)$/i);
     }
-    
+
     if (simpleMatch) {
       let qty = simpleMatch[1];
       let unit = simpleMatch[2].trim();
 
       // Validate that the unit is allowed for this item
       const unitLower = unit.toLowerCase();
-      
+
       // First, try to find exact match or auto-complete partial match
       let matchedUnit = null;
       let isAllowed = false;
-      
+
       // Check exact match first (handles compound units like "LTR of 1000 ML")
       for (const allowed of allowedUnits) {
         const allowedLower = allowed.toLowerCase();
@@ -2537,7 +2539,7 @@ function PlaceOrder() {
             const allowedLower = allowed.toLowerCase();
             return allowedLower.startsWith(unitLower) && unitLower.length >= 1;
           });
-          
+
           if (partialMatches.length === 1) {
             // Exactly one match - auto-complete
             matchedUnit = partialMatches[0];
@@ -2567,10 +2569,10 @@ function PlaceOrder() {
       // Use the matched/auto-completed unit name
       const unitToLookup = matchedUnit || unit;
       const unitToLookupLower = unitToLookup.toLowerCase();
-      const unitObj = unitsArray && unitsArray.length > 0 
+      const unitObj = unitsArray && unitsArray.length > 0
         ? unitsArray.find(u => u.NAME && u.NAME.toLowerCase() === unitToLookupLower)
         : null;
-      
+
       let decimalPlaces = null;
       if (unitObj) {
         // Found unit in array - use its DECIMALPLACES
@@ -2591,7 +2593,7 @@ function PlaceOrder() {
         // and use unitConfig which was built from units array
         if (unitLower === allowedBaseUnit.toLowerCase()) {
           // Matches base unit - use unitConfig's BASEUNIT_DECIMAL
-          decimalPlaces = unitConfig.BASEUNIT_DECIMAL !== undefined 
+          decimalPlaces = unitConfig.BASEUNIT_DECIMAL !== undefined
             ? parseInt(unitConfig.BASEUNIT_DECIMAL) || 0
             : 0;
         } else if (unitLower === allowedAddlUnit.toLowerCase()) {
@@ -2657,25 +2659,25 @@ function PlaceOrder() {
     // This should be checked BEFORE custom conversion to avoid false matches
     // Pattern: number unit number unit number unit (3 numbers, 3 units)
     let baseCompoundAddlMatch = null;
-    
+
     // Pattern 1: With spaces (e.g., "1 box 5 pkt 3 nos")
     baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s+([A-Za-z]+)$/i);
-    
+
     // Pattern 2: No space between first number and unit, but spaces between units (e.g., "1box 5pkt 3nos")
     if (!baseCompoundAddlMatch) {
       baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)([A-Za-z]+)$/i);
     }
-    
+
     // Pattern 3: Mixed spacing (e.g., "1 box 5pkt 3nos", "1box 5 pkt 3nos")
     if (!baseCompoundAddlMatch) {
       baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s*([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/i);
     }
-    
+
     // Pattern 4: Absolutely no spaces (e.g., "1box5pkt3nos")
     if (!baseCompoundAddlMatch) {
       baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)(\d+(?:\.\d+)?)([A-Za-z]+)(\d+(?:\.\d+)?)([A-Za-z]+)$/i);
     }
-    
+
     if (baseCompoundAddlMatch && unitsArray && unitsArray.length > 0) {
       const baseQty = parseFloat(baseCompoundAddlMatch[1]);
       const baseUnit = baseCompoundAddlMatch[2].toLowerCase();
@@ -2683,7 +2685,7 @@ function PlaceOrder() {
       const addlMainUnit = baseCompoundAddlMatch[4].toLowerCase();
       const addlSubQty = parseFloat(baseCompoundAddlMatch[5]);
       const addlSubUnit = baseCompoundAddlMatch[6].toLowerCase();
-      
+
       // Helper function to check if a unit matches
       const unitMatches = (inputUnit, targetUnit) => {
         const inputLower = inputUnit.toLowerCase();
@@ -2693,7 +2695,7 @@ function PlaceOrder() {
         if (targetLower.length >= 1 && inputLower.startsWith(targetLower)) return true;
         return false;
       };
-      
+
       // FIRST: Check if BASEUNITS is compound and ADDITIONALUNITS is simple
       // This should be checked BEFORE the simple base + compound additional check
       // to avoid false matches (e.g., "9 pkt 2 nos 3 box" where BASEUNITS is compound)
@@ -2705,28 +2707,28 @@ function PlaceOrder() {
           const baseCompBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
           const baseCompAddlUnit = baseUnitObj.ADDITIONALUNITS?.toLowerCase();
           const addlUnitLower = unitConfig.ADDITIONALUNITS?.toLowerCase();
-          
+
           // Check if the pattern matches: baseCompMain baseCompSub addlUnit
           // Try both orders: main-sub-addl or sub-main-addl
           if (baseCompBaseUnit && baseCompAddlUnit) {
             // Order 1: main-sub-addl (e.g., "9 pkt 2 nos 3 box")
-            if (unitMatches(baseUnit, baseCompBaseUnit) && 
-                unitMatches(addlMainUnit, baseCompAddlUnit) && 
-                unitMatches(addlSubUnit, addlUnitLower)) {
+            if (unitMatches(baseUnit, baseCompBaseUnit) &&
+              unitMatches(addlMainUnit, baseCompAddlUnit) &&
+              unitMatches(addlSubUnit, addlUnitLower)) {
               const baseMainQty = baseQty;
               const baseSubQty = addlMainQty;
               const addlQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display (9)
@@ -2738,25 +2740,25 @@ function PlaceOrder() {
                 customAddlQty: addlQty // Additional unit quantity (3 box)
               };
             }
-            
+
             // Order 2: sub-main-addl (e.g., "2 nos 9 pkt 3 box" or "2n 9p 3b")
-            if (unitMatches(baseUnit, baseCompAddlUnit) && 
-                unitMatches(addlMainUnit, baseCompBaseUnit) && 
-                unitMatches(addlSubUnit, addlUnitLower)) {
+            if (unitMatches(baseUnit, baseCompAddlUnit) &&
+              unitMatches(addlMainUnit, baseCompBaseUnit) &&
+              unitMatches(addlSubUnit, addlUnitLower)) {
               const baseSubQty = baseQty;
               const baseMainQty = addlMainQty;
               const addlQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display
@@ -2768,25 +2770,25 @@ function PlaceOrder() {
                 customAddlQty: addlQty // Additional unit quantity
               };
             }
-            
+
             // Order 3: main-addl-sub (e.g., "9 pkt 3 box 2 nos" or "9p 3b 2n")
-            if (unitMatches(baseUnit, baseCompBaseUnit) && 
-                unitMatches(addlMainUnit, addlUnitLower) && 
-                unitMatches(addlSubUnit, baseCompAddlUnit)) {
+            if (unitMatches(baseUnit, baseCompBaseUnit) &&
+              unitMatches(addlMainUnit, addlUnitLower) &&
+              unitMatches(addlSubUnit, baseCompAddlUnit)) {
               const baseMainQty = baseQty;
               const addlQty = addlMainQty;
               const baseSubQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display
@@ -2798,25 +2800,25 @@ function PlaceOrder() {
                 customAddlQty: addlQty // Additional unit quantity
               };
             }
-            
+
             // Order 4: sub-addl-main (e.g., "2 nos 3 box 9 pkt" or "2n 3b 9p")
-            if (unitMatches(baseUnit, baseCompAddlUnit) && 
-                unitMatches(addlMainUnit, addlUnitLower) && 
-                unitMatches(addlSubUnit, baseCompBaseUnit)) {
+            if (unitMatches(baseUnit, baseCompAddlUnit) &&
+              unitMatches(addlMainUnit, addlUnitLower) &&
+              unitMatches(addlSubUnit, baseCompBaseUnit)) {
               const baseSubQty = baseQty;
               const addlQty = addlMainQty;
               const baseMainQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display
@@ -2828,25 +2830,25 @@ function PlaceOrder() {
                 customAddlQty: addlQty // Additional unit quantity
               };
             }
-            
+
             // Order 5: addl-main-sub (e.g., "3 box 9 pkt 2 nos" or "3b 9p 2n")
-            if (unitMatches(baseUnit, addlUnitLower) && 
-                unitMatches(addlMainUnit, baseCompBaseUnit) && 
-                unitMatches(addlSubUnit, baseCompAddlUnit)) {
+            if (unitMatches(baseUnit, addlUnitLower) &&
+              unitMatches(addlMainUnit, baseCompBaseUnit) &&
+              unitMatches(addlSubUnit, baseCompAddlUnit)) {
               const addlQty = baseQty;
               const baseMainQty = addlMainQty;
               const baseSubQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display
@@ -2858,25 +2860,25 @@ function PlaceOrder() {
                 customAddlQty: addlQty // Additional unit quantity
               };
             }
-            
+
             // Order 6: addl-sub-main (e.g., "3 box 2 nos 9 pkt" or "3b 2n 9p")
-            if (unitMatches(baseUnit, addlUnitLower) && 
-                unitMatches(addlMainUnit, baseCompAddlUnit) && 
-                unitMatches(addlSubUnit, baseCompBaseUnit)) {
+            if (unitMatches(baseUnit, addlUnitLower) &&
+              unitMatches(addlMainUnit, baseCompAddlUnit) &&
+              unitMatches(addlSubUnit, baseCompBaseUnit)) {
               const addlQty = baseQty;
               const baseSubQty = addlMainQty;
               const baseMainQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display
@@ -2891,7 +2893,7 @@ function PlaceOrder() {
           }
         }
       }
-      
+
       // SECOND: Check if BASEUNITS is simple and ADDITIONALUNITS is compound
       // Only check this if compound base + simple additional was not handled
       // Need to check all 6 orderings: base can be in any position
@@ -2903,26 +2905,26 @@ function PlaceOrder() {
             // ADDITIONALUNITS is compound - check if addlMainUnit and addlSubUnit match components
             const addlCompBaseUnit = addlUnitObj.BASEUNITS?.toLowerCase();
             const addlCompAddlUnit = addlUnitObj.ADDITIONALUNITS?.toLowerCase();
-            
+
             // Check all 6 orderings for simple base + compound additional
             if (addlCompBaseUnit && addlCompAddlUnit) {
               // Order 1: addl-main-sub-base (e.g., "5 pkt 3 nos 2 box")
-              if (unitMatches(baseUnit, addlCompBaseUnit) && 
-                  unitMatches(addlMainUnit, addlCompAddlUnit) && 
-                  unitMatches(addlSubUnit, baseUnitLower)) {
+              if (unitMatches(baseUnit, addlCompBaseUnit) &&
+                unitMatches(addlMainUnit, addlCompAddlUnit) &&
+                unitMatches(addlSubUnit, baseUnitLower)) {
                 const addlMainQtyValue = baseQty; // 5 pkt
                 const addlSubQtyValue = addlMainQty; // 3 nos
                 const baseQtyValue = addlSubQty; // 2 box
-                
+
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlMainQtyValue + (addlSubQtyValue / addlConversion);
-                
+
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-                
+
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
-                
+
                 return {
                   qty: baseQtyValue, // Only the base quantity for display
                   totalQty: baseQtyValue + calculatedBaseQty, // Total for calculation
@@ -2933,24 +2935,24 @@ function PlaceOrder() {
                   customAddlQty: addlQtyInCompound
                 };
               }
-              
+
               // Order 2: addl-sub-main-base (e.g., "3 nos 5 pkt 2 box")
-              if (unitMatches(baseUnit, addlCompAddlUnit) && 
-                  unitMatches(addlMainUnit, addlCompBaseUnit) && 
-                  unitMatches(addlSubUnit, baseUnitLower)) {
+              if (unitMatches(baseUnit, addlCompAddlUnit) &&
+                unitMatches(addlMainUnit, addlCompBaseUnit) &&
+                unitMatches(addlSubUnit, baseUnitLower)) {
                 const addlSubQtyValue = baseQty; // 3 nos
                 const addlMainQtyValue = addlMainQty; // 5 pkt
                 const baseQtyValue = addlSubQty; // 2 box
-                
+
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlMainQtyValue + (addlSubQtyValue / addlConversion);
-                
+
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-                
+
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
-                
+
                 return {
                   qty: baseQtyValue,
                   totalQty: baseQtyValue + calculatedBaseQty,
@@ -2961,24 +2963,24 @@ function PlaceOrder() {
                   customAddlQty: addlQtyInCompound
                 };
               }
-              
+
               // Order 3: addl-main-base-sub (e.g., "5 pkt 2 box 3 nos")
-              if (unitMatches(baseUnit, addlCompBaseUnit) && 
-                  unitMatches(addlMainUnit, baseUnitLower) && 
-                  unitMatches(addlSubUnit, addlCompAddlUnit)) {
+              if (unitMatches(baseUnit, addlCompBaseUnit) &&
+                unitMatches(addlMainUnit, baseUnitLower) &&
+                unitMatches(addlSubUnit, addlCompAddlUnit)) {
                 const addlMainQtyValue = baseQty; // 5 pkt
                 const baseQtyValue = addlMainQty; // 2 box
                 const addlSubQtyValue = addlSubQty; // 3 nos
-                
+
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlMainQtyValue + (addlSubQtyValue / addlConversion);
-                
+
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-                
+
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
-                
+
                 return {
                   qty: baseQtyValue,
                   totalQty: baseQtyValue + calculatedBaseQty,
@@ -2989,24 +2991,24 @@ function PlaceOrder() {
                   customAddlQty: addlQtyInCompound
                 };
               }
-              
+
               // Order 4: addl-sub-base-main (e.g., "3 nos 2 box 5 pkt")
-              if (unitMatches(baseUnit, addlCompAddlUnit) && 
-                  unitMatches(addlMainUnit, baseUnitLower) && 
-                  unitMatches(addlSubUnit, addlCompBaseUnit)) {
+              if (unitMatches(baseUnit, addlCompAddlUnit) &&
+                unitMatches(addlMainUnit, baseUnitLower) &&
+                unitMatches(addlSubUnit, addlCompBaseUnit)) {
                 const addlSubQtyValue = baseQty; // 3 nos
                 const baseQtyValue = addlMainQty; // 2 box
                 const addlMainQtyValue = addlSubQty; // 5 pkt
-                
+
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlMainQtyValue + (addlSubQtyValue / addlConversion);
-                
+
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-                
+
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
-                
+
                 return {
                   qty: baseQtyValue,
                   totalQty: baseQtyValue + calculatedBaseQty,
@@ -3017,14 +3019,14 @@ function PlaceOrder() {
                   customAddlQty: addlQtyInCompound
                 };
               }
-              
+
               // Order 5: base-addl-main-sub (e.g., "2 box 5 pkt 3 nos") - already handled by existing logic
-              if (unitMatches(baseUnit, baseUnitLower) && 
-                  unitMatches(addlMainUnit, addlCompBaseUnit) && 
-                  unitMatches(addlSubUnit, addlCompAddlUnit)) {
+              if (unitMatches(baseUnit, baseUnitLower) &&
+                unitMatches(addlMainUnit, addlCompBaseUnit) &&
+                unitMatches(addlSubUnit, addlCompAddlUnit)) {
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlMainQty + (addlSubQty / addlConversion);
-                
+
                 console.log('🔍 Parsing Order 5 (base-addl-main-sub):', {
                   baseQty,
                   addlMainQty,
@@ -3033,13 +3035,13 @@ function PlaceOrder() {
                   addlQtyInCompound,
                   input: input
                 });
-                
+
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-                
+
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
-                
+
                 return {
                   qty: baseQty, // Only the base quantity for display
                   totalQty: baseQty + calculatedBaseQty, // Total for calculation
@@ -3050,20 +3052,20 @@ function PlaceOrder() {
                   customAddlQty: addlQtyInCompound
                 };
               }
-              
+
               // Order 6: base-addl-sub-main (e.g., "2 box 3 nos 5 pkt")
-              if (unitMatches(baseUnit, baseUnitLower) && 
-                  unitMatches(addlMainUnit, addlCompAddlUnit) && 
-                  unitMatches(addlSubUnit, addlCompBaseUnit)) {
+              if (unitMatches(baseUnit, baseUnitLower) &&
+                unitMatches(addlMainUnit, addlCompAddlUnit) &&
+                unitMatches(addlSubUnit, addlCompBaseUnit)) {
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlSubQty + (addlMainQty / addlConversion);
-                
+
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-                
+
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
-                
+
                 return {
                   qty: baseQty, // Only the base quantity for display
                   totalQty: baseQty + calculatedBaseQty, // Total for calculation
@@ -3078,7 +3080,7 @@ function PlaceOrder() {
           }
         }
       }
-      
+
       // Check if BASEUNITS is compound and ADDITIONALUNITS is simple (fallback - should not reach here if handled above)
       // Parse format: "compoundBaseUnitMain qty1 compoundBaseUnitSub qty2 addlUnit qty3"
       // Example: "2 pkt 3 nos 1 box" where baseUnit=pkt of 10 nos (compound), addlUnit=box (simple)
@@ -3090,37 +3092,37 @@ function PlaceOrder() {
           const baseCompBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
           const baseCompAddlUnit = baseUnitObj.ADDITIONALUNITS?.toLowerCase();
           const addlUnitLower = unitConfig.ADDITIONALUNITS?.toLowerCase();
-          
+
           // Check if the pattern matches: baseCompMain baseCompSub addlUnit
           // Try both orders: main-sub-addl or sub-main-addl
           if (baseCompBaseUnit && baseCompAddlUnit) {
             // Order 1: main-sub-addl (e.g., "2 pkt 3 nos 1 box")
-            if (unitMatches(baseUnit, baseCompBaseUnit) && 
-                unitMatches(addlMainUnit, baseCompAddlUnit) && 
-                unitMatches(addlSubUnit, addlUnitLower)) {
+            if (unitMatches(baseUnit, baseCompBaseUnit) &&
+              unitMatches(addlMainUnit, baseCompAddlUnit) &&
+              unitMatches(addlSubUnit, addlUnitLower)) {
               // Parse: baseMainQty = 2 pkt, baseSubQty = 3 nos, addlQty = 1 box
               const baseMainQty = baseQty;
               const baseSubQty = addlMainQty;
               const addlQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               // Check if BASEUNITS is compound - if so, DENOMINATOR is in terms of sub-component unit
               // Convert DENOMINATOR from sub-component to compound units
               const effectiveDenominator = denominator / baseConversion;
-              
+
               // Convert additional unit quantity to base units
               // Formula: effectiveDenominator BASEUNITS = conversion ADDITIONALUNITS
               // So: addlQty ADDITIONALUNITS = (addlQty * effectiveDenominator) / conversion BASEUNITS
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
-              
+
               // Total base quantity = compound base quantity + additional unit quantity in base
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               // Return the compound structure preserved for display (user entered "9 pkt 2 nos 3 box")
               // The quantity field should show "9-2 pkt" and the additional quantity (3 box) will be shown in brackets
               // Store the total quantity separately for calculation purposes
@@ -3134,31 +3136,31 @@ function PlaceOrder() {
                 customAddlQty: addlQty // Additional unit quantity (3 box)
               };
             }
-            
+
             // Order 2: sub-main-addl (e.g., "3 nos 2 pkt 1 box")
-            if (unitMatches(baseUnit, baseCompAddlUnit) && 
-                unitMatches(addlMainUnit, baseCompBaseUnit) && 
-                unitMatches(addlSubUnit, addlUnitLower)) {
+            if (unitMatches(baseUnit, baseCompAddlUnit) &&
+              unitMatches(addlMainUnit, baseCompBaseUnit) &&
+              unitMatches(addlSubUnit, addlUnitLower)) {
               // Parse: baseSubQty = 3 nos, baseMainQty = 2 pkt, addlQty = 1 box
               const baseSubQty = baseQty;
               const baseMainQty = addlMainQty;
               const addlQty = addlSubQty;
-              
+
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-              
+
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-              
+
               // Check if BASEUNITS is compound - if so, DENOMINATOR is in terms of sub-component unit
               const effectiveDenominator = denominator / baseConversion;
-              
+
               // Convert additional unit quantity to base units
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
-              
+
               // Total base quantity
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-              
+
               // Return the compound structure preserved for display (user entered "3 nos 9 pkt 2 box")
               // The quantity field should show "9-2 pkt" and the additional quantity (2 box) will be shown in brackets
               return {
@@ -3181,26 +3183,26 @@ function PlaceOrder() {
     // This allows users to override DENOMINATOR and CONVERSION
     // Supports both orders: base=additional or additional=base
     // Supports abbreviated units (partial matching)
-    
+
     // First try simple format: "number unit = number unit"
     const simpleCustomConversionPattern = /^(\d+(?:\.\d+)?)\s*(\w+)\s*[=]?\s*(\d+(?:\.\d+)?)\s*(\w+)$/i;
     let customConversionMatch = trimmed.match(simpleCustomConversionPattern);
-    
+
     // If simple format doesn't match, try compound format on right side: "number unit = number unit number unit"
     if (!customConversionMatch) {
       const compoundRightPattern = /^(\d+(?:\.\d+)?)\s*(\w+)\s*[=]?\s*(\d+(?:\.\d+)?)\s*(\w+)\s+(\d+(?:\.\d+)?)\s*(\w+)$/i;
       customConversionMatch = trimmed.match(compoundRightPattern);
     }
-    
+
     // If still no match, try compound format on left side: "number unit number unit = number unit"
     if (!customConversionMatch) {
       const compoundLeftPattern = /^(\d+(?:\.\d+)?)\s*(\w+)\s+(\d+(?:\.\d+)?)\s*(\w+)\s*[=]?\s*(\d+(?:\.\d+)?)\s*(\w+)$/i;
       customConversionMatch = trimmed.match(compoundLeftPattern);
     }
-    
+
     if (customConversionMatch && unitConfig.BASEUNITS && unitConfig.ADDITIONALUNITS) {
       let qty1, unit1, qty2, unit2, qty3, unit3;
-      
+
       if (customConversionMatch.length === 5) {
         // Simple format: "number unit = number unit"
         qty1 = parseFloat(customConversionMatch[1]);
@@ -3219,18 +3221,18 @@ function PlaceOrder() {
         unit2 = customConversionMatch[4].toLowerCase();
         qty3 = parseFloat(customConversionMatch[5]);
         unit3 = customConversionMatch[6].toLowerCase();
-        
+
         // Determine which side is compound by checking where = sign is
         if (trimmed.includes('=')) {
           const parts = trimmed.split('=');
           const leftPart = parts[0].trim();
           const rightPart = parts[1].trim();
-          
+
           // Check if left part has two units (compound pattern: "number unit number unit")
           const leftHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(leftPart);
           // Check if right part has two units (compound pattern: "number unit number unit")
           const rightHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(rightPart);
-          
+
           // If left has two units, then qty1,unit1 and qty2,unit2 are on left, qty3,unit3 is on right
           // If right has two units, then qty1,unit1 is on left, qty2,unit2 and qty3,unit3 are on right
           // But the regex always captures in order, so we need to adjust based on which side is compound
@@ -3245,7 +3247,7 @@ function PlaceOrder() {
         }
         // If no = sign, keep as is (will be determined by unit matching)
       }
-      
+
       // Helper function to check if a unit matches (supports full name and abbreviations)
       const unitMatches = (inputUnit, targetUnit) => {
         if (!inputUnit || !targetUnit) return false;
@@ -3268,10 +3270,10 @@ function PlaceOrder() {
         if (wordBoundaryRegex.test(targetLower)) return true;
         return false;
       };
-      
+
       const baseUnitLower = unitConfig.BASEUNITS.toLowerCase();
       const addlUnitLower = unitConfig.ADDITIONALUNITS.toLowerCase();
-      
+
       // Check if BASEUNITS is compound and get component units
       let baseCompBaseUnit = null;
       let baseCompAddlUnit = null;
@@ -3284,29 +3286,29 @@ function PlaceOrder() {
           baseCompConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
         }
       }
-      
+
       // Determine which side is base and which is additional
       let baseQty, addlQty, isBaseCompound = false, baseMainQty = 0, baseSubQty = 0;
-      
+
       // FIRST: Determine which side is compound (has qty3 and unit3, and right side has 3 parts)
       // For "number unit = number unit number unit": right is compound
       // For "number unit number unit = number unit": left is compound
       const hasThreeParts = qty3 !== null && unit3 !== null;
       let rightIsCompound = false;
       let leftIsCompound = false;
-      
+
       if (hasThreeParts) {
         // Determine which side is compound by checking where the = sign is
         if (trimmed.includes('=')) {
           const parts = trimmed.split('=');
           const leftPart = parts[0].trim();
           const rightPart = parts[1].trim();
-          
+
           // Check if left part matches compound pattern (has two units)
           const leftHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(leftPart);
           // Check if right part matches compound pattern (has two units)
           const rightHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(rightPart);
-          
+
           if (leftHasTwoUnits && !rightHasTwoUnits) {
             leftIsCompound = true;
           } else if (!leftHasTwoUnits && rightHasTwoUnits) {
@@ -3317,50 +3319,50 @@ function PlaceOrder() {
           // If unit1 and unit2 match base component units, left is compound
           if (baseCompBaseUnit && baseCompAddlUnit) {
             if ((unitMatches(unit1, baseCompBaseUnit) || unitMatches(unit1, baseCompAddlUnit)) &&
-                (unitMatches(unit2, baseCompBaseUnit) || unitMatches(unit2, baseCompAddlUnit)) &&
-                unitMatches(unit3, addlUnitLower)) {
+              (unitMatches(unit2, baseCompBaseUnit) || unitMatches(unit2, baseCompAddlUnit)) &&
+              unitMatches(unit3, addlUnitLower)) {
               leftIsCompound = true;
             } else if (unitMatches(unit1, addlUnitLower) &&
-                       (unitMatches(unit2, baseCompBaseUnit) || unitMatches(unit2, baseCompAddlUnit)) &&
-                       (unitMatches(unit3, baseCompBaseUnit) || unitMatches(unit3, baseCompAddlUnit))) {
+              (unitMatches(unit2, baseCompBaseUnit) || unitMatches(unit2, baseCompAddlUnit)) &&
+              (unitMatches(unit3, baseCompBaseUnit) || unitMatches(unit3, baseCompAddlUnit))) {
               rightIsCompound = true;
             }
           }
         }
       }
-      
+
       // THEN: Check unit matches based on which side is compound
       // Check if left side matches additional unit (only if not compound)
       const leftMatchesAddl = !leftIsCompound && unitMatches(unit1, addlUnitLower);
       // Check if right side matches additional unit (simple or compound)
       // If left is compound, check unit3; otherwise check unit2
-      const rightMatchesAddl = leftIsCompound 
+      const rightMatchesAddl = leftIsCompound
         ? unitMatches(unit3, addlUnitLower)
         : (rightIsCompound ? false : unitMatches(unit2, addlUnitLower));
-      
+
       // Check if left side matches base unit (simple or compound)
       // If left is compound, check if unit1 and unit2 match component units
       const leftMatchesBase = leftIsCompound
-        ? (baseCompBaseUnit && baseCompAddlUnit && 
-           ((unitMatches(unit1, baseCompBaseUnit) && unitMatches(unit2, baseCompAddlUnit)) ||
+        ? (baseCompBaseUnit && baseCompAddlUnit &&
+          ((unitMatches(unit1, baseCompBaseUnit) && unitMatches(unit2, baseCompAddlUnit)) ||
             (unitMatches(unit1, baseCompAddlUnit) && unitMatches(unit2, baseCompBaseUnit))))
-        : (unitMatches(unit1, baseUnitLower) || 
-           (baseCompBaseUnit && unitMatches(unit1, baseCompBaseUnit)) ||
-           (baseCompAddlUnit && unitMatches(unit1, baseCompAddlUnit)) ||
-           // Also check if baseUnitLower contains unit1 as a word (ONLY for compound base units like "pkt of 10 nos" matching "pkt")
-           (baseCompBaseUnit && baseUnitLower && 
+        : (unitMatches(unit1, baseUnitLower) ||
+          (baseCompBaseUnit && unitMatches(unit1, baseCompBaseUnit)) ||
+          (baseCompAddlUnit && unitMatches(unit1, baseCompAddlUnit)) ||
+          // Also check if baseUnitLower contains unit1 as a word (ONLY for compound base units like "pkt of 10 nos" matching "pkt")
+          (baseCompBaseUnit && baseUnitLower &&
             (baseUnitLower.startsWith(unit1 + ' ') || baseUnitLower.includes(' ' + unit1 + ' ') || baseUnitLower.endsWith(' ' + unit1))));
-      
+
       // Check if right side matches base unit (simple or compound)
       // If right is compound, check if unit2 and unit3 match component units
       const rightMatchesBase = rightIsCompound
         ? (baseCompBaseUnit && baseCompAddlUnit &&
-           ((unitMatches(unit2, baseCompBaseUnit) && unitMatches(unit3, baseCompAddlUnit)) ||
+          ((unitMatches(unit2, baseCompBaseUnit) && unitMatches(unit3, baseCompAddlUnit)) ||
             (unitMatches(unit2, baseCompAddlUnit) && unitMatches(unit3, baseCompBaseUnit))))
         : (unitMatches(unit2, baseUnitLower) ||
-           (baseCompBaseUnit && unitMatches(unit2, baseCompBaseUnit)) ||
-           (baseCompAddlUnit && unitMatches(unit2, baseCompAddlUnit)));
-      
+          (baseCompBaseUnit && unitMatches(unit2, baseCompBaseUnit)) ||
+          (baseCompAddlUnit && unitMatches(unit2, baseCompAddlUnit)));
+
       if (leftMatchesAddl && (rightMatchesBase || (rightIsCompound && baseCompBaseUnit && baseCompAddlUnit))) {
         // Format: addlQty addlUnit = baseQty baseUnit (or compound)
         // Example: "1 box = 15 pkt 3 nos"
@@ -3421,29 +3423,29 @@ function PlaceOrder() {
           // For "10 pkt = 3 box" where BASEUNITS is "pkt of 10 nos":
           // - unit1="pkt" should match baseCompBaseUnit="pkt" OR baseUnitLower="pkt of 10 nos"
           // - unit2="box" should match addlUnitLower="box"
-          const unit1MatchesBase = unitMatches(unit1, baseUnitLower) || 
+          const unit1MatchesBase = unitMatches(unit1, baseUnitLower) ||
             (baseCompBaseUnit && unitMatches(unit1, baseCompBaseUnit)) ||
             (baseCompAddlUnit && unitMatches(unit1, baseCompAddlUnit)) ||
             // Also check if baseUnitLower starts with unit1 followed by space (for "pkt of 10 nos" matching "pkt")
             (baseUnitLower && (baseUnitLower.startsWith(unit1 + ' ') || baseUnitLower.includes(' ' + unit1 + ' ') || baseUnitLower.endsWith(' ' + unit1)));
-          const unit2MatchesBase = unitMatches(unit2, baseUnitLower) || 
+          const unit2MatchesBase = unitMatches(unit2, baseUnitLower) ||
             (baseCompBaseUnit && unitMatches(unit2, baseCompBaseUnit)) ||
             (baseCompAddlUnit && unitMatches(unit2, baseCompAddlUnit)) ||
             (baseUnitLower && (baseUnitLower.startsWith(unit2 + ' ') || baseUnitLower.includes(' ' + unit2 + ' ') || baseUnitLower.endsWith(' ' + unit2)));
           const unit1MatchesAddl = unitMatches(unit1, addlUnitLower);
           const unit2MatchesAddl = unitMatches(unit2, addlUnitLower);
-          
+
           // Debug: Log the matching results for troubleshooting
           console.log('🔍 Custom conversion fallback matching:', {
             input: trimmed,
-            unit1, unit2, 
-            baseUnitLower, addlUnitLower, 
+            unit1, unit2,
+            baseUnitLower, addlUnitLower,
             baseCompBaseUnit, baseCompAddlUnit,
-            unit1MatchesBase, unit2MatchesBase, 
+            unit1MatchesBase, unit2MatchesBase,
             unit1MatchesAddl, unit2MatchesAddl,
             qty1, qty2
           });
-          
+
           if (unit1MatchesBase && unit2MatchesAddl) {
             baseQty = qty1;
             addlQty = qty2;
@@ -3463,7 +3465,7 @@ function PlaceOrder() {
           return { qty: 0, uom: 'base', isCompound: false, parts: [] };
         }
       }
-      
+
       // Check if it's a valid custom conversion
       if (baseQty > 0 && addlQty > 0) {
         // Store custom conversion ratio
@@ -3485,7 +3487,7 @@ function PlaceOrder() {
             settingCustomConversionRef.current = false;
           }, 0);
         }
-        
+
         // Return the base quantity (user entered base unit, may be compound)
         return {
           qty: baseQty,
@@ -3501,7 +3503,7 @@ function PlaceOrder() {
     // Parse compound unit in two formats:
     // 1. Hyphen format (display format): "2-500.000 LTR" 
     // 2. Space format (input format): "2 LTR 500 ML" or "2LTR500ML"
-    
+
     // First try hyphen format (display format: "2-500.000 LTR")
     const hyphenPattern = /^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s+(\w+)$/i;
     const hyphenMatch = trimmed.match(hyphenPattern);
@@ -3512,7 +3514,7 @@ function PlaceOrder() {
         const subQty = parseFloat(hyphenMatch[2]);
         const displayUnit = hyphenMatch[3].toLowerCase();
         const compBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
-        
+
         // Check if display unit matches the base component unit
         if (displayUnit === compBaseUnit) {
           // This is the display format - return as component compound
@@ -3528,7 +3530,7 @@ function PlaceOrder() {
         }
       }
     }
-    
+
     // If not hyphen format, try space-separated or no-space format (e.g., "2 LTR 500 ML", "2LTR500ML", "1L20M", "20ML1L")
     // Pattern allows:
     // - Optional spaces between number and unit
@@ -3540,20 +3542,20 @@ function PlaceOrder() {
     // The pattern should match: number + unit + number + unit
     // Try multiple patterns to handle different spacing scenarios
     let compoundMatch = null;
-    
+
     // Pattern 1: With spaces (e.g., "2 LTR 10 ML", "2LTR 10ML", "2 LTR10ML")
     compoundMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/i);
-    
+
     // Pattern 2: No space between first number and unit, but space between units (e.g., "2LTR 10ML")
     if (!compoundMatch) {
       compoundMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/i);
     }
-    
+
     // Pattern 3: Space between first number and unit, but no space between units (e.g., "2 LTR10ML")
     if (!compoundMatch) {
       compoundMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z]+)(\d+(?:\.\d+)?)([A-Za-z]+)$/i);
     }
-    
+
     // Pattern 4: Absolutely no spaces (e.g., "2LTR10ML", "2L10M", "10ML2L", "20ML2LTR")
     // This is the critical one - we need to ensure proper parsing
     // The regex will match greedily, so [A-Za-z]+ will match as much as possible
@@ -3566,7 +3568,7 @@ function PlaceOrder() {
       const unit1 = compoundMatch[2];
       const qty2 = parseFloat(compoundMatch[3]);
       const unit2 = compoundMatch[4];
-      
+
       // Helper function to check if a unit matches (supports full name and abbreviations)
       const unitMatches = (inputUnit, targetUnit) => {
         const inputLower = inputUnit.toLowerCase();
@@ -3578,12 +3580,12 @@ function PlaceOrder() {
         if (targetLower.length >= 1 && inputLower.startsWith(targetLower)) return true;
         return false;
       };
-      
+
       // Check if it matches base compound unit (try both orders)
       if (unitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes') {
         const baseUnit = unitConfig.BASEUNITCOMP_BASEUNIT?.toLowerCase();
         const addlUnit = unitConfig.BASEUNITCOMP_ADDLUNIT?.toLowerCase();
-        
+
         // Order 1: qty1 unit1 = main, qty2 unit2 = sub
         if (unitMatches(unit1, baseUnit) && unitMatches(unit2, addlUnit)) {
           return {
@@ -3594,7 +3596,7 @@ function PlaceOrder() {
             parts: [{ qty: qty1, unit: unit1 }, { qty: qty2, unit: unit2 }]
           };
         }
-        
+
         // Order 2: qty1 unit1 = sub, qty2 unit2 = main
         if (unitMatches(unit1, addlUnit) && unitMatches(unit2, baseUnit)) {
           return {
@@ -3611,7 +3613,7 @@ function PlaceOrder() {
       // First check unitConfig flags, then check units array
       let addlBaseUnit = null;
       let addlAddlUnit = null;
-      
+
       if (unitConfig.ADDITIONALUNITHASCOMPOUNDUNIT === 'Yes') {
         addlBaseUnit = unitConfig.ADDLUNITCOMP_BASEUNIT?.toLowerCase();
         addlAddlUnit = unitConfig.ADDLUNITCOMP_ADDLUNIT?.toLowerCase();
@@ -3623,7 +3625,7 @@ function PlaceOrder() {
           addlAddlUnit = addlUnitObj.ADDITIONALUNITS?.toLowerCase();
         }
       }
-      
+
       if (addlBaseUnit && addlAddlUnit) {
         // Order 1: qty1 unit1 = main, qty2 unit2 = sub
         if (unitMatches(unit1, addlBaseUnit) && unitMatches(unit2, addlAddlUnit)) {
@@ -3636,13 +3638,13 @@ function PlaceOrder() {
             isComponentCompound: true,
             conversion: unitsArray && unitsArray.length > 0 && unitConfig.ADDITIONALUNITS
               ? (() => {
-                  const addlUnitObj = unitsArray.find(u => u.NAME === unitConfig.ADDITIONALUNITS);
-                  return addlUnitObj ? parseFloat(addlUnitObj.CONVERSION) || 1 : 1;
-                })()
+                const addlUnitObj = unitsArray.find(u => u.NAME === unitConfig.ADDITIONALUNITS);
+                return addlUnitObj ? parseFloat(addlUnitObj.CONVERSION) || 1 : 1;
+              })()
               : 1
           };
         }
-        
+
         // Order 2: qty1 unit1 = sub, qty2 unit2 = main
         if (unitMatches(unit1, addlAddlUnit) && unitMatches(unit2, addlBaseUnit)) {
           return {
@@ -3654,14 +3656,14 @@ function PlaceOrder() {
             isComponentCompound: true,
             conversion: unitsArray && unitsArray.length > 0 && unitConfig.ADDITIONALUNITS
               ? (() => {
-                  const addlUnitObj = unitsArray.find(u => u.NAME === unitConfig.ADDITIONALUNITS);
-                  return addlUnitObj ? parseFloat(addlUnitObj.CONVERSION) || 1 : 1;
-                })()
+                const addlUnitObj = unitsArray.find(u => u.NAME === unitConfig.ADDITIONALUNITS);
+                return addlUnitObj ? parseFloat(addlUnitObj.CONVERSION) || 1 : 1;
+              })()
               : 1
           };
         }
       }
-      
+
       // Check if BASEUNITS itself is a compound unit (like "LTR of 1000 ML")
       // and user entered component units in compound format (e.g., "2 LTR 500 ML", "2LTR500ML", "1L20M", "20ML1L", "2L10M", "10ML2L")
       // This should be checked FIRST for component compounds, before regular compound units
@@ -3670,7 +3672,7 @@ function PlaceOrder() {
         if (baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No') {
           const compBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
           const compAddlUnit = baseUnitObj.ADDITIONALUNITS?.toLowerCase();
-          
+
           // Helper function to check if a unit matches (supports full name and abbreviations)
           const unitMatches = (inputUnit, targetUnit) => {
             const inputLower = inputUnit.toLowerCase();
@@ -3682,7 +3684,7 @@ function PlaceOrder() {
             if (targetLower.length >= 1 && inputLower.startsWith(targetLower)) return true;
             return false;
           };
-          
+
           // Try order 1: qty1 unit1 = main, qty2 unit2 = sub (e.g., "1 LTR 20 ML", "1LTR20ML", "1L20M")
           if (unitMatches(unit1, compBaseUnit) && unitMatches(unit2, compAddlUnit)) {
             return {
@@ -3695,7 +3697,7 @@ function PlaceOrder() {
               conversion: parseFloat(baseUnitObj.CONVERSION) || 1
             };
           }
-          
+
           // Try order 2: qty1 unit1 = sub, qty2 unit2 = main (e.g., "20 ML 1 LTR", "20ML1L", "20M 1L")
           if (unitMatches(unit1, compAddlUnit) && unitMatches(unit2, compBaseUnit)) {
             return {
@@ -3710,7 +3712,7 @@ function PlaceOrder() {
           }
         }
       }
-      
+
       // If not component compound, check regular compound units
       // Use original mainQty, mainUnit, subQty, subUnit for backward compatibility
       const mainQty = qty1;
@@ -3727,7 +3729,7 @@ function PlaceOrder() {
     if (simpleMatch) {
       const qty = parseFloat(simpleMatch[1]);
       const unit = simpleMatch[2].toLowerCase();
-      
+
       console.log('🔍 Parsing simple unit input:', {
         input: trimmed,
         qty,
@@ -3747,7 +3749,7 @@ function PlaceOrder() {
       if (addlUnit === unit) {
         return { qty: qty, uom: 'additional', isCompound: false, parts: [] };
       }
-      
+
       // Check if ADDITIONALUNITS is a compound unit and user entered a component unit
       // Look up the compound unit in units array
       if (unitsArray && unitsArray.length > 0 && unitConfig.ADDITIONALUNITS) {
@@ -3757,7 +3759,7 @@ function PlaceOrder() {
           const addlCompBaseUnit = addlUnitObj.BASEUNITS?.toLowerCase();
           const addlCompAddlUnit = addlUnitObj.ADDITIONALUNITS?.toLowerCase();
           const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
-          
+
           if (addlCompBaseUnit && unit === addlCompBaseUnit) {
             // User entered main component of compound additional unit (e.g., "25 pkt" for "pkt of 10 nos")
             // Convert to compound additional unit: qty is already in main component
@@ -3768,11 +3770,11 @@ function PlaceOrder() {
             // CONVERSION is in sub-component units, so convert qty to sub-component first
             const qtyInSubComponent = qty * addlConversion;
             const baseQty = (qtyInSubComponent * denominator) / conversion;
-            
+
             // Preserve compound additional unit structure for alternative quantity display
             const mainQty = qty; // Already in main component (e.g., 25 pkt)
             const subQty = 0; // No sub component when entering main component directly
-            
+
             console.log('🔍 Parsing component unit of compound additional:', {
               input: trimmed,
               qty,
@@ -3785,11 +3787,11 @@ function PlaceOrder() {
               compoundAddlMainQty: mainQty,
               compoundAddlSubQty: subQty
             });
-            
-            return { 
-              qty: baseQty, 
-              uom: 'base', 
-              isCompound: false, 
+
+            return {
+              qty: baseQty,
+              uom: 'base',
+              isCompound: false,
               parts: [],
               isComponentUnit: true,
               componentType: 'main',
@@ -3810,18 +3812,18 @@ function PlaceOrder() {
             const conversion = parseFloat(unitConfig.CONVERSION) || 1;
             const qtyInSubComponent = qtyInCompound * addlConversion;
             const baseQty = (qtyInSubComponent * denominator) / conversion;
-            
+
             // Preserve compound additional unit structure for alternative quantity display
             // Extract main and sub quantities from compound additional unit
             const mainQty = Math.floor(qtyInCompound); // 2 pkt
             const subQty = (qtyInCompound - mainQty) * addlConversion; // 0.2 * 25 = 5 nos
             // Round subQty to avoid floating point errors
             const roundedSubQty = Math.round(subQty * 100) / 100;
-            
-            return { 
-              qty: baseQty, 
-              uom: 'base', 
-              isCompound: false, 
+
+            return {
+              qty: baseQty,
+              uom: 'base',
+              isCompound: false,
               parts: [],
               isComponentUnit: true,
               componentType: 'sub',
@@ -3835,7 +3837,7 @@ function PlaceOrder() {
           }
         }
       }
-      
+
       // Check if BASEUNITS is a compound unit and user entered a component unit
       // Look up the compound unit in units array
       if (unitsArray && unitsArray.length > 0 && unitConfig.BASEUNITS) {
@@ -3845,14 +3847,14 @@ function PlaceOrder() {
           const compBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
           const compAddlUnit = baseUnitObj.ADDITIONALUNITS?.toLowerCase();
           const conversion = parseFloat(baseUnitObj.CONVERSION) || 1;
-          
+
           if (compBaseUnit && unit === compBaseUnit) {
             // User entered main component unit (e.g., "2 LTR")
             // Convert to compound base unit: qty is already in main component
-            return { 
-              qty: qty, 
-              uom: 'base', 
-              isCompound: false, 
+            return {
+              qty: qty,
+              uom: 'base',
+              isCompound: false,
               parts: [],
               isComponentUnit: true,
               componentType: 'main',
@@ -3871,10 +3873,10 @@ function PlaceOrder() {
             const subQty = (convertedQty - mainQty) * conversion; // 0.2 * 25 = 5 nos
             // Round subQty to avoid floating point errors (e.g., 4.9999999 should be 5)
             const roundedSubQty = Math.round(subQty * 100) / 100;
-            return { 
+            return {
               qty: mainQty, // Main quantity for compound display (2)
               subQty: roundedSubQty, // Sub quantity for compound display (5)
-              uom: 'base', 
+              uom: 'base',
               isCompound: true, // Mark as compound to preserve the structure for display
               parts: [],
               isComponentUnit: true,
@@ -3901,33 +3903,33 @@ function PlaceOrder() {
   // Use the base component unit (e.g., "LTR") instead of the full compound unit name (e.g., "LTR of 1000 ML")
   const formatCompoundBaseUnit = (primaryQty, unitConfig, unitsArray) => {
     if (!unitConfig || !unitsArray || unitsArray.length === 0) return null;
-    
+
     // Check if BASEUNITS is a compound unit
     const baseUnitObj = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
     if (!baseUnitObj || baseUnitObj.ISSIMPLEUNIT === 'Yes') return null;
-    
+
     const conversion = parseFloat(baseUnitObj.CONVERSION) || 1;
     const mainQty = Math.floor(primaryQty);
     const subQty = (primaryQty - mainQty) * conversion;
-    
+
     // Get decimal places for sub unit
     let subDecimalPlaces = 0;
     if (baseUnitObj.ADDITIONALUNITS) {
       const subUnitObj = unitsArray.find(u => u.NAME === baseUnitObj.ADDITIONALUNITS);
       if (subUnitObj) {
-        subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string' 
+        subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
           ? parseInt(subUnitObj.DECIMALPLACES) || 0
           : (subUnitObj.DECIMALPLACES || 0);
       }
     }
-    
-    const formattedSubQty = subDecimalPlaces === 0 
+
+    const formattedSubQty = subDecimalPlaces === 0
       ? Math.round(subQty).toString()
       : subQty.toFixed(subDecimalPlaces);
-    
+
     // Use the base component unit (e.g., "LTR") instead of the full compound unit name (e.g., "LTR of 1000 ML")
     const displayUnit = baseUnitObj.BASEUNITS || unitConfig.BASEUNITS;
-    
+
     // Format: "mainQty-subQty BASEUNIT" (e.g., "2-500.000 LTR" or "2-0.000 LTR")
     // Always show the format even if subQty is 0
     return `${mainQty}-${formattedSubQty} ${displayUnit}`;
@@ -3960,7 +3962,7 @@ function PlaceOrder() {
               // BASEUNITS is compound - get main and sub unit decimal places
               const mainUnitObj = unitsArray.find(u => u.NAME === baseUnitObj.BASEUNITS);
               const subUnitObj = unitsArray.find(u => u.NAME === baseUnitObj.ADDITIONALUNITS);
-              
+
               if (mainUnitObj) {
                 const mainDecimalPlaces = typeof mainUnitObj.DECIMALPLACES === 'string'
                   ? parseInt(mainUnitObj.DECIMALPLACES) || 0
@@ -3971,7 +3973,7 @@ function PlaceOrder() {
                   mainQty = parseFloat(mainQty.toFixed(mainDecimalPlaces));
                 }
               }
-              
+
               if (subUnitObj) {
                 const subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
                   ? parseInt(subUnitObj.DECIMALPLACES) || 0
@@ -4079,7 +4081,7 @@ function PlaceOrder() {
         // Compound additional unit
         let mainQty = parsedQty.qty || 0;
         let subQty = parsedQty.subQty || 0;
-        
+
         // Round main and sub quantities based on their decimal places before calculation
         if (unitsArray && unitsArray.length > 0 && unitConfig.ADDITIONALUNITS) {
           const addlUnitObj = unitsArray.find(u => u.NAME === unitConfig.ADDITIONALUNITS);
@@ -4087,7 +4089,7 @@ function PlaceOrder() {
             // ADDITIONALUNITS is compound - get main and sub unit decimal places
             const mainUnitObj = unitsArray.find(u => u.NAME === addlUnitObj.BASEUNITS);
             const subUnitObj = unitsArray.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
-            
+
             if (mainUnitObj) {
               const mainDecimalPlaces = typeof mainUnitObj.DECIMALPLACES === 'string'
                 ? parseInt(mainUnitObj.DECIMALPLACES) || 0
@@ -4098,7 +4100,7 @@ function PlaceOrder() {
                 mainQty = parseFloat(mainQty.toFixed(mainDecimalPlaces));
               }
             }
-            
+
             if (subUnitObj) {
               const subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
                 ? parseInt(subUnitObj.DECIMALPLACES) || 0
@@ -4111,7 +4113,7 @@ function PlaceOrder() {
             }
           }
         }
-        
+
         // Get the conversion factor for the compound additional unit's sub-unit
         let subConversion = 1;
         if (unitConfig.ADDITIONALUNITHASCOMPOUNDUNIT === 'Yes' && unitConfig.ADDLUNITCOMP_CONVERSION) {
@@ -4123,12 +4125,12 @@ function PlaceOrder() {
             subConversion = 1000;
           }
         }
-        
+
         // Convert compound additional unit to simple additional unit
         // e.g., "2 Box 5 Nos" where Box is main and Nos is sub
         // Total in additional unit = mainQty + (subQty / subConversion)
         const totalAddlUnits = mainQty + (subQty / subConversion);
-        
+
         // Convert to base: (effectiveDenominator / CONVERSION) per additional unit
         // effectiveDenominator is already in compound units when BASEUNITS is compound
         return totalAddlUnits * (effectiveDenominator / conversion);
@@ -4174,7 +4176,7 @@ function PlaceOrder() {
       denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
       conversion = parseFloat(unitConfig.CONVERSION) || 1;
     }
-    
+
     // Check if BASEUNITS is compound - if so, DENOMINATOR is in terms of sub-component unit
     // Need to convert DENOMINATOR from sub-component to compound units
     let effectiveDenominator = denominator;
@@ -4189,13 +4191,13 @@ function PlaceOrder() {
         effectiveDenominator = denominator / compoundConversion;
       }
     }
-    
+
     // Check if ADDITIONALUNITS is a compound unit
     const addlUnitObj = unitsArray && unitsArray.length > 0
       ? unitsArray.find(u => u.NAME === unitConfig.ADDITIONALUNITS)
       : null;
     const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-    
+
     // IMPORTANT: When ADDITIONALUNITS is compound, CONVERSION refers to the sub-component unit (nos),
     // not the compound unit itself (pkt of 10 nos).
     // Example: BASEUNITS = "box", ADDITIONALUNITS = "pkt of 10 nos", DENOMINATOR = 1, CONVERSION = 100
@@ -4217,13 +4219,13 @@ function PlaceOrder() {
       // effectiveDenominator is already in compound units when BASEUNITS is compound
       alternativeQty = baseQty * (conversion / effectiveDenominator);
     }
-    
+
     // Get decimal places for additional unit from units array
     let decimalPlaces = 0;
     if (unitsArray && unitsArray.length > 0) {
       const addlUnit = unitsArray.find(u => u.NAME === unitConfig.ADDITIONALUNITS);
       if (addlUnit) {
-        decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string' 
+        decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string'
           ? parseInt(addlUnit.DECIMALPLACES) || 0
           : (addlUnit.DECIMALPLACES || 0);
       }
@@ -4232,32 +4234,32 @@ function PlaceOrder() {
         ? parseInt(unitConfig.ADDITIONALUNITS_DECIMAL) || 0
         : (unitConfig.ADDITIONALUNITS_DECIMAL || 0);
     }
-    
+
     if (hasCompoundAddlUnit && addlUnitObj) {
       // ADDITIONALUNITS is compound - format in hyphenated format (e.g., "20-0 pkt")
       // alternativeQty is already in compound units (e.g., 20 "pkt of 10 nos")
       const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
       const mainQty = Math.floor(alternativeQty);
       const subQty = (alternativeQty - mainQty) * addlConversion;
-      
+
       // Get decimal places for sub unit
       let subDecimalPlaces = 0;
       if (addlUnitObj.ADDITIONALUNITS) {
         const subUnitObj = unitsArray.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
         if (subUnitObj) {
-          subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string' 
+          subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
             ? parseInt(subUnitObj.DECIMALPLACES) || 0
             : (subUnitObj.DECIMALPLACES || 0);
         }
       }
-      
-      const formattedSubQty = subDecimalPlaces === 0 
+
+      const formattedSubQty = subDecimalPlaces === 0
         ? Math.round(subQty).toString()
         : subQty.toFixed(subDecimalPlaces);
-      
+
       // Use the base component unit (e.g., "pkt") instead of the full compound unit name (e.g., "pkt of 10 nos")
       const displayUnit = addlUnitObj.BASEUNITS || unitConfig.ADDITIONALUNITS;
-      
+
       // Format: "mainQty-subQty BASEUNIT" (e.g., "20-0 pkt" or "20-5.000 pkt")
       // Always show the format even if subQty is 0
       return {
@@ -4265,9 +4267,9 @@ function PlaceOrder() {
         unit: displayUnit
       };
     }
-    
+
     // Format the alternative quantity based on decimal places (for simple additional units)
-    const formattedQty = decimalPlaces === 0 
+    const formattedQty = decimalPlaces === 0
       ? Math.round(alternativeQty).toString()
       : alternativeQty.toFixed(decimalPlaces);
 
@@ -4629,19 +4631,21 @@ function PlaceOrder() {
 
 
 
-      // Check cache first
+      // Only read from cache - do not fetch from API
 
-      const cached = sessionStorage.getItem(cacheKey);
+      // Cache updates are handled by Cache Management page
 
-      if (cached && !refreshCustomers) {
+      try {
 
-        try {
+        const cachedCustomers = await getCustomersFromOPFS(cacheKey);
 
-          const customers = JSON.parse(cached);
+        if (cachedCustomers && Array.isArray(cachedCustomers) && cachedCustomers.length > 0) {
 
-          setCustomerOptions(customers);
+          console.log(`✅ Loaded ${cachedCustomers.length} customers from cache`);
 
-          if (customers.length === 1) setSelectedCustomer(customers[0].NAME);
+          setCustomerOptions(cachedCustomers);
+
+          if (cachedCustomers.length === 1) setSelectedCustomer(cachedCustomers[0].NAME);
 
           else setSelectedCustomer('');
 
@@ -4649,125 +4653,43 @@ function PlaceOrder() {
 
           setCustomerLoading(false);
 
-          return;
-
-        } catch { }
-
-      }
-
-
-
-      // Clear cache if refresh requested
-
-      if (refreshCustomers) {
-
-        sessionStorage.removeItem(cacheKey);
-
-      }
-
-
-
-      // Set loading state and fetch data
-
-      setCustomerLoading(true);
-
-      setCustomerError('');
-
-      setCustomerOptions([]); // Clear previous data while loading
-
-
-
-      try {
-
-        const data = await apiPost(`/api/tally/ledgerlist-w-addrs?ts=${Date.now()}`, {
-
-          tallyloc_id,
-
-          company: companyVal,
-
-          guid
-
-        });
-
-
-
-        if (data && data.ledgers && Array.isArray(data.ledgers)) {
-
-          console.log(`Successfully fetched ${data.ledgers.length} customers`);
-
-          setCustomerOptions(data.ledgers);
-
-          if (data.ledgers.length === 1) setSelectedCustomer(data.ledgers[0].NAME);
-
-          else setSelectedCustomer('');
-
-          setCustomerError('');
-
-
-
-          // Cache the result with graceful fallback if storage is full
-
-          try {
-
-            const cacheString = JSON.stringify(data.ledgers);
-
-            sessionStorage.setItem(cacheKey, cacheString);
-
-          } catch (cacheError) {
-
-            console.warn('Failed to cache customers in sessionStorage:', cacheError.message);
-
-            // Don't fail the entire operation if caching fails
-
-          }
-
-        } else if (data && data.error) {
-
-          setCustomerError(data.error);
-
-          setCustomerOptions([]);
-
-          setSelectedCustomer('');
-
         } else {
 
-          console.error('Unexpected API response format:', data);
+          // No cache found - user needs to refresh from Cache Management
 
-          setCustomerError('Unknown error: Invalid response format');
+          console.warn('No customer cache found. Please refresh from Cache Management.');
 
           setCustomerOptions([]);
 
           setSelectedCustomer('');
+
+          setCustomerError('No customer data found. Please use the refresh button in the top bar to load customer data.');
+
+          setCustomerLoading(false);
 
         }
 
-      } catch (err) {
+      } catch (cacheError) {
 
-        console.error('Error fetching customers:', err);
-
-        const errorMessage = err.message || 'Failed to fetch customers';
-
-        setCustomerError(errorMessage.includes('parse') || errorMessage.includes('JSON')
-
-          ? `Failed to process large response. Please contact support.`
-
-          : errorMessage);
+        console.error('Error loading customers from cache:', cacheError);
 
         setCustomerOptions([]);
 
         setSelectedCustomer('');
 
-      } finally {
+        setCustomerError('Error loading customer data. Please use the refresh button in the top bar.');
 
         setCustomerLoading(false);
 
-        // Reset refresh counter after API call completes
+      }
 
-        if (refreshCustomers) {
 
-          setRefreshCustomers(0);
 
-        }
+      // Reset refresh counter
+
+      if (refreshCustomers) {
+
+        setRefreshCustomers(0);
 
       }
 
@@ -5419,26 +5341,26 @@ function PlaceOrder() {
         // Helper function to map API unit name to rateUOM value
         const mapUnitToRateUOM = (unitName, unitConfig, units) => {
           if (!unitName || !unitConfig) return null;
-          
-          const baseUnitObj = units && units.length > 0 
+
+          const baseUnitObj = units && units.length > 0
             ? units.find(u => u.NAME === unitConfig.BASEUNITS)
             : null;
           const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-          
+
           const addlUnitObj = units && units.length > 0 && unitConfig.ADDITIONALUNITS
             ? units.find(u => u.NAME === unitConfig.ADDITIONALUNITS)
             : null;
           const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-          
+
           // Normalize unit name for comparison (case-insensitive)
           const unitNameLower = unitName.toLowerCase().trim();
-          
+
           // Check if it matches base unit
           if (hasCompoundBaseUnit && baseUnitObj) {
             // Check component units of compound base unit
             const baseCompBaseUnit = (baseUnitObj.BASEUNITS || '').toLowerCase().trim();
             const baseCompAddlUnit = (baseUnitObj.ADDITIONALUNITS || '').toLowerCase().trim();
-            
+
             if (unitNameLower === baseCompBaseUnit) {
               return 'component-main';
             } else if (unitNameLower === baseCompAddlUnit) {
@@ -5451,13 +5373,13 @@ function PlaceOrder() {
               return 'base';
             }
           }
-          
+
           // Check if it matches additional unit
           if (hasCompoundAddlUnit && addlUnitObj) {
             // Check component units of compound additional unit
             const addlCompBaseUnit = (addlUnitObj.BASEUNITS || '').toLowerCase().trim();
             const addlCompAddlUnit = (addlUnitObj.ADDITIONALUNITS || '').toLowerCase().trim();
-            
+
             if (unitNameLower === addlCompBaseUnit) {
               return 'additional-component-main';
             } else if (unitNameLower === addlCompAddlUnit) {
@@ -5470,16 +5392,16 @@ function PlaceOrder() {
               return 'additional';
             }
           }
-          
+
           return null; // Unit not found
         };
 
         // Set Rate UOM based on API response (STDPRICEUNIT, LASTPRICEUNIT, or RATEUNIT)
         let rateUOMFromAPI = null;
-        
+
         if (selectedCustomer) {
           const selectedCustomerData = customerOptions.find(customer => customer.NAME === selectedCustomer);
-          
+
           if (selectedCustomerData && selectedCustomerData.PRICELEVEL) {
             // Check PRICELEVELS for RATEUNIT
             if (selectedStockItem.PRICELEVELS && Array.isArray(selectedStockItem.PRICELEVELS)) {
@@ -5490,13 +5412,13 @@ function PlaceOrder() {
             }
           }
         }
-        
+
         // If no rateUOM from PRICELEVELS, check STDPRICEUNIT or LASTPRICEUNIT
         if (!rateUOMFromAPI) {
           // Check if we're using LASTPRICE (if LASTPRICE exists and is different from STDPRICE)
           const stdPrice = selectedStockItem.STDPRICE ? enhancedDeobfuscateValue(selectedStockItem.STDPRICE) : 0;
           const lastPrice = selectedStockItem.LASTPRICE ? enhancedDeobfuscateValue(selectedStockItem.LASTPRICE) : 0;
-          
+
           // Use LASTPRICEUNIT if LASTPRICE is being used and LASTPRICEUNIT exists
           if (lastPrice && lastPrice !== stdPrice && selectedStockItem.LASTPRICEUNIT) {
             rateUOMFromAPI = mapUnitToRateUOM(selectedStockItem.LASTPRICEUNIT, unitConfig, units);
@@ -5506,22 +5428,22 @@ function PlaceOrder() {
             rateUOMFromAPI = mapUnitToRateUOM(selectedStockItem.STDPRICEUNIT, unitConfig, units);
           }
         }
-        
+
         // Set rateUOM: use API value if available, otherwise use default based on unit configuration
         if (rateUOMFromAPI) {
           setRateUOM(rateUOMFromAPI);
         } else if (unitConfig) {
           // Fallback to default logic
-          const baseUnitObj = units && units.length > 0 
+          const baseUnitObj = units && units.length > 0
             ? units.find(u => u.NAME === unitConfig.BASEUNITS)
             : null;
           const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-          
+
           const addlUnitObj = units && units.length > 0 && unitConfig.ADDITIONALUNITS
             ? units.find(u => u.NAME === unitConfig.ADDITIONALUNITS)
             : null;
           const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-          
+
           if (hasCompoundBaseUnit) {
             // For compound base units, default to main component
             setRateUOM('component-main');
@@ -5551,9 +5473,9 @@ function PlaceOrder() {
         const unitConfig = buildUnitConfig(selectedStockItem, units);
         if (unitConfig) {
           // Always update if BASEUNIT_DECIMAL changed or was previously undefined
-          const shouldUpdate = !selectedItemUnitConfig || 
+          const shouldUpdate = !selectedItemUnitConfig ||
             unitConfig.BASEUNIT_DECIMAL !== selectedItemUnitConfig.BASEUNIT_DECIMAL;
-          
+
           if (shouldUpdate) {
             console.log('🔄 Rebuilding unit config with units array:', {
               item: selectedItem,
@@ -5563,7 +5485,7 @@ function PlaceOrder() {
               unitsArrayLength: units.length
             });
             setSelectedItemUnitConfig(unitConfig);
-            
+
             // If there's a quantity input, re-validate it with the new config
             if (quantityInput && quantityInput.trim()) {
               setTimeout(() => {
@@ -5608,33 +5530,33 @@ function PlaceOrder() {
     }
 
     const parsedQty = parseQuantityInput(quantityInput, selectedItemUnitConfig, units);
-    
+
     // Reset custom conversion only if user explicitly enters a different format
     // Don't reset if:
     // 1. Input is just the base unit display (which happens after onBlur converts custom format to base)
     // 2. The parsed quantity matches the base quantity from custom conversion
     const isJustBaseUnit = parsedQty.uom === 'base' && !parsedQty.isCompound && !parsedQty.isCustomConversion;
-    const matchesBaseUnitDisplay = isJustBaseUnit && 
+    const matchesBaseUnitDisplay = isJustBaseUnit &&
       quantityInput.toLowerCase().includes(selectedItemUnitConfig.BASEUNITS.toLowerCase());
-    
+
     // Calculate primary quantity first to use for comparison
     const primaryQty = convertToPrimaryQty(parsedQty, selectedItemUnitConfig, customConversion, units);
-    
+
     // Check if the current quantity matches what would be from custom conversion
     // Use primaryQty instead of parsedQty.qty because parsedQty.qty might be the main quantity
     // (e.g., 10 for "10-2 pkt") while primaryQty is the total (e.g., 10.2)
-    const matchesCustomConversion = customConversion && 
+    const matchesCustomConversion = customConversion &&
       Math.abs(primaryQty - customConversion.baseQty) < 0.0001;
-    
+
     // Also check if the current input is the base unit display format that was converted from a custom conversion
     // This happens when onBlur converts "10 pkt 2 nos = 2 box" to "10-2 pkt"
     // The hyphen format "10-2 pkt" is parsed as compound, but the quantity (10.2) still matches the custom conversion
     // In this case, we should preserve the custom conversion
-    const isBaseUnitDisplayFromCustom = customConversion && 
-      matchesCustomConversion && 
-      parsedQty.uom === 'base' && 
+    const isBaseUnitDisplayFromCustom = customConversion &&
+      matchesCustomConversion &&
+      parsedQty.uom === 'base' &&
       (matchesBaseUnitDisplay || parsedQty.isCompound || quantityInput.includes('-'));
-    
+
     if (!parsedQty.isCustomConversion && customConversion && !matchesBaseUnitDisplay && !matchesCustomConversion && !isBaseUnitDisplayFromCustom) {
       // User changed to a different format (not custom conversion, not base unit display, and doesn't match custom conversion base qty)
       setCustomConversion(null);
@@ -5642,14 +5564,14 @@ function PlaceOrder() {
       setCompoundBaseQty(null);
       setBaseQtyOnly(null);
     }
-    
+
     // Always display quantity in BASEUNITS format
     // Get decimal places for base unit
     let baseUnitDecimal = 0;
     if (units && units.length > 0) {
       const baseUnit = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
       if (baseUnit) {
-        baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string' 
+        baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string'
           ? parseInt(baseUnit.DECIMALPLACES) || 0
           : (baseUnit.DECIMALPLACES || 0);
       }
@@ -5658,21 +5580,21 @@ function PlaceOrder() {
         ? parseInt(selectedItemUnitConfig.BASEUNIT_DECIMAL) || 0
         : (selectedItemUnitConfig.BASEUNIT_DECIMAL || 0);
     }
-    
+
     // Format the quantity in BASEUNITS
-    const formattedQty = baseUnitDecimal === 0 
+    const formattedQty = baseUnitDecimal === 0
       ? Math.round(primaryQty).toString()
       : primaryQty.toFixed(baseUnitDecimal);
-    
+
     // Round primaryQty based on base unit's decimal places before setting itemQuantity
     // This ensures amount calculation uses rounded quantity when decimal places are 0
-    const roundedPrimaryQty = baseUnitDecimal === 0 
+    const roundedPrimaryQty = baseUnitDecimal === 0
       ? Math.round(primaryQty)
       : parseFloat(primaryQty.toFixed(baseUnitDecimal));
-    
+
     // Note: We don't update quantityInput here to avoid interfering with user typing
     // The conversion to BASEUNITS will happen in the onBlur handler
-    
+
     console.log('📊 Quantity parsing:', {
       input: quantityInput,
       parsed: parsedQty,
@@ -5684,11 +5606,11 @@ function PlaceOrder() {
       denominator: selectedItemUnitConfig?.DENOMINATOR,
       conversion: selectedItemUnitConfig?.CONVERSION
     });
-    
+
     setItemQuantity(roundedPrimaryQty);
     // Track which unit type was entered (for reference, but display will always be base)
     setEnteredUnitType(parsedQty.uom || 'base');
-    
+
     // Set customAddlQty if parsed quantity has it (e.g., from "9 pkt 2 nos 3 box")
     // IMPORTANT: Only update if parsedQty has customAddlQty, otherwise preserve existing value
     // This ensures that when input is reformatted (e.g., "9-3 pkt"), customAddlQty is not cleared
@@ -5708,7 +5630,7 @@ function PlaceOrder() {
       // This prevents clearing customAddlQty when input is reformatted to base unit display
       // (e.g., "9-3 pkt" still needs to preserve the additional unit quantity)
     }
-    
+
     // Store base quantity separately for base rate calculation
     // When input is "3 box 9 pkt 7 nos", parsedQty.qty = 3 (base quantity only)
     // This is needed for base rate calculation to use only the base part
@@ -5738,17 +5660,17 @@ function PlaceOrder() {
     } else {
       // Only clear if we're sure there's no base + additional input
       // Check if the input is truly just a base unit without any additional unit parts
-      const isSimpleBaseOnly = parsedQty.uom === 'base' && 
-                                !parsedQty.isCompound && 
-                                !parsedQty.isCustomConversion &&
-                                !parsedQty.customAddlQty &&
-                                !parsedQty.totalQty;
+      const isSimpleBaseOnly = parsedQty.uom === 'base' &&
+        !parsedQty.isCompound &&
+        !parsedQty.isCustomConversion &&
+        !parsedQty.customAddlQty &&
+        !parsedQty.totalQty;
       if (isSimpleBaseOnly && !quantityInput.toLowerCase().includes('pkt') && !quantityInput.toLowerCase().includes('nos')) {
         setBaseQtyOnly(null);
       }
       // Otherwise, preserve existing baseQtyOnly (don't clear it)
     }
-    
+
     // Store compound base unit quantity separately for amount calculation
     // This is needed when rate is in component units (pkt or nos) - we only use the compound base part
     if (parsedQty.isCompound && parsedQty.qty !== undefined && parsedQty.subQty !== undefined && units && units.length > 0) {
@@ -5776,7 +5698,7 @@ function PlaceOrder() {
         // Compound base part = total - additional part
         const compoundQty = parsedQty.totalQty - addlQtyInBase;
         setCompoundBaseQty(compoundQty);
-    } else {
+      } else {
 
         setCompoundBaseQty(null);
       }
@@ -5784,7 +5706,7 @@ function PlaceOrder() {
       setCompoundBaseQty(null);
       setBaseQtyOnly(null);
     }
-    
+
     // Store compound additional unit quantity separately for amount calculation
     // This is needed when BASEUNITS is simple and ADDITIONALUNITS is compound
     // For "2 box 25 pkt 7 nos": store 25.7 pkt separately
@@ -5858,7 +5780,7 @@ function PlaceOrder() {
         // Don't clear it - preserve existing compoundAddlQty
         return; // Exit early to preserve compoundAddlQty
       }
-      
+
       // Only clear if compoundAddlQty doesn't exist in state
       // Preserve existing compoundAddlQty if parsedQty has totalQty (which indicates compound additional was present)
       // This happens when input is reformatted (e.g., "3 box" from "3 box 9 pkt 7 nos")
@@ -5866,11 +5788,11 @@ function PlaceOrder() {
       if (!parsedQty.totalQty && !parsedQty.isComponentUnit) {
         // Only clear if there's no indication that compound additional quantity exists
         // Check if we have a simple base unit input without any additional unit parts
-        const isSimpleBaseOnly = parsedQty.uom === 'base' && 
-                                  !parsedQty.isCompound && 
-                                  !parsedQty.isCustomConversion &&
-                                  !parsedQty.customAddlQty &&
-                                  !parsedQty.isComponentUnit;
+        const isSimpleBaseOnly = parsedQty.uom === 'base' &&
+          !parsedQty.isCompound &&
+          !parsedQty.isCustomConversion &&
+          !parsedQty.customAddlQty &&
+          !parsedQty.isComponentUnit;
         // Also check if the input string doesn't contain the compound additional unit components
         // For "3 box 9 pkt 7 nos", even after reformatting to "3 box", we should preserve compoundAddlQty
         // Only clear if the input is truly just a base unit (e.g., "3 box" entered directly, not from reformatting)
@@ -5917,11 +5839,11 @@ function PlaceOrder() {
     let calculatedAmount = 0;
 
     // Check if BASEUNITS is compound and rate is in component unit
-    const baseUnitObj = units && units.length > 0 
+    const baseUnitObj = units && units.length > 0
       ? units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS)
       : null;
     const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-    
+
     // Check if ADDITIONALUNITS is compound
     const addlUnitObj = units && units.length > 0 && selectedItemUnitConfig.ADDITIONALUNITS
       ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
@@ -5962,7 +5884,7 @@ function PlaceOrder() {
       // - Use ONLY compound additional part: 25 pkt 7 nos = 25.7 pkt
       // - Amount = 25.7 pkt × 10/pkt = 257
       const addlCompoundConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
-      
+
       if (compoundAddlQty !== null && compoundAddlQty !== undefined && !hasCompoundBaseUnit) {
         // BASEUNITS is simple, ADDITIONALUNITS is compound
         // Use compound additional quantity directly (already in compound units, e.g., 9.7 pkt)
@@ -5998,7 +5920,7 @@ function PlaceOrder() {
             // Use default conversion from item's CONVERSION field (in nos)
             conversion = parseFloat(selectedItemUnitConfig.CONVERSION) || 1;
           }
-          
+
           // Convert quantity from box to nos, then to pkt
           const quantityInNos = itemQuantity * conversion;
           quantityInRateUOM = quantityInNos / addlCompoundConversion;
@@ -6010,7 +5932,7 @@ function PlaceOrder() {
       // - Use ONLY compound additional part: 25 pkt = 250 nos, + 7 nos = 257 nos
       // - Amount = 257 nos × 10/nos = 2570
       const addlCompoundConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
-      
+
       if (compoundAddlQty !== null && compoundAddlQty !== undefined && !hasCompoundBaseUnit) {
         // BASEUNITS is simple, ADDITIONALUNITS is compound
         // Convert compound additional quantity to sub component: compoundAddlQty * conversion
@@ -6050,7 +5972,7 @@ function PlaceOrder() {
             // Use default conversion from item's CONVERSION field (in nos)
             conversion = parseFloat(selectedItemUnitConfig.CONVERSION) || 1;
           }
-          
+
           // Convert quantity from box to nos
           quantityInRateUOM = itemQuantity * conversion;
         }
@@ -6086,7 +6008,7 @@ function PlaceOrder() {
           denominator = parseFloat(selectedItemUnitConfig.DENOMINATOR) || 1;
           conversion = parseFloat(selectedItemUnitConfig.CONVERSION) || 1;
         }
-        
+
         // Check if BASEUNITS is compound - if so, DENOMINATOR is in terms of sub-component unit
         let effectiveDenominator = denominator;
         if (hasCompoundBaseUnit && baseUnitObj && baseUnitObj.CONVERSION && !customConversion) {
@@ -6097,12 +6019,12 @@ function PlaceOrder() {
           const compoundConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
           effectiveDenominator = denominator / compoundConversion;
         }
-        
+
         // Convert quantity from base units to additional units
         // Formula: effectiveDenominator BASEUNITS = conversion ADDITIONALUNITS
         // So: quantity_in_additional = quantity_in_base * (conversion / effectiveDenominator)
         let quantityInAddlUnits = itemQuantity * (conversion / effectiveDenominator);
-        
+
         // Round the additional unit quantity based on its decimal places
         // This ensures the calculation matches what's displayed in the alternate quantity
         if (units && units.length > 0 && selectedItemUnitConfig.ADDITIONALUNITS) {
@@ -6114,13 +6036,13 @@ function PlaceOrder() {
             // Round the additional unit quantity based on its decimal places
             if (addlDecimalPlaces === 0) {
               quantityInAddlUnits = Math.round(quantityInAddlUnits);
-      } else {
+            } else {
 
               quantityInAddlUnits = parseFloat(quantityInAddlUnits.toFixed(addlDecimalPlaces));
             }
           }
         }
-        
+
         quantityInRateUOM = quantityInAddlUnits;
       }
     } else if (rateUOM === 'base' && !hasCompoundBaseUnit) {
@@ -6162,7 +6084,7 @@ function PlaceOrder() {
 
     // Calculate amount: quantity in rate's UOM * rate
     calculatedAmount = quantityInRateUOM * itemRate * (1 - (itemDiscountPercent || 0) / 100);
-    
+
     // Debug log for final amount calculation
     console.log('💰 Final amount calculation:', {
       itemQuantity,
@@ -6176,7 +6098,7 @@ function PlaceOrder() {
       baseQtyOnly,
       hasCompoundAddlUnit
     });
-    
+
     setItemAmount(calculatedAmount);
 
   }, [itemQuantity, itemRate, itemDiscountPercent, rateUOM, selectedItemUnitConfig, units, customConversion, compoundBaseQty, compoundAddlQty, customAddlQty, baseQtyOnly]);
@@ -6665,7 +6587,7 @@ function PlaceOrder() {
           } else if (item.unitConfig && item.unitConfig.BASEUNITS) {
             // Fallback: format quantity with unit
             const baseUnitDecimal = item.unitConfig.BASEUNIT_DECIMAL || 0;
-            const formattedQty = baseUnitDecimal === 0 
+            const formattedQty = baseUnitDecimal === 0
               ? Math.round(item.quantity).toString()
               : item.quantity.toFixed(baseUnitDecimal);
             qtyString = `${formattedQty} ${item.unitConfig.BASEUNITS}`;
@@ -6679,25 +6601,25 @@ function PlaceOrder() {
           // 2. Compound base + simple additional units
           // 3. Simple base + compound additional units
           if (item.unitConfig && item.unitConfig.BASEUNITS && item.unitConfig.ADDITIONALUNITS) {
-            const baseUnitObj = units && units.length > 0 
+            const baseUnitObj = units && units.length > 0
               ? units.find(u => u.NAME === item.unitConfig.BASEUNITS)
               : null;
             const addlUnitObj = units && units.length > 0
               ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
               : null;
-            
+
             const hasSimpleBaseUnit = !baseUnitObj || baseUnitObj.ISSIMPLEUNIT === 'Yes';
             const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
             const hasSimpleAddlUnit = !addlUnitObj || addlUnitObj.ISSIMPLEUNIT === 'Yes';
             const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-            
+
             // Append alternative quantity if:
             // 1. Both units are simple, OR
             // 2. Base unit is compound and additional unit is simple, OR
             // 3. Base unit is simple and additional unit is compound
-            if ((hasSimpleBaseUnit && hasSimpleAddlUnit) || 
-                (hasCompoundBaseUnit && hasSimpleAddlUnit) || 
-                (hasSimpleBaseUnit && hasCompoundAddlUnit)) {
+            if ((hasSimpleBaseUnit && hasSimpleAddlUnit) ||
+              (hasCompoundBaseUnit && hasSimpleAddlUnit) ||
+              (hasSimpleBaseUnit && hasCompoundAddlUnit)) {
               // Check if qtyString already contains "=" (custom conversion format)
               if (!qtyString.includes('=')) {
                 // Use stored altQtyDisplay if available
@@ -6719,12 +6641,12 @@ function PlaceOrder() {
                       if (addlUnitObj.ADDITIONALUNITS) {
                         const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
                         if (subUnitObj) {
-                          subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string' 
+                          subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
                             ? parseInt(subUnitObj.DECIMALPLACES) || 0
                             : (subUnitObj.DECIMALPLACES || 0);
                         }
                       }
-                      const formattedSubQty = subDecimalPlaces === 0 
+                      const formattedSubQty = subDecimalPlaces === 0
                         ? Math.round(subQty).toString()
                         : subQty.toFixed(subDecimalPlaces);
                       const displayUnit = addlUnitObj.BASEUNITS || item.unitConfig.ADDITIONALUNITS;
@@ -6733,11 +6655,11 @@ function PlaceOrder() {
                       // Simple additional unit - format with proper decimal places
                       let addlDecimalPlaces = 0;
                       if (addlUnitObj) {
-                        addlDecimalPlaces = typeof addlUnitObj.DECIMALPLACES === 'string' 
+                        addlDecimalPlaces = typeof addlUnitObj.DECIMALPLACES === 'string'
                           ? parseInt(addlUnitObj.DECIMALPLACES) || 0
                           : (addlUnitObj.DECIMALPLACES || 0);
                       }
-                      const formattedAltQty = addlDecimalPlaces === 0 
+                      const formattedAltQty = addlDecimalPlaces === 0
                         ? Math.round(parseFloat(altQty.qty)).toString()
                         : parseFloat(altQty.qty).toFixed(addlDecimalPlaces);
                       qtyString = `${qtyString} = ${formattedAltQty} ${altQty.unit}`;
@@ -6747,20 +6669,20 @@ function PlaceOrder() {
               }
             }
           }
-          
+
           // Format rate with unit
           let rateString = '';
           if (item.rateUOM && item.unitConfig) {
-            const baseUnitObj = units && units.length > 0 
+            const baseUnitObj = units && units.length > 0
               ? units.find(u => u.NAME === item.unitConfig.BASEUNITS)
               : null;
             const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-            
+
             const addlUnitObj = units && units.length > 0 && item.unitConfig.ADDITIONALUNITS
               ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
               : null;
             const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-            
+
             let rateUnit = '';
             if (hasCompoundBaseUnit && baseUnitObj) {
               if (item.rateUOM === 'component-main') {
@@ -6779,7 +6701,7 @@ function PlaceOrder() {
             } else if (item.rateUOM === 'additional') {
               rateUnit = item.unitConfig.ADDITIONALUNITS || '';
             }
-            
+
             if (rateUnit) {
               rateString = `${item.rate.toFixed(2)}/${rateUnit}`;
             } else {
@@ -6788,7 +6710,7 @@ function PlaceOrder() {
           } else {
             rateString = item.rate.toString();
           }
-          
+
           // Build payload item
           const payloadItem = {
             item: item.name,
@@ -6799,7 +6721,7 @@ function PlaceOrder() {
             amount: item.amount,
             description: item.description || ''
           };
-          
+
           // Add aqty if rate is in alternative unit (or component of alternative unit)
           /*if (item.rateUOM === 'additional' || item.rateUOM === 'additional-component-main' || item.rateUOM === 'additional-component-sub') {
             if (item.altQtyDisplay) {
@@ -6842,7 +6764,7 @@ function PlaceOrder() {
               }
             }
           }*/
-          
+
           return payloadItem;
         })
 
@@ -7054,35 +6976,35 @@ function PlaceOrder() {
     let altQtyDisplay = '';
     if (selectedItemUnitConfig && selectedItemUnitConfig.ADDITIONALUNITS && itemQuantity > 0) {
       const altQty = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
-      const qtyToDisplay = customAddlQty !== null && customAddlQty !== undefined 
-        ? customAddlQty 
+      const qtyToDisplay = customAddlQty !== null && customAddlQty !== undefined
+        ? customAddlQty
         : (compoundAddlQty !== null && compoundAddlQty !== undefined ? compoundAddlQty : null);
-      
+
       if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
         const addlUnitObj = units && units.length > 0
           ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
           : null;
         const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-        
+
         if (hasCompoundAddlUnit && addlUnitObj) {
           const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
           const mainQty = Math.floor(qtyToDisplay);
           const subQty = (qtyToDisplay - mainQty) * addlConversion;
-          
+
           let subDecimalPlaces = 0;
           if (addlUnitObj.ADDITIONALUNITS) {
             const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
             if (subUnitObj) {
-              subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string' 
+              subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
                 ? parseInt(subUnitObj.DECIMALPLACES) || 0
                 : (subUnitObj.DECIMALPLACES || 0);
             }
           }
-          
-          const formattedSubQty = subDecimalPlaces === 0 
+
+          const formattedSubQty = subDecimalPlaces === 0
             ? Math.round(subQty).toString()
             : subQty.toFixed(subDecimalPlaces);
-          
+
           const displayUnit = addlUnitObj.BASEUNITS || selectedItemUnitConfig.ADDITIONALUNITS;
           altQtyDisplay = `${mainQty}-${formattedSubQty} ${displayUnit}`;
         } else {
@@ -7090,7 +7012,7 @@ function PlaceOrder() {
           if (units && units.length > 0) {
             const addlUnit = units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS);
             if (addlUnit) {
-              decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string' 
+              decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string'
                 ? parseInt(addlUnit.DECIMALPLACES) || 0
                 : (addlUnit.DECIMALPLACES || 0);
             }
@@ -7099,7 +7021,7 @@ function PlaceOrder() {
               ? parseInt(selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL) || 0
               : (selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL || 0);
           }
-          const formattedQty = decimalPlaces === 0 
+          const formattedQty = decimalPlaces === 0
             ? Math.round(qtyToDisplay).toString()
             : qtyToDisplay.toFixed(decimalPlaces);
           altQtyDisplay = `${formattedQty} ${selectedItemUnitConfig.ADDITIONALUNITS}`;
@@ -7282,6 +7204,24 @@ function PlaceOrder() {
 
     setEditingItemIndex(index);
 
+    // Populate main form fields with item data
+    setSelectedItem(item.name);
+    setItemSearchTerm(item.name);
+    setQuantityInput(item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`);
+    setItemQuantity(item.quantity);
+    setItemRate(item.rate);
+    setRateUOM(item.rateUOM || 'base');
+    setItemDiscountPercent(item.discountPercent || 0);
+    setItemGstPercent(item.gstPercent || 0);
+    setItemDescription(item.description || '');
+    setSelectedItemUnitConfig(item.unitConfig);
+    setCustomConversion(item.customConversion || null);
+    setCustomAddlQty(item.customAddlQty || null);
+    setCompoundBaseQty(item.compoundBaseQty || null);
+    setCompoundAddlQty(item.compoundAddlQty || null);
+    setBaseQtyOnly(item.baseQtyOnly || null);
+    setEnteredUnitType(item.enteredUnitType || 'base');
+
     // Initialize edit states with item's stored values
     setEditQuantityInput(item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`);
     setEditItemQuantity(item.quantity);
@@ -7348,35 +7288,35 @@ function PlaceOrder() {
     let altQtyDisplay = '';
     if (editSelectedItemUnitConfig && editSelectedItemUnitConfig.ADDITIONALUNITS && editItemQuantity > 0) {
       const altQty = convertToAlternativeQty(editItemQuantity, editSelectedItemUnitConfig, units, editCustomConversion);
-      const qtyToDisplay = editCustomAddlQty !== null && editCustomAddlQty !== undefined 
-        ? editCustomAddlQty 
+      const qtyToDisplay = editCustomAddlQty !== null && editCustomAddlQty !== undefined
+        ? editCustomAddlQty
         : (editCompoundAddlQty !== null && editCompoundAddlQty !== undefined ? editCompoundAddlQty : null);
-      
+
       if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
         const addlUnitObj = units && units.length > 0
           ? units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS)
           : null;
         const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-        
+
         if (hasCompoundAddlUnit && addlUnitObj) {
           const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
           const mainQty = Math.floor(qtyToDisplay);
           const subQty = (qtyToDisplay - mainQty) * addlConversion;
-          
+
           let subDecimalPlaces = 0;
           if (addlUnitObj.ADDITIONALUNITS) {
             const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
             if (subUnitObj) {
-              subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string' 
+              subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
                 ? parseInt(subUnitObj.DECIMALPLACES) || 0
                 : (subUnitObj.DECIMALPLACES || 0);
             }
           }
-          
-          const formattedSubQty = subDecimalPlaces === 0 
+
+          const formattedSubQty = subDecimalPlaces === 0
             ? Math.round(subQty).toString()
             : subQty.toFixed(subDecimalPlaces);
-          
+
           const displayUnit = addlUnitObj.BASEUNITS || editSelectedItemUnitConfig.ADDITIONALUNITS;
           altQtyDisplay = `${mainQty}-${formattedSubQty} ${displayUnit}`;
         } else {
@@ -7384,7 +7324,7 @@ function PlaceOrder() {
           if (units && units.length > 0) {
             const addlUnit = units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS);
             if (addlUnit) {
-              decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string' 
+              decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string'
                 ? parseInt(addlUnit.DECIMALPLACES) || 0
                 : (addlUnit.DECIMALPLACES || 0);
             }
@@ -7393,7 +7333,7 @@ function PlaceOrder() {
               ? parseInt(editSelectedItemUnitConfig.ADDITIONALUNITS_DECIMAL) || 0
               : (editSelectedItemUnitConfig.ADDITIONALUNITS_DECIMAL || 0);
           }
-          const formattedQty = decimalPlaces === 0 
+          const formattedQty = decimalPlaces === 0
             ? Math.round(qtyToDisplay).toString()
             : qtyToDisplay.toFixed(decimalPlaces);
           altQtyDisplay = `${formattedQty} ${editSelectedItemUnitConfig.ADDITIONALUNITS}`;
@@ -7470,13 +7410,13 @@ function PlaceOrder() {
 
     const parsedQty = parseQuantityInput(editQuantityInput, editSelectedItemUnitConfig, units);
     const primaryQty = convertToPrimaryQty(parsedQty, editSelectedItemUnitConfig, editCustomConversion, units);
-    
+
     // Get decimal places for base unit
     let baseUnitDecimal = 0;
     if (units && units.length > 0) {
       const baseUnit = units.find(u => u.NAME === editSelectedItemUnitConfig.BASEUNITS);
       if (baseUnit) {
-        baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string' 
+        baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string'
           ? parseInt(baseUnit.DECIMALPLACES) || 0
           : (baseUnit.DECIMALPLACES || 0);
       }
@@ -7485,18 +7425,18 @@ function PlaceOrder() {
         ? parseInt(editSelectedItemUnitConfig.BASEUNIT_DECIMAL) || 0
         : (editSelectedItemUnitConfig.BASEUNIT_DECIMAL || 0);
     }
-    
-    const roundedPrimaryQty = baseUnitDecimal === 0 
+
+    const roundedPrimaryQty = baseUnitDecimal === 0
       ? Math.round(primaryQty)
       : parseFloat(primaryQty.toFixed(baseUnitDecimal));
-    
+
     setEditItemQuantity(roundedPrimaryQty);
-    
+
     // Store UOM-related quantities (similar to main form logic)
     if (parsedQty.customAddlQty !== undefined && parsedQty.customAddlQty !== null) {
       setEditCustomAddlQty(parsedQty.customAddlQty);
     }
-    
+
     if (parsedQty.isCompound && parsedQty.qty !== undefined && parsedQty.subQty !== undefined && units && units.length > 0) {
       const baseUnitObj = units.find(u => u.NAME === editSelectedItemUnitConfig.BASEUNITS);
       if (baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No') {
@@ -7505,14 +7445,14 @@ function PlaceOrder() {
         setEditCompoundBaseQty(compoundQty);
       }
     }
-    
+
     if (parsedQty.customAddlQty !== undefined && parsedQty.customAddlQty !== null && units && units.length > 0) {
       const addlUnitObj = units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS);
       if (addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No') {
         setEditCompoundAddlQty(parsedQty.customAddlQty);
       }
     }
-    
+
     if (parsedQty.totalQty !== undefined && parsedQty.totalQty !== null && parsedQty.customAddlQty !== undefined && parsedQty.customAddlQty !== null) {
       setEditBaseQtyOnly(parsedQty.qty);
     }
@@ -7530,11 +7470,11 @@ function PlaceOrder() {
     let quantityInRateUOM = editItemQuantity;
     let calculatedAmount = 0;
 
-    const baseUnitObj = units && units.length > 0 
+    const baseUnitObj = units && units.length > 0
       ? units.find(u => u.NAME === editSelectedItemUnitConfig.BASEUNITS)
       : null;
     const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-    
+
     const addlUnitObj = units && units.length > 0 && editSelectedItemUnitConfig.ADDITIONALUNITS
       ? units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS)
       : null;
@@ -7560,11 +7500,11 @@ function PlaceOrder() {
     } else if (editRateUOM === 'additional') {
       const denominator = parseFloat(editSelectedItemUnitConfig.DENOMINATOR) || 1;
       const conversion = parseFloat(editSelectedItemUnitConfig.CONVERSION) || 1;
-      
+
       // Use custom conversion if available
       const effectiveDenominator = editCustomConversion ? editCustomConversion.denominator : denominator;
       const effectiveConversion = editCustomConversion ? editCustomConversion.conversion : conversion;
-      
+
       if (hasCompoundBaseUnit && baseUnitObj && !editCustomConversion) {
         const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
         const effectiveDenominator = denominator / baseConversion;
@@ -7572,7 +7512,7 @@ function PlaceOrder() {
       } else {
         quantityInRateUOM = editItemQuantity * (effectiveConversion / effectiveDenominator);
       }
-      
+
       // Round based on additional unit's decimal places
       if (units && units.length > 0 && editSelectedItemUnitConfig.ADDITIONALUNITS) {
         const addlUnit = units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS);
@@ -7607,7 +7547,7 @@ function PlaceOrder() {
 
     // Check if all items have the same base unit
     const firstItemUnit = orderItems[0].unitConfig?.BASEUNITS;
-    const allSameUnit = orderItems.every(item => 
+    const allSameUnit = orderItems.every(item =>
       item.unitConfig?.BASEUNITS === firstItemUnit
     );
 
@@ -7837,29 +7777,29 @@ function PlaceOrder() {
 
       {customerError && (
 
-        <div style={{ 
+        <div style={{
 
-          background: '#fee2e2', 
+          background: '#fee2e2',
 
-          color: '#b91c1c', 
+          color: '#b91c1c',
 
                 borderRadius: isMobile ? 8 : 8,
 
-          padding: isMobile ? '8px 14px' : '8px 16px', 
+          padding: isMobile ? '8px 14px' : '8px 16px',
 
           margin: isMobile ? '12px 8px' : '0 auto 18px auto', 
 
-          fontWeight: 600, 
+          fontWeight: 600,
 
-          fontSize: isMobile ? 14 : 15, 
+          fontSize: isMobile ? 14 : 15,
 
-          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200, 
+          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200,
 
-          display: 'flex', 
+          display: 'flex',
 
-          alignItems: 'center', 
+          alignItems: 'center',
 
-          gap: 8 
+          gap: 8
 
         }}>
 
@@ -7873,29 +7813,29 @@ function PlaceOrder() {
 
       {stockItemsError && (
 
-        <div style={{ 
+        <div style={{
 
-          background: '#fee2e2', 
+          background: '#fee2e2',
 
-          color: '#b91c1c', 
+          color: '#b91c1c',
 
                 borderRadius: isMobile ? 8 : 8,
 
-          padding: isMobile ? '8px 14px' : '8px 16px', 
+          padding: isMobile ? '8px 14px' : '8px 16px',
 
           margin: isMobile ? '12px 8px' : '0 auto 18px auto', 
 
-          fontWeight: 600, 
+          fontWeight: 600,
 
-          fontSize: isMobile ? 14 : 15, 
+          fontSize: isMobile ? 14 : 15,
 
-          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200, 
+          maxWidth: isMobile ? 'calc(100% - 16px)' : 1200,
 
-          display: 'flex', 
+          display: 'flex',
 
-          alignItems: 'center', 
+          alignItems: 'center',
 
-          gap: 8 
+          gap: 8
 
         }}>
 
@@ -8785,15 +8725,15 @@ function PlaceOrder() {
 
                   left: '20px',
 
-                  top: customerFocused || !!selectedCustomer ? '-10px' : '16px',
+                  top: '-10px',
 
-                  fontSize: customerFocused || !!selectedCustomer ? '12px' : '15px',
+                  fontSize: '12px',
 
                   fontWeight: '600',
 
-                  color: customerFocused || !!selectedCustomer ? '#3b82f6' : '#6b7280',
+                  color: customerFocused || !!selectedCustomer ? '#3b82f6' : '#64748b',
 
-                  backgroundColor: '#fff',
+                  backgroundColor: 'white',
 
                   padding: '0 8px',
 
@@ -9649,10 +9589,10 @@ function PlaceOrder() {
 
                     setSelectedItem('');
 
-        setCustomConversion(null);
-        setCustomAddlQty(null);
-        setCompoundBaseQty(null);
-        setCompoundAddlQty(null);
+                    setCustomConversion(null);
+                    setCustomAddlQty(null);
+                    setCompoundBaseQty(null);
+                    setCompoundAddlQty(null);
                     setShowItemDropdown(true);
 
                     // Clear filtered results when clearing search
@@ -9787,10 +9727,10 @@ function PlaceOrder() {
 
                       setSelectedItem('');
 
-        setCustomConversion(null);
-        setCustomAddlQty(null);
-        setCompoundBaseQty(null);
-        setCompoundAddlQty(null);
+                      setCustomConversion(null);
+                      setCustomAddlQty(null);
+                      setCompoundBaseQty(null);
+                      setCompoundAddlQty(null);
                       setItemSearchTerm('');
 
                       setShowItemDropdown(false);
@@ -9853,13 +9793,13 @@ function PlaceOrder() {
 
                   left: '20px',
 
-                  top: itemFocused || selectedItem ? '-10px' : '16px',
+                  top: '-10px',
 
-                  fontSize: itemFocused || selectedItem ? '12px' : '15px',
+                  fontSize: '12px',
 
                   fontWeight: '600',
 
-                  color: '#3b82f6',
+                  color: itemFocused || selectedItem ? '#3b82f6' : '#64748b',
 
                   backgroundColor: 'white',
 
@@ -10154,12 +10094,12 @@ function PlaceOrder() {
             {/* Simplified Quantity Input (Tally-style) */}
             {selectedItemUnitConfig && (
 
-                <div style={{
-                  position: 'relative',
-                flex: isMobile ? '1 1 100%' : '0 0 200px', 
+              <div style={{
+                position: 'relative',
+                flex: isMobile ? '1 1 100%' : '0 0 200px',
                 minWidth: isMobile ? '100%' : '200px',
                 maxWidth: isMobile ? '100%' : '200px',
-                          display: 'flex',
+                display: 'flex',
                 alignItems: 'flex-end',
                 gap: '8px'
               }}>
@@ -10176,13 +10116,13 @@ function PlaceOrder() {
                   boxShadow: quantityFocused ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.1)',
                   flex: '1 1 auto',
                   minWidth: 0
-                      }}>
+                }}>
                   <input
 
                     type="text"
 
                     value={quantityInput}
-                          onChange={(e) => {
+                    onChange={(e) => {
                       const inputValue = e.target.value;
                       // Filter out only obviously invalid characters (special symbols, etc.)
                       // Allow numbers, decimal point, spaces, letters (for unit names), and = (for custom conversion)
@@ -10198,20 +10138,20 @@ function PlaceOrder() {
                     onBlur={(e) => {
                       // Final validation on blur - always round/format based on unit's decimal places
                       const validated = validateQuantityInput(e.target.value, selectedItemUnitConfig, units, true);
-                      
+
                       // Preserve customAddlQty and compoundAddlQty before conversion (in case it gets cleared during parsing)
                       const preservedCustomAddlQty = customAddlQty;
                       const preservedCustomConversion = customConversion;
                       const preservedCompoundAddlQty = compoundAddlQty;
-                      
+
                       // Parse the original input first to check if it's a custom conversion or component unit input
                       // Don't use validated here because validateQuantityInput might have converted it
                       const originalParsedQty = parseQuantityInput(quantityInput, selectedItemUnitConfig, units);
-                      
+
                       // Always convert to BASEUNITS format, even for custom conversions
                       if (validated && selectedItemUnitConfig) {
                         const parsedQty = parseQuantityInput(validated, selectedItemUnitConfig, units);
-                        
+
                         // If the original input was a custom conversion, preserve the customAddlQty
                         if (originalParsedQty.isCustomConversion && originalParsedQty.customAddlQty !== undefined) {
                           // The customAddlQty is set by parseQuantityInput, but we need to ensure it's preserved
@@ -10288,15 +10228,15 @@ function PlaceOrder() {
                             setCompoundAddlQty(preservedCompoundAddlQty);
                           }
                         }
-                        
+
                         // Use originalParsedQty if it has compound structure, otherwise use parsedQty
                         // This ensures we preserve the structure from the original input
                         const qtyForCalculation = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
                           ? originalParsedQty
                           : parsedQty;
-                        
+
                         const primaryQty = convertToPrimaryQty(qtyForCalculation, selectedItemUnitConfig, customConversion || preservedCustomConversion, units);
-                        
+
                         // For display, use the base quantity (qty) if it's a custom conversion with totalQty
                         // This ensures "1 box 5 pkt 3 nos" shows as "1 box" not "2 box"
                         // Also use originalParsedQty if it has compound structure to preserve the structure
@@ -10312,17 +10252,17 @@ function PlaceOrder() {
                           const baseUnitObj = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
                           const conversion = baseUnitObj && baseUnitObj.CONVERSION ? parseFloat(baseUnitObj.CONVERSION) : 1;
                           displayQty = originalParsedQty.qty + (originalParsedQty.subQty / conversion);
-                            } else {
+                        } else {
 
                           displayQty = primaryQty;
                         }
-                        
+
                         // Get decimal places for base unit
                         let baseUnitDecimal = 0;
                         if (units && units.length > 0) {
                           const baseUnit = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
                           if (baseUnit) {
-                            baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string' 
+                            baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string'
                               ? parseInt(baseUnit.DECIMALPLACES) || 0
                               : (baseUnit.DECIMALPLACES || 0);
                           }
@@ -10331,17 +10271,17 @@ function PlaceOrder() {
                             ? parseInt(selectedItemUnitConfig.BASEUNIT_DECIMAL) || 0
                             : (selectedItemUnitConfig.BASEUNIT_DECIMAL || 0);
                         }
-                        
+
                         // Format the quantity in BASEUNITS
                         // If BASEUNITS is compound (like "LTR of 1000 ML"), format as "mainQty-subQty BASEUNIT" (e.g., "2-500.000 LTR")
                         let baseUnitDisplay;
-                        
+
                         // Check if originalParsedQty has preserved compound structure (e.g., from "9 pkt 2 nos 3 box")
                         // Use originalParsedQty instead of parsedQty because validated string might have lost the structure
                         const qtyToUse = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
                           ? originalParsedQty
                           : parsedQty;
-                        
+
                         if (qtyToUse && qtyToUse.isCompound && qtyToUse.qty !== undefined && qtyToUse.subQty !== undefined) {
                           // Use the preserved compound structure for display
                           const baseUnitObj = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
@@ -10351,114 +10291,116 @@ function PlaceOrder() {
                             if (baseUnitObj.ADDITIONALUNITS) {
                               const subUnitObj = units.find(u => u.NAME === baseUnitObj.ADDITIONALUNITS);
                               if (subUnitObj) {
-                                subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string' 
+                                subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
                                   ? parseInt(subUnitObj.DECIMALPLACES) || 0
                                   : (subUnitObj.DECIMALPLACES || 0);
                               }
                             }
-                            
-                            const formattedSubQty = subDecimalPlaces === 0 
+
+                            const formattedSubQty = subDecimalPlaces === 0
                               ? Math.round(qtyToUse.subQty).toString()
                               : parseFloat(qtyToUse.subQty).toFixed(subDecimalPlaces);
-                            
+
                             // Use the base component unit (e.g., "pkt") instead of the full compound unit name
                             const displayUnit = baseUnitObj.BASEUNITS || selectedItemUnitConfig.BASEUNITS;
                             baseUnitDisplay = `${Math.round(qtyToUse.qty)}-${formattedSubQty} ${displayUnit}`;
-                            
+
                             // Also preserve customAddlQty if it exists in the original parsed quantity
                             if (originalParsedQty && originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
                               setCustomAddlQty(originalParsedQty.customAddlQty);
                             }
-                            } else {
+                          } else {
 
                             // Fallback to regular formatting
                             const compoundFormat = formatCompoundBaseUnit(displayQty, selectedItemUnitConfig, units);
                             if (compoundFormat) {
                               baseUnitDisplay = compoundFormat;
                             } else {
-                              const formattedQty = baseUnitDecimal === 0 
+                              const formattedQty = baseUnitDecimal === 0
                                 ? Math.round(displayQty).toString()
                                 : displayQty.toFixed(baseUnitDecimal);
                               baseUnitDisplay = `${formattedQty} ${selectedItemUnitConfig.BASEUNITS}`;
                             }
                           }
-              } else {
+                        } else {
 
                           // Use regular formatting (recalculate from total)
                           const compoundFormat = formatCompoundBaseUnit(displayQty, selectedItemUnitConfig, units);
                           if (compoundFormat) {
                             baseUnitDisplay = compoundFormat;
                           } else {
-                            const formattedQty = baseUnitDecimal === 0 
+                            const formattedQty = baseUnitDecimal === 0
                               ? Math.round(displayQty).toString()
                               : displayQty.toFixed(baseUnitDecimal);
                             baseUnitDisplay = `${formattedQty} ${selectedItemUnitConfig.BASEUNITS}`;
                           }
                         }
-                        
+
                         // Always display in BASEUNITS format (even for custom conversions)
                         setQuantityInput(baseUnitDisplay);
-                          } else {
+                      } else {
 
                         setQuantityInput(validated || '');
-                          }
+                      }
 
-                      
+
                       setQuantityFocused(false);
-                        }}
+                    }}
 
-                        onFocus={() => setQuantityFocused(true)}
+                    onFocus={() => setQuantityFocused(true)}
 
                     disabled={!selectedItem}
-                        style={{
+                    style={{
 
-                          width: '100%',
+                      width: '100%',
 
                       padding: isMobile ? '14px 20px' : '16px 20px',
-                          border: 'none',
+                      border: 'none',
 
                       borderRadius: isMobile ? '10px' : '12px',
                       fontSize: isMobile ? '15px' : '15px',
                       color: selectedItem ? '#1e293b' : '#9ca3af',
-                          outline: 'none',
+                      outline: 'none',
 
                       background: selectedItem ? 'transparent' : '#f1f5f9',
                       textAlign: 'left',
-                      cursor: selectedItem ? 'text' : 'not-allowed'
-                        }}
+                      cursor: selectedItem ? 'text' : 'not-allowed',
+                      height: isMobile ? '48px' : '52px',
+                      boxSizing: 'border-box'
+                    }}
 
-                    placeholder={selectedItemUnitConfig ? `e.g., 10 ${selectedItemUnitConfig.BASEUNITS} or 5 ${selectedItemUnitConfig.ADDITIONALUNITS || ''}`.trim() : 'Qty'}
-                      />
+                    placeholder={selectedItemUnitConfig ? `${selectedItemUnitConfig.BASEUNITS || 'Qty'}${selectedItemUnitConfig.ADDITIONALUNITS ? ` or ${selectedItemUnitConfig.ADDITIONALUNITS}` : ''}` : 'Qty'}
+                  />
 
-                      <label style={{
+                  <label style={{
 
-                        position: 'absolute',
+                    position: 'absolute',
 
-                        left: '20px',
+                    left: '20px',
 
-                    top: quantityFocused || quantityInput ? '-10px' : '16px',
-                    fontSize: quantityFocused || quantityInput ? '12px' : '15px',
-                        fontWeight: '600',
+                    top: '-10px',
+                    fontSize: '12px',
+                    fontWeight: '600',
 
-                        color: '#3b82f6',
+                    color: quantityFocused || quantityInput ? '#3b82f6' : '#64748b',
 
-                        backgroundColor: 'white',
+                    backgroundColor: 'white',
 
-                        padding: '0 8px',
+                    padding: '0 8px',
 
                     transition: 'all 0.2s ease',
-                        pointerEvents: 'none'
+                    pointerEvents: 'none'
 
-                      }}>
+                  }}>
 
                     Qty
-                      </label>
+                  </label>
 
-                    </div>
+                </div>
 
                 {/* Alternative unit quantity display (Tally-style) - inline next to quantity */}
                 {selectedItemUnitConfig.ADDITIONALUNITS && (
-                    <div style={{
+                  <div style={{
                     flex: '0 0 auto',
                     fontSize: '13px',
                     color: '#64748b',
@@ -10477,10 +10419,10 @@ function PlaceOrder() {
                         // This ensures "9 pkt 3 nos 2 box" shows "(2 box)" instead of converting from total
                         // Also check compoundAddlQty (from component unit input like "25 pkt" or "55 nos")
                         // Priority: customAddlQty > compoundAddlQty > calculated altQty
-                        const qtyToDisplay = customAddlQty !== null && customAddlQty !== undefined 
-                          ? customAddlQty 
+                        const qtyToDisplay = customAddlQty !== null && customAddlQty !== undefined
+                          ? customAddlQty
                           : (compoundAddlQty !== null && compoundAddlQty !== undefined ? compoundAddlQty : null);
-                        
+
                         // Debug log to trace the issue
                         if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
                           console.log('💰 Displaying alternative quantity:', {
@@ -10491,45 +10433,45 @@ function PlaceOrder() {
                             calculatedAltQty: altQty
                           });
                         }
-                        
+
                         if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
                           // Check if ADDITIONALUNITS is compound - if so, format in hyphenated format
                           const addlUnitObj = units && units.length > 0
                             ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
                             : null;
                           const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-                          
+
                           console.log('💰 Checking compound additional unit for display:', {
                             qtyToDisplay,
                             addlUnitObj: addlUnitObj ? { NAME: addlUnitObj.NAME, ISSIMPLEUNIT: addlUnitObj.ISSIMPLEUNIT } : null,
                             hasCompoundAddlUnit,
                             ADDITIONALUNITS: selectedItemUnitConfig.ADDITIONALUNITS
                           });
-                          
+
                           if (hasCompoundAddlUnit && addlUnitObj) {
                             // ADDITIONALUNITS is compound - format in hyphenated format (e.g., "25-0 pkt")
                             const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                             const mainQty = Math.floor(qtyToDisplay);
                             const subQty = (qtyToDisplay - mainQty) * addlConversion;
-                            
+
                             // Get decimal places for sub unit
                             let subDecimalPlaces = 0;
                             if (addlUnitObj.ADDITIONALUNITS) {
                               const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
                               if (subUnitObj) {
-                                subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string' 
+                                subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
                                   ? parseInt(subUnitObj.DECIMALPLACES) || 0
                                   : (subUnitObj.DECIMALPLACES || 0);
                               }
                             }
-                            
-                            const formattedSubQty = subDecimalPlaces === 0 
+
+                            const formattedSubQty = subDecimalPlaces === 0
                               ? Math.round(subQty).toString()
                               : subQty.toFixed(subDecimalPlaces);
-                            
+
                             // Use the base component unit (e.g., "pkt") instead of the full compound unit name
                             const displayUnit = addlUnitObj.BASEUNITS || selectedItemUnitConfig.ADDITIONALUNITS;
-                            
+
                             const formattedDisplay = `(${mainQty}-${formattedSubQty} ${displayUnit})`;
                             console.log('💰 Formatted compound additional quantity:', {
                               qtyToDisplay,
@@ -10539,7 +10481,7 @@ function PlaceOrder() {
                               displayUnit,
                               formattedDisplay
                             });
-                            
+
                             return formattedDisplay;
                           } else {
                             // ADDITIONALUNITS is simple - use regular formatting
@@ -10547,7 +10489,7 @@ function PlaceOrder() {
                             if (units && units.length > 0) {
                               const addlUnit = units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS);
                               if (addlUnit) {
-                                decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string' 
+                                decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string'
                                   ? parseInt(addlUnit.DECIMALPLACES) || 0
                                   : (addlUnit.DECIMALPLACES || 0);
                               }
@@ -10556,7 +10498,7 @@ function PlaceOrder() {
                                 ? parseInt(selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL) || 0
                                 : (selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL || 0);
                             }
-                            const formattedQty = decimalPlaces === 0 
+                            const formattedQty = decimalPlaces === 0
                               ? Math.round(qtyToDisplay).toString()
                               : qtyToDisplay.toFixed(decimalPlaces);
                             return `(${formattedQty} ${selectedItemUnitConfig.ADDITIONALUNITS})`;
@@ -10572,12 +10514,12 @@ function PlaceOrder() {
                         return altQty ? `(${altQty.qty} ${altQty.unit})` : '';
                       }
                       return '';
-            })()}
+                    })()}
                   </div>
                 )}
                 {/* Helper text showing available units */}
                 {selectedItemUnitConfig && quantityFocused && (
-                <div style={{
+                  <div style={{
 
                     position: 'absolute',
 
@@ -10594,11 +10536,10 @@ function PlaceOrder() {
                     border: '1px solid #e2e8f0',
                     zIndex: 1000
                   }}>
-                    Examples: "10 {selectedItemUnitConfig.BASEUNITS}"{selectedItemUnitConfig.ADDITIONALUNITS ? ` or "5 ${selectedItemUnitConfig.ADDITIONALUNITS}"` : ''}
-                    {selectedItemUnitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes' && ` or "2 ${selectedItemUnitConfig.BASEUNITCOMP_BASEUNIT} 500 ${selectedItemUnitConfig.BASEUNITCOMP_ADDLUNIT}"`}
-              </div>
+                    Examples: {selectedItemUnitConfig.BASEUNITS}{selectedItemUnitConfig.ADDITIONALUNITS ? ` or ${selectedItemUnitConfig.ADDITIONALUNITS}` : ''}{selectedItemUnitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes' ? `, ${selectedItemUnitConfig.BASEUNITCOMP_BASEUNIT} ${selectedItemUnitConfig.BASEUNITCOMP_ADDLUNIT}` : ''}
+                  </div>
 
-            )}
+                )}
 
               </div>
 
@@ -10678,13 +10619,13 @@ function PlaceOrder() {
 
                     left: '20px',
 
-                    top: quantityFocused || itemQuantity > 0 ? '-10px' : '16px',
+                    top: '-10px',
 
-                    fontSize: quantityFocused || itemQuantity > 0 ? '12px' : '15px',
+                    fontSize: '12px',
 
                     fontWeight: '600',
 
-                    color: '#3b82f6',
+                    color: quantityFocused || itemQuantity > 0 ? '#3b82f6' : '#64748b',
 
                     backgroundColor: 'white',
 
@@ -10839,314 +10780,286 @@ function PlaceOrder() {
 
               <>
                 <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 120px' }}>
-                <div style={{
+                  <div style={{
 
-                  position: 'relative',
+                    position: 'relative',
 
-                  background: canEditRate ? 'white' : '#f8fafc',
+                    background: canEditRate ? 'white' : '#f8fafc',
 
-                  borderRadius: isMobile ? '10px' : '12px',
+                    borderRadius: isMobile ? '10px' : '12px',
 
-                  border: '2px solid #e2e8f0',
+                    border: '2px solid #e2e8f0',
 
                   boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
 
                 }}>
 
-                  <input
+                    <input
 
-                    type="number"
+                      type="number"
 
-                    value={itemRate}
+                      value={itemRate}
 
-                    onChange={canEditRate ? (e) => setItemRate(parseFloat(e.target.value) || 0) : undefined}
+                      onChange={canEditRate ? (e) => setItemRate(parseFloat(e.target.value) || 0) : undefined}
 
-                    readOnly={!canEditRate}
+                      readOnly={!canEditRate}
 
-                    style={{
+                      style={{
 
-                      width: '100%',
+                        width: '100%',
 
-                      padding: isMobile ? '14px 20px' : '16px 20px',
+                        padding: isMobile ? '14px 20px' : '16px 20px',
 
-                      border: 'none',
+                        border: 'none',
 
-                      borderRadius: isMobile ? '10px' : '12px',
+                        borderRadius: isMobile ? '10px' : '12px',
 
-                      fontSize: isMobile ? '15px' : '15px',
+                        fontSize: isMobile ? '15px' : '15px',
 
-                      color: canEditRate ? '#1e293b' : '#64748b',
+                        color: canEditRate ? '#1e293b' : '#64748b',
 
-                      outline: 'none',
+                        outline: 'none',
 
-                      background: 'transparent',
+                        background: 'transparent',
 
-                      textAlign: 'center',
+                        textAlign: 'center',
+
+                        fontWeight: '600',
+
+                        cursor: canEditRate ? 'text' : 'not-allowed',
+
+                        height: isMobile ? '48px' : '52px',
+
+                        boxSizing: 'border-box'
+
+                      }}
+
+                      placeholder="Rate"
+
+                    />
+
+                    <label style={{
+
+                      position: 'absolute',
+
+                      left: '20px',
+
+                      top: '-10px',
+
+                      fontSize: '12px',
 
                       fontWeight: '600',
 
-                      cursor: canEditRate ? 'text' : 'not-allowed'
+                      color: '#64748b',
 
-                    }}
+                      backgroundColor: 'white',
 
-                    placeholder="Rate"
+                      padding: '0 8px',
 
-                  />
+                      pointerEvents: 'none'
 
-                  <label style={{
+                    }}>
 
-                    position: 'absolute',
+                      Rate
 
-                    left: '20px',
+                    </label>
 
-                    top: '-10px',
-
-                    fontSize: '12px',
-
-                    fontWeight: '600',
-
-                    color: '#64748b',
-
-                    backgroundColor: canEditRate ? 'white' : '#f8fafc',
-
-                    padding: '0 8px',
-
-                    pointerEvents: 'none'
-
-                  }}>
-
-                    Rate
-
-                  </label>
+                  </div>
 
                 </div>
-
-              </div>
 
                 {/* Rate UOM Selector - Always show, readonly if only one unit */}
                 {selectedItemUnitConfig && (() => {
                   // Check if BASEUNITS is compound and has component units
-                  const baseUnitObj = units && units.length > 0 
+                  const baseUnitObj = units && units.length > 0
                     ? units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS)
                     : null;
                   const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
                   const hasMultipleUnits = selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit;
-                  
+
                   return (
-                  <div style={{ position: 'relative', width: isMobile ? '100%' : '160px', flex: isMobile ? '1 1 100%' : 'none' }}>
-                    <div style={{
-                      position: 'relative',
-                      background: 'white',
-                      borderRadius: isMobile ? '10px' : '10px',
-                      border: showRateUOMDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
-                      transition: 'all 0.2s ease',
-                      boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
-                      cursor: hasMultipleUnits ? 'pointer' : 'default'
-                    }}
-                      onClick={() => {
-                        if (hasMultipleUnits) {
-                          setShowRateUOMDropdown(!showRateUOMDropdown);
-                        }
+                    <div style={{ position: 'relative', width: isMobile ? '100%' : '160px', flex: isMobile ? '1 1 100%' : 'none' }}>
+                      <div style={{
+                        position: 'relative',
+                        background: 'white',
+                        borderRadius: isMobile ? '10px' : '10px',
+                        border: showRateUOMDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
+                        transition: 'all 0.2s ease',
+                        boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                        cursor: hasMultipleUnits ? 'pointer' : 'default'
                       }}
-                    >
-                      <input
-                        type="text"
-                        value={(() => {
-                          // For compound base units, default to main component if not set
-                          if (hasCompoundBaseUnit && baseUnitObj) {
-                            if (rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
-                            if (rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
-                            // Default to main component for compound units
-                            if (!rateUOM || rateUOM === 'base') {
-                              setRateUOM('component-main');
-                              return baseUnitObj.BASEUNITS;
-                            }
-                          }
-                          
-                          // Check if ADDITIONALUNITS is compound
-                          const addlUnitObj = units && units.length > 0 && selectedItemUnitConfig.ADDITIONALUNITS
-                            ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
-                            : null;
-                          const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-                          
-                          if (hasCompoundAddlUnit && addlUnitObj) {
-                            // Show component units for compound additional unit
-                            if (rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
-                            if (rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
-                            // If rateUOM is 'additional' but ADDITIONALUNITS is compound, default to main component
-                            if (rateUOM === 'additional') {
-                              setRateUOM('additional-component-main');
-                              return addlUnitObj.BASEUNITS;
-                            }
-                          }
-                          
-                          // For non-compound units
-                          if (rateUOM === 'base') return selectedItemUnitConfig.BASEUNITS;
-                          return (selectedItemUnitConfig.ADDITIONALUNITS || selectedItemUnitConfig.BASEUNITS);
-                        })()}
-                        readOnly
-                        onFocus={() => {
+                        onClick={() => {
                           if (hasMultipleUnits) {
-                            setRateUOMFocused(true);
+                            setShowRateUOMDropdown(!showRateUOMDropdown);
                           }
                         }}
-                        onBlur={() => setTimeout(() => setRateUOMFocused(false), 200)}
-                        style={{
-                          width: '100%',
-                          padding: isMobile ? '14px 36px 14px 16px' : '12px 36px 12px 16px',
-                          border: 'none',
-                          borderRadius: isMobile ? '10px' : '10px',
-                          fontSize: isMobile ? '15px' : '14px',
-                          color: '#1e293b',
-                          outline: 'none',
-                          background: hasMultipleUnits ? 'transparent' : '#f8fafc',
-                          cursor: hasMultipleUnits ? 'pointer' : 'default',
-                          pointerEvents: 'none',
-                          fontWeight: '500'
-                        }}
-                      />
-                      {hasMultipleUnits && (
-                        <span className="material-icons" style={{
-                          position: 'absolute',
-                          right: '10px',
-                          top: '50%',
-                          transform: 'translateY(-50%)',
-                          fontSize: '18px',
-                          color: showRateUOMDropdown ? '#3b82f6' : '#64748b',
-                          transition: 'color 0.2s ease',
-                          pointerEvents: 'none'
-                        }}>
-                          {showRateUOMDropdown ? 'expand_less' : 'expand_more'}
-                        </span>
-                      )}
-                      <label style={{
-                        position: 'absolute',
-                        left: '16px',
-                        top: '-9px',
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        color: '#3b82f6',
-                        backgroundColor: 'white',
-                        padding: '0 6px',
-                        pointerEvents: 'none',
-                        letterSpacing: '0.3px'
-                      }}>
-                        Rate UOM
-                      </label>
+                      >
+                        <input
+                          type="text"
+                          value={(() => {
+                            // For compound base units, default to main component if not set
+                            if (hasCompoundBaseUnit && baseUnitObj) {
+                              if (rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
+                              if (rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
+                              // Default to main component for compound units
+                              if (!rateUOM || rateUOM === 'base') {
+                                setRateUOM('component-main');
+                                return baseUnitObj.BASEUNITS;
+                              }
+                            }
 
-                      {/* Rate UOM Dropdown Menu - Only show if multiple units exist */}
-                      {showRateUOMDropdown && hasMultipleUnits && (
-                        <div
-                          className="dropdown-animation"
-                          style={{
-                            position: 'absolute',
-                            top: 'calc(100% + 8px)',
-                            left: 0,
-                            right: 0,
-                            backgroundColor: 'white',
-                            border: '2px solid #3b82f6',
-                            borderRadius: '8px',
-                            maxHeight: '200px',
-                            overflowY: 'auto',
-                            zIndex: 9999,
-                            boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)'
+                            // Check if ADDITIONALUNITS is compound
+                            const addlUnitObj = units && units.length > 0 && selectedItemUnitConfig.ADDITIONALUNITS
+                              ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
+                              : null;
+                            const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+
+                            if (hasCompoundAddlUnit && addlUnitObj) {
+                              // Show component units for compound additional unit
+                              if (rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
+                              if (rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
+                              // If rateUOM is 'additional' but ADDITIONALUNITS is compound, default to main component
+                              if (rateUOM === 'additional') {
+                                setRateUOM('additional-component-main');
+                                return addlUnitObj.BASEUNITS;
+                              }
+                            }
+
+                            // For non-compound units
+                            if (rateUOM === 'base') return selectedItemUnitConfig.BASEUNITS;
+                            return (selectedItemUnitConfig.ADDITIONALUNITS || selectedItemUnitConfig.BASEUNITS);
+                          })()}
+                          readOnly
+                          onFocus={() => {
+                            if (hasMultipleUnits) {
+                              setRateUOMFocused(true);
+                            }
                           }}
-                        >
-                          {/* Base Unit Option - Only show if BASEUNITS is NOT compound */}
-                          {!hasCompoundBaseUnit && (
-                            <div
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                setRateUOM('base');
-                                setShowRateUOMDropdown(false);
-                              }}
-                              style={{
-                                padding: '12px 16px',
-                                cursor: 'pointer',
-                                borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit) ? '1px solid #f1f5f9' : 'none',
-                                transition: 'background-color 0.2s ease',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                backgroundColor: rateUOM === 'base' ? '#eff6ff' : 'white'
-                              }}
-                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'base' ? '#eff6ff' : 'white'}
-                            >
-                              <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                {selectedItemUnitConfig.BASEUNITS}
-                              </span>
-                              <span style={{
-                                fontSize: '11px',
-                                fontWeight: '600',
-                                padding: '2px 8px',
-                                borderRadius: '4px',
-                                backgroundColor: '#dbeafe',
-                                color: '#1e40af'
-                              }}>
-                                Base
-                              </span>
-                            </div>
-                          )}
+                          onBlur={() => setTimeout(() => setRateUOMFocused(false), 200)}
+                          style={{
+                            width: '100%',
+                            padding: isMobile ? '14px 36px 14px 16px' : '16px 36px 16px 16px',
+                            border: 'none',
+                            borderRadius: isMobile ? '10px' : '10px',
+                            fontSize: isMobile ? '15px' : '14px',
+                            color: '#1e293b',
+                            outline: 'none',
+                            background: hasMultipleUnits ? 'transparent' : '#f8fafc',
+                            cursor: hasMultipleUnits ? 'pointer' : 'default',
+                            pointerEvents: 'none',
+                            fontWeight: '500',
+                            height: isMobile ? '48px' : '52px',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                        {hasMultipleUnits && (
+                          <span className="material-icons" style={{
+                            position: 'absolute',
+                            right: '10px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            fontSize: '18px',
+                            color: showRateUOMDropdown ? '#3b82f6' : '#64748b',
+                            transition: 'color 0.2s ease',
+                            pointerEvents: 'none'
+                          }}>
+                            {showRateUOMDropdown ? 'expand_less' : 'expand_more'}
+                          </span>
+                        )}
+                        <label style={{
+                          position: 'absolute',
+                          left: '16px',
+                          top: '-9px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          color: '#3b82f6',
+                          backgroundColor: 'white',
+                          padding: '0 6px',
+                          pointerEvents: 'none',
+                          letterSpacing: '0.3px'
+                        }}>
+                          Rate UOM
+                        </label>
 
-                          {/* Component Units for Compound Base Unit (if BASEUNITS is compound) */}
-                          {hasCompoundBaseUnit && baseUnitObj && (
-                            <>
+                        {/* Rate UOM Dropdown Menu - Only show if multiple units exist */}
+                        {showRateUOMDropdown && hasMultipleUnits && (
+                          <div
+                            className="dropdown-animation"
+                            style={{
+                              position: 'absolute',
+                              top: 'calc(100% + 8px)',
+                              left: 0,
+                              right: 0,
+                              backgroundColor: 'white',
+                              border: '2px solid #3b82f6',
+                              borderRadius: '8px',
+                              maxHeight: '200px',
+                              overflowY: 'auto',
+                              zIndex: 9999,
+                              boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)'
+                            }}
+                          >
+                            {/* Base Unit Option - Only show if BASEUNITS is NOT compound */}
+                            {!hasCompoundBaseUnit && (
                               <div
                                 onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => {
-                                  setRateUOM('component-main');
+                                  setRateUOM('base');
                                   setShowRateUOMDropdown(false);
                                 }}
                                 style={{
                                   padding: '12px 16px',
                                   cursor: 'pointer',
-                                  borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || baseUnitObj.ADDITIONALUNITS) ? '1px solid #f1f5f9' : 'none',
+                                  borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit) ? '1px solid #f1f5f9' : 'none',
                                   transition: 'background-color 0.2s ease',
                                   display: 'flex',
                                   justifyContent: 'space-between',
                                   alignItems: 'center',
-                                  backgroundColor: rateUOM === 'component-main' ? '#eff6ff' : 'white'
+                                  backgroundColor: rateUOM === 'base' ? '#eff6ff' : 'white'
                                 }}
                                 onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-main' ? '#eff6ff' : 'white'}
+                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'base' ? '#eff6ff' : 'white'}
                               >
                                 <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                  {baseUnitObj.BASEUNITS}
+                                  {selectedItemUnitConfig.BASEUNITS}
                                 </span>
                                 <span style={{
                                   fontSize: '11px',
                                   fontWeight: '600',
                                   padding: '2px 8px',
                                   borderRadius: '4px',
-                                  backgroundColor: '#fef3c7',
-                                  color: '#92400e'
+                                  backgroundColor: '#dbeafe',
+                                  color: '#1e40af'
                                 }}>
-                                  Component
+                                  Base
                                 </span>
                               </div>
-                              {baseUnitObj.ADDITIONALUNITS && (
+                            )}
+
+                            {/* Component Units for Compound Base Unit (if BASEUNITS is compound) */}
+                            {hasCompoundBaseUnit && baseUnitObj && (
+                              <>
                                 <div
                                   onMouseDown={(e) => e.preventDefault()}
                                   onClick={() => {
-                                    setRateUOM('component-sub');
+                                    setRateUOM('component-main');
                                     setShowRateUOMDropdown(false);
                                   }}
                                   style={{
                                     padding: '12px 16px',
                                     cursor: 'pointer',
-                                    borderBottom: selectedItemUnitConfig.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
+                                    borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || baseUnitObj.ADDITIONALUNITS) ? '1px solid #f1f5f9' : 'none',
                                     transition: 'background-color 0.2s ease',
                                     display: 'flex',
                                     justifyContent: 'space-between',
                                     alignItems: 'center',
-                                    backgroundColor: rateUOM === 'component-sub' ? '#eff6ff' : 'white'
+                                    backgroundColor: rateUOM === 'component-main' ? '#eff6ff' : 'white'
                                   }}
                                   onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-sub' ? '#eff6ff' : 'white'}
+                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-main' ? '#eff6ff' : 'white'}
                                 >
                                   <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                    {baseUnitObj.ADDITIONALUNITS}
+                                    {baseUnitObj.BASEUNITS}
                                   </span>
                                   <span style={{
                                     fontSize: '11px',
@@ -11159,43 +11072,28 @@ function PlaceOrder() {
                                     Component
                                   </span>
                                 </div>
-                              )}
-                            </>
-                          )}
-
-                          {/* Additional Unit Option (if exists) */}
-                          {selectedItemUnitConfig.ADDITIONALUNITS && (() => {
-                            // Check if ADDITIONALUNITS is compound
-                            const addlUnitObj = units && units.length > 0
-                              ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
-                              : null;
-                            const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-                            
-                            if (hasCompoundAddlUnit && addlUnitObj) {
-                              // ADDITIONALUNITS is compound - show component options
-                              return (
-                                <>
+                                {baseUnitObj.ADDITIONALUNITS && (
                                   <div
                                     onMouseDown={(e) => e.preventDefault()}
                                     onClick={() => {
-                                      setRateUOM('additional-component-main');
+                                      setRateUOM('component-sub');
                                       setShowRateUOMDropdown(false);
                                     }}
                                     style={{
                                       padding: '12px 16px',
                                       cursor: 'pointer',
-                                      borderBottom: addlUnitObj.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
+                                      borderBottom: selectedItemUnitConfig.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
                                       transition: 'background-color 0.2s ease',
                                       display: 'flex',
                                       justifyContent: 'space-between',
                                       alignItems: 'center',
-                                      backgroundColor: rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'
+                                      backgroundColor: rateUOM === 'component-sub' ? '#eff6ff' : 'white'
                                     }}
                                     onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-sub' ? '#eff6ff' : 'white'}
                                   >
                                     <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                      {addlUnitObj.BASEUNITS}
+                                      {baseUnitObj.ADDITIONALUNITS}
                                     </span>
                                     <span style={{
                                       fontSize: '11px',
@@ -11208,28 +11106,43 @@ function PlaceOrder() {
                                       Component
                                     </span>
                                   </div>
-                                  {addlUnitObj.ADDITIONALUNITS && (
+                                )}
+                              </>
+                            )}
+
+                            {/* Additional Unit Option (if exists) */}
+                            {selectedItemUnitConfig.ADDITIONALUNITS && (() => {
+                              // Check if ADDITIONALUNITS is compound
+                              const addlUnitObj = units && units.length > 0
+                                ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
+                                : null;
+                              const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+
+                              if (hasCompoundAddlUnit && addlUnitObj) {
+                                // ADDITIONALUNITS is compound - show component options
+                                return (
+                                  <>
                                     <div
                                       onMouseDown={(e) => e.preventDefault()}
                                       onClick={() => {
-                                        setRateUOM('additional-component-sub');
+                                        setRateUOM('additional-component-main');
                                         setShowRateUOMDropdown(false);
                                       }}
                                       style={{
                                         padding: '12px 16px',
                                         cursor: 'pointer',
-                                        borderBottom: '1px solid #f1f5f9',
+                                        borderBottom: addlUnitObj.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
                                         transition: 'background-color 0.2s ease',
                                         display: 'flex',
                                         justifyContent: 'space-between',
                                         alignItems: 'center',
-                                        backgroundColor: rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'
+                                        backgroundColor: rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'
                                       }}
                                       onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'}
+                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'}
                                     >
                                       <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                        {addlUnitObj.ADDITIONALUNITS}
+                                        {addlUnitObj.BASEUNITS}
                                       </span>
                                       <span style={{
                                         fontSize: '11px',
@@ -11242,51 +11155,85 @@ function PlaceOrder() {
                                         Component
                                       </span>
                                     </div>
-                                  )}
-                                </>
-                              );
-                            } else {
-                              // ADDITIONALUNITS is simple - show full unit
-                              return (
-                                <div
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    setRateUOM('additional');
-                                    setShowRateUOMDropdown(false);
-                                  }}
-                                  style={{
-                                    padding: '12px 16px',
-                                    cursor: 'pointer',
-                                    transition: 'background-color 0.2s ease',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    backgroundColor: rateUOM === 'additional' ? '#eff6ff' : 'white'
-                                  }}
-                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional' ? '#eff6ff' : 'white'}
-                                >
-                                  <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                    {selectedItemUnitConfig.ADDITIONALUNITS}
-                                  </span>
-                                  <span style={{
-                                    fontSize: '11px',
-                                    fontWeight: '600',
-                                    padding: '2px 8px',
-                                    borderRadius: '4px',
-                                    backgroundColor: '#dbeafe',
-                                    color: '#1e40af'
-                                  }}>
-                                    Additional
-                                  </span>
-                                </div>
-                              );
-                            }
-                          })()}
-                        </div>
-                      )}
+                                    {addlUnitObj.ADDITIONALUNITS && (
+                                      <div
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                          setRateUOM('additional-component-sub');
+                                          setShowRateUOMDropdown(false);
+                                        }}
+                                        style={{
+                                          padding: '12px 16px',
+                                          cursor: 'pointer',
+                                          borderBottom: '1px solid #f1f5f9',
+                                          transition: 'background-color 0.2s ease',
+                                          display: 'flex',
+                                          justifyContent: 'space-between',
+                                          alignItems: 'center',
+                                          backgroundColor: rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'
+                                        }}
+                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'}
+                                      >
+                                        <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                          {addlUnitObj.ADDITIONALUNITS}
+                                        </span>
+                                        <span style={{
+                                          fontSize: '11px',
+                                          fontWeight: '600',
+                                          padding: '2px 8px',
+                                          borderRadius: '4px',
+                                          backgroundColor: '#fef3c7',
+                                          color: '#92400e'
+                                        }}>
+                                          Component
+                                        </span>
+                                      </div>
+                                    )}
+                                  </>
+                                );
+                              } else {
+                                // ADDITIONALUNITS is simple - show full unit
+                                return (
+                                  <div
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={() => {
+                                      setRateUOM('additional');
+                                      setShowRateUOMDropdown(false);
+                                    }}
+                                    style={{
+                                      padding: '12px 16px',
+                                      cursor: 'pointer',
+                                      transition: 'background-color 0.2s ease',
+                                      display: 'flex',
+                                      justifyContent: 'space-between',
+                                      alignItems: 'center',
+                                      backgroundColor: rateUOM === 'additional' ? '#eff6ff' : 'white'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional' ? '#eff6ff' : 'white'}
+                                  >
+                                    <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                      {selectedItemUnitConfig.ADDITIONALUNITS}
+                                    </span>
+                                    <span style={{
+                                      fontSize: '11px',
+                                      fontWeight: '600',
+                                      padding: '2px 8px',
+                                      borderRadius: '4px',
+                                      backgroundColor: '#dbeafe',
+                                      color: '#1e40af'
+                                    }}>
+                                      Additional
+                                    </span>
+                                  </div>
+                                );
+                              }
+                            })()}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
                   );
                 })()}
               </>
@@ -11368,7 +11315,7 @@ function PlaceOrder() {
 
                     color: '#64748b',
 
-                    backgroundColor: canEditDiscount ? 'white' : '#f8fafc',
+                    backgroundColor: 'white',
 
                     padding: '0 8px',
 
@@ -11872,6 +11819,8 @@ function PlaceOrder() {
 
                 {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>Amount</div>}
 
+                <div style={{ textAlign: 'center' }}>Actions</div>
+
               </div>
 
 
@@ -12029,7 +11978,7 @@ function PlaceOrder() {
                               if (validated && editSelectedItemUnitConfig) {
                                 const originalParsedQty = parseQuantityInput(editQuantityInput, editSelectedItemUnitConfig, units);
                                 const parsedQty = parseQuantityInput(validated, editSelectedItemUnitConfig, units);
-                                
+
                                 // Preserve UOM-related quantities
                                 if (originalParsedQty.isCustomConversion && originalParsedQty.customAddlQty !== undefined) {
                                   setEditCustomAddlQty(originalParsedQty.customAddlQty);
@@ -12047,13 +11996,13 @@ function PlaceOrder() {
                                 } else if (originalParsedQty.compoundAddlQty !== undefined && originalParsedQty.compoundAddlQty !== null) {
                                   setEditCompoundAddlQty(originalParsedQty.compoundAddlQty);
                                 }
-                                
+
                                 // Format for display
                                 let baseUnitDisplay;
                                 const qtyToUse = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
                                   ? originalParsedQty
                                   : parsedQty;
-                                
+
                                 if (qtyToUse && qtyToUse.isCompound && qtyToUse.qty !== undefined && qtyToUse.subQty !== undefined) {
                                   const baseUnitObj = units.find(u => u.NAME === editSelectedItemUnitConfig.BASEUNITS);
                                   if (baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No') {
@@ -12061,12 +12010,12 @@ function PlaceOrder() {
                                     if (baseUnitObj.ADDITIONALUNITS) {
                                       const subUnitObj = units.find(u => u.NAME === baseUnitObj.ADDITIONALUNITS);
                                       if (subUnitObj) {
-                                        subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string' 
+                                        subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
                                           ? parseInt(subUnitObj.DECIMALPLACES) || 0
                                           : (subUnitObj.DECIMALPLACES || 0);
                                       }
                                     }
-                                    const formattedSubQty = subDecimalPlaces === 0 
+                                    const formattedSubQty = subDecimalPlaces === 0
                                       ? Math.round(qtyToUse.subQty).toString()
                                       : parseFloat(qtyToUse.subQty).toFixed(subDecimalPlaces);
                                     const displayUnit = baseUnitObj.BASEUNITS || editSelectedItemUnitConfig.BASEUNITS;
@@ -12078,17 +12027,17 @@ function PlaceOrder() {
                                   if (units && units.length > 0) {
                                     const baseUnit = units.find(u => u.NAME === editSelectedItemUnitConfig.BASEUNITS);
                                     if (baseUnit) {
-                                      baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string' 
+                                      baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string'
                                         ? parseInt(baseUnit.DECIMALPLACES) || 0
                                         : (baseUnit.DECIMALPLACES || 0);
                                     }
                                   }
-                                  const formattedQty = baseUnitDecimal === 0 
+                                  const formattedQty = baseUnitDecimal === 0
                                     ? Math.round(primaryQty).toString()
                                     : primaryQty.toFixed(baseUnitDecimal);
                                   baseUnitDisplay = `${formattedQty} ${editSelectedItemUnitConfig.BASEUNITS}`;
                                 }
-                                
+
                                 if (baseUnitDisplay) {
                                   setEditQuantityInput(baseUnitDisplay);
                                 }
@@ -12118,16 +12067,16 @@ function PlaceOrder() {
                           }}>
                             {(() => {
                               const altQty = convertToAlternativeQty(editItemQuantity, editSelectedItemUnitConfig, units, editCustomConversion);
-                              const qtyToDisplay = editCustomAddlQty !== null && editCustomAddlQty !== undefined 
-                                ? editCustomAddlQty 
+                              const qtyToDisplay = editCustomAddlQty !== null && editCustomAddlQty !== undefined
+                                ? editCustomAddlQty
                                 : (editCompoundAddlQty !== null && editCompoundAddlQty !== undefined ? editCompoundAddlQty : null);
-                              
+
                               if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
                                 const addlUnitObj = units && units.length > 0
                                   ? units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS)
                                   : null;
                                 const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-                                
+
                                 if (hasCompoundAddlUnit && addlUnitObj) {
                                   const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                                   const mainQty = Math.floor(qtyToDisplay);
@@ -12136,12 +12085,12 @@ function PlaceOrder() {
                                   if (addlUnitObj.ADDITIONALUNITS) {
                                     const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
                                     if (subUnitObj) {
-                                      subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string' 
+                                      subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
                                         ? parseInt(subUnitObj.DECIMALPLACES) || 0
                                         : (subUnitObj.DECIMALPLACES || 0);
                                     }
                                   }
-                                  const formattedSubQty = subDecimalPlaces === 0 
+                                  const formattedSubQty = subDecimalPlaces === 0
                                     ? Math.round(subQty).toString()
                                     : subQty.toFixed(subDecimalPlaces);
                                   const displayUnit = addlUnitObj.BASEUNITS || editSelectedItemUnitConfig.ADDITIONALUNITS;
@@ -12151,12 +12100,12 @@ function PlaceOrder() {
                                   if (units && units.length > 0) {
                                     const addlUnit = units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS);
                                     if (addlUnit) {
-                                      decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string' 
+                                      decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string'
                                         ? parseInt(addlUnit.DECIMALPLACES) || 0
                                         : (addlUnit.DECIMALPLACES || 0);
                                     }
                                   }
-                                  const formattedQty = decimalPlaces === 0 
+                                  const formattedQty = decimalPlaces === 0
                                     ? Math.round(qtyToDisplay).toString()
                                     : qtyToDisplay.toFixed(decimalPlaces);
                                   return `(${formattedQty} ${editSelectedItemUnitConfig.ADDITIONALUNITS})`;
@@ -12175,9 +12124,9 @@ function PlaceOrder() {
                           {item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`}
                         </div>
                         {item.altQtyDisplay && (
-                          <div style={{ 
-                            fontSize: '12px', 
-                            color: '#64748b', 
+                          <div style={{
+                            fontSize: '12px',
+                            color: '#64748b',
                             fontStyle: 'italic',
                             marginTop: '2px'
                           }}>
@@ -12314,7 +12263,7 @@ function PlaceOrder() {
                             : null;
                           const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
                           const hasMultipleUnits = editSelectedItemUnitConfig && (editSelectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit);
-                          
+
                           return (
                             <div style={{
                               position: 'relative',
@@ -12517,30 +12466,30 @@ function PlaceOrder() {
                       ) : (
                         (() => {
                           if (!item.unitConfig || !item.rateUOM) return '';
-                          
-                          const baseUnitObj = units && units.length > 0 
+
+                          const baseUnitObj = units && units.length > 0
                             ? units.find(u => u.NAME === item.unitConfig.BASEUNITS)
                             : null;
                           const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-                          
+
                           if (hasCompoundBaseUnit && baseUnitObj) {
                             if (item.rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
                             if (item.rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
                           }
-                          
+
                           const addlUnitObj = units && units.length > 0 && item.unitConfig.ADDITIONALUNITS
                             ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
                             : null;
                           const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-                          
+
                           if (hasCompoundAddlUnit && addlUnitObj) {
                             if (item.rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
                             if (item.rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
                           }
-                          
+
                           if (item.rateUOM === 'base') return item.unitConfig.BASEUNITS;
                           if (item.rateUOM === 'additional') return item.unitConfig.ADDITIONALUNITS;
-                          
+
                           return item.unitConfig.BASEUNITS || '';
                         })()
                       )}
@@ -12650,7 +12599,15 @@ function PlaceOrder() {
 
                   )}
 
-                  <div style={{ textAlign: 'center', display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                  <div style={{
+                    textAlign: 'center',
+                    display: 'flex',
+                    gap: '8px',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    minWidth: '140px',
+                    flexShrink: 0
+                  }}>
 
                     {editingItemIndex === index ? (
 
