@@ -19,7 +19,7 @@ import {
 import './CompanyOrdersScreen.css';
 
 const formatNumber = (value: number): string =>
-  value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  value.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
 const formatLargeNumber = (value: number): string => {
   const absValue = Math.abs(value);
@@ -143,7 +143,7 @@ type DeliverySummaryRow = {
   orders: CompanyOrder[];
 };
 
-export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ company, onBack, onLogout }) => {
+export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company, onBack, onLogout}) => {
   const [orders, setOrders] = useState<CompanyOrder[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -257,11 +257,11 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
     setSortConfig((prev) => {
       if (prev?.field === field) {
         if (prev.direction === 'asc') {
-          return { field, direction: 'desc' };
+          return {field, direction: 'desc'};
         }
         return null;
       }
-      return { field, direction: 'asc' };
+      return {field, direction: 'asc'};
     });
   };
 
@@ -309,8 +309,8 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
       
       // Use DLOrdAll if cleared orders are enabled, otherwise use DLOrdPending
       // Use override if provided, otherwise use current sectionVisibility.cleared
-      const includeCleared = includeClearedOverride !== undefined
-        ? includeClearedOverride
+      const includeCleared = includeClearedOverride !== undefined 
+        ? includeClearedOverride 
         : sectionVisibility.cleared;
       const companyName = company.company || company.conn_name;
       const data = await apiService.getCompanyOrders(
@@ -325,7 +325,7 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to load orders';
       setError(errorMessage);
-
+      
       // Check if token expired
       if (errorMessage.includes('Session expired') || errorMessage.includes('token')) {
         if (onLogout) {
@@ -1518,6 +1518,7 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
   }, [saving]);
 
 
+
   // Automatically set groupBy to 'stockItem' when a customer is selected and summary view is active
   useEffect(() => {
     if (viewMode === 'summary' && selectedCustomer && selectedCustomer !== 'all') {
@@ -1558,10 +1559,12 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
       const str = String(value).trim().toLowerCase();
       return str === 'yes' || str === '1' || str === 'true' || parseFloat(str) === 1;
     };
-
+    
     const isGodownOn = normalizeValue(order.IsGodownOn);
     const isBatchesOn = normalizeValue(order.IsBatchesOn);
     const result = isGodownOn || isBatchesOn;
+    
+    
     return result;
   };
 
@@ -1628,7 +1631,7 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
     
     setAutoSelectedBatches((prev) => {
       if (!prev[batchKey]) return prev;
-      const next = { ...prev };
+      const next = {...prev};
       delete next[batchKey];
       return next;
     });
@@ -1642,10 +1645,10 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
     order: CompanyOrder,
     targetBatchKey: string,
     isChecked: boolean,
-    batchesInfo: Array<{ entry: ItemBatchInfo; availableBalance: number; batchKey: string }>,
+    batchesInfo: Array<{entry: ItemBatchInfo; availableBalance: number; batchKey: string}>,
   ) => {
     setAutoSelectedBatches((prev) => {
-      const nextSelections = { ...prev };
+      const nextSelections = {...prev};
       if (isChecked) {
         nextSelections[targetBatchKey] = true;
       } else {
@@ -1663,13 +1666,13 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
     const orderKey = getOrderKey(order);
     // Use provided batchEntries or fall back to state
     const entries = batchEntries || (order.StockItem ? itemBatchBalances[order.StockItem] : undefined);
-
+    
     if (!entries || entries.length === 0) return;
-
+    
     // Parse pending qty from order
     const pendingQty = parseNumericValue(order.PendingQty);
     if (pendingQty <= 0) return;
-
+    
     // Parse closing balances for each batch and subtract allocations from other orders
     const orderLocation = order.Location?.trim() || '';
     const orderBatch = order.Batch?.trim() || '';
@@ -1702,13 +1705,13 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
         };
       })
       .filter((b) => b.balance > 0);
-
+    
     if (batchesWithBalances.length === 0) return;
-
+    
     // Sequentially consume batches until pending qty is filled
     const distributedQuantities: Record<string, string> = {};
     let remainingPendingQty = pendingQty;
-
+    
     for (const { entry, balance } of batchesWithBalances) {
       if (remainingPendingQty <= 0) {
         // No more pending qty to distribute
@@ -1716,9 +1719,9 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
         distributedQuantities[batchKey] = '0';
         continue;
       }
-
+      
       const batchKey = buildBatchKey(orderKey, entry.godown || '', entry.Batchname || '');
-
+      
       if (remainingPendingQty >= balance) {
         // Use full balance of this batch
         distributedQuantities[batchKey] = balance.toFixed(2);
@@ -1729,7 +1732,7 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
         remainingPendingQty = 0;
       }
     }
-
+    
     // Update batch delivery quantities
     setBatchDeliveryQuantities((prev) => ({
       ...prev,
@@ -1740,15 +1743,15 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
   // Load batch balances for a specific stock item
   const loadItemBatchBalances = async (stockItemName: string, forceRefresh: boolean = false): Promise<Array<ItemBatchInfo> | undefined> => {
     if (!company || !stockItemName) return undefined;
-
+    
     // Check if we already have batch data for this item (unless forcing refresh)
     if (!forceRefresh && itemBatchBalances[stockItemName]) {
       return itemBatchBalances[stockItemName]; // Already loaded
     }
-
+    
     setItemBatchLoading(true);
     setItemBatchError(null);
-
+    
     try {
       const companyName = company.company || company.conn_name;
       const batchData = await apiService.getItemBatchBalances(
@@ -1757,19 +1760,19 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
         company.guid,
         stockItemName,
       );
-
+      
       // Update batch balances for this stock item
       setItemBatchBalances((prev) => ({
         ...prev,
         [stockItemName]: batchData,
       }));
-
+      
       return batchData;
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to load batch balances';
       setItemBatchError(errorMessage);
       console.error('Error loading batch balances:', err);
-
+      
       // Check if token expired
       if (errorMessage.includes('Session expired') || errorMessage.includes('token')) {
         if (onLogout) {
@@ -1815,17 +1818,17 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
       setShowBatchSelectionModal(true);
       return;
     }
-
+    
     const orderKey = getOrderKey(order);
     setSelectedOrderForBatch(order);
     setItemBatchError(null);
-
+    
     // Always fetch fresh batch balances when clicking Qty button
     const batchData = await loadItemBatchBalances(order.StockItem, true);
-
+    
     // Open modal after loading
     setShowBatchSelectionModal(true);
-
+    
     // Automatically distribute pending qty only if this order has no existing allocations
     const shouldAutoDistribute = !orderHasBatchAllocations(orderKey);
     if (shouldAutoDistribute && batchData && batchData.length > 0) {
@@ -1888,7 +1891,7 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
     const orderKey = getOrderKey(order);
     const batchEntries = order.StockItem ? itemBatchBalances[order.StockItem] : undefined;
     if (!batchEntries || batchEntries.length === 0) return 0;
-
+    
     let total = 0;
     batchEntries.forEach((entry) => {
       const batchKey = buildBatchKey(orderKey, entry.godown || '', entry.Batchname || '');
@@ -1918,13 +1921,13 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
     const year = date.getFullYear();
     const month = date.getMonth() + 1;
     const day = date.getDate();
-
+    
     // Convert to Julian day number (days since January 1, 1900)
     const a = Math.floor((14 - month) / 12);
     const y = year + 4800 - a;
     const m = month + 12 * a - 3;
     const jdn = day + Math.floor((153 * m + 2) / 5) + 365 * y + Math.floor(y / 4) - Math.floor(y / 100) + Math.floor(y / 400) - 32045;
-
+    
     // Tally uses days since January 1, 1900 (Julian day 2415021)
     const tallyBase = 2415021;
     return jdn - tallyBase;
@@ -1977,11 +1980,11 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
 
   // Build delivery note XML (single voucher combining all orders)
   const buildDeliveryNoteXML = (
-    ordersByOrderNo: Record<string, Array<{ order: CompanyOrder; deliveryQty: number }>>,
+    ordersByOrderNo: Record<string, Array<{order: CompanyOrder; deliveryQty: number}>>,
     deliveryDateStr: string,
     companyName: string,
   ): string => {
-    const flattenedItems: Array<{ order: CompanyOrder; deliveryQty: number; orderNo: string }> = [];
+    const flattenedItems: Array<{order: CompanyOrder; deliveryQty: number; orderNo: string}> = [];
 
     Object.entries(ordersByOrderNo).forEach(([orderNo, items]) => {
       items.forEach((item) => {
@@ -2071,7 +2074,7 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({ compan
           let totalAmountForItem = 0;
 
           items.forEach((item) => {
-            const batchesWithQty: Array<{ entry: ItemBatchInfo; qty: number; qtyStr: string; amount: number }> = [];
+            const batchesWithQty: Array<{entry: ItemBatchInfo; qty: number; qtyStr: string; amount: number}> = [];
             batchEntries.forEach((entry) => {
               const batchKey = buildBatchKey(item.orderKey, entry.godown || '', entry.Batchname || '');
               const batchDeliveryQtyStr = batchDeliveryQuantities[batchKey]?.trim() || '';
@@ -2164,7 +2167,7 @@ ${allBatchAllocations.join('\n')}
       flattenedItems.forEach((item) => {
         const escapedStockItem = escapeForXML(item.order.StockItem || '');
         const currentOrderNo = item.orderNo;
-
+        
         // Extract rate and calculate amount
         const rateValue = parseNumericValue(item.order.Rate);
         const discountValue = parseNumericValue(item.order.Discount);
@@ -2172,7 +2175,7 @@ ${allBatchAllocations.join('\n')}
         const rateForXML = item.order.Rate || '';
         // Calculate amount: deliveryQty * rate * (100 - discount) / 100
         const amount = item.deliveryQty * (rateValue * (100 - discountValue)) / 100;
-
+        
         const showQtyButton = shouldShowQtyButton(item.order);
         const batchEntries = item.order.StockItem ? itemBatchBalances[item.order.StockItem] : undefined;
         const orderKey = getOrderKey(item.order);
@@ -2183,7 +2186,7 @@ ${allBatchAllocations.join('\n')}
         const julianDay = getJulianDay(dueDateObj);
 
         if (showQtyButton && batchEntries && batchEntries.length > 0) {
-          const batchesWithQty: Array<{ entry: ItemBatchInfo; qty: number; qtyStr: string; amount: number }> = [];
+          const batchesWithQty: Array<{entry: ItemBatchInfo; qty: number; qtyStr: string; amount: number}> = [];
           batchEntries.forEach((entry) => {
             const batchKey = buildBatchKey(orderKey, entry.godown || '', entry.Batchname || '');
             const batchDeliveryQtyStr = batchDeliveryQuantities[batchKey]?.trim() || '';
@@ -2309,17 +2312,17 @@ ${inventoryEntriesStr}
     const customerOrders = filteredOrders.filter(order => order.Customer === selectedCustomer);
 
     // Group orders by OrderNo
-    const ordersByOrderNo: Record<string, Array<{ order: CompanyOrder; deliveryQty: number }>> = {};
+    const ordersByOrderNo: Record<string, Array<{order: CompanyOrder; deliveryQty: number}>> = {};
     const validationErrors: string[] = [];
-
+    
     customerOrders.forEach((order) => {
       const key = getOrderKey(order);
-
+      
       // Check if order should use batch quantities (if IsGodownOn or IsBatchesOn is "Yes")
       const showQtyButton = shouldShowQtyButton(order);
       let deliveryQty = 0;
       let deliveryQtyStr = '';
-
+      
       if (showQtyButton) {
         // Use batch quantities
         deliveryQty = getTotalBatchDeliveryQty(order);
@@ -2328,14 +2331,14 @@ ${inventoryEntriesStr}
         // Use regular delivery qty
         deliveryQtyStr = deliveryQuantities[key]?.trim() || '';
         if (!deliveryQtyStr) return; // Skip orders without delivery quantity
-
+        
         deliveryQty = parseFloat(deliveryQtyStr);
         if (isNaN(deliveryQty) || deliveryQty <= 0) {
           validationErrors.push(`Invalid delivery quantity for order ${order.OrderNo}, item ${order.StockItem}`);
           return;
         }
       }
-
+      
       const pendingQty = parseNumericValue(order.PendingQty);
       if (!allowDeliveryExceedOrder) {
         if (pendingQty <= 0) {
@@ -2349,18 +2352,18 @@ ${inventoryEntriesStr}
           return;
         }
       }
-
+      
       const orderNo = order.OrderNo || '';
       if (!orderNo) {
         validationErrors.push(`Order number is missing for item: ${order.StockItem}`);
         return;
       }
-
+      
       if (!ordersByOrderNo[orderNo]) {
         ordersByOrderNo[orderNo] = [];
       }
-
-      ordersByOrderNo[orderNo].push({ order, deliveryQty });
+      
+      ordersByOrderNo[orderNo].push({order, deliveryQty});
     });
 
     if (validationErrors.length > 0) {
@@ -2385,10 +2388,10 @@ ${inventoryEntriesStr}
         company.guid,
         sectionVisibility.cleared, // Use same config as main load
       );
-
+      
       // Get refreshed orders for the selected customer
       const refreshedCustomerOrders = refreshedOrders.filter(order => order.Customer === selectedCustomer);
-
+      
       // Helper to extract numeric value from quantity strings (e.g., "10 Nos")
       const parseQuantity = (qty?: string | null): number | null => {
         if (!qty) return null;
@@ -2402,11 +2405,11 @@ ${inventoryEntriesStr}
       let validationErrorType: 'pending' | 'available' | null = null;
       refreshedCustomerOrders.forEach((order) => {
         const orderKey = getOrderKey(order);
-
+        
         // Check if order should use batch quantities (if IsGodownOn or IsBatchesOn is "Yes")
         const showQtyButton = shouldShowQtyButton(order);
         let deliveryQty = 0;
-
+        
         if (showQtyButton) {
           // Use batch quantities
           deliveryQty = getTotalBatchDeliveryQty(order);
@@ -2414,31 +2417,31 @@ ${inventoryEntriesStr}
           // Use regular delivery qty
           const deliveryQtyStr = deliveryQuantities[orderKey]?.trim();
           if (!deliveryQtyStr) return; // Skip orders without delivery quantity
-
+          
           deliveryQty = parseFloat(deliveryQtyStr);
           if (isNaN(deliveryQty) || deliveryQty <= 0) return; // Skip invalid quantities
         }
-
+        
         if (deliveryQty <= 0) return; // Skip if no delivery qty
-
+        
         // Validate against pending qty
         const pendingQtyValue = parseQuantity(order.PendingQty);
         if (!allowDeliveryExceedOrder && pendingQtyValue !== null && deliveryQty > pendingQtyValue) {
           validationErrorType = 'pending';
           return; // Skip further checks if pending qty validation fails
         }
-
+        
         // Validate against available qty
         const availableQtyValue = parseQuantity(order.AvailableQty);
         if (!allowNegativeStock && availableQtyValue !== null && deliveryQty > availableQtyValue) {
           validationErrorType = 'available';
         }
       });
-
+      
       if (validationErrorType) {
         // Refresh the screen with fresh data from Tally
         await loadOrders();
-        const errorMessage = validationErrorType === 'pending'
+        const errorMessage = validationErrorType === 'pending' 
           ? 'Delivery qty exceeds Pending Qty'
           : 'Delivery qty exceeds Available Qty';
         setSaveError(errorMessage);
@@ -2476,7 +2479,7 @@ ${inventoryEntriesStr}
       if (typeof tallyResponse === 'string') {
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(tallyResponse, 'text/xml');
-
+        
         // Check for ERRORS element first - only treat as error if value > 0
         const errorsElement = xmlDoc.querySelector('ERRORS');
         if (errorsElement) {
@@ -2485,17 +2488,17 @@ ${inventoryEntriesStr}
             tallyError = `Tally reported ${errorsValue} error(s)`;
           }
         }
-
+        
         // Check for various error elements in Tally response (only if no ERRORS > 0)
         if (!tallyError) {
           const lineError = xmlDoc.querySelector('LINEERROR');
           const exceptions = xmlDoc.querySelector('EXCEPTIONS');
           const errorMsg = xmlDoc.querySelector('ERRORMSG');
           const error = xmlDoc.querySelector('ERROR');
-
+          
           // Also check for errors in the body
           const bodyErrors = xmlDoc.querySelectorAll('BODY ERROR, BODY LINEERROR, BODY EXCEPTIONS, BODY ERRORMSG');
-
+          
           if (lineError) {
             tallyError = lineError.textContent || 'Unknown Tally error';
           } else if (errorMsg) {
@@ -2521,7 +2524,7 @@ ${inventoryEntriesStr}
             });
           }
         }
-
+        
         // If no specific error element found, check if response contains error-like text
         // But avoid matching XML tags like <ERRORS>0</ERRORS>
         if (!tallyError) {
@@ -2535,7 +2538,7 @@ ${inventoryEntriesStr}
             // Only match "does not exist" if it's not part of an XML tag
             /(?:^|[^<])does not exist[^<]*/i,
           ];
-
+          
           for (const pattern of errorPatterns) {
             const match = tallyResponse.match(pattern);
             if (match) {
@@ -2549,13 +2552,13 @@ ${inventoryEntriesStr}
             }
           }
         }
-
+        
         // If still no error found, check if response indicates success
         if (!tallyError) {
           const errorsValue = errorsElement ? parseInt(errorsElement.textContent || '0', 10) : null;
           const exceptionsElement = xmlDoc.querySelector('EXCEPTIONS');
           const exceptionsValue = exceptionsElement ? parseInt(exceptionsElement.textContent || '0', 10) : null;
-
+          
         }
       }
 
@@ -2567,17 +2570,17 @@ ${inventoryEntriesStr}
         if (typeof tallyResponse === 'string') {
           const parser = new DOMParser();
           const xmlDoc = parser.parseFromString(tallyResponse, 'text/xml');
-
+          
           const createdElement = xmlDoc.querySelector('CREATED');
           const alteredElement = xmlDoc.querySelector('ALTERED');
           const deletedElement = xmlDoc.querySelector('DELETED');
-
+          
           const createdValue = createdElement ? parseInt(createdElement.textContent || '0', 10) : 0;
           const alteredValue = alteredElement ? parseInt(alteredElement.textContent || '0', 10) : 0;
           const deletedValue = deletedElement ? parseInt(deletedElement.textContent || '0', 10) : 0;
-
+          
           const messages: string[] = [];
-
+          
           if (createdValue > 0) {
             messages.push(`${createdValue} delivery note(s) created`);
           }
@@ -2587,13 +2590,13 @@ ${inventoryEntriesStr}
           if (deletedValue > 0) {
             messages.push(`${deletedValue} delivery note(s) deleted`);
           }
-
+          
           if (messages.length > 0) {
             successMessage = messages.join(', ') + '.';
           }
-
+          
         }
-
+        
         setDeliveryQuantities({});
         setBatchDeliveryQuantities({});
         closeDeliveryModal();
@@ -2605,7 +2608,7 @@ ${inventoryEntriesStr}
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to save delivery notes';
       setSaveError(errorMessage);
-
+      
       // Check if token expired
       if (errorMessage.includes('Session expired') || errorMessage.includes('token')) {
         if (onLogout) {
@@ -2625,11 +2628,11 @@ ${inventoryEntriesStr}
     }
 
     const orderKey = getOrderKey(order);
-
+    
     // Check if order should use batch quantities (if IsGodownOn or IsBatchesOn is "Yes")
     const showQtyButton = shouldShowQtyButton(order);
     let deliveryQty = 0;
-
+    
     if (showQtyButton) {
       // Use batch quantities
       deliveryQty = getTotalBatchDeliveryQty(order);
@@ -2641,18 +2644,18 @@ ${inventoryEntriesStr}
       }
       deliveryQty = parseFloat(deliveryQtyStr);
     }
-
+    
     if (deliveryQty <= 0) {
       return order.PendingQty;
     }
 
     try {
       const pendingMatch = order.PendingQty.match(/(-?\d+(?:\.\d+)?)/);
-
+      
       if (pendingMatch && !isNaN(deliveryQty) && deliveryQty > 0) {
         const pending = parseFloat(pendingMatch[1]);
         const adjusted = pending - deliveryQty;
-
+        
         // Extract unit (e.g., "Nos") from Pending Qty if present
         const unitMatch = order.PendingQty.match(/\s*([A-Za-z]+)$/);
         const unit = unitMatch ? unitMatch[1] : '';
@@ -2682,10 +2685,10 @@ ${inventoryEntriesStr}
   const computeAutoSelectionQuantities = (
     order: CompanyOrder,
     selections: Record<string, boolean>,
-    batchesInfo: Array<{ entry: ItemBatchInfo; availableBalance: number; batchKey: string }>,
+    batchesInfo: Array<{entry: ItemBatchInfo; availableBalance: number; batchKey: string}>,
     prevQuantities: Record<string, string>,
   ): Record<string, string> => {
-    const next = { ...prevQuantities };
+    const next = {...prevQuantities};
     const totalRequired = parseNumericValue(order.PendingQty);
     let remaining = totalRequired;
 
@@ -2696,7 +2699,7 @@ ${inventoryEntriesStr}
     };
 
     // First, assign selected batches up to their available balance
-    batchesInfo.forEach(({ batchKey, availableBalance }) => {
+    batchesInfo.forEach(({batchKey, availableBalance}) => {
       if (!selections[batchKey]) {
         return;
       }
@@ -2710,7 +2713,7 @@ ${inventoryEntriesStr}
     });
 
     // Then, fill remaining quantity using previous allocations for unselected batches
-    batchesInfo.forEach(({ batchKey }) => {
+    batchesInfo.forEach(({batchKey}) => {
       if (selections[batchKey]) {
         return;
       }
@@ -2887,7 +2890,7 @@ ${inventoryEntriesStr}
       // Value filter (computed numeric)
       if (filters.value) {
         const orderValue = calculateValue(order);
-        const valueText = `${orderValue.toFixed(2)} ₹${orderValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`.toLowerCase();
+        const valueText = `${orderValue.toFixed(2)} ₹${orderValue.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}`.toLowerCase();
         if (!valueText.includes(filters.value.toLowerCase())) {
           return false;
         }
@@ -2948,7 +2951,7 @@ ${inventoryEntriesStr}
         return valueA > valueB ? 1 : -1;
       }
 
-      return String(valueA).localeCompare(String(valueB), undefined, { sensitivity: 'base' });
+      return String(valueA).localeCompare(String(valueB), undefined, {sensitivity: 'base'});
     });
 
     return sortConfig.direction === 'asc' ? sorted : sorted.reverse();
@@ -3022,16 +3025,16 @@ ${inventoryEntriesStr}
   // Get remaining available qty for a stock item after accounting for all delivery quantities
   const getRemainingAvailableQty = useCallback((order: CompanyOrder): number => {
     if (!order.StockItem) return 0;
-
+    
     const originalAvailableQty = parseNumericValue(order.AvailableQty);
     if (originalAvailableQty <= 0) return 0;
-
+    
     // Calculate total delivery quantity for this stock item across all orders in delivery modal
     let totalDeliveryQty = 0;
-
+    
     deliveryOrdersForSelectedCustomer.forEach((deliveryOrder) => {
       if (deliveryOrder.StockItem !== order.StockItem) return;
-
+      
       const showQtyButton = shouldShowQtyButton(deliveryOrder);
       if (showQtyButton) {
         // For batch items, use batch quantities
@@ -3046,7 +3049,7 @@ ${inventoryEntriesStr}
         }
       }
     });
-
+    
     const remaining = Math.max(originalAvailableQty - totalDeliveryQty, 0);
     return remaining;
   }, [deliveryOrdersForSelectedCustomer, deliveryQuantities, batchDeliveryQuantities, itemBatchBalances, getTotalBatchDeliveryQty, shouldShowQtyButton]);
@@ -3066,7 +3069,7 @@ ${inventoryEntriesStr}
         // Track unique rates for display
         const uniqueRates = new Set<string>();
         uniqueRates.add(formatRateWithDiscount(order));
-
+        
         grouped.set(key, {
           key,
           stockItem,
@@ -3078,7 +3081,7 @@ ${inventoryEntriesStr}
           totalPendingQty: 0,
           totalAvailableQty: 0,
           totalValue: 0,
-          totalAllocatedQty: 0,
+        totalAllocatedQty: 0,
           orders: [],
           // Store unique rates set for later use
           _uniqueRates: uniqueRates,
@@ -3090,16 +3093,16 @@ ${inventoryEntriesStr}
       const pendingQty = parseNumericValue(order.PendingQty);
       const availableQty = parseNumericValue(order.AvailableQty);
       const value = calculateValue(order);
-      const orderKey = getOrderKey(order);
-      const allocatedQty = getOrderDeliveryQty(order);
+    const orderKey = getOrderKey(order);
+    const allocatedQty = getOrderDeliveryQty(order);
 
       group.totalOrderQty += orderQty;
       group.totalPendingQty += pendingQty;
       group.totalAvailableQty += availableQty;
       group.totalValue += value;
-      group.totalAllocatedQty += allocatedQty;
+    group.totalAllocatedQty += allocatedQty;
       group.orders.push(order);
-
+      
       // Track unique rates
       const groupWithRates = group as DeliverySummaryRow & { _uniqueRates?: Set<string> };
       if (groupWithRates._uniqueRates) {
@@ -3251,6 +3254,7 @@ ${inventoryEntriesStr}
     return applySorting(filtered);
   }, [filteredOrders, applySorting]);
 
+
   // Check if we have any orders to display
   const hasOrdersToDisplay = regularOrders.length > 0 || clearedOrders.length > 0 || ordersWithNegativePending.length > 0;
 
@@ -3280,6 +3284,7 @@ ${inventoryEntriesStr}
     return Array.from(customers).sort();
   }, [orders]);
 
+  
   // Calculate totals for each section using useMemo
   const outstandingTotals = useMemo(() => calculateSectionTotals(regularOrders), [regularOrders, calculateSectionTotals]);
   const clearedTotals = useMemo(() => calculateSectionTotals(clearedOrders), [clearedOrders, calculateSectionTotals]);
@@ -3303,7 +3308,7 @@ ${inventoryEntriesStr}
       orders.forEach((order) => {
         const groupKey = groupBy === 'customer' ? order.Customer || '-' : order.StockItem || '-';
         const groupName = groupBy === 'customer' ? order.Customer || '-' : order.StockItem || '-';
-
+        
         if (!grouped.has(groupKey)) {
           grouped.set(groupKey, {
             key: groupKey,
@@ -3448,7 +3453,7 @@ ${inventoryEntriesStr}
 
       // Calculate opening value: OrderQty * (Rate * (100 - discount)) / 100
       const openingValue = orderQty * (rate * (100 - discount)) / 100;
-
+      
       // Calculate pending value: PendingQty * (Rate * (100 - discount)) / 100
       const pendingValue = pendingQty * (rate * (100 - discount)) / 100;
 
@@ -3507,7 +3512,7 @@ ${inventoryEntriesStr}
       // - 30 days: overdueDays > 15 && overdueDays <= 30
       // - >60 days: overdueDays > 30 (or >60 if last bucket is 60)
       let bucketIndex = buckets.length - 1; // Default to last bucket (>max days)
-
+      
       if (overdueDays <= buckets[0]) {
         bucketIndex = 0; // 0 days bucket
       } else {
@@ -3642,8 +3647,8 @@ ${inventoryEntriesStr}
                   width={60}
                 />
                 <RechartsTooltip
-                  cursor={{ fill: 'rgba(15,23,42,0.05)' }}
-                  content={({ payload }) => {
+                  cursor={{fill: 'rgba(15,23,42,0.05)'}}
+                  content={({payload}) => {
                     if (!payload || !payload.length) return null;
                     const data = payload[0].payload;
                     return (
@@ -3693,9 +3698,9 @@ ${inventoryEntriesStr}
                 const value = e.target.value;
                 setSelectedCustomer(value);
                 if (value && value !== 'all') {
-                  setFilters({ ...filters, customer: value });
+                  setFilters({...filters, customer: value});
                 } else {
-                  setFilters({ ...filters, customer: '' });
+                  setFilters({...filters, customer: ''});
                 }
               }}>
               <option value="all">All Customers</option>
@@ -3707,7 +3712,7 @@ ${inventoryEntriesStr}
             </select>
           </div>
           <div className="view-controls">
-            <button
+            <button 
               className={`toggle-button ${viewMode === 'summary' ? 'active' : ''}`}
               onClick={() => setViewMode(viewMode === 'summary' ? 'detailed' : 'summary')}
               title={viewMode === 'summary' ? 'Switch to Detailed View' : 'Switch to Summary View'}>
@@ -3728,8 +3733,8 @@ ${inventoryEntriesStr}
               </select>
             )}
           </div>
-          <button
-            className="config-button"
+          <button 
+            className="config-button" 
             onClick={() => {
               // Initialize temp state with current visibility when opening modal
               setTempSectionVisibility(sectionVisibility);
@@ -3782,7 +3787,7 @@ ${inventoryEntriesStr}
               className="filter-input"
               placeholder="Filter by date..."
               value={filters.date}
-              onChange={(e) => setFilters({ ...filters, date: e.target.value })}
+              onChange={(e) => setFilters({...filters, date: e.target.value})}
             />
           </div>
           <div className="filter-group">
@@ -3793,7 +3798,7 @@ ${inventoryEntriesStr}
               className="filter-input"
               placeholder="Filter by order no..."
               value={filters.orderNo}
-              onChange={(e) => setFilters({ ...filters, orderNo: e.target.value })}
+              onChange={(e) => setFilters({...filters, orderNo: e.target.value})}
             />
           </div>
           <div className="filter-group">
@@ -3805,9 +3810,9 @@ ${inventoryEntriesStr}
               onChange={(e) => {
                 const value = e.target.value;
                 if (value === 'all' || value === 'clear') {
-                  setFilters({ ...filters, stockItem: '' });
+                  setFilters({...filters, stockItem: ''});
                 } else {
-                  setFilters({ ...filters, stockItem: value });
+                  setFilters({...filters, stockItem: value});
                 }
               }}>
               <option value="all">All Stock Items</option>
@@ -3830,12 +3835,12 @@ ${inventoryEntriesStr}
               onChange={(e) => {
                 const value = e.target.value;
                 if (value === 'all' || value === 'clear') {
-                  setFilters({ ...filters, customer: '' });
+                  setFilters({...filters, customer: ''});
                 } else {
-                  setFilters({ ...filters, customer: value });
+                  setFilters({...filters, customer: value});
                 }
               }}
-            >
+             >
               <option value="all">All Customers</option>
               {uniqueCustomers.map((customer) => (
                 <option key={customer} value={customer}>
@@ -3855,8 +3860,8 @@ ${inventoryEntriesStr}
               className="filter-input"
               placeholder="Filter by order qty..."
               value={filters.orderQty}
-              onChange={(e) => setFilters({ ...filters, orderQty: e.target.value })}
-
+              onChange={(e) => setFilters({...filters, orderQty: e.target.value})}
+             
             />
           </div>
           <div className="filter-group">
@@ -3867,8 +3872,8 @@ ${inventoryEntriesStr}
               className="filter-input"
               placeholder="Filter by pending qty..."
               value={filters.pendingQty}
-              onChange={(e) => setFilters({ ...filters, pendingQty: e.target.value })}
-
+              onChange={(e) => setFilters({...filters, pendingQty: e.target.value})}
+             
             />
           </div>
         </div>
@@ -3881,8 +3886,8 @@ ${inventoryEntriesStr}
               className="filter-input"
               placeholder="Filter by rate..."
               value={filters.rate}
-              onChange={(e) => setFilters({ ...filters, rate: e.target.value })}
-
+              onChange={(e) => setFilters({...filters, rate: e.target.value})}
+             
             />
           </div>
           <div className="filter-group">
@@ -3893,8 +3898,8 @@ ${inventoryEntriesStr}
               className="filter-input"
               placeholder="Filter by value..."
               value={filters.value}
-              onChange={(e) => setFilters({ ...filters, value: e.target.value })}
-
+              onChange={(e) => setFilters({...filters, value: e.target.value})}
+             
             />
           </div>
           <div className="filter-group">
@@ -3905,8 +3910,8 @@ ${inventoryEntriesStr}
               className="filter-input"
               placeholder="Filter by due date or overdue..."
               value={filters.dueDate}
-              onChange={(e) => setFilters({ ...filters, dueDate: e.target.value })}
-
+              onChange={(e) => setFilters({...filters, dueDate: e.target.value})}
+             
             />
           </div>
           {(filters.date || filters.orderNo || filters.stockItem || filters.customer || filters.orderQty || filters.pendingQty || filters.rate || filters.value || filters.dueDate) && (
@@ -4952,8 +4957,8 @@ ${inventoryEntriesStr}
                 </button>
                 <button
                   className="close-modal-button"
-                  onClick={closeDeliveryModal}
-                >
+                    onClick={closeDeliveryModal}
+                   >
                   ✕
                 </button>
               </div>
@@ -4968,7 +4973,7 @@ ${inventoryEntriesStr}
 
               {itemBatchError && (
                 <div className="batch-error-message">
-                  {itemBatchError}
+                    {itemBatchError}
                 </div>
               )}
               {itemBatchLoading && (
@@ -4976,13 +4981,13 @@ ${inventoryEntriesStr}
               )}
 
               <div className="delivery-summary-section">
-                {deliverySummaryRows.length === 0 ? (
+              {deliverySummaryRows.length === 0 ? (
                   <div className="delivery-summary-empty">No pending items for this customer.</div>
-                ) : visibleDeliverySummaryRows.length === 0 ? (
-                  <div className="delivery-summary-empty">
-                    All pending items currently have 0 available quantity. Use "Show 0 Qty Items" to view them.
-                  </div>
-                ) : (
+              ) : visibleDeliverySummaryRows.length === 0 ? (
+                <div className="delivery-summary-empty">
+                  All pending items currently have 0 available quantity. Use "Show 0 Qty Items" to view them.
+                </div>
+              ) : (
                   <div className="delivery-summary-table-wrapper">
                     <div className="delivery-summary-table-content">
                       <table className="delivery-summary-table">
@@ -5158,133 +5163,9 @@ ${inventoryEntriesStr}
                                   </td>
                                 </tr>
                               )}
-                              {isSelected && selectedGroupOrders.length > 0 && (
-                                  <tr>
-                                    <td colSpan={9} style={{ padding: 0, borderTop: 'none' }}>
-                                      <div className="delivery-orders-expanded">
-                                        <div className="delivery-orders-expanded-header">
-                                          <h4>Orders for {row.stockItem}</h4>
-                                        </div>
-                                        <div className="delivery-items-table-wrapper">
-                                          <table className="delivery-items-table">
-                                            <thead>
-                                              <tr>
-                                                <th>Order Date</th>
-                                                <th>Order No</th>
-                                                <th>Stock Item</th>
-                                                <th>Order Qty</th>
-                                                <th>Pending Qty</th>
-                                                <th>
-                                                  <div>Rate</div>
-                                                  <div className="cell-subtext">(disc%)</div>
-                                                </th>
-                                                <th>Value</th>
-                                                <th>
-                                                  <div>Due Date</div>
-                                                  <div className="cell-subtext">(overdue)</div>
-                                                </th>
-                                                <th>Available Qty</th>
-                                                <th>Delivery Qty</th>
-                                              </tr>
-                                            </thead>
-                                            <tbody>
-                                              {selectedGroupOrders.map((order, index) => {
-                                                const orderKey = getOrderKey(order);
-                                                const deliveryQty = deliveryQuantities[orderKey] || '';
-                                                const adjustedPendingQty = getAdjustedPendingQty(order);
-                                                const overdueDays = calculateOverdueDays(order.DueDate);
-                                                const value = calculateValue(order);
-                                                const rateWithDiscount = formatRateWithDiscount(order);
-                                                const showQtyButton = shouldShowQtyButton(order);
-
-                                                return (
-                                                  <tr key={`${orderKey}-${index}`}>
-                                                    <td>{order.Date ? formatDateDisplay(order.Date) : '-'}</td>
-                                                    <td>
-                                                      <div>{order.OrderNo || '-'}</div>
-                                                      {order.Batch && <div className="cell-subtext">Batch: {order.Batch}</div>}
-                                                    </td>
-                                                    <td>
-                                                      <div>{order.StockItem || '-'}</div>
-                                                      {order.Location && <div className="cell-subtext">Location: {order.Location}</div>}
-                                                    </td>
-                                                    <td>{order.OrderQty || '-'}</td>
-                                                    <td>{adjustedPendingQty}</td>
-                                                    <td>
-                                                      {rateWithDiscount.split('\n').map((line, i) => (
-                                                        <div key={i}>{line}</div>
-                                                      ))}
-                                                    </td>
-                                                    <td>₹{value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                                    <td>
-                                                      <div>{order.DueDate ? formatDateDisplay(order.DueDate) : '-'}</div>
-                                                      {overdueDays !== null && overdueDays > 0 && (
-                                                        <div className="cell-subtext">({overdueDays} days)</div>
-                                                      )}
-                                                    </td>
-                                                    <td className={(() => {
-                                                      const remainingQty = getRemainingAvailableQty(order);
-                                                      return remainingQty === 0 ? 'available-qty-zero' : '';
-                                                    })()}>
-                                                      {(() => {
-                                                        const remainingQty = getRemainingAvailableQty(order);
-                                                        const unit = extractUnit(order.AvailableQty);
-                                                        if (remainingQty <= 0) {
-                                                          return `0${unit ? ' ' + unit : ''}`;
-                                                        }
-                                                        return `${remainingQty.toFixed(2)}${unit ? ' ' + unit : ''}`;
-                                                      })()}
-                                                    </td>
-                                                    <td>
-                                                      {showQtyButton ? (
-                                                        <button
-                                                          type="button"
-                                                          className="batch-qty-button"
-                                                          onClick={() => handleOpenBatchSelection(order)}
-                                                          disabled={saving}
-                                                        >
-                                                          Qty
-                                                          {(() => {
-                                                            const totalBatchQty = getTotalBatchDeliveryQty(order);
-                                                            return totalBatchQty > 0 ? ` (${totalBatchQty})` : '';
-                                                          })()}
-                                                        </button>
-                                                      ) : (
-                                                        <input
-                                                          type="text"
-                                                          className="delivery-qty-input-modal"
-                                                          value={deliveryQty}
-                                                          onChange={(e) => handleDeliveryQtyChange(order, e.target.value)}
-                                                          placeholder="Enter qty"
-                                                          disabled={saving}
-                                                        />
-                                                      )}
-                                                    </td>
-                                                  </tr>
-                                                );
-                                              })}
-                                            </tbody>
-                                            <tfoot>
-                                              <tr className="delivery-modal-total-row">
-                                                <td colSpan={3}><strong>Total</strong></td>
-                                                <td><strong>{`${selectedGroupTotals.totalOrderQty}${selectedGroupTotals.unit ? ' ' + selectedGroupTotals.unit : ''}`}</strong></td>
-                                                <td><strong>{`${selectedGroupTotals.totalPendingQty}${selectedGroupTotals.unit ? ' ' + selectedGroupTotals.unit : ''}`}</strong></td>
-                                                <td>-</td>
-                                                <td><strong>₹{Number(selectedGroupTotals.totalValue).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></td>
-                                                <td>-</td>
-                                                <td>-</td>
-                                                <td><strong>{`${selectedGroupTotals.totalDeliveryQty}${selectedGroupTotals.unit ? ' ' + selectedGroupTotals.unit : ''}`}</strong></td>
-                                              </tr>
-                                            </tfoot>
-                                          </table>
-                                        </div>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                              </React.Fragment>
-                            );
-                          })}
+                            </React.Fragment>
+                          );
+                        })}
                         </tbody>
                       </table>
                     </div>
@@ -5312,7 +5193,7 @@ ${inventoryEntriesStr}
                 className="cancel-button"
                 onClick={closeDeliveryModal}
                 disabled={saving}
-              >
+               >
                 Cancel
               </button>
               <div className="delivery-date-group-modal">
@@ -5324,14 +5205,14 @@ ${inventoryEntriesStr}
                   value={deliveryDate}
                   onChange={(e) => setDeliveryDate(e.target.value)}
                   disabled={saving}
-
+                 
                 />
               </div>
               <button
                 className="save-order-button"
                 onClick={handleSaveDelivery}
                 disabled={saving || loading}
-              >
+               >
                 {saving ? `Saving… (${formatDuration(saveElapsedSeconds)})` : 'Save'}
               </button>
               {saving && (
@@ -5386,7 +5267,7 @@ ${inventoryEntriesStr}
               {(() => {
                 const orderKey = getOrderKey(selectedOrderForBatch);
                 const batchEntries = selectedOrderForBatch.StockItem ? itemBatchBalances[selectedOrderForBatch.StockItem] : undefined;
-
+                
                 if (itemBatchLoading) {
                   return (
                     <div className="batch-selection-loading">
@@ -5395,7 +5276,7 @@ ${inventoryEntriesStr}
                     </div>
                   );
                 }
-
+                
                 if (itemBatchError) {
                   // Check if error is about available qty being 0
                   if (itemBatchError === 'Available qty: 0') {
@@ -5411,7 +5292,7 @@ ${inventoryEntriesStr}
                     </div>
                   );
                 }
-
+                
                 if (!batchEntries || batchEntries.length === 0) {
                   return (
                     <div className="batch-selection-empty">
@@ -5419,26 +5300,26 @@ ${inventoryEntriesStr}
                     </div>
                   );
                 }
-
+                
                 // Filter batches by Location and Batch if specified
                 const orderLocation = selectedOrderForBatch.Location?.trim() || '';
                 const orderBatch = selectedOrderForBatch.Batch?.trim() || '';
-
+                
                 const filteredBatchEntries = batchEntries.filter((entry) => {
                   const entryLocation = entry.godown?.trim() || '';
                   const entryBatch = entry.Batchname?.trim() || '';
-
+                  
                   if (orderLocation && entryLocation !== orderLocation) {
                     return false;
                   }
-
+                  
                   if (orderBatch && entryBatch !== orderBatch) {
                     return false;
                   }
-
+                  
                   return true;
                 });
-
+                
                 // Check if filtering by Location/Batch resulted in no matches
                 if (filteredBatchEntries.length === 0) {
                   const filterCriteria: string[] = [];
@@ -5451,7 +5332,7 @@ ${inventoryEntriesStr}
                     </div>
                   );
                 }
-
+                
                 // Compute available balance per batch after accounting for allocations in other orders
                 const batchesWithBalance = filteredBatchEntries
                   .map((entry) => {
@@ -5474,7 +5355,7 @@ ${inventoryEntriesStr}
                     };
                   })
                   .filter(({ availableBalance, currentAllocated }) => availableBalance > 0 || currentAllocated > 0);
-
+                
                 if (batchesWithBalance.length === 0) {
                   return (
                     <div className="batch-selection-empty">
@@ -5482,7 +5363,7 @@ ${inventoryEntriesStr}
                     </div>
                   );
                 }
-
+                
                 return (
                   <div className="batch-selection-table-wrapper">
                     <table className="batch-selection-table">
@@ -5598,7 +5479,7 @@ ${inventoryEntriesStr}
                   setConfigModalTab('sections');
                   setShowConfigModal(false);
                 }}
-              >
+               >
                 ✕
               </button>
             </div>
@@ -5784,7 +5665,7 @@ ${inventoryEntriesStr}
                 onClick={async () => {
                   const wasClearedEnabled = sectionVisibility.cleared;
                   const isClearedEnabled = tempSectionVisibility.cleared;
-
+                  
                   // Apply the visibility changes
                   setSectionVisibility(tempSectionVisibility);
                   // Apply ageing buckets
@@ -5807,7 +5688,7 @@ ${inventoryEntriesStr}
                     await loadOrders(true);
                   }
                   // If disabling cleared orders, just hide the section (no reload needed)
-
+                  
                   setShowConfigModal(false);
                   setConfigModalTab('sections');
                 }}>
@@ -5828,7 +5709,7 @@ ${inventoryEntriesStr}
                 className="save-order-button"
                 type="button"
                 onClick={() => setSuccessDialogMessage(null)}
-
+               
               >
                 OK
               </button>
