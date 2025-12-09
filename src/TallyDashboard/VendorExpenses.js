@@ -957,16 +957,6 @@ function VendorExpenses() {
                       )}
                       {filteredLedgers.map((ledger, index) => {
                         const ledgerName = ledger.NAME || ledger.name || '';
-                        const groupList = ledger.GROUPLIST || ledger.groupList || '';
-                        let parentGroup = '';
-                        if (Array.isArray(groupList)) {
-                          parentGroup = groupList.find(g => 
-                            g && g.toLowerCase().includes('sundry creditors')
-                          ) || groupList[0] || '';
-                        } else if (typeof groupList === 'string') {
-                          const match = groupList.match(/sundry creditors?/i);
-                          parentGroup = match ? match[0] : groupList;
-                        }
                         return (
                           <div
                             key={ledger.MASTERID || ledger.masterId || ledger.id || ledgerName || index}
@@ -999,15 +989,6 @@ function VendorExpenses() {
                             }}>
                               {ledgerName}
                             </div>
-                            {!isExpenses && parentGroup && (
-                              <div style={{
-                                fontSize: '12px',
-                                color: '#64748b',
-                                marginTop: '2px'
-                              }}>
-                                {parentGroup}
-                              </div>
-                            )}
                           </div>
                         );
                       })}
