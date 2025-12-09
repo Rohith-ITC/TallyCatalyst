@@ -704,6 +704,7 @@
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
+  display: table;
 }
 
 .receivables-table thead {
@@ -711,6 +712,19 @@
   position: sticky;
   top: 0;
   z-index: 10;
+  display: table-header-group;
+}
+
+.receivables-table thead tr {
+  display: table-row;
+}
+
+.receivables-table tbody {
+  display: table-row-group;
+}
+
+.receivables-table tbody tr {
+  display: table-row;
 }
 
 .receivables-table th {
@@ -722,9 +736,10 @@
   font-size: 0.875rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  vertical-align: top;
+  vertical-align: bottom;
   overflow: visible;
   min-width: 0;
+  display: table-cell;
 }
 
 /* Override text-align for right-aligned headers */
@@ -814,13 +829,14 @@
   margin-bottom: 0.5rem;
   width: 100%;
   min-width: 0;
+  line-height: 1.2;
 }
 
 .header-content span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
 }
 

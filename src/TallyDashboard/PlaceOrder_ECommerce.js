@@ -999,7 +999,7 @@ function PlaceOrder_ECommerce() {
       console.log('Stock items cache key:', cacheKey);
       console.log('Refresh requested:', !!refreshStockItems);
 
-      // Check cache first (sessionStorage)
+      // Check OPFS cache first (new storage)
       if (!refreshStockItems) {
         try {
           const { getItemsFromOPFS } = await import('../utils/cacheSyncManager');
@@ -1046,13 +1046,13 @@ function PlaceOrder_ECommerce() {
               console.log(`✅ Normalized ${normalizedItems.length} items from cache (${items.length - normalizedItems.length} invalid items filtered, ${itemsWithImages} items have images)`);
               setStockItems(normalizedItems);
               setStockItemsLoading(false);
-            return;
+              return;
             } else {
               console.warn('Cached items found but none are valid after normalization, fetching fresh');
             }
           }
         } catch (e) {
-          console.warn('Error loading from cache, will fetch fresh:', e);
+          console.warn('Error loading from OPFS, will fetch fresh:', e);
         }
       }
 
@@ -1113,14 +1113,7 @@ function PlaceOrder_ECommerce() {
           console.log(`✅ Normalized ${normalizedItems.length} fresh items (${decryptedItems.length - normalizedItems.length} invalid items filtered, ${itemsWithImages} items have images)`);
 
           setStockItems(normalizedItems);
-          // Also cache in sessionStorage for consistency with getItemsFromOPFS
-          try {
-            sessionStorage.setItem(cacheKey, JSON.stringify(normalizedItems));
-            console.log('✅ Cached normalized stock items in sessionStorage');
-          } catch (cacheError) {
-            console.warn('Failed to cache stock items in sessionStorage:', cacheError.message);
-          }
-          // Cache the deobfuscated result in OPFS (handles large data)
+          // Cache the normalized result in OPFS (handles large data)
           try {
             const { hybridCache } = await import('../utils/hybridCache');
             await hybridCache.setSalesData(cacheKey, { stockItems: normalizedItems }, null);

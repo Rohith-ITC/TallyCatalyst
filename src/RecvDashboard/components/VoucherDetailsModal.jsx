@@ -149,6 +149,12 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
     const ispartyledger = (entry.ISPARTYLEDGER || entry.ispartyledger || '').toString().toLowerCase().trim();
     return ispartyledger === 'yes';
   });
+
+  // Filter out ledger entries where ispartyledger is "yes" for display
+  const filteredLedgerEntries = ledgerEntries.filter(entry => {
+    const ispartyledger = (entry.ISPARTYLEDGER || entry.ispartyledger || '').toString().toLowerCase().trim();
+    return ispartyledger !== 'yes';
+  });
   
   // Get party ledger name from the ledger entry itself (don't fallback to voucher level here)
   const partyLedgerName = partyLedger.LEDGERNAME || partyLedger.ledgername || 'Unknown';
@@ -540,7 +546,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                 </div>
                 
                 {/* Ledger Entries (shown directly after inventory when ispartyledger is "no") */}
-                {!hasPartyLedger && ledgerEntries.length > 0 && (
+                {!hasPartyLedger && filteredLedgerEntries.length > 0 && (
                   <>
                     <div
                       style={{
@@ -560,7 +566,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                       <div style={{ textAlign: 'right' }}>Debit Amount</div>
                       <div style={{ textAlign: 'right' }}>Credit Amount</div>
                     </div>
-                    {ledgerEntries.map((entry, idx) => {
+                    {filteredLedgerEntries.map((entry, idx) => {
                       const ledgerName = entry.LEDGERNAME || entry.ledgername || '-';
                       const debitAmt = parseAmount(entry.DEBITAMT || entry.debitamt || entry.amount || 0);
                       const creditAmt = parseAmount(entry.CREDITAMT || entry.creditamt || 0);
@@ -572,7 +578,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                             display: 'grid',
                             gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
                             padding: isMobile ? '10px 12px' : '12px 16px',
-                            borderBottom: idx === ledgerEntries.length - 1 ? 'none' : '1px solid #e2e8f0',
+                            borderBottom: idx === filteredLedgerEntries.length - 1 ? 'none' : '1px solid #e2e8f0',
                             fontSize: isMobile ? '12px' : '14px',
                             color: '#1e293b',
                             gap: isMobile ? '8px' : '12px',
@@ -635,7 +641,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
             )}
 
           {/* Ledger Entries Section (only shown when hasPartyLedger is true) */}
-          {hasPartyLedger && ledgerEntries.length > 0 && (
+          {hasPartyLedger && filteredLedgerEntries.length > 0 && (
             <div style={{ marginBottom: isMobile ? '20px' : '24px' }}>
               <div style={{ 
                 fontSize: isMobile ? '14px' : '16px', 
@@ -667,45 +673,46 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                   <div style={{ textAlign: 'right' }}>Debit Amount</div>
                   <div style={{ textAlign: 'right' }}>Credit Amount</div>
                 </div>
-                {ledgerEntries.map((entry, idx) => {
+                {filteredLedgerEntries.map((entry, idx) => {
                   const ledgerName = entry.LEDGERNAME || entry.ledgername || '-';
                   const debitAmt = parseAmount(entry.DEBITAMT || entry.debitamt || entry.amount || 0);
                   const creditAmt = parseAmount(entry.CREDITAMT || entry.creditamt || 0);
-                  const isPartyLedger = (entry.ISPARTYLEDGER || entry.ispartyledger || '').toString().toLowerCase().trim() === 'yes';
                   
                   return (
-                    <React.Fragment key={idx}>
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
-                          padding: isMobile ? '10px 12px' : '12px 16px',
-                          borderBottom: idx === ledgerEntries.length - 1 && billAllocations.length === 0 ? 'none' : '1px solid #e2e8f0',
-                          fontSize: isMobile ? '12px' : '14px',
-                          color: '#1e293b',
-                          gap: isMobile ? '8px' : '12px',
-                          alignItems: 'center',
-                          background: '#fff'
-                        }}
-                      >
-                        <div style={{ fontWeight: 500 }}>{ledgerName}</div>
-                        <div style={{ textAlign: 'right', fontWeight: 500 }}>
-                          {debitAmt > 0 ? formatCurrencyAmount(debitAmt) : ''}
-                        </div>
-                        <div style={{ textAlign: 'right', fontWeight: 500 }}>
-                          {creditAmt > 0 ? formatCurrencyAmount(creditAmt) : ''}
-                        </div>
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
+                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        borderBottom: idx === filteredLedgerEntries.length - 1 && billAllocations.length === 0 ? 'none' : '1px solid #e2e8f0',
+                        fontSize: isMobile ? '12px' : '14px',
+                        color: '#1e293b',
+                        gap: isMobile ? '8px' : '12px',
+                        alignItems: 'center',
+                        background: '#fff'
+                      }}
+                    >
+                      <div style={{ fontWeight: 500 }}>{ledgerName}</div>
+                      <div style={{ textAlign: 'right', fontWeight: 500 }}>
+                        {debitAmt > 0 ? formatCurrencyAmount(debitAmt) : ''}
                       </div>
-
-                      {/* Bill Allocations for Party Ledger */}
-                      {isPartyLedger && billAllocations.length > 0 && (
+                      <div style={{ textAlign: 'right', fontWeight: 500 }}>
+                        {creditAmt > 0 ? formatCurrencyAmount(creditAmt) : ''}
+                      </div>
+                    </div>
+                  );
+                })}
+                
+                {/* Bill Allocations for Party Ledger (shown separately) */}
+                {billAllocations.length > 0 && (
                         <div style={{ padding: isMobile ? '8px 12px' : '10px 16px', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
                           <div style={{ fontSize: isMobile ? '11px' : '12px', fontWeight: 600, color: '#64748b', marginBottom: '8px' }}>
                             Bill Allocations
                           </div>
                           {billAllocations.map((bill, billIdx) => {
                             const billName = bill.BILLNAME || bill.REFNO || bill.billname || bill.refno || voucherNumber;
-                            const billAmount = parseAmount(bill.AMOUNT || bill.DEBITAMT || bill.CREDITAMT || bill.amount || debitAmt);
+                            const billAmount = parseAmount(bill.AMOUNT || bill.DEBITAMT || bill.CREDITAMT || bill.amount || 0);
                             return (
                               <div
                                 key={billIdx}
@@ -729,9 +736,6 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                           })}
                         </div>
                       )}
-                    </React.Fragment>
-                  );
-                })}
               </div>
             </div>
           )}

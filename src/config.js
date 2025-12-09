@@ -2,9 +2,12 @@
 const getBaseUrl = () => {
   // Default API URL
   const DEFAULT_API_URL = 'https://itcatalystindia.com/Development/CustomerPortal_API';
-  
-    // Use .env value for development mode
+
+  // Use .env value for development mode
   if (process.env.NODE_ENV === 'development') {
+    // DISABLED: Proxy logic was causing timeouts
+    // Always use production URL even in development
+    /*
     // Check if we're running from a local network IP (like 192.168.x.x)
     // In this case, use relative paths to go through the proxy
     if (typeof window !== 'undefined') {
@@ -14,16 +17,16 @@ const getBaseUrl = () => {
         return ''; // Empty string means use relative path, which will go through proxy
       }
     }
-    
+    */
+
     const devUrl = process.env.REACT_APP_DEV_API_URL || '';
-    
+
     // If devUrl is set and not localhost, use it directly
     if (devUrl && !devUrl.includes('localhost') && !devUrl.includes('127.0.0.1') && !devUrl.includes('itcatalystindia.com') && !devUrl.includes('itcatalystindia.com/Development/CustomerPortal') && !devUrl.includes('192.168.29.72')) {
       return devUrl;
     }
-    
-    // If devUrl is localhost or not set, use the default remote API URL
-    // This ensures we always connect to the correct server
+
+    // Always use the production API URL to avoid proxy timeout issues
     return DEFAULT_API_URL;
   }
 
@@ -49,13 +52,13 @@ export const API_CONFIG = {
     SIGNUP: '/api/signup',
     FORGET_PASSWORD: '/api/forget-password',
     CHANGE_PASSWORD: '/api/change-password',
-    
+
     // Tally connection endpoints
     TALLY_CHECK_CONNECTION: '/api/tally/check-connection',
     TALLY_CONNECTIONS_ALL: '/api/tally/connections/all',
     TALLY_CONNECTION_CHECK: '/api/tally/check-connection',
     TALLY_CONNECTION_BY_ID: (id) => `/api/tally/connections/${id}`,
-    
+
     // Tally data endpoints
     TALLY_COMPANIES: '/api/tally/companies',
     TALLY_LEDGERS: '/api/tally/ledgers',
@@ -65,16 +68,16 @@ export const API_CONFIG = {
     TALLY_PLACE_ORDER: '/api/tally/place_order',
     TALLY_LED_STATBILLREP: '/api/tally/led_statbillrep',
     TALLY_USER_CONNECTIONS: '/api/tally/user-connections',
-    
+
     // Share Access endpoints
     TALLY_LEDGER_SHAREACCESS: '/api/tally/ledger-shareaccess',
     TALLY_LEDGER_SHAREACCESS_ACC: '/api/tally/ledger-shareaccess-acc',
-    
+
     // Master Authorization endpoints
     TALLY_LEDGER_LIST: '/api/tally/ledger-list',
     TALLY_LEDGER_AUTH: '/api/tally/ledger-auth',
     TALLY_LEDGER_CHECK: '/api/tally/ledger-check',
-    
+
     // Subscription endpoints
     SUBSCRIPTION_STATUS: '/api/subscription/status',
     SUBSCRIPTION_PLANS: '/api/subscription/plans',
@@ -103,7 +106,7 @@ export const RAZORPAY_CONFIG = {
 
 // App Configuration
 export const APP_CONFIG = {
-  APP_NAME: 'DataLynk',
+  APP_NAME: 'DataLynkr',
   COMPANY_NAME: 'IT Catalyst Software India Pvt Ltd'
 };
 
@@ -146,7 +149,7 @@ export const GOOGLE_DRIVE_CONFIG = {
 export const isGoogleDriveFullyConfigured = () => {
   const hasClientId = !!GOOGLE_DRIVE_CONFIG.CLIENT_ID && GOOGLE_DRIVE_CONFIG.CLIENT_ID.length > 0;
   const hasApiKey = !!GOOGLE_DRIVE_CONFIG.API_KEY && GOOGLE_DRIVE_CONFIG.API_KEY.length > 0;
-  
+
   return {
     configured: hasClientId && hasApiKey,
     hasClientId,
@@ -160,7 +163,7 @@ if (isDevelopment) {
   const configStatus = isGoogleDriveFullyConfigured();
   const rawClientId = process.env.REACT_APP_GOOGLE_CLIENT_ID;
   const rawApiKey = process.env.REACT_APP_GOOGLE_API_KEY;
-  
+
   console.log('🔍 Google Drive Configuration Status:', {
     configured: configStatus.configured,
     hasClientId: configStatus.hasClientId,
@@ -171,7 +174,7 @@ if (isDevelopment) {
     rawEnvApiKey: rawApiKey ? 'PRESENT IN ENV' : 'NOT IN ENV',
     usingDefaultClientId: !rawClientId && configStatus.hasClientId
   });
-  
+
   if (!configStatus.configured) {
     console.warn('⚠️ Google Drive is not fully configured. Document upload features will be disabled.');
     if (!rawApiKey) {

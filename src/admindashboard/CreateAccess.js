@@ -1025,7 +1025,7 @@ function CreateAccess() {
             response = await fetch(url, {
               method: 'GET',
         headers: {
-                'User-Agent': 'DataLynk/1.0 (Contact: support@datalynk.com)',
+                'User-Agent': 'DataLynkr/1.0 (Contact: support@datalynkr.com)',
                 'Accept': 'application/json',
                 'Accept-Language': 'en-US,en;q=0.9'
               },

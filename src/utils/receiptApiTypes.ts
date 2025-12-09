@@ -48,5 +48,8 @@ export interface CompanyOrder {
   Discount?: string;
   IsGodownOn?: string;
   IsBatchesOn?: string;
+  PreClosedQty?: string;
+  PreClosedDate?: string;
+  PreCloseReason?: string;
 }
 

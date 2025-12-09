@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import TallyLogo from '../DLlogo.png';
+import TallyLogo from '../DLrlogo.png';
 import '../AdminHomeResponsive.css';
 import ModulesManagement from './ModulesManagement';
 import RolesManagement from './RolesManagement';
@@ -167,7 +167,7 @@ function AccessControl() {
               WebkitBackgroundClip: 'text',
               WebkitTextFillColor: 'transparent',
               backgroundClip: 'text',
-            }}>DataLynk</span>
+            }}>DataLynkr</span>
           </div>
           <div ref={profileDropdownRef} style={{ display: 'flex', alignItems: 'center', gap: 16, marginLeft: 'auto', position: 'relative' }}>
             <div 

@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import TallyLogo from '../DLlogo.png';
+import TallyLogo from '../DLrlogo.png';
 import '../AdminHomeResponsive.css';
 import { getApiUrl, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { apiGet } from '../utils/apiUtils';
@@ -243,25 +243,26 @@ function AdminDashboard() {
         // Dispatch custom event to notify other components
         window.dispatchEvent(new CustomEvent('connectionsUpdated'));
         
+        // DISABLED: Automatic cache sync is now disabled - users must manually trigger downloads
         // Trigger auto-sync for eligible companies (Internal/Full Access)
-        if (connections && connections.length > 0) {
-          try {
-            // Import dynamically to avoid circular dependencies
-            const { cacheSyncManager } = await import('../utils/cacheSyncManager');
-            const eligibleCompanies = connections.filter(c => 
-              c.status === 'Connected' && 
-              (c.access_type === 'Internal' || c.access_type === 'Full Access')
-            );
-            
-            if (eligibleCompanies.length > 0) {
-              console.log(`🚀 Triggering auto-sync for ${eligibleCompanies.length} companies`);
-              cacheSyncManager.startAutoSyncForCompanies(eligibleCompanies);
-            }
-          } catch (syncError) {
-            console.error('Error starting auto-sync:', syncError);
-            // Don't block UI if sync fails to start
-          }
-        }
+        // if (connections && connections.length > 0) {
+        //   try {
+        //     // Import dynamically to avoid circular dependencies
+        //     const { cacheSyncManager } = await import('../utils/cacheSyncManager');
+        //     const eligibleCompanies = connections.filter(c => 
+        //       c.status === 'Connected' && 
+        //       (c.access_type === 'Internal' || c.access_type === 'Full Access')
+        //     );
+        //     
+        //     if (eligibleCompanies.length > 0) {
+        //       console.log(`🚀 Triggering auto-sync for ${eligibleCompanies.length} companies`);
+        //       cacheSyncManager.startAutoSyncForCompanies(eligibleCompanies);
+        //     }
+        //   } catch (syncError) {
+        //     console.error('Error starting auto-sync:', syncError);
+        //     // Don't block UI if sync fails to start
+        //   }
+        // }
       }
     } catch (err) {
       setConnectionsError('Failed to load connections');
@@ -472,7 +473,7 @@ function AdminDashboard() {
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text',
-          }}>DataLynk</span>
+          }}>DataLynkr</span>
         </div>
         <div ref={profileDropdownRef} style={{ display: 'flex', alignItems: 'center', gap: 16, marginLeft: 'auto', position: 'relative' }}>
           <SubscriptionBadge />
