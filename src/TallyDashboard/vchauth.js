@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { apiGet, apiPost } from '../utils/apiUtils';
-import { getApiUrl } from '../config';
+import VoucherDetailsModal from './components/VoucherDetailsModal';
 
 function VoucherAuthorization() {
   const [vouchers, setVouchers] = useState([]);
@@ -21,6 +21,7 @@ function VoucherAuthorization() {
   const [selectedParty, setSelectedParty] = useState('all');
   const [showVoucherDetails, setShowVoucherDetails] = useState(false);
   const [viewingVoucher, setViewingVoucher] = useState(null);
+  const [viewingVoucherMasterId, setViewingVoucherMasterId] = useState(null);
   const [activeTab, setActiveTab] = useState('pending'); // 'pending', 'authorized', 'rejected'
   const [showRejectNarrationModal, setShowRejectNarrationModal] = useState(false);
   const [rejectNarration, setRejectNarration] = useState('');
@@ -413,8 +414,9 @@ function VoucherAuthorization() {
 
   // Handle clicking on a voucher row to view details
   const handleVoucherView = (voucher) => {
-    // Use rawData from the voucher which contains ALLLEDGERENTRIES and INVENTORYALLOCATIONS
+    // Store the voucher for status checking and the masterId for the modal
     setViewingVoucher(voucher);
+    setViewingVoucherMasterId(voucher.masterId);
     setShowVoucherDetails(true);
   };
 
@@ -761,6 +763,11 @@ function VoucherAuthorization() {
 
   const { totalVouchers, pendingVouchers, authorizedVouchers, totalAmount, pendingAmount, avgVoucherValue } = metrics;
 
+  // Check if any selected vouchers are already authorized
+  const hasAuthorizedSelectedVouchers = useMemo(() => {
+    return vouchers.filter(v => selectedVouchers.includes(v.id) && v.status === 'Authorized').length > 0;
+  }, [vouchers, selectedVouchers]);
+
   // Handle form submission
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1067,13 +1074,13 @@ function VoucherAuthorization() {
               }}>
                 <button
                   onClick={handleAuthorizeVouchers}
-                  disabled={authorizing || rejecting || selectedVouchers.length === 0}
+                  disabled={authorizing || rejecting || selectedVouchers.length === 0 || hasAuthorizedSelectedVouchers}
                   style={{
-                    background: authorizing || rejecting || selectedVouchers.length === 0 ? '#94a3b8' : 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)',
+                    background: authorizing || rejecting || selectedVouchers.length === 0 || hasAuthorizedSelectedVouchers ? '#94a3b8' : 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)',
                     border: 'none',
                     borderRadius: '10px',
                     padding: '12px 20px',
-                    cursor: authorizing || rejecting || selectedVouchers.length === 0 ? 'not-allowed' : 'pointer',
+                    cursor: authorizing || rejecting || selectedVouchers.length === 0 || hasAuthorizedSelectedVouchers ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
@@ -1084,15 +1091,15 @@ function VoucherAuthorization() {
                     boxShadow: '0 2px 4px rgba(242, 112, 32, 0.2)',
                     width: '100%',
                     justifyContent: 'center',
-                    opacity: authorizing || rejecting || selectedVouchers.length === 0 ? 0.7 : 1
+                    opacity: authorizing || rejecting || selectedVouchers.length === 0 || hasAuthorizedSelectedVouchers ? 0.7 : 1
                   }}
                   onMouseEnter={(e) => {
-                    if (!authorizing && !rejecting && selectedVouchers.length > 0) {
+                    if (!authorizing && !rejecting && selectedVouchers.length > 0 && !hasAuthorizedSelectedVouchers) {
                       e.target.style.background = 'linear-gradient(135deg, #e55a00 0%, #cc4a00 100%)';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (!authorizing && !rejecting && selectedVouchers.length > 0) {
+                    if (!authorizing && !rejecting && selectedVouchers.length > 0 && !hasAuthorizedSelectedVouchers) {
                       e.target.style.background = 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)';
                     }
                   }}
@@ -1110,13 +1117,13 @@ function VoucherAuthorization() {
               }}>
                 <button
                   onClick={handleRejectVouchers}
-                  disabled={rejecting || authorizing || selectedVouchers.length === 0}
+                  disabled={rejecting || authorizing || selectedVouchers.length === 0 || hasAuthorizedSelectedVouchers}
                   style={{
-                    background: rejecting || authorizing || selectedVouchers.length === 0 ? '#94a3b8' : 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                    background: rejecting || authorizing || selectedVouchers.length === 0 || hasAuthorizedSelectedVouchers ? '#94a3b8' : 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
                     border: 'none',
                     borderRadius: '10px',
                     padding: '12px 20px',
-                    cursor: rejecting || authorizing || selectedVouchers.length === 0 ? 'not-allowed' : 'pointer',
+                    cursor: rejecting || authorizing || selectedVouchers.length === 0 || hasAuthorizedSelectedVouchers ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
@@ -1127,15 +1134,15 @@ function VoucherAuthorization() {
                     boxShadow: '0 2px 4px rgba(220, 38, 38, 0.2)',
                     width: '100%',
                     justifyContent: 'center',
-                    opacity: rejecting || authorizing || selectedVouchers.length === 0 ? 0.7 : 1
+                    opacity: rejecting || authorizing || selectedVouchers.length === 0 || hasAuthorizedSelectedVouchers ? 0.7 : 1
                   }}
                   onMouseEnter={(e) => {
-                    if (!rejecting && !authorizing && selectedVouchers.length > 0) {
+                    if (!rejecting && !authorizing && selectedVouchers.length > 0 && !hasAuthorizedSelectedVouchers) {
                       e.target.style.background = 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (!rejecting && !authorizing && selectedVouchers.length > 0) {
+                    if (!rejecting && !authorizing && selectedVouchers.length > 0 && !hasAuthorizedSelectedVouchers) {
                       e.target.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)';
                     }
                   }}
@@ -1494,518 +1501,21 @@ function VoucherAuthorization() {
       </div>
 
       {/* Voucher Details Modal */}
-      {showVoucherDetails && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.5)',
-            zIndex: 10000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '20px'
+      {showVoucherDetails && viewingVoucherMasterId && (
+        <VoucherDetailsModal
+          masterId={viewingVoucherMasterId}
+          onClose={() => {
+            setShowVoucherDetails(false);
+            setViewingVoucher(null);
+            setViewingVoucherMasterId(null);
           }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowVoucherDetails(false);
-              setViewingVoucher(null);
-            }
-          }}
-        >
-          <div
-            style={{
-              background: 'white',
-              borderRadius: '12px',
-              width: '90%',
-              maxWidth: '1400px',
-              maxHeight: '90vh',
-              display: 'flex',
-              flexDirection: 'column',
-              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)'
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div
-              style={{
-                padding: '20px 24px',
-                borderBottom: '1px solid #e2e8f0',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-              }}
-            >
-              <div>
-                <h2
-                  style={{
-                    margin: 0,
-                    fontSize: '20px',
-                    fontWeight: 700,
-                    color: '#1e293b'
-                  }}
-                >
-                  Voucher Details
-                  {viewingVoucher && (
-                    <span
-                      style={{
-                        marginLeft: '12px',
-                        fontSize: '14px',
-                        fontWeight: 500,
-                        color: '#64748b'
-                      }}
-                    >
-                      {viewingVoucher.voucherNumber} - {viewingVoucher.type}
-                    </span>
-                  )}
-                </h2>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                {/* Authorize Button */}
-                <button
-                  onClick={handleAuthorizeSingleVoucher}
-                  disabled={authorizing || rejecting}
-                  style={{
-                    background: authorizing || rejecting ? '#94a3b8' : 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '10px 16px',
-                    cursor: authorizing || rejecting ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    color: '#fff',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 4px rgba(242, 112, 32, 0.2)',
-                    opacity: authorizing || rejecting ? 0.7 : 1
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!authorizing && !rejecting) {
-                      e.target.style.background = 'linear-gradient(135deg, #e55a00 0%, #cc4a00 100%)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!authorizing && !rejecting) {
-                      e.target.style.background = 'linear-gradient(135deg, #F27020 0%, #e55a00 100%)';
-                    }
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
-                  {authorizing ? 'Authorizing...' : 'Authorize'}
-                </button>
-                {/* Reject Button */}
-                <button
-                  onClick={handleRejectSingleVoucher}
-                  disabled={rejecting || authorizing}
-                  style={{
-                    background: rejecting || authorizing ? '#94a3b8' : 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '10px 16px',
-                    cursor: rejecting || authorizing ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    color: '#fff',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 4px rgba(220, 38, 38, 0.2)',
-                    opacity: rejecting || authorizing ? 0.7 : 1
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!rejecting && !authorizing) {
-                      e.target.style.background = 'linear-gradient(135deg, #b91c1c 0%, #991b1b 100%)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!rejecting && !authorizing) {
-                      e.target.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)';
-                    }
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '18px' }}>cancel</span>
-                  {rejecting ? 'Rejecting...' : 'Reject'}
-                </button>
-                {/* Close Button */}
-                <button
-                  onClick={() => {
-                    setShowVoucherDetails(false);
-                    setViewingVoucher(null);
-                  }}
-                  style={{
-                    background: '#f1f5f9',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '8px',
-                    padding: '8px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'all 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = '#e2e8f0';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = '#f1f5f9';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '24px', color: '#64748b' }}>close</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Content */}
-            <div
-              style={{
-                flex: 1,
-                overflow: 'auto',
-                padding: '24px'
-              }}
-            >
-              {viewingVoucher && viewingVoucher.rawData ? (
-                <div style={{ width: '100%' }}>
-                  {/* Voucher Header */}
-                  <div style={{
-                    background: '#f8fafc',
-                    borderRadius: '8px',
-                    padding: '16px 20px',
-                    marginBottom: '20px',
-                    border: '1px solid #e2e8f0'
-                  }}>
-                    <div style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 1fr 1fr',
-                      gap: '16px',
-                      alignItems: 'center'
-                    }}>
-                      <div>
-                        <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Voucher Type</div>
-                        <div style={{ fontSize: '16px', color: '#1e293b', fontWeight: 700 }}>{viewingVoucher.rawData.VCHTYPE}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Voucher No.</div>
-                        <div style={{ fontSize: '16px', color: '#1e293b', fontWeight: 700 }}>{viewingVoucher.rawData.VCHNO}</div>
-                      </div>
-                      <div>
-                        <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Date</div>
-                        <div style={{ fontSize: '16px', color: '#1e293b', fontWeight: 700 }}>{viewingVoucher.rawData.DATE}</div>
-                      </div>
-                    </div>
-                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
-                      <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '4px' }}>Particulars</div>
-                      <div style={{ fontSize: '16px', color: '#1e293b', fontWeight: 600 }}>{viewingVoucher.rawData.PARTICULARS}</div>
-                    </div>
-                    {/* Status and Narration Section */}
-                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
-                      <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '8px' }}>Status</div>
-                      <div style={{ 
-                        display: 'inline-flex', 
-                        alignItems: 'center', 
-                        gap: '6px',
-                        padding: '6px 12px',
-                        borderRadius: '6px',
-                        fontSize: '14px',
-                        fontWeight: 600,
-                        background: viewingVoucher.status === 'Authorized' ? '#d1fae5' : viewingVoucher.status === 'Rejected' ? '#fef2f2' : '#fef3c7',
-                        color: viewingVoucher.status === 'Authorized' ? '#047857' : viewingVoucher.status === 'Rejected' ? '#991b1b' : '#92400e',
-                        border: `1px solid ${viewingVoucher.status === 'Authorized' ? '#a7f3d0' : viewingVoucher.status === 'Rejected' ? '#fecaca' : '#fde68a'}`
-                      }}>
-                        {viewingVoucher.status === 'Authorized' && (
-                          <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
-                        )}
-                        {viewingVoucher.status === 'Rejected' && (
-                          <span className="material-icons" style={{ fontSize: '18px' }}>cancel</span>
-                        )}
-                        {viewingVoucher.status === 'Pending' && (
-                          <span className="material-icons" style={{ fontSize: '18px' }}>pending_actions</span>
-                        )}
-                        {viewingVoucher.status}
-                      </div>
-                    </div>
-                    {/* Authorization Narration */}
-                    {viewingVoucher.authorizationNarration && (
-                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
-                        <div style={{ fontSize: '12px', color: '#10b981', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span className="material-icons" style={{ fontSize: '16px' }}>check_circle</span>
-                          Authorization Note
-                        </div>
-                        <div style={{ fontSize: '14px', color: '#047857', fontWeight: 500, padding: '12px 16px', background: '#d1fae5', borderRadius: '8px', border: '1px solid #a7f3d0', lineHeight: '1.5' }}>
-                          {viewingVoucher.authorizationNarration}
-                        </div>
-                      </div>
-                    )}
-                    {/* Rejection Narration */}
-                    {viewingVoucher.rejectionNarration && (
-                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
-                        <div style={{ fontSize: '12px', color: '#dc2626', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span className="material-icons" style={{ fontSize: '16px' }}>cancel</span>
-                          Rejection Reason
-                        </div>
-                        <div style={{ fontSize: '14px', color: '#991b1b', fontWeight: 500, padding: '12px 16px', background: '#fef2f2', borderRadius: '8px', border: '1px solid #fecaca', lineHeight: '1.5' }}>
-                          {viewingVoucher.rejectionNarration}
-                        </div>
-                      </div>
-                    )}
-                    {/* Voucher Narration - Only show if narration exists */}
-                    {(viewingVoucher.narration || viewingVoucher.rawData?.NARRATION || viewingVoucher.rawData?.CP_Temp7) && (
-                      <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e2e8f0' }}>
-                        <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                          <span className="material-icons" style={{ fontSize: '16px', color: '#64748b' }}>description</span>
-                          Narration
-                        </div>
-                        <div style={{ 
-                          fontSize: '14px', 
-                          fontWeight: 500, 
-                          color: '#1e293b',
-                          padding: '12px 16px',
-                          background: '#f8fafc',
-                          borderRadius: '8px',
-                          border: '1px solid #e2e8f0',
-                          lineHeight: '1.5',
-                          whiteSpace: 'pre-wrap',
-                          wordBreak: 'break-word'
-                        }}>
-                          {viewingVoucher.narration || viewingVoucher.rawData?.NARRATION || viewingVoucher.rawData?.CP_Temp7}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Ledger Entries */}
-                  {viewingVoucher.rawData.ALLLEDGERENTRIES && viewingVoucher.rawData.ALLLEDGERENTRIES.length > 0 && (
-                    <div style={{ marginBottom: '24px' }}>
-                      <h3 style={{
-                        fontSize: '18px',
-                        fontWeight: 700,
-                        color: '#1e293b',
-                        marginBottom: '16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                      }}>
-                        <span className="material-icons" style={{ fontSize: '20px' }}>account_balance</span>
-                        Ledger Entries
-                      </h3>
-                      <div style={{
-                        background: 'white',
-                        borderRadius: '8px',
-                        border: '1px solid #e2e8f0',
-                        overflow: 'hidden'
-                      }}>
-                        {/* Table Header */}
-                        <div style={{
-                          display: 'grid',
-                          gridTemplateColumns: '2fr 1fr 1fr',
-                          gap: '16px',
-                          padding: '12px 16px',
-                          background: '#f8fafc',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontWeight: 700,
-                          fontSize: '14px',
-                          color: '#1e293b'
-                        }}>
-                          <div>Ledger Name</div>
-                          <div style={{ textAlign: 'right' }}>Debit Amount</div>
-                          <div style={{ textAlign: 'right' }}>Credit Amount</div>
-                        </div>
-
-                        {/* Ledger Rows */}
-                        {viewingVoucher.rawData.ALLLEDGERENTRIES.map((entry, index) => (
-                          <div key={index}>
-                            <div style={{
-                              display: 'grid',
-                              gridTemplateColumns: '2fr 1fr 1fr',
-                              gap: '16px',
-                              padding: '16px',
-                              borderBottom: index < viewingVoucher.rawData.ALLLEDGERENTRIES.length - 1 ? '1px solid #e2e8f0' : 'none',
-                              alignItems: 'center'
-                            }}>
-                              <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 600 }}>
-                                {entry.LEDGERNAME}
-                              </div>
-                              <div style={{ textAlign: 'right', fontSize: '14px', color: '#1e293b', fontWeight: 600 }}>
-                                {entry.DEBITAMT !== '0.00' && entry.DEBITAMT !== '0' && parseAmount(entry.DEBITAMT).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </div>
-                              <div style={{ textAlign: 'right', fontSize: '14px', color: '#1e293b', fontWeight: 600 }}>
-                                {entry.CREDITAMT !== '0.00' && entry.CREDITAMT !== '0' && parseAmount(entry.CREDITAMT).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </div>
-                            </div>
-
-                            {/* Bill Allocations */}
-                            {entry.BILLALLOCATIONS && entry.BILLALLOCATIONS.length > 0 && (
-                              <div style={{
-                                padding: '12px 16px 12px 32px',
-                                background: '#f8fafc',
-                                borderTop: '1px solid #e2e8f0'
-                              }}>
-                                <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '8px' }}>Bill Allocations:</div>
-                                {entry.BILLALLOCATIONS.map((bill, billIndex) => (
-                                  <div key={billIndex} style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '2fr 1fr 1fr',
-                                    gap: '16px',
-                                    padding: '8px 0',
-                                    fontSize: '13px'
-                                  }}>
-                                    <div style={{ color: '#64748b' }}>{bill.BILLNAME}</div>
-                                    <div style={{ textAlign: 'right', color: '#64748b' }}>
-                                      {bill.DEBITAMT !== '0.00' && bill.DEBITAMT !== '0' && parseAmount(bill.DEBITAMT).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </div>
-                                    <div style={{ textAlign: 'right', color: '#64748b' }}>
-                                      {bill.CREDITAMT !== '0.00' && bill.CREDITAMT !== '0' && parseAmount(bill.CREDITAMT).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-
-                            {/* Inventory Allocations */}
-                            {entry.INVENTORYALLOCATIONS && entry.INVENTORYALLOCATIONS.length > 0 && (
-                              <div style={{
-                                padding: '12px 16px 12px 32px',
-                                background: '#f8fafc',
-                                borderTop: '1px solid #e2e8f0'
-                              }}>
-                                <div style={{ fontSize: '12px', color: '#64748b', fontWeight: 600, marginBottom: '8px' }}>Inventory Allocations:</div>
-                                <div style={{
-                                  display: 'grid',
-                                  gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
-                                  gap: '12px',
-                                  padding: '8px 0',
-                                  fontSize: '12px',
-                                  fontWeight: 600,
-                                  color: '#64748b',
-                                  borderBottom: '1px solid #e2e8f0',
-                                  marginBottom: '8px'
-                                }}>
-                                  <div>Item Name</div>
-                                  <div style={{ textAlign: 'right' }}>Quantity</div>
-                                  <div style={{ textAlign: 'right' }}>Rate</div>
-                                  <div style={{ textAlign: 'right' }}>Discount</div>
-                                  <div style={{ textAlign: 'right' }}>Amount</div>
-                                </div>
-                                {entry.INVENTORYALLOCATIONS.map((inv, invIndex) => (
-                                  <div key={invIndex} style={{
-                                    display: 'grid',
-                                    gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
-                                    gap: '12px',
-                                    padding: '8px 0',
-                                    fontSize: '13px'
-                                  }}>
-                                    <div style={{ color: '#1e293b' }}>{inv.STOCKITEMNAME}</div>
-                                    <div style={{ textAlign: 'right', color: '#1e293b' }}>{inv.BILLEQTY}</div>
-                                    <div style={{ textAlign: 'right', color: '#1e293b' }}>{inv.RATE}</div>
-                                    <div style={{ textAlign: 'right', color: '#1e293b' }}>{inv.DISCOUNT || '0'}</div>
-                                    <div style={{ textAlign: 'right', color: '#1e293b', fontWeight: 600 }}>
-                                      ₹{parseAmount(inv.AMOUNT).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* All Inventory Entries */}
-                  {viewingVoucher.rawData.ALLINVENTORYENTRIES && viewingVoucher.rawData.ALLINVENTORYENTRIES.length > 0 && (
-                    <div style={{ marginBottom: '24px' }}>
-                      <h3 style={{
-                        fontSize: '18px',
-                        fontWeight: 700,
-                        color: '#1e293b',
-                        marginBottom: '16px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px'
-                      }}>
-                        <span className="material-icons" style={{ fontSize: '20px' }}>inventory</span>
-                        All Inventory Entries
-                      </h3>
-                      <div style={{
-                        background: 'white',
-                        borderRadius: '8px',
-                        border: '1px solid #e2e8f0',
-                        overflow: 'hidden'
-                      }}>
-                        {/* Table Header */}
-                        <div style={{
-                          display: 'grid',
-                          gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
-                          gap: '12px',
-                          padding: '12px 16px',
-                          background: '#f8fafc',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontWeight: 700,
-                          fontSize: '14px',
-                          color: '#1e293b'
-                        }}>
-                          <div>Item Name</div>
-                          <div style={{ textAlign: 'right' }}>Quantity</div>
-                          <div style={{ textAlign: 'right' }}>Rate</div>
-                          <div style={{ textAlign: 'right' }}>Discount</div>
-                          <div style={{ textAlign: 'right' }}>Amount</div>
-                        </div>
-
-                        {/* Inventory Rows */}
-                        {viewingVoucher.rawData.ALLINVENTORYENTRIES.map((inv, invIndex) => (
-                          <div key={invIndex} style={{
-                            display: 'grid',
-                            gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr',
-                            gap: '12px',
-                            padding: '16px',
-                            borderBottom: invIndex < viewingVoucher.rawData.ALLINVENTORYENTRIES.length - 1 ? '1px solid #e2e8f0' : 'none',
-                            alignItems: 'center'
-                          }}>
-                            <div style={{ fontSize: '14px', color: '#1e293b', fontWeight: 600 }}>
-                              {inv.STOCKITEMNAME}
-                            </div>
-                            <div style={{ textAlign: 'right', fontSize: '14px', color: '#1e293b' }}>
-                              {inv.BILLEQTY}
-                            </div>
-                            <div style={{ textAlign: 'right', fontSize: '14px', color: '#1e293b' }}>
-                              {inv.RATE}
-                            </div>
-                            <div style={{ textAlign: 'right', fontSize: '14px', color: '#1e293b' }}>
-                              {inv.DISCOUNT || '0'}
-                            </div>
-                            <div style={{ textAlign: 'right', fontSize: '14px', color: '#1e293b', fontWeight: 600 }}>
-                              ₹{parseAmount(inv.AMOUNT).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div
-                  style={{
-                    padding: '48px',
-                    textAlign: 'center',
-                    color: '#64748b'
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: 48, color: '#cbd5e1' }}>
-                    receipt_long
-                  </span>
-                  <p style={{ margin: '16px 0 0 0', fontSize: 16 }}>
-                    No voucher details available
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+          showApproveReject={true}
+          onApprove={handleAuthorizeSingleVoucher}
+          onReject={handleRejectSingleVoucher}
+          isAuthorizing={authorizing}
+          isRejecting={rejecting}
+          voucherStatus={viewingVoucher?.status}
+        />
       )}
 
       {/* Rejection Narration Modal */}

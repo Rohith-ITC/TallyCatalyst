@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { modulesApi, permissionsApi, showMessage, formatApiError } from './api/accessControlApi';
+import { getApiUrl } from '../config';
 
 function ModulesManagement() {
   const [allModules, setAllModules] = useState([]);
@@ -145,6 +146,54 @@ function ModulesManagement() {
       setPendingPermissionChanges({});
       
       showMessage('Module selection updated successfully');
+      
+      // Refresh user access permissions so components see the changes immediately
+      try {
+        // Get current company from sessionStorage
+        const allConnections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+        const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid');
+        const currentCompany = allConnections.find(c => c.guid === selectedCompanyGuid);
+        
+        if (currentCompany && currentCompany.tallyloc_id && currentCompany.guid) {
+          // Dispatch global refresh event to trigger permission refresh
+          window.dispatchEvent(new CustomEvent('globalRefresh'));
+          
+          // Also refresh user access permissions directly
+          // This will update sessionStorage and dispatch userAccessUpdated event
+          const timestamp = Date.now();
+          const apiUrl = getApiUrl(`/api/access-control/user-access?tallylocId=${currentCompany.tallyloc_id}&co_guid=${currentCompany.guid}&_t=${timestamp}`);
+          
+          fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${sessionStorage.getItem('token')}`,
+              'Content-Type': 'application/json'
+            }
+          })
+          .then(response => {
+            if (response.ok) {
+              return response.json();
+            }
+            throw new Error('Failed to refresh user permissions');
+          })
+          .then(accessData => {
+            sessionStorage.setItem('userAccessPermissions', JSON.stringify(accessData));
+            window.dispatchEvent(new CustomEvent('userAccessUpdated', { detail: accessData }));
+            console.log('✅ User permissions refreshed after module save');
+          })
+          .catch(err => {
+            console.warn('⚠️ Could not refresh user permissions:', err);
+            // Still dispatch the event even if API call fails, so components can try to refresh
+            window.dispatchEvent(new CustomEvent('userAccessUpdated'));
+          });
+        } else {
+          console.warn('⚠️ No company selected, skipping permission refresh');
+        }
+      } catch (error) {
+        console.warn('⚠️ Error refreshing permissions:', error);
+        // Still dispatch the event as a fallback
+        window.dispatchEvent(new CustomEvent('userAccessUpdated'));
+      }
     } catch (error) {
       setError(formatApiError(error));
     } finally {

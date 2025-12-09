@@ -2,7 +2,7 @@ import React from 'react';
 import { formatCurrency } from '../utils/helpers';
 import { useIsMobile } from '../../TallyDashboard/MobileViewConfig';
 
-const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
+const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActions }) => {
   const isMobile = useIsMobile();
   const parseAmount = (amount) => {
     if (amount === null || amount === undefined || amount === '') return 0;
@@ -149,6 +149,12 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
     const ispartyledger = (entry.ISPARTYLEDGER || entry.ispartyledger || '').toString().toLowerCase().trim();
     return ispartyledger === 'yes';
   });
+
+  // Filter out ledger entries where ispartyledger is "yes" for display
+  const filteredLedgerEntries = ledgerEntries.filter(entry => {
+    const ispartyledger = (entry.ISPARTYLEDGER || entry.ispartyledger || '').toString().toLowerCase().trim();
+    return ispartyledger !== 'yes';
+  });
   
   // Get party ledger name from the ledger entry itself (don't fallback to voucher level here)
   const partyLedgerName = partyLedger.LEDGERNAME || partyLedger.ledgername || 'Unknown';
@@ -177,12 +183,18 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
   });
   
   // Extract taxes and calculate ledger totals from ledger entries
+  // Exclude party ledger entries from ledger total calculation
   ledgerEntries.forEach(entry => {
     const ledgerName = (entry.LEDGERNAME || entry.ledgername || '').toLowerCase();
+    const ispartyledger = (entry.ISPARTYLEDGER || entry.ispartyledger || '').toString().toLowerCase().trim();
     const debitAmt = parseAmount(entry.DEBITAMT || entry.debitamt || entry.amount || 0);
     const creditAmt = parseAmount(entry.CREDITAMT || entry.creditamt || 0);
-    totalDebit += debitAmt;
-    totalCredit += creditAmt;
+    
+    // Only include non-party ledger entries in ledger totals
+    if (ispartyledger !== 'yes') {
+      totalDebit += debitAmt;
+      totalCredit += creditAmt;
+    }
     
     if (ledgerName.includes('cgst')) {
       totalCgst += Math.abs(debitAmt || creditAmt);
@@ -193,8 +205,15 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
     }
   });
   
-  // Calculate grand total
+  // Calculate grand total (item total + taxes + round off)
   const grandTotal = totalAmount + totalCgst + totalSgst + totalRoundoff;
+
+  // Ledger total should be sum of taxes and round off (non-item ledger entries)
+  // This represents the additional charges on top of item total
+  const ledgerTotal = totalCgst + totalSgst + totalRoundoff;
+  
+  // Transaction total is the grand total (item total + all charges)
+  const transactionTotal = grandTotal;
   
   // Get bill allocations from party ledger
   const billAllocations = normalizeToArray(partyLedger.BILLALLOCATIONS || partyLedger.billalloc || []);
@@ -323,28 +342,31 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
               Ledger: {partyLedgerName}
               </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              color: '#fff',
-              width: 32,
-              height: 32,
-              borderRadius: '4px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'background 0.2s',
-              fontSize: '20px',
-              fontWeight: 'bold'
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-          >
-            ×
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {headerActions}
+            <button
+              onClick={onClose}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#fff',
+                width: 32,
+                height: 32,
+                borderRadius: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background 0.2s',
+                fontSize: '20px',
+                fontWeight: 'bold'
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         {/* Main Content */}
@@ -411,6 +433,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
           </div>
 
           {/* Inventory Allocations Section */}
+          {/* Show inventory allocations for all vouchers */}
           {inventoryEntries.length > 0 && (
             <div style={{ marginBottom: isMobile ? '20px' : '24px' }}>
                 <div style={{ 
@@ -535,7 +558,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                 </div>
                 
                 {/* Ledger Entries (shown directly after inventory when ispartyledger is "no") */}
-                {!hasPartyLedger && ledgerEntries.length > 0 && (
+                {!hasPartyLedger && filteredLedgerEntries.length > 0 && (
                   <>
                     <div
                       style={{
@@ -555,7 +578,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                       <div style={{ textAlign: 'right' }}>Debit Amount</div>
                       <div style={{ textAlign: 'right' }}>Credit Amount</div>
                     </div>
-                    {ledgerEntries.map((entry, idx) => {
+                    {filteredLedgerEntries.map((entry, idx) => {
                       const ledgerName = entry.LEDGERNAME || entry.ledgername || '-';
                       const debitAmt = parseAmount(entry.DEBITAMT || entry.debitamt || entry.amount || 0);
                       const creditAmt = parseAmount(entry.CREDITAMT || entry.creditamt || 0);
@@ -567,7 +590,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                             display: 'grid',
                             gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
                             padding: isMobile ? '10px 12px' : '12px 16px',
-                            borderBottom: idx === ledgerEntries.length - 1 ? 'none' : '1px solid #e2e8f0',
+                            borderBottom: idx === filteredLedgerEntries.length - 1 ? 'none' : '1px solid #e2e8f0',
                             fontSize: isMobile ? '12px' : '14px',
                             color: '#1e293b',
                             gap: isMobile ? '8px' : '12px',
@@ -629,8 +652,8 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
               </div>
             )}
 
-          {/* Ledger Entries Section (only shown when hasPartyLedger is true) */}
-          {hasPartyLedger && ledgerEntries.length > 0 && (
+          {/* Bill Allocations for Party Ledger (shown when ispartyledger is "yes") */}
+          {hasPartyLedger && billAllocations.length > 0 && (
             <div style={{ marginBottom: isMobile ? '20px' : '24px' }}>
               <div style={{ 
                 fontSize: isMobile ? '14px' : '16px', 
@@ -641,14 +664,14 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                 alignItems: 'center',
                 gap: '8px'
               }}>
-                <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>business</span>
-                Ledger Entries
+                <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>receipt</span>
+                Bill Allocations
               </div>
               <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', background: '#fff' }}>
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
+                    gridTemplateColumns: isMobile ? '2fr 1fr' : '3fr 1fr',
                     padding: isMobile ? '10px 12px' : '12px 16px',
                     background: '#f8fafc',
                     borderBottom: '1px solid #e2e8f0',
@@ -658,78 +681,72 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
                     gap: isMobile ? '8px' : '12px'
                   }}
                 >
-                  <div>Ledger Name</div>
-                  <div style={{ textAlign: 'right' }}>Debit Amount</div>
-                  <div style={{ textAlign: 'right' }}>Credit Amount</div>
+                  <div>Bill Name</div>
+                  <div style={{ textAlign: 'right' }}>Amount</div>
                 </div>
-                {ledgerEntries.map((entry, idx) => {
-                  const ledgerName = entry.LEDGERNAME || entry.ledgername || '-';
-                  const debitAmt = parseAmount(entry.DEBITAMT || entry.debitamt || entry.amount || 0);
-                  const creditAmt = parseAmount(entry.CREDITAMT || entry.creditamt || 0);
-                  const isPartyLedger = (entry.ISPARTYLEDGER || entry.ispartyledger || '').toString().toLowerCase().trim() === 'yes';
-                  
+                {billAllocations.map((bill, billIdx) => {
+                  const billName = bill.BILLNAME || bill.REFNO || bill.billname || bill.refno || voucherNumber;
+                  const billAmount = parseAmount(bill.AMOUNT || bill.DEBITAMT || bill.CREDITAMT || bill.amount || 0);
                   return (
-                    <React.Fragment key={idx}>
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
-                          padding: isMobile ? '10px 12px' : '12px 16px',
-                          borderBottom: idx === ledgerEntries.length - 1 && billAllocations.length === 0 ? 'none' : '1px solid #e2e8f0',
-                          fontSize: isMobile ? '12px' : '14px',
-                          color: '#1e293b',
-                          gap: isMobile ? '8px' : '12px',
-                          alignItems: 'center',
-                          background: '#fff'
-                        }}
-                      >
-                        <div style={{ fontWeight: 500 }}>{ledgerName}</div>
-                        <div style={{ textAlign: 'right', fontWeight: 500 }}>
-                          {debitAmt > 0 ? formatCurrencyAmount(debitAmt) : ''}
-                        </div>
-                        <div style={{ textAlign: 'right', fontWeight: 500 }}>
-                          {creditAmt > 0 ? formatCurrencyAmount(creditAmt) : ''}
-                        </div>
+                    <div
+                      key={billIdx}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile ? '2fr 1fr' : '3fr 1fr',
+                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        borderBottom: billIdx === billAllocations.length - 1 ? 'none' : '1px solid #e2e8f0',
+                        fontSize: isMobile ? '12px' : '14px',
+                        color: '#1e293b',
+                        gap: isMobile ? '8px' : '12px',
+                        alignItems: 'center',
+                        background: '#fff'
+                      }}
+                    >
+                      <div style={{ fontWeight: 500 }}>{billName}</div>
+                      <div style={{ textAlign: 'right', fontWeight: 500 }}>
+                        {billAmount > 0 ? formatCurrencyAmount(billAmount) : ''}
                       </div>
-
-                      {/* Bill Allocations for Party Ledger */}
-                      {isPartyLedger && billAllocations.length > 0 && (
-                        <div style={{ padding: isMobile ? '8px 12px' : '10px 16px', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
-                          <div style={{ fontSize: isMobile ? '11px' : '12px', fontWeight: 600, color: '#64748b', marginBottom: '8px' }}>
-                            Bill Allocations
-                          </div>
-                          {billAllocations.map((bill, billIdx) => {
-                            const billName = bill.BILLNAME || bill.REFNO || bill.billname || bill.refno || voucherNumber;
-                            const billAmount = parseAmount(bill.AMOUNT || bill.DEBITAMT || bill.CREDITAMT || bill.amount || debitAmt);
-                            return (
-                              <div
-                                key={billIdx}
-                                style={{
-                                  display: 'grid',
-                                  gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
-                                  padding: isMobile ? '6px 0' : '8px 0',
-                                  fontSize: isMobile ? '11px' : '12px',
-                                  color: '#1e293b',
-                                  gap: isMobile ? '8px' : '12px',
-                                  alignItems: 'center'
-                                }}
-                              >
-                                <div style={{ fontWeight: 500, paddingLeft: isMobile ? '8px' : '12px' }}>{billName}</div>
-                                <div style={{ textAlign: 'right', fontWeight: 500 }}>
-                                  {billAmount > 0 ? formatCurrencyAmount(billAmount) : ''}
-                                </div>
-                                <div style={{ textAlign: 'right', fontWeight: 500 }}></div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </React.Fragment>
+                    </div>
                   );
                 })}
               </div>
             </div>
           )}
+
+          {/* Totals Summary */}
+          <div style={{ 
+            marginTop: isMobile ? '16px' : '20px',
+            padding: isMobile ? '12px' : '16px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            background: '#f8fafc'
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'space-between',
+              fontWeight: 600,
+              fontSize: isMobile ? '13px' : '14px',
+              marginBottom: isMobile ? '8px' : '12px',
+              color: '#1e293b'
+            }}>
+              <span>Transaction Totals</span>
+            </div>
+            <div style={{ 
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr',
+              rowGap: isMobile ? '8px' : '10px',
+              fontSize: isMobile ? '12px' : '14px',
+              color: '#111827'
+            }}>
+              <div style={{ fontWeight: 500 }}>Item Total</div>
+              <div style={{ textAlign: 'right', fontWeight: 700 }}>{formatCurrencyAmount(totalAmount)}</div>
+              <div style={{ fontWeight: 500 }}>Ledger Total</div>
+              <div style={{ textAlign: 'right', fontWeight: 700 }}>{formatCurrencyAmount(ledgerTotal)}</div>
+              <div style={{ fontWeight: 600 }}>Transaction Total</div>
+              <div style={{ textAlign: 'right', fontWeight: 800, color: '#1d4ed8' }}>{formatCurrencyAmount(transactionTotal)}</div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
