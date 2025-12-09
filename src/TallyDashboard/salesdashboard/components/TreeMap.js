@@ -1,9 +1,10 @@
-import React, { useMemo, useState, useEffect } from 'react';
-import { ResponsiveTreeMap } from '@nivo/treemap';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
+import Plot from 'react-plotly.js';
 
 const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, showBackButton, rowAction, customHeader }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const plotRef = useRef(null);
   
   useEffect(() => {
     const handleResize = () => {
@@ -13,7 +14,7 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Professional color palette with gradients
+  // Professional color palette
   const colors = useMemo(() => [
     '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
     '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
@@ -27,28 +28,67 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
     return data.reduce((sum, d) => sum + (d.value || 0), 0);
   }, [data]);
 
-  // Convert data to Nivo format
-  const nivoData = useMemo(() => {
+  // Prepare Plotly treemap data
+  const plotlyData = useMemo(() => {
     if (!data || !Array.isArray(data) || data.length === 0 || total === 0) {
-      return { id: 'root', children: [] };
+      return null;
     }
 
-    const children = data
-      .filter(item => item.value > 0)
-      .map((item, index) => ({
-        id: item.label || `Item ${index}`,
-        value: item.value,
-        color: item.color || colors[index % colors.length],
-        originalData: item
-      }));
+    const filteredData = data.filter(item => item.value > 0);
+    
+    // Create labels with name on first line and value on second line
+    const labels = filteredData.map((item, index) => {
+      const name = item.label || `Item ${index}`;
+      const value = `${valuePrefix}${item.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      return `${name}<br>${value}`;
+    });
+
+    const values = filteredData.map(item => item.value);
+    const parents = filteredData.map(() => '');
+    const customColors = filteredData.map((item, index) => item.color || colors[index % colors.length]);
 
     return {
-      id: 'root',
-      children
+      type: 'treemap',
+      labels: labels,
+      values: values,
+      parents: parents,
+      marker: {
+        colors: customColors,
+        line: {
+          color: '#ffffff',
+          width: isMobile ? 2 : 3
+        }
+      },
+      textfont: {
+        family: 'system-ui, -apple-system, sans-serif',
+        size: isMobile ? 10 : 12,
+        color: '#ffffff'
+      },
+      textinfo: 'label',
+      textposition: 'middle center',
+      hovertemplate: '<b>%{label}</b><br>' +
+        `Value: ${valuePrefix}%{value:,.2f}<br>` +
+        'Percentage: %{percentParent:.1f}%<extra></extra>',
+      customdata: filteredData.map(item => ({
+        label: item.label,
+        value: item.value,
+        percentage: total > 0 ? ((item.value / total) * 100).toFixed(1) : 0
+      }))
     };
-  }, [data, total, colors]);
+  }, [data, total, colors, valuePrefix, isMobile]);
 
-  // Validate data - return empty card structure
+  // Handle click events
+  const handleClick = (event) => {
+    if (event && event.points && event.points[0] && onBoxClick) {
+      const point = event.points[0];
+      const customData = point.data.customdata[point.pointNumber];
+      if (customData && customData.label) {
+        onBoxClick(customData.label);
+      }
+    }
+  };
+
+  // Handle empty data
   if (!data || !Array.isArray(data) || data.length === 0 || total === 0) {
     return (
       <div style={{
@@ -169,13 +209,9 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
     );
   }
 
-  // Handle click events
-  const handleClick = (node) => {
-    if (onBoxClick && node.id !== 'root') {
-      console.log('TreeMap click:', node.id);
-      onBoxClick(node.id);
-    }
-  };
+  if (!plotlyData) {
+    return null;
+  }
 
   return (
     <div style={{
@@ -291,100 +327,28 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
           background: 'white',
           boxShadow: 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.06)'
         }}>
-          <ResponsiveTreeMap
-            data={nivoData}
-            identity="id"
-            value="value"
-            valueFormat={value => `${valuePrefix}${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
-            margin={isMobile ? { top: 5, right: 5, bottom: 5, left: 5 } : { top: 10, right: 10, bottom: 10, left: 10 }}
-            label={(node) => {
-              const percentage = total > 0 ? ((node.value / total) * 100).toFixed(1) : 0;
-              if (isMobile) {
-                return `${node.id}\n${percentage}%`;
-              }
-              return `${node.id}\n${valuePrefix}${node.value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}\n${percentage}%`;
-            }}
-            labelTextColor="#ffffff"
-            labelSkipSize={isMobile ? 8 : 12}
-            parentLabelPosition="left"
-            parentLabelTextColor="#1e293b"
-            colors={(node) => node.data.color || '#3b82f6'}
-            borderColor={{ from: 'color', modifiers: [['darker', 0.3], ['opacity', 0.8]] }}
-            borderWidth={isMobile ? 2 : 3}
-            animate={true}
-            motionConfig={{
-              stiffness: 90,
-              damping: 15,
-              mass: 1
-            }}
-            onClick={handleClick}
-            tooltip={({ node }) => {
-              const percentage = total > 0 ? ((node.value / total) * 100).toFixed(1) : 0;
-              return (
-                <div style={{
-                  background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-                  padding: isMobile ? '8px 12px' : '12px 16px',
-                  borderRadius: isMobile ? '8px' : '12px',
-                  border: '2px solid #e2e8f0',
-                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-                  fontSize: isMobile ? '11px' : '13px',
-                  minWidth: isMobile ? '140px' : '180px',
-                  maxWidth: isMobile ? '200px' : 'none'
-                }}>
-                  <div style={{ 
-                    fontWeight: '700', 
-                    marginBottom: isMobile ? '4px' : '8px', 
-                    color: '#1e293b',
-                    fontSize: isMobile ? '12px' : '14px',
-                    letterSpacing: '-0.025em',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {node.id}
-                  </div>
-                  <div style={{ 
-                    color: '#475569',
-                    fontSize: isMobile ? '13px' : '15px',
-                    fontWeight: '600',
-                    marginBottom: isMobile ? '2px' : '4px'
-                  }}>
-                    {valuePrefix}{node.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                  <div style={{ 
-                    color: '#64748b', 
-                    fontSize: isMobile ? '10px' : '12px',
-                    background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
-                    padding: isMobile ? '2px 6px' : '4px 8px',
-                    borderRadius: '6px',
-                    display: 'inline-block',
-                    fontWeight: '600'
-                  }}>
-                    {percentage}%
-                  </div>
-                </div>
-              );
-            }}
-            theme={{
-              tooltip: {
-                container: {
-                  background: 'transparent',
-                  padding: 0
-                }
+          <Plot
+            ref={plotRef}
+            data={[plotlyData]}
+            layout={{
+              margin: { l: 0, r: 0, t: 0, b: 0, pad: 0 },
+              paper_bgcolor: 'transparent',
+              plot_bgcolor: 'transparent',
+              font: {
+                family: 'system-ui, -apple-system, sans-serif',
+                size: isMobile ? 10 : 12,
+                color: '#ffffff'
               },
-              labels: {
-                text: {
-                  fontSize: isMobile ? 10 : 13,
-                  fontFamily: 'system-ui, -apple-system, sans-serif',
-                  fontWeight: 700,
-                  fill: '#ffffff',
-                  stroke: '#000000',
-                  strokeWidth: isMobile ? 1 : 1.2,
-                  paintOrder: 'stroke fill',
-                  textShadow: '0 2px 4px rgba(0, 0, 0, 0.3)'
-                }
-              }
+              autosize: true,
+              showlegend: false
             }}
+            config={{
+              displayModeBar: false,
+              responsive: true
+            }}
+            style={{ width: '100%', height: '100%' }}
+            onClick={handleClick}
+            useResizeHandler={true}
           />
         </div>
         {rowAction && (

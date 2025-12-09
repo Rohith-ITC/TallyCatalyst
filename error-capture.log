@@ -1247,3 +1247,1237 @@ remove the dependency array
                                                                                
                                                                              
 @typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1282:13:  'totalRoundOff' is assigned a value but never used          
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1286:17:  'amount' is assigned a value but never used                 
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 1493:6:   React Hook useEffect has a missing dependency: 
+'loadOrders'. Either include it or remove the dependency array                 
+                                                                               
+           react-hooks/exhaustive-deps
+    Line 1555:9:   The 'shouldShowQtyButton' function makes the dependencies 
+of useCallback Hook (at line 1917) change on every render. To fix this, wrap 
+the definition of 'shouldShowQtyButton' in its own useCallback() Hook          
+  react-hooks/exhaustive-deps
+    Line 1890:9:   The 'getTotalBatchDeliveryQty' function makes the 
+dependencies of useCallback Hook (at line 1917) change on every render. To fix 
+this, wrap the definition of 'getTotalBatchDeliveryQty' in its own 
+useCallback() Hook  react-hooks/exhaustive-deps
+>   Line 2558:17:  'errorsValue' is assigned a value but never used            
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2560:17:  'exceptionsValue' is assigned a value but never used        
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+    Line 2668:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 2958:6:   React Hook useCallback has a missing dependency: 
+'calculatePendingValue'. Either include it or remove the dependency array      
+                                                                               
+         react-hooks/exhaustive-deps
+    Line 3055:6:   React Hook useCallback has unnecessary dependencies: 
+'batchDeliveryQuantities' and 'itemBatchBalances'. Either exclude them or 
+remove the dependency array                                                    
+          react-hooks/exhaustive-deps
+    Line 3096:11:  'orderKey' is assigned a value but never used               
+                                                                               
+                                                                             
+@typescript-eslint/no-unused-vars
+
+
