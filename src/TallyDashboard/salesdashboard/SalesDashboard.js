@@ -27,7 +27,7 @@ import { syncSalesData, cacheSyncManager } from '../../utils/cacheSyncManager';
 const SalesDashboard = ({ onNavigationAttempt }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  
+
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 768);
@@ -42,12 +42,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [error, setError] = useState(null);
   const [noCompanySelected, setNoCompanySelected] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
-  
+
   // Progress bar state
   const [progress, setProgress] = useState({ current: 0, total: 0, percentage: 0 });
   const [elapsedTime, setElapsedTime] = useState(0);
   const [loadingStartTime, setLoadingStartTime] = useState(null);
-  
+
   // Navigation warning modal state
   const [showNavigationWarning, setShowNavigationWarning] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState(null);
@@ -104,6 +104,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [rawDataModal, setRawDataModal] = useState({ open: false, title: '', rows: [], columns: [] });
   const [rawDataSearch, setRawDataSearch] = useState('');
   const [rawDataPage, setRawDataPage] = useState(1);
+
   const [rawDataPageSize, setRawDataPageSize] = useState(20);
   const [rawDataPageInput, setRawDataPageInput] = useState('1');
   const [rawDataPageSizeInput, setRawDataPageSizeInput] = useState('20');
@@ -115,7 +116,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [drilldownError, setDrilldownError] = useState(null);
   const [selectedBill, setSelectedBill] = useState(null);
   const abortControllerRef = useRef(null);
-  
+
   // Voucher details modal state
   const [showVoucherDetails, setShowVoucherDetails] = useState(false);
   const [voucherDetailsData, setVoucherDetailsData] = useState(null);
@@ -147,6 +148,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [cacheDownloadStartTime, setCacheDownloadStartTime] = useState(null);
   const cacheDownloadStartTimeRef = useRef(null);
   const cacheDownloadAbortRef = useRef(false);
+
+  // Cache status state for smart button display
+  const [hasCacheData, setHasCacheData] = useState(false);
+  const [isInterrupted, setIsInterrupted] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState('none'); // 'none' | 'downloading' | 'completed' | 'interrupted'
 
   // Helper function to get auth token
   const getAuthToken = () => {
@@ -204,7 +210,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Subscribe to cacheSyncManager for real-time progress updates (like CacheManagement)
   useEffect(() => {
     let companyInfoRef = null;
-    
+
     // Subscribe to shared sync progress from cacheSyncManager
     const unsubscribe = cacheSyncManager.subscribe((progress) => {
       try {
@@ -217,12 +223,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             return;
           }
         }
-        
+
         // Only update if this progress is for the currently selected company
         const currentCompanyInfo = cacheSyncManager.getCompanyInfo();
-        
-        if (currentCompanyInfo && companyInfoRef && 
-            currentCompanyInfo.guid === companyInfoRef.guid) {
+
+        if (currentCompanyInfo && companyInfoRef &&
+          currentCompanyInfo.guid === companyInfoRef.guid) {
           // Update progress in real-time
           setCacheDownloadProgress(progress);
           setIsDownloadingCache(cacheSyncManager.isSyncInProgress());
@@ -247,7 +253,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           if (!companyInfoRef) {
             companyInfoRef = getCompanyInfo();
           }
-          
+
           if (companyInfoRef) {
             const companyProgress = await cacheSyncManager.getCompanyProgress(companyInfoRef);
             if (companyProgress && companyProgress.total > 0) {
@@ -313,14 +319,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         console.warn('Unable to get booksFrom date:', err);
       }
     };
-    
+
     loadBooksFromDate();
-    
+
     // Also reload when company changes
     const handleCompanyChange = () => {
       loadBooksFromDate();
     };
-    
+
     window.addEventListener('companyChanged', handleCompanyChange);
     return () => window.removeEventListener('companyChanged', handleCompanyChange);
   }, []);
@@ -356,32 +362,80 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     // Get all companies from sessionStorage
     const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
     console.log('📋 Available companies:', companies);
-    
+
     // Get current company from sessionStorage
     const currentCompany = sessionStorage.getItem('selectedCompanyGuid') || '';
     console.log('🎯 Selected company GUID:', currentCompany);
-    
+
     // Find the current company object
     const currentCompanyObj = companies.find(c => c.guid === currentCompany);
     console.log('🏢 Current company object:', currentCompanyObj);
-    
+
     if (!currentCompanyObj) {
       const errorMsg = 'No company selected. Please select a company first.';
       console.error('❌', errorMsg);
       throw new Error(errorMsg);
     }
-    
+
     const { tallyloc_id, company, guid } = currentCompanyObj;
-    
+
     const companyInfo = {
       tallyloc_id,
       company: company, // Company name as string
       guid
     };
-    
+
     console.log('✅ Company info for API:', companyInfo);
     return companyInfo;
   };
+
+  // Check cache status and interrupted downloads
+  const checkCacheStatus = useCallback(async (companyInfo) => {
+    if (!companyInfo) return;
+
+    try {
+      // Check if cache exists
+      let hasCache = false;
+      try {
+        const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+        if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
+          hasCache = true;
+        }
+      } catch (err) {
+        console.warn('Unable to check sales cache:', err);
+      }
+
+      setHasCacheData(hasCache);
+
+      // Check for interrupted download
+      const email = sessionStorage.getItem('email');
+      if (email) {
+        const progressKey = `sync_progress_${email}_${companyInfo.guid}`;
+        try {
+          const progress = await hybridCache.getDashboardState(progressKey);
+          if (progress && progress.status === 'in_progress') {
+            setIsInterrupted(true);
+            setDownloadStatus('interrupted');
+            return;
+          }
+        } catch (err) {
+          // No progress found or error - not interrupted
+        }
+      }
+
+      setIsInterrupted(false);
+      if (hasCache) {
+        setDownloadStatus('completed');
+      } else {
+        setDownloadStatus('none');
+      }
+    } catch (error) {
+      console.warn('Error checking cache status:', error);
+      setIsInterrupted(false);
+      setHasCacheData(false);
+      setDownloadStatus('none');
+    }
+  }, []);
 
   const formatDateForAPI = (dateString) => {
     // Convert YYYY-MM-DD to YYYYMMDD
@@ -396,6 +450,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const parseDateFromNewFormat = (dateString) => {
     // Parse dates from format like "1-Jun-25" to "2025-06-01"
     if (!dateString) return null;
+
     
     // Convert to string if not already
     const dateStr = String(dateString).trim();
@@ -404,12 +459,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
       return dateStr;
     }
-    
+
     // If in YYYYMMDD format, use existing parser
     if (/^\d{8}$/.test(dateStr)) {
       return parseDateFromAPI(dateStr);
     }
-    
+
     try {
       // Parse format like "1-Jun-25" or "15-Jul-25" or "1-Jun-2025"
       // Handle both 2-digit and 4-digit years
@@ -457,13 +512,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         
         const month = String(monthIndex + 1).padStart(2, '0');
         const dayStr = String(day).padStart(2, '0');
-        
+
         return `${fullYear}-${month}-${dayStr}`;
       }
     } catch (error) {
       console.warn('Error parsing date:', dateStr, error);
     }
-    
+
     return null;
   };
 
@@ -507,10 +562,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     const formatDate = (date) => {
       return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
     };
-    
+
     // Try to get booksfrom date
     let startDate = new Date(now.getFullYear(), now.getMonth(), 1); // Default to start of month
-    
+
     if (companyGuid) {
       const booksFrom = await fetchBooksFromDate(companyGuid);
       if (booksFrom) {
@@ -520,7 +575,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
       }
     }
-    
+
     return {
       start: formatDate(startDate),
       end: formatDate(now)
@@ -536,6 +591,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         // Wait a bit for abort to take effect
         await new Promise(resolve => setTimeout(resolve, 100));
       }
+
+      // Reset download status when company changes
+      setDownloadStatus('none');
+      setIsInterrupted(false);
 
       const companyInfo = getCompanyInfo();
       setNoCompanySelected(false);
@@ -559,7 +618,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setFromDate(defaults.start);
       setToDate(defaults.end);
       setDateRange(defaults);
-      
+
       // Also update booksFromDate state for calendar modal
       const booksFrom = await fetchBooksFromDate(companyInfo.guid);
       if (booksFrom) {
@@ -572,19 +631,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setSelectedRegion('all');
       setSelectedCountry('all');
       setSelectedPeriod(null);
-      
-      // Check if cache exists and load data accordingly (NO auto-update - user must click refresh)
+
+      // Check cache status for smart button display
+      await checkCacheStatus(companyInfo);
+
+      // Check if cache exists and ask user before loading
       if (!hasCachedSalesData) {
         console.log('📭 No sales cache found - user must click refresh button to download data');
         // Do NOT auto-start download - user must explicitly click refresh button
         // This ensures user has control over when updates happen
       } else if (hasCachedSalesData) {
-        // Auto-load data from cache when tab opens (NO automatic update)
-        console.log('🚀 Loading data from cache...');
-        console.log('📅 Auto-load will use dates:', defaults);
-        // Use setTimeout to ensure dates are set in state before triggering auto-load
+        // Directly load cached data without confirmation
+        console.log('📦 Cached data found - loading automatically with dates:', defaults);
+        // Use setTimeout to ensure dates are set in state before loading
         setTimeout(() => {
-          console.log('✅ Triggering auto-load with dates:', defaults);
           setShouldAutoLoad(true);
         }, 100);
         // Note: Automatic update completely disabled - user must click refresh button to update cache
@@ -594,31 +654,31 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setNoCompanySelected(true);
       setError('Please select a company from the top navigation before loading sales data.');
     }
-  }, [getDefaultDateRange, isDownloadingCache]);
+  }, [getDefaultDateRange, isDownloadingCache, checkCacheStatus]);
 
   const splitDateRange = (startDate, endDate) => {
     const chunks = [];
     const start = new Date(startDate);
     const end = new Date(endDate);
-    
+
     let currentStart = new Date(start);
-    
+
     while (currentStart <= end) {
       let currentEnd = new Date(currentStart);
       currentEnd.setDate(currentEnd.getDate() + 4); // 5-day chunks
-      
+
       if (currentEnd > end) {
         currentEnd = new Date(end);
       }
-      
+
       chunks.push({
         start: currentStart.toISOString().split('T')[0],
         end: currentEnd.toISOString().split('T')[0]
       });
-      
+
       currentStart.setDate(currentStart.getDate() + 5);
     }
-    
+
     return chunks;
   };
 
@@ -636,7 +696,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     } else {
       setElapsedTime(0);
     }
-    
+
     return () => {
       if (interval) clearInterval(interval);
     };
@@ -644,13 +704,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   const fetchSalesData = async (startDate, endDate) => {
     const companyInfo = getCompanyInfo();
-    
+
     // First, check for complete cached data - if exists, use it and don't call API
     try {
       const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
       if (completeCache && completeCache.data && completeCache.data.vouchers) {
         console.log(`📋 Using complete cached data (${completeCache.data.vouchers.length} total vouchers), filtering for date range ${startDate} to ${endDate}`);
-        
+
         // Filter vouchers by date range
         const filteredVouchers = completeCache.data.vouchers.filter(voucher => {
           const voucherDate = voucher.cp_date || voucher.date || voucher.DATE || voucher.CP_DATE;
@@ -752,12 +812,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       console.warn('⚠️ Error checking complete cache:', error);
       // Continue to check other cache if complete cache check fails
     }
-    
+
     // Include salesperson formula in cache key so cache invalidates when formula changes
     const formulaHash = salespersonFormula ? btoa(salespersonFormula).substring(0, 10) : 'noformula';
     const baseKey = `${companyInfo.tallyloc_id}_${companyInfo.guid}_${requestTimestampRef.current}_${formulaHash}`;
     const cacheKey = `${baseKey}_${startDate}_${endDate}`;
-    
+
     // Check for exact cache match
     try {
       const cachedData = await hybridCache.getSalesData(cacheKey); // Uses configured expiry
@@ -768,29 +828,29 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     } catch (error) {
       console.warn('Cache read error:', error);
     }
-    
+
     // Check for overlapping cached date ranges
     try {
       const cachedRanges = await hybridCache.findCachedDateRanges(baseKey, startDate, endDate);
-      
+
       if (cachedRanges.length > 0) {
         console.log(`🔍 Found ${cachedRanges.length} overlapping cached date range(s)`);
-        
+
         // Calculate gaps (missing date ranges)
         const requestRange = { startDate, endDate };
         const { cached, gaps } = DateRangeUtils.splitDateRangeIntoGaps(requestRange, cachedRanges);
-        
+
         if (gaps.length === 0) {
           // All data is cached, merge and return
           console.log(`✅ All data is cached, merging ${cached.length} cached range(s)`);
           const merged = mergeCachedData(cached);
           return { data: merged, cacheTimestamp: null };
         }
-        
+
         // Some data is missing, but we're not calling API - use only cached data
         console.log(`📊 Partial cache: ${cached.length} cached range(s), ${gaps.length} gap(s) missing (not fetching from API)`);
         console.log(`⚠️ Missing gaps: ${gaps.map(g => `${g.startDate} to ${g.endDate}`).join(', ')}`);
-        
+
         // Return only cached data without fetching gaps
         const merged = mergeCachedData(cached);
         console.log(`✅ Returning ${merged.vouchers?.length || 0} vouchers from cached ranges only`);
@@ -799,17 +859,17 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     } catch (error) {
       console.warn('Error checking for overlapping cache:', error);
     }
-    
+
     // Check once more if complete cache exists (in case it was added while we were checking)
     const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
     if (completeCache && completeCache.data && completeCache.data.vouchers) {
       console.log(`📋 Complete cache found during final check, using it instead of API`);
-      
+
       // Filter vouchers by date range
       const filteredVouchers = completeCache.data.vouchers.filter(voucher => {
         const voucherDate = voucher.cp_date || voucher.date || voucher.DATE || voucher.CP_DATE;
         if (!voucherDate) return false;
-        
+
         let dateStr = parseDateFromNewFormat(voucherDate);
         if (!dateStr && typeof voucherDate === 'string') {
           if (/^\d{8}$/.test(voucherDate)) {
@@ -818,15 +878,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             dateStr = voucherDate;
           }
         }
-        
+
         if (!dateStr) return false;
         if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
           return false;
         }
-        
+
         return dateStr >= startDate && dateStr <= endDate;
       });
-      
+
       return {
         data: {
           ...completeCache.data,
@@ -835,10 +895,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         cacheTimestamp: completeCache.metadata?.timestamp || null
       };
     }
-    
+
     console.log(`⚠️ No cache found for ${startDate} to ${endDate}. Complete cache not available.`);
     console.log(`⚠️ Skipping API call as requested - please download complete data first from Cache Management.`);
-    
+
     // Return empty data instead of calling API
     return { data: { vouchers: [] }, cacheTimestamp: null };
   };
@@ -856,18 +916,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     if (ranges.length === 0) {
       return { vouchers: [] };
     }
-    
+
     // Combine all vouchers
     const allVouchers = [];
     const voucherIds = new Set(); // To track duplicates
-    
+
     for (const range of ranges) {
       if (range.data?.vouchers && Array.isArray(range.data.vouchers)) {
         for (const voucher of range.data.vouchers) {
           // Try to identify unique vouchers (use voucher number or ID if available)
-          const voucherId = voucher.voucher_number || voucher.voucherNumber || voucher.id || 
-                           `${voucher.cp_date || voucher.date}_${voucher.customer}_${voucher.amount}`;
-          
+          const voucherId = voucher.voucher_number || voucher.voucherNumber || voucher.id ||
+            `${voucher.cp_date || voucher.date}_${voucher.customer}_${voucher.amount}`;
+
           if (!voucherIds.has(voucherId)) {
             voucherIds.add(voucherId);
             allVouchers.push(voucher);
@@ -875,7 +935,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
       }
     }
-    
+
     // Return merged data structure
     return {
       vouchers: allVouchers,
@@ -925,7 +985,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Track previous formula to detect changes
   const prevFormulaRef = useRef('');
-  
+
   // Refresh data when salesperson formula changes (but not on initial load)
   useEffect(() => {
     // Only refresh if formula actually changed (not just initial load)
@@ -989,7 +1049,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       enabledSalespersonsSize: enabledSalespersons.size,
       salespersonsInitialized: salespersonsInitializedRef.current
     });
-    
+
     let filtered = sales.filter((sale) => {
       const dateMatch =
         (!dateRange.start || sale.date >= dateRange.start) &&
@@ -1006,7 +1066,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const periodMatch = !selectedPeriod || salePeriod === selectedPeriod;
       // Filter by selected salesperson if one is selected
       const salespersonMatch = !selectedSalesperson || (sale.salesperson || 'Unassigned') === selectedSalesperson;
-      
+
       // Apply generic filters from custom cards
       let genericFiltersMatch = true;
       if (genericFilters && Object.keys(genericFilters).length > 0) {
@@ -1015,16 +1075,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             // Extract cardId and fieldName from filterKey (format: "cardId_fieldName")
             const [cardId, ...fieldParts] = filterKey.split('_');
             const fieldName = fieldParts.join('_'); // Rejoin in case fieldName contains underscores
-            
+
             // Find the card to get its groupBy field
             const card = customCards.find(c => c.id === cardId);
             if (card && card.groupBy === fieldName) {
               // Use getFieldValue helper to get the field value (case-insensitive)
-              const saleFieldValue = sale[fieldName] || 
-                                    sale[fieldName.toLowerCase()] ||
-                                    sale[fieldName.toUpperCase()] ||
-                                    (Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase()) ? sale[Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase())] : null);
-              
+              const saleFieldValue = sale[fieldName] ||
+                sale[fieldName.toLowerCase()] ||
+                sale[fieldName.toUpperCase()] ||
+                (Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase()) ? sale[Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase())] : null);
+
               // Handle special cases
               if (fieldName === 'date' && card.dateGrouping) {
                 const saleDate = sale.cp_date || sale.date;
@@ -1076,10 +1136,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           }
         }
       }
-      
+
       return dateMatch && customerMatch && itemMatch && stockGroupMatch && ledgerGroupMatch && regionMatch && countryMatch && periodMatch && salespersonMatch && genericFiltersMatch;
     });
-    
+
     // Apply enabledSalespersons filter (from configure salespersons)
     // If size === 0 and initialization hasn't happened yet, show all (for initial load)
     // If size === 0 after initialization, none are selected (show nothing)
@@ -1094,7 +1154,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       filtered = [];
     }
     // If size === 0 and not initialized yet, show all (filtered = filtered, no change)
-    
+
     console.log('✅ Filtered sales result:', {
       originalCount: sales.length,
       filteredCount: filtered.length,
@@ -1103,7 +1163,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       salespersonsInitialized: salespersonsInitializedRef.current,
       sampleRecord: filtered[0]
     });
-    
+
     return filtered;
   }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedLedgerGroup, selectedRegion, selectedCountry, selectedPeriod, selectedSalesperson, enabledSalespersons, genericFilters, customCards]);
 
@@ -1119,7 +1179,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       enabledSalespersonsSize: enabledSalespersons.size,
       salespersonsInitialized: salespersonsInitializedRef.current
     });
-    
+
     let filtered = sales.filter((sale) => {
       const dateMatch =
         (!dateRange.start || sale.date >= dateRange.start) &&
@@ -1137,14 +1197,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const isSalesMatch = sale.issales === true || sale.issales === 1 || sale.issales === '1' || sale.issales === 'Yes' || sale.issales === 'yes';
       // Filter by selected salesperson if one is selected
       const salespersonMatch = !selectedSalesperson || (sale.salesperson || 'Unassigned') === selectedSalesperson;
-      
+
       if (!isSalesMatch) {
         console.log('❌ Filtered out for orders - not a sale:', { issales: sale.issales, sale });
       }
-      
+
       return dateMatch && customerMatch && itemMatch && stockGroupMatch && ledgerGroupMatch && regionMatch && countryMatch && periodMatch && isSalesMatch && salespersonMatch;
     });
-    
+
     // Apply enabledSalespersons filter (from configure salespersons)
     // If size === 0 and initialization hasn't happened yet, show all (for initial load)
     // If size === 0 after initialization, none are selected (show nothing)
@@ -1159,7 +1219,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       filtered = [];
     }
     // If size === 0 and not initialized yet, show all (filtered = filtered, no change)
-    
+
     console.log('✅ Filtered sales for orders result:', {
       originalCount: sales.length,
       filteredCount: filtered.length,
@@ -1168,7 +1228,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       salespersonsInitialized: salespersonsInitializedRef.current,
       sampleRecord: filtered[0]
     });
-    
+
     return filtered;
   }, [sales, dateRange, selectedCustomer, selectedItem, selectedStockGroup, selectedLedgerGroup, selectedRegion, selectedCountry, selectedPeriod, selectedSalesperson, enabledSalespersons]);
 
@@ -1186,7 +1246,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     try {
       companyInfo = getCompanyInfo();
       setNoCompanySelected(false);
-    setError(null);
+      setError(null);
     } catch (err) {
       setNoCompanySelected(true);
       setError('Please select a company from the top navigation before loading sales data.');
@@ -1209,7 +1269,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       // fetchSalesData will filter from the complete cache
       setProgress({ current: 0, total: 1, percentage: 0 });
       abortLoadingRef.current = false;
-      
+
       // Fetch data for the entire date range from cache
       console.log('📥 Loading sales data from cache for date range:', startDate, 'to', endDate);
       console.log('📥 Date range format check:', {
@@ -1229,11 +1289,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         sampleVoucher: response?.data?.vouchers?.[0],
         sampleVoucherDate: response?.data?.vouchers?.[0]?.cp_date || response?.data?.vouchers?.[0]?.date || response?.data?.vouchers?.[0]?.DATE || response?.data?.vouchers?.[0]?.CP_DATE
       });
-      
+
       // Handle both old format (direct data) and new format (wrapped with data and cacheTimestamp)
       const responseData = response?.data || response;
       const cacheTimestamp = response?.cacheTimestamp;
-      
+
       const allVouchers = [];
       if (responseData?.vouchers && Array.isArray(responseData.vouchers)) {
         allVouchers.push(...responseData.vouchers);
@@ -1241,15 +1301,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       } else {
         console.warn('⚠️ No vouchers found in response:', response);
       }
-      
+
       setProgress({ current: 1, total: 1, percentage: 100 });
-      
+
       // Debug: Log first voucher to see available fields
       if (allVouchers.length > 0) {
         const sampleVoucher = allVouchers[0];
         console.log('🔍 Sample voucher structure (all keys):', Object.keys(sampleVoucher));
         console.log('🔍 Sample voucher (full object):', sampleVoucher);
-        
+
         // Check for narration-related fields
         console.log('🔍 Checking narration-related fields:');
         const narrationFields = ['CP_Temp7', 'cp_temp7', 'NARRATION', 'narration', 'Narration'];
@@ -1260,12 +1320,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             foundNarration = true;
           }
         });
-        
+
         // If no narration field found, log all fields to help debug
         if (!foundNarration) {
           console.warn('⚠️ No narration field found in voucher! All available fields:', Object.keys(sampleVoucher));
           console.warn('⚠️ Sample voucher values:', sampleVoucher);
-          
+
           // Check for any field that might contain narration (case-insensitive search)
           Object.keys(sampleVoucher).forEach(key => {
             const lowerKey = key.toLowerCase();
@@ -1274,7 +1334,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             }
           });
         }
-        
+
         // Log all fields that might contain country
         console.log('🔍 Checking country-related fields:');
         Object.keys(sampleVoucher).forEach(key => {
@@ -1283,10 +1343,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             console.log(`  - ${key}:`, sampleVoucher[key]);
           }
         });
-        
+
         // Also check state field to see the pattern
         console.log('🔍 State field (for comparison):', sampleVoucher.state, sampleVoucher.STATE, sampleVoucher.statename, sampleVoucher.State);
-        
+
         // Check for nested country fields
         if (sampleVoucher.address) {
           console.log('🔍 Address object:', sampleVoucher.address);
@@ -1310,7 +1370,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             });
           }
         }
-        
+
         // Log a few sample vouchers to see if country varies
         console.log('🔍 Checking first 5 vouchers for country patterns:');
         allVouchers.slice(0, 5).forEach((v, idx) => {
@@ -1320,7 +1380,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           }
         });
       }
-      
+
       // Helper function to extract country from voucher with comprehensive field checking
       const extractCountry = (voucher) => {
         // First, check predefined common field names
@@ -1343,22 +1403,22 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           voucher.customer?.COUNTRY,
           voucher.customer?.countryname,
         ];
-        
+
         // Find first non-empty, non-undefined, non-null value from predefined fields
         for (const field of predefinedFields) {
           if (field && String(field).trim() !== '' && String(field).trim().toLowerCase() !== 'unknown') {
             return String(field).trim();
           }
         }
-        
+
         // If not found in predefined fields, dynamically search ALL fields in the voucher
         // This catches any field name that contains "country" (case-insensitive)
         for (const key in voucher) {
           if (voucher.hasOwnProperty(key)) {
             const lowerKey = key.toLowerCase();
             // Check if key contains "country" or "nation" or "residence"
-            if ((lowerKey.includes('country') || lowerKey.includes('nation') || lowerKey.includes('residence')) 
-                && !lowerKey.includes('unknown')) {
+            if ((lowerKey.includes('country') || lowerKey.includes('nation') || lowerKey.includes('residence'))
+              && !lowerKey.includes('unknown')) {
               const value = voucher[key];
               if (value && String(value).trim() !== '' && String(value).trim().toLowerCase() !== 'unknown') {
                 console.log(`✅ Found country in field: ${key} = ${value}`);
@@ -1367,7 +1427,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             }
           }
         }
-        
+
         // Also check nested objects dynamically
         if (voucher.address && typeof voucher.address === 'object') {
           for (const key in voucher.address) {
@@ -1383,7 +1443,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             }
           }
         }
-        
+
         if (voucher.customer && typeof voucher.customer === 'object') {
           for (const key in voucher.customer) {
             if (voucher.customer.hasOwnProperty(key)) {
@@ -1398,11 +1458,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             }
           }
         }
-        
+
         return 'Unknown';
       };
-      
-      // Transform nested response structure (vouchers -> ledgers -> inventry) into flat sale records
+
+      // Transform nested response structure (vouchers -> ledgerentries -> allinventoryentries) into flat sale records
       const transformedSales = [];
       
       // Filter vouchers to only include sales-related vouchers (support both old and new field names)
@@ -1434,7 +1494,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         
         return reservednameMatch && isoptionalMatch && iscancelledMatch && hasPartyLedger;
       });
-      
+
       console.log('📊 Filtered sales vouchers:', {
         totalVouchers: allVouchers.length,
         salesVouchers: salesVouchers.length,
@@ -1446,22 +1506,22 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           ispartyledger: 'Yes (in ledger entries)'
         }
       });
-      
+
       // Extract salesperson from voucher (if available) or use formula
       const extractSalesperson = (voucher) => {
         return voucher.salesprsn || voucher.SalesPrsn || voucher.SALESPRSN ||
-               voucher.salesperson || voucher.SalesPerson || 
-               voucher.salespersonname || voucher.SalesPersonName || 
-               voucher.sales_person || voucher.SALES_PERSON || 
-               voucher.sales_person_name || voucher.SALES_PERSON_NAME ||
-               voucher.salespersonname || voucher.SALESPERSONNAME || 'Unassigned';
+          voucher.salesperson || voucher.SalesPerson ||
+          voucher.salespersonname || voucher.SalesPersonName ||
+          voucher.sales_person || voucher.SALES_PERSON ||
+          voucher.sales_person_name || voucher.SALES_PERSON_NAME ||
+          voucher.salespersonname || voucher.SALESPERSONNAME || 'Unassigned';
       };
-      
+
       // Process each sales voucher
       salesVouchers.forEach((voucher, voucherIndex) => {
         const voucherSalesperson = extractSalesperson(voucher);
-        // Try multiple date fields and formats
-        const voucherDateRaw = voucher.cp_date || voucher.date || voucher.DATE || voucher.CP_DATE;
+        // Try multiple date fields and formats (support both old and new field names)
+        const voucherDateRaw = voucher.date || voucher.cp_date || voucher.DATE || voucher.CP_DATE;
         let voucherDate = null;
         if (voucherDateRaw) {
           voucherDate = parseDateFromNewFormat(voucherDateRaw);
@@ -1473,8 +1533,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           }
         }
         const voucherCountry = extractCountry(voucher);
-        const voucherState = voucher.state || 'Unknown';
-        
+        const voucherState = voucher.state || voucher.consigneestatename || 'Unknown';
+
         // Log salesperson extraction for first voucher only
         if (voucherIndex === 0) {
           console.log('🔍 Salesperson extraction (first voucher):', {
@@ -1500,7 +1560,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             })
           });
         }
-        
+
         // Extract tax information from ledgers
         const parseAmount = (amountStr) => {
           if (!amountStr) return 0;
@@ -1510,7 +1570,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           const numValue = parseFloat(cleaned.replace(/[()]/g, '')) || 0;
           return isNegative ? -Math.abs(numValue) : numValue;
         };
-        
+
         let totalCgst = 0;
         let totalSgst = 0;
         let totalRoundoff = 0;
@@ -1598,10 +1658,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               region: voucherState,
               country: voucherCountry,
               salesperson: voucherSalesperson,
-              
-              // Ledger-level fields (from accalloc)
+
+              // Ledger-level fields (from accountingallocation or accalloc)
               ledgerGroup: ledgerGroup,
-              
+
               // Tax information (proportionally distributed)
               cgst: itemCgst,
               sgst: itemSgst,
@@ -1620,10 +1680,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               uom: inventoryItem.uom || '',
               grosscost: parseAmount(inventoryItem.grosscost) || 0,
               grossexpense: parseAmount(inventoryItem.grossexpense) || 0,
-              
+
               // Mark as sales
               issales: true,
-              
+
               // Include all other fields from voucher for custom card creation
               ...Object.keys(voucher).reduce((acc, key) => {
                 // Only add fields that aren't already mapped above (support both old and new field names)
@@ -1634,7 +1694,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 return acc;
               }, {})
             };
-            
+
             transformedSales.push(saleRecord);
           });
         }
@@ -1650,7 +1710,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       console.log('🌍 Total vouchers:', transformedSales.length);
       console.log('🌍 Unique countries found:', Object.keys(countryStats).length);
       console.log('🌍 Countries:', Object.keys(countryStats).sort());
-      
+
       // Debug: Log salesperson extraction statistics
       const salespersonStats = transformedSales.reduce((acc, sale) => {
         const salesperson = sale.salesperson || 'Unassigned';
@@ -1671,7 +1731,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
       console.log('💾 Setting sales state with', transformedSales.length, 'transformed sales records');
       setSales(transformedSales);
-      
+
       // Use cache timestamp if available, otherwise use current time
       if (cacheTimestamp) {
         console.log('📅 Using cache timestamp:', new Date(cacheTimestamp));
@@ -1680,7 +1740,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         console.log('📅 No cache timestamp found, using current time');
         setLastUpdated(new Date());
       }
-      
+
       console.log('✅ Sales data loaded successfully. Total records:', transformedSales.length);
       setDateRange({ start: startDate, end: endDate });
       setFromDate(startDate);
@@ -1720,21 +1780,36 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     try {
       // Get company info for cache update
       const companyInfo = getCompanyInfo();
-      
+
+      // Check if this is a continue download (interrupted) or first download
+      const isFirstDownload = downloadStatus === 'none';
+      const isContinueDownload = downloadStatus === 'interrupted';
+
+      if (isContinueDownload) {
+        // Ask for confirmation to continue interrupted download
+        const confirmed = window.confirm('A previous download was interrupted. Do you want to continue from where it left off?');
+        if (!confirmed) {
+          return;
+        }
+      }
+
       // Start cache update - this will sync data from server and auto-reload after completion
-      console.log('🔄 Refresh button clicked - starting cache update...');
-      
+      console.log(`🔄 ${isFirstDownload ? 'Download' : isContinueDownload ? 'Continue download' : 'Refresh'} button clicked - starting cache ${isFirstDownload ? 'download' : 'update'}...`);
+
       // Check if cache download is already in progress
       if (isDownloadingCache) {
         console.log('⚠️ Cache update already in progress, please wait...');
         return;
       }
-      
+
+      // Update download status
+      setDownloadStatus('downloading');
+
       // Update cache from server (runs in background and auto-reloads data after completion)
       // The startBackgroundCacheDownload function will:
       // 1. Sync cache data from server
       // 2. Automatically reload sales data after cache update completes
-      startBackgroundCacheDownload(companyInfo, true);
+      startBackgroundCacheDownload(companyInfo, !isFirstDownload);
     } catch (error) {
       console.error('❌ Error during refresh:', error);
       // If we can't get company info or start cache update, fallback to reloading from existing cache
@@ -1749,6 +1824,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     if (isDownloadingCache || cacheDownloadAbortRef.current) return;
 
     setIsDownloadingCache(true);
+    setDownloadStatus('downloading');
     const startTime = Date.now();
     setCacheDownloadStartTime(startTime); // Track start time for ETA calculation
     cacheDownloadStartTimeRef.current = startTime; // Also store in ref for use in callbacks
@@ -1757,7 +1833,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
     try {
       console.log(`🔄 Starting background cache ${isUpdate ? 'update' : 'download'}...`);
-      
+
       await syncSalesData(companyInfo, (progress) => {
         // Only update progress if not aborted
         if (!cacheDownloadAbortRef.current) {
@@ -1774,7 +1850,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       }
 
       console.log(`✅ Background cache ${isUpdate ? 'update' : 'download'} completed!`);
-      
+
+      // Update cache status
+      setDownloadStatus('completed');
+      setHasCacheData(true);
+      setIsInterrupted(false);
+
       // Auto-load data after successful cache download (only if it's first time download)
       if (!isUpdate) {
         setTimeout(() => {
@@ -1795,6 +1876,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
     } catch (error) {
       console.error('❌ Background cache download failed:', error);
+      // Update status on error
+      setDownloadStatus(hasCacheData ? 'completed' : 'none');
       // Silent failure - no error shown to user
     } finally {
       setIsDownloadingCache(false);
@@ -1879,17 +1962,17 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     const totalQuantity = filteredSales.reduce((sum, sale) => sum + sale.quantity, 0);
     const uniqueCustomers = new Set(filteredSales.map((s) => s.customer)).size;
     const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-    
+
     // Profit-related metrics
     const totalProfit = filteredSales.reduce((sum, sale) => sum + (sale.profit || 0), 0);
     const profitMargin = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : 0;
     const avgProfitPerOrder = totalOrders > 0 ? totalProfit / totalOrders : 0;
-    
-    return { 
-      totalRevenue, 
-      totalOrders, 
-      totalQuantity, 
-      uniqueCustomers, 
+
+    return {
+      totalRevenue,
+      totalOrders,
+      totalQuantity,
+      uniqueCustomers,
       avgOrderValue,
       totalProfit,
       profitMargin,
@@ -1897,11 +1980,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     };
   }, [filteredSales, filteredSalesForOrders]);
 
-  const { 
-    totalRevenue, 
-    totalOrders, 
-    totalQuantity, 
-    uniqueCustomers, 
+  const {
+    totalRevenue,
+    totalOrders,
+    totalQuantity,
+    uniqueCustomers,
     avgOrderValue,
     totalProfit,
     profitMargin,
@@ -1912,24 +1995,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Groups by lowercase key but preserves the original case for display
   const groupByCaseInsensitive = (items, getKey, getValue) => {
     const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, value: number }>
-    
+
     items.forEach(item => {
       const key = getKey(item);
       if (!key) return;
-      
+
       const normalizedKey = String(key).trim().toLowerCase();
       const originalKey = String(key).trim();
-      
+
       if (!grouped.has(normalizedKey)) {
         grouped.set(normalizedKey, { originalKey, value: 0 });
       }
-      
+
       const entry = grouped.get(normalizedKey);
       entry.value += getValue(item);
       // Keep the most common casing (or first encountered) as the original
       // For now, we'll use the first encountered casing
     });
-    
+
     return grouped;
   };
 
@@ -2128,7 +2211,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     });
 
     const result = Array.from(salespersonMap.values()).sort((a, b) => b.value - a.value);
-    
+
     // Debug logging
     console.log('🔍 Salesperson Totals Debug:', {
       filteredSalesCount: filteredSales.length,
@@ -2205,23 +2288,23 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Top items by revenue data
   const topItemsByRevenueData = useMemo(() => {
     const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, revenue: number, quantity: number }>
-    
+
     filteredSales.forEach(sale => {
       const item = sale.item;
       if (!item) return;
-      
+
       const normalizedKey = String(item).trim().toLowerCase();
       const originalKey = String(item).trim();
-      
+
       if (!grouped.has(normalizedKey)) {
         grouped.set(normalizedKey, { originalKey, revenue: 0, quantity: 0 });
       }
-      
+
       const entry = grouped.get(normalizedKey);
       entry.revenue += sale.amount || 0;
       entry.quantity += sale.quantity || 0;
     });
-    
+
     const itemData = Object.fromEntries(
       Array.from(grouped.entries()).map(([_, { originalKey, revenue, quantity }]) => [
         originalKey,
@@ -2256,23 +2339,23 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Top items by quantity data
   const topItemsByQuantityData = useMemo(() => {
     const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, revenue: number, quantity: number }>
-    
+
     filteredSales.forEach(sale => {
       const item = sale.item;
       if (!item) return;
-      
+
       const normalizedKey = String(item).trim().toLowerCase();
       const originalKey = String(item).trim();
-      
+
       if (!grouped.has(normalizedKey)) {
         grouped.set(normalizedKey, { originalKey, revenue: 0, quantity: 0 });
       }
-      
+
       const entry = grouped.get(normalizedKey);
       entry.revenue += sale.amount || 0;
       entry.quantity += sale.quantity || 0;
     });
-    
+
     const itemData = Object.fromEntries(
       Array.from(grouped.entries()).map(([_, { originalKey, revenue, quantity }]) => [
         originalKey,
@@ -2311,12 +2394,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      
+
       if (!acc[yearMonth]) {
         acc[yearMonth] = 0;
       }
       acc[yearMonth] += sale.amount;
-      
+
       return acc;
     }, {});
 
@@ -2352,7 +2435,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       .sort((a, b) => {
         const [yearA, monthA] = a.originalLabel.split('-');
         const [yearB, monthB] = b.originalLabel.split('-');
-        
+
         // Sort by year first, then by month
         if (yearA !== yearB) {
           return parseInt(yearA) - parseInt(yearB);
@@ -2367,13 +2450,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      
+
       if (!acc[yearMonth]) {
         acc[yearMonth] = { revenue: 0, profit: 0 };
       }
       acc[yearMonth].revenue += sale.amount;
       acc[yearMonth].profit += sale.profit || 0;
-      
+
       return acc;
     }, {});
 
@@ -2405,23 +2488,23 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Top 10 profitable items chart data
   const topProfitableItemsData = useMemo(() => {
     const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, profit: number, revenue: number }>
-    
+
     filteredSales.forEach(sale => {
       const item = sale.item;
       if (!item) return;
-      
+
       const normalizedKey = String(item).trim().toLowerCase();
       const originalKey = String(item).trim();
-      
+
       if (!grouped.has(normalizedKey)) {
         grouped.set(normalizedKey, { originalKey, profit: 0, revenue: 0 });
       }
-      
+
       const entry = grouped.get(normalizedKey);
       entry.profit += sale.profit || 0;
       entry.revenue += sale.amount || 0;
     });
-    
+
     const itemData = Object.fromEntries(
       Array.from(grouped.entries()).map(([_, { originalKey, profit, revenue }]) => [
         originalKey,
@@ -2456,23 +2539,23 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Top 10 loss items chart data (items with negative profit)
   const topLossItemsData = useMemo(() => {
     const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, profit: number, revenue: number }>
-    
+
     filteredSales.forEach(sale => {
       const item = sale.item;
       if (!item) return;
-      
+
       const normalizedKey = String(item).trim().toLowerCase();
       const originalKey = String(item).trim();
-      
+
       if (!grouped.has(normalizedKey)) {
         grouped.set(normalizedKey, { originalKey, profit: 0, revenue: 0 });
       }
-      
+
       const entry = grouped.get(normalizedKey);
       entry.profit += sale.profit || 0;
       entry.revenue += sale.amount || 0;
     });
-    
+
     const itemData = Object.fromEntries(
       Array.from(grouped.entries()).map(([_, { originalKey, profit, revenue }]) => [
         originalKey,
@@ -2515,12 +2598,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      
+
       if (!acc[yearMonth]) {
         acc[yearMonth] = 0;
       }
       acc[yearMonth] += sale.profit || 0;
-      
+
       return acc;
     }, {});
 
@@ -2576,7 +2659,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Helper function to render filter badges for a specific card
   const renderCardFilterBadges = (cardType, cardId = null) => {
     const badges = [];
-    
+
     // Map card types to their relevant filters
     const filterMap = {
       'customer': ['selectedCustomer'],
@@ -2591,9 +2674,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       'topItems': ['selectedItem'],
       'custom': cardId ? [`generic_${cardId}`] : []
     };
-    
+
     const relevantFilters = filterMap[cardType] || [];
-    
+
     // Add customer filter badge
     if (relevantFilters.includes('selectedCustomer') && selectedCustomer !== 'all') {
       badges.push(
@@ -2643,7 +2726,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
       );
     }
-    
+
     // Add item filter badge
     if (relevantFilters.includes('selectedItem') && selectedItem !== 'all') {
       badges.push(
@@ -2693,7 +2776,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
       );
     }
-    
+
     // Add stock group filter badge
     if (relevantFilters.includes('selectedStockGroup') && selectedStockGroup !== 'all') {
       badges.push(
@@ -2743,7 +2826,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
       );
     }
-    
+
     // Add region filter badge
     if (relevantFilters.includes('selectedRegion') && selectedRegion !== 'all') {
       badges.push(
@@ -2793,7 +2876,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
       );
     }
-    
+
     // Add country filter badge
     if (relevantFilters.includes('selectedCountry') && selectedCountry !== 'all') {
       badges.push(
@@ -2843,7 +2926,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
       );
     }
-    
+
     // Add period filter badge
     if (relevantFilters.includes('selectedPeriod') && selectedPeriod !== null) {
       badges.push(
@@ -2893,7 +2976,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
       );
     }
-    
+
     // Add salesperson filter badge
     if (relevantFilters.includes('selectedSalesperson') && selectedSalesperson !== null) {
       badges.push(
@@ -2943,7 +3026,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
       );
     }
-    
+
     // Add ledger group filter badge
     if (relevantFilters.includes('selectedLedgerGroup') && selectedLedgerGroup !== 'all') {
       badges.push(
@@ -2993,373 +3076,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
       );
     }
-    
-    // For custom cards, check both standard filters (if groupBy matches) and generic filters
-    if (cardType === 'custom' && cardId) {
-      const card = customCards.find(c => c.id === cardId);
-      if (card) {
-        const groupBy = card.groupBy;
-        const groupByLower = groupBy ? groupBy.toLowerCase() : '';
-        
-        // Check if custom card's groupBy matches standard filter fields and show badges
-        // Customer filter
-        if ((groupByLower === 'customer') && selectedCustomer !== 'all') {
-          badges.push(
-            <div
-              key="customer-filter"
-              style={{
-                background: '#dbeafe',
-                border: '1px solid #93c5fd',
-                borderRadius: '12px',
-                padding: isMobile ? '2px 6px' : '3px 8px',
-                fontSize: isMobile ? '10px' : '11px',
-                color: '#1e40af',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginLeft: '8px'
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>person</span>
-              {isMobile ? 'Customer' : `Customer: ${selectedCustomer}`}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedCustomer('all');
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#1e40af',
-                  cursor: 'pointer',
-                  padding: '1px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginLeft: '2px'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#93c5fd';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'none';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
-              </button>
-            </div>
-          );
-        }
-        
-        // Item filter
-        if ((groupByLower === 'item') && selectedItem !== 'all') {
-          badges.push(
-            <div
-              key="item-filter"
-              style={{
-                background: '#dcfce7',
-                border: '1px solid #86efac',
-                borderRadius: '12px',
-                padding: isMobile ? '2px 6px' : '3px 8px',
-                fontSize: isMobile ? '10px' : '11px',
-                color: '#166534',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginLeft: '8px'
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>inventory_2</span>
-              {isMobile ? 'Item' : `Item: ${selectedItem}`}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedItem('all');
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#166534',
-                  cursor: 'pointer',
-                  padding: '1px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginLeft: '2px'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#86efac';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'none';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
-              </button>
-            </div>
-          );
-        }
-        
-        // Stock Group filter
-        if ((groupByLower === 'category' || groupByLower === 'stockgroup' || groupByLower === 'stock_group') && selectedStockGroup !== 'all') {
-          badges.push(
-            <div
-              key="stockGroup-filter"
-              style={{
-                background: '#fef3c7',
-                border: '1px solid #fcd34d',
-                borderRadius: '12px',
-                padding: isMobile ? '2px 6px' : '3px 8px',
-                fontSize: isMobile ? '10px' : '11px',
-                color: '#92400e',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginLeft: '8px'
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>category</span>
-              {isMobile ? 'Stock Group' : `Stock Group: ${selectedStockGroup}`}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedStockGroup('all');
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#92400e',
-                  cursor: 'pointer',
-                  padding: '1px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginLeft: '2px'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#fcd34d';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'none';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
-              </button>
-            </div>
-          );
-        }
-        
-        // Region filter
-        if ((groupByLower === 'region') && selectedRegion !== 'all') {
-          badges.push(
-            <div
-              key="region-filter"
-              style={{
-                background: '#e0e7ff',
-                border: '1px solid #a5b4fc',
-                borderRadius: '12px',
-                padding: isMobile ? '2px 6px' : '3px 8px',
-                fontSize: isMobile ? '10px' : '11px',
-                color: '#3730a3',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginLeft: '8px'
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>location_on</span>
-              {isMobile ? 'State' : `State: ${selectedRegion}`}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedRegion('all');
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#3730a3',
-                  cursor: 'pointer',
-                  padding: '1px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginLeft: '2px'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#a5b4fc';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'none';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
-              </button>
-            </div>
-          );
-        }
-        
-        // Country filter
-        if ((groupByLower === 'country') && selectedCountry !== 'all') {
-          badges.push(
-            <div
-              key="country-filter"
-              style={{
-                background: '#fef3c7',
-                border: '1px solid #fcd34d',
-                borderRadius: '12px',
-                padding: isMobile ? '2px 6px' : '3px 8px',
-                fontSize: isMobile ? '10px' : '11px',
-                color: '#92400e',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginLeft: '8px'
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>public</span>
-              {isMobile ? 'Country' : `Country: ${selectedCountry}`}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedCountry('all');
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#92400e',
-                  cursor: 'pointer',
-                  padding: '1px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginLeft: '2px'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#fcd34d';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'none';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
-              </button>
-            </div>
-          );
-        }
-        
-        // Period filter (for date grouping)
-        if ((groupBy === 'date') && selectedPeriod !== null) {
-          badges.push(
-            <div
-              key="period-filter"
-              style={{
-                background: '#fce7f3',
-                border: '1px solid #f9a8d4',
-                borderRadius: '12px',
-                padding: isMobile ? '2px 6px' : '3px 8px',
-                fontSize: isMobile ? '10px' : '11px',
-                color: '#9d174d',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginLeft: '8px'
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>calendar_month</span>
-              {isMobile ? 'Period' : `Period: ${formatPeriodLabel(selectedPeriod)}`}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedPeriod(null);
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#9d174d',
-                  cursor: 'pointer',
-                  padding: '1px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginLeft: '2px'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#f9a8d4';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'none';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
-              </button>
-            </div>
-          );
-        }
-        
-        // Ledger Group filter
-        if ((groupByLower === 'ledgergroup' || groupByLower === 'ledger_group') && selectedLedgerGroup !== 'all') {
-          badges.push(
-            <div
-              key="ledgerGroup-filter"
-              style={{
-                background: '#f3e8ff',
-                border: '1px solid #c084fc',
-                borderRadius: '12px',
-                padding: isMobile ? '2px 6px' : '3px 8px',
-                fontSize: isMobile ? '10px' : '11px',
-                color: '#6b21a8',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                marginLeft: '8px'
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>group</span>
-              {isMobile ? 'Ledger Group' : `Ledger Group: ${selectedLedgerGroup}`}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSelectedLedgerGroup('all');
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: '#6b21a8',
-                  cursor: 'pointer',
-                  padding: '1px',
-                  borderRadius: '50%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginLeft: '2px'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#c084fc';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'none';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
-              </button>
-            </div>
-          );
-        }
-      }
-      
-      // Add generic filters for custom cards (for non-standard groupBy fields)
-      if (genericFilters) {
+
+    // Add generic filters for custom cards
+    if (cardId && genericFilters) {
       Object.entries(genericFilters).forEach(([filterKey, filterValue]) => {
         if (filterKey.startsWith(`${cardId}_`) && filterValue && filterValue !== 'all' && filterValue !== '') {
           const fieldName = filterKey.replace(`${cardId}_`, '');
           const fieldLabel = fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
-          
+          const card = customCards.find(c => c.id === cardId);
+
           badges.push(
             <div
               key={filterKey}
@@ -3417,9 +3142,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           );
         }
       });
-      }
     }
-    
+
     return badges.length > 0 ? (
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
         {badges}
@@ -3430,7 +3154,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const clearAllFilters = () => {
     // Only clear interactive filters - do NOT touch cache or date range
     console.log('🧹 Clearing interactive filters only (preserving cache and date range)...');
-    
+
     setSelectedCustomer('all');
     setSelectedItem('all');
     setSelectedStockGroup('all');
@@ -3440,16 +3164,134 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     setSelectedPeriod(null);
     setSelectedSalesperson(null);
     setGenericFilters({}); // Clear generic filters from custom cards
-    
+
     // Clear from sessionStorage
     try {
       sessionStorage.removeItem('customCardGenericFilters');
     } catch (e) {
       console.warn('Failed to clear generic filters from sessionStorage:', e);
     }
-    
+
     // Note: Cache and date range are preserved to avoid unnecessary API calls
   };
+
+  const formatCurrency = (value) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  // Custom Cards Helper Functions
+  // Helper function to get field value with case-insensitive fallback
+  const getFieldValue = useCallback((item, fieldName) => {
+    if (!item || !fieldName) return null;
+    // Try direct access first
+    if (item[fieldName] !== undefined) return item[fieldName];
+    // Try lowercase
+    if (item[fieldName.toLowerCase()] !== undefined) return item[fieldName.toLowerCase()];
+    // Try uppercase
+    if (item[fieldName.toUpperCase()] !== undefined) return item[fieldName.toUpperCase()];
+    // Try case-insensitive search
+    const matchingKey = Object.keys(item).find(k => k.toLowerCase() === fieldName.toLowerCase());
+    return matchingKey ? item[matchingKey] : null;
+  }, []);
+
+  const generateCustomCardData = useCallback((cardConfig, salesData) => {
+    if (!salesData || salesData.length === 0) return [];
+    if (!cardConfig || !cardConfig.groupBy || !cardConfig.valueField) {
+      console.warn('Invalid card config:', cardConfig);
+      return [];
+    }
+
+    // Apply filters from card config
+    let filteredData = [...salesData];
+
+    // Apply custom card filters (if specified)
+    if (cardConfig.filters) {
+      if (cardConfig.filters.customer && cardConfig.filters.customer !== 'all') {
+        filteredData = filteredData.filter(s => s.customer && String(s.customer).trim().toLowerCase() === String(cardConfig.filters.customer).trim().toLowerCase());
+      }
+      if (cardConfig.filters.item && cardConfig.filters.item !== 'all') {
+        filteredData = filteredData.filter(s => s.item && String(s.item).trim().toLowerCase() === String(cardConfig.filters.item).trim().toLowerCase());
+      }
+      if (cardConfig.filters.stockGroup && cardConfig.filters.stockGroup !== 'all') {
+        filteredData = filteredData.filter(s => s.category && String(s.category).trim().toLowerCase() === String(cardConfig.filters.stockGroup).trim().toLowerCase());
+      }
+      if (cardConfig.filters.region && cardConfig.filters.region !== 'all') {
+        filteredData = filteredData.filter(s => s.region && String(s.region).trim().toLowerCase() === String(cardConfig.filters.region).trim().toLowerCase());
+      }
+      if (cardConfig.filters.country && cardConfig.filters.country !== 'all') {
+        filteredData = filteredData.filter(s => s.country && String(s.country).trim().toLowerCase() === String(cardConfig.filters.country).trim().toLowerCase());
+      }
+      if (cardConfig.filters.salesperson && cardConfig.filters.salesperson !== 'all') {
+        filteredData = filteredData.filter(s => s.salesperson === cardConfig.filters.salesperson);
+      }
+      if (cardConfig.filters.period) {
+        filteredData = filteredData.filter(s => {
+          const saleDate = s.cp_date || s.date;
+          const date = new Date(saleDate);
+          const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          return salePeriod === cardConfig.filters.period;
+        });
+      }
+    }
+
+    // Group data by selected field
+    const grouped = {};
+    filteredData.forEach(sale => {
+      let groupKey = '';
+      let originalKey = '';
+
+      if (cardConfig.groupBy === 'date') {
+        const saleDate = sale.cp_date || sale.date;
+        const date = new Date(saleDate);
+        if (cardConfig.dateGrouping === 'day') {
+          groupKey = saleDate; // YYYY-MM-DD
+        } else if (cardConfig.dateGrouping === 'week') {
+          const weekStart = new Date(date);
+          weekStart.setDate(date.getDate() - date.getDay());
+          groupKey = `${weekStart.getFullYear()}-W${Math.ceil((weekStart.getDate() + 6) / 7)}`;
+        } else if (cardConfig.dateGrouping === 'month') {
+          groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        } else if (cardConfig.dateGrouping === 'year') {
+          groupKey = String(date.getFullYear());
+        } else {
+          groupKey = saleDate;
+        }
+        originalKey = groupKey;
+      } else if (cardConfig.groupBy === 'profit_margin') {
+        const amount = parseFloat(getFieldValue(sale, 'amount') || 0);
+        const profit = parseFloat(getFieldValue(sale, 'profit') || 0);
+        const margin = amount > 0 ? ((profit / amount) * 100).toFixed(0) : '0';
+        groupKey = `${margin}%`;
+        originalKey = groupKey;
+      } else if (cardConfig.groupBy === 'order_value') {
+        // Group by order value ranges
+        const value = parseFloat(getFieldValue(sale, 'amount') || 0);
+        if (value < 1000) groupKey = '< ₹1K';
+        else if (value < 5000) groupKey = '₹1K - ₹5K';
+        else if (value < 10000) groupKey = '₹5K - ₹10K';
+        else if (value < 50000) groupKey = '₹10K - ₹50K';
+        else groupKey = '> ₹50K';
+        originalKey = groupKey;
+      } else {
+        // Generic field access - use helper function for case-insensitive search
+        const fieldValue = getFieldValue(sale, cardConfig.groupBy);
+        // Normalize to lowercase for grouping, but preserve original for display
+        const normalizedValue = fieldValue ? String(fieldValue).trim() : 'Unknown';
+        groupKey = normalizedValue.toLowerCase();
+        originalKey = normalizedValue;
+      }
+
+      // Initialize group if needed
+      if (!grouped[groupKey]) {
+        grouped[groupKey] = { items: [], originalKey: originalKey };
+      } else {
+        // For case-insensitive fields, keep the most common casing (use first encountered)
+        if (cardConfig.groupBy !== 'date' && cardConfig.groupBy !== 'profit_margin' && cardConfig.groupBy !== 'order_value') {
+          if (grouped[groupKey].originalKey === 'Unknown' && originalKey !== 'Unknown') {
+            grouped[groupKey].originalKey = originalKey;
+          }
+        }
+      }
+      grouped[groupKey].items.push(sale);
+    });
 
   const formatCurrency = (value) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -3704,7 +3546,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       } else if (cardConfig.aggregation === 'min') {
         // Minimum value for any numeric field
         let values = [];
-        
+
         // Handle special calculated fields
         if (cardConfig.valueField === 'tax_amount') {
           values = items
@@ -3739,10 +3581,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               return quantity > 0 ? profit / quantity : 0;
             })
             .filter(v => !isNaN(v) && isFinite(v));
-        } else if (cardConfig.valueField === 'transactions' || 
-                   cardConfig.valueField === 'unique_customers' || 
-                   cardConfig.valueField === 'unique_items' || 
-                   cardConfig.valueField === 'unique_orders') {
+        } else if (cardConfig.valueField === 'transactions' ||
+          cardConfig.valueField === 'unique_customers' ||
+          cardConfig.valueField === 'unique_items' ||
+          cardConfig.valueField === 'unique_orders') {
           // For count fields, min/max don't make much sense, but return the count
           value = items.length;
         } else {
@@ -3754,12 +3596,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             })
             .filter(v => !isNaN(v) && isFinite(v));
         }
-        
+
         value = values.length > 0 ? Math.min(...values) : 0;
       } else if (cardConfig.aggregation === 'max') {
         // Maximum value for any numeric field
         let values = [];
-        
+
         // Handle special calculated fields
         if (cardConfig.valueField === 'tax_amount') {
           values = items
@@ -3794,10 +3636,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               return quantity > 0 ? profit / quantity : 0;
             })
             .filter(v => !isNaN(v) && isFinite(v));
-        } else if (cardConfig.valueField === 'transactions' || 
-                   cardConfig.valueField === 'unique_customers' || 
-                   cardConfig.valueField === 'unique_items' || 
-                   cardConfig.valueField === 'unique_orders') {
+        } else if (cardConfig.valueField === 'transactions' ||
+          cardConfig.valueField === 'unique_customers' ||
+          cardConfig.valueField === 'unique_items' ||
+          cardConfig.valueField === 'unique_orders') {
           // For count fields, min/max don't make much sense, but return the count
           value = items.length;
         } else {
@@ -3809,7 +3651,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             })
             .filter(v => !isNaN(v) && isFinite(v));
         }
-        
+
         value = values.length > 0 ? Math.max(...values) : 0;
       }
 
@@ -3847,7 +3689,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     ];
 
     // Apply Top N limit if specified
-    const finalResult = cardConfig.topN && cardConfig.topN > 0 
+    const finalResult = cardConfig.topN && cardConfig.topN > 0
       ? result.slice(0, cardConfig.topN)
       : result;
 
@@ -3861,8 +3703,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const handleCreateCustomCard = useCallback((cardConfig) => {
     if (editingCardId) {
       // Update existing card
-      setCustomCards(prev => prev.map(card => 
-        card.id === editingCardId 
+      setCustomCards(prev => prev.map(card =>
+        card.id === editingCardId
           ? { ...card, ...cardConfig }
           : card
       ));
@@ -3890,19 +3732,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       }
     }
     setShowCustomCardModal(false);
-    
+
     // Scroll to the newly created/edited card after a short delay to ensure DOM is updated
     setTimeout(() => {
       if (customCardsSectionRef.current) {
-        customCardsSectionRef.current.scrollIntoView({ 
-          behavior: 'smooth', 
-          block: 'end' 
+        customCardsSectionRef.current.scrollIntoView({
+          behavior: 'smooth',
+          block: 'end'
         });
       } else {
         // Fallback: scroll to bottom of page if ref is not available
-        window.scrollTo({ 
-          top: document.documentElement.scrollHeight, 
-          behavior: 'smooth' 
+        window.scrollTo({
+          top: document.documentElement.scrollHeight,
+          behavior: 'smooth'
         });
       }
     }, 100);
@@ -4024,7 +3866,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           vchtypeValue = String(sale.vchtype);
         }
       }
-      
+
       return {
         date: sale.cp_date || sale.date,
         vchno: sale.vchno || '',
@@ -4092,7 +3934,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     setDrilldownError('API calls are disabled. Sales dashboard uses cache only.');
     setSelectedBill({ ledgerName, billName, salesperson });
     return;
-    
+
     /* DISABLED - API calls removed
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -4131,18 +3973,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       }
 
       const drilldownXML = `<ENVELOPE>
-	<HEADER>
-		<VERSION>1</VERSION>
-		<TALLYREQUEST>Export</TALLYREQUEST>
-		<TYPE>Data</TYPE>
-		<ID>ODBC Report</ID>
-	</HEADER>
-	<BODY>
-		<DESC>		
-			<STATICVARIABLES>
-				<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Data</TYPE>
+    <ID>ODBC Report</ID>
+  </HEADER>
+  <BODY>
+    <DESC>		
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
         <SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
-			</STATICVARIABLES>	
+      </STATICVARIABLES>	
             <TDL>
             <TDLMESSAGE>
             <COLLECTION NAME="TC Ledger Receivables" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
@@ -4180,8 +4022,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             </SYSTEM>
             </TDLMESSAGE>
             </TDL>
-			<SQLREQUEST TYPE="Prepare" METHOD="SQLPrepare">
-				select 
+      <SQLREQUEST TYPE="Prepare" METHOD="SQLPrepare">
+        select 
                     $MASTERID as MasterID,
                     $Name as BillName,
                     $$String:$Date:UniversalDate as Date,
@@ -4189,10 +4031,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     $Narration as Narration,
                     $LedBillAmount as Amount,
                     $ClosingBalance:Ledger:$Parent as 'Customer Balance'
-				from TCLRLedEntries
-			</SQLREQUEST>
-		</DESC>
-	</BODY>
+        from TCLRLedEntries
+      </SQLREQUEST>
+    </DESC>
+  </BODY>
 </ENVELOPE>`;
 
       const token = getAuthToken();
@@ -4247,7 +4089,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     setVoucherDetailsLoading(false);
     setVoucherDetailsError('API calls are disabled. Sales dashboard uses cache only.');
     return;
-    
+
     /* DISABLED - API calls removed
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -4276,70 +4118,70 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       });
 
       const voucherXML = `<ENVELOPE>
-	<HEADER>
-		<VERSION>1</VERSION>
-		<TALLYREQUEST>Export</TALLYREQUEST>
-		<TYPE>Data</TYPE>
-		<ID>CP_Vouchers</ID>
-	</HEADER>
-	<BODY>
-		<DESC>
-			<STATICVARIABLES>
-				<EXPORTFLAG>YES</EXPORTFLAG>
-				<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-				<SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
-			</STATICVARIABLES>
-			<TDL>
-				<TDLMESSAGE>
-					<REPORT NAME="CP_Vouchers">
-						<FORMS>CP_Vouchers</FORMS>
-						<KEEPXMLCASE>Yes</KEEPXMLCASE>
-						<OBJECTS>VOUCHER : $$Sprintf:@@VchMasterId:${escapedMasterId}</OBJECTS>
-					</REPORT>
-					<FORM NAME="CP_Vouchers">
-						<TOPPARTS>CP_Vouchers</TOPPARTS>
-					</FORM>
-					<PART NAME="CP_Vouchers">
-						<TOPLINES>CP_Vouchers</TOPLINES>
-						<SCROLLED>Vertical</SCROLLED>
-					</PART>
-					<LINE NAME="CP_Vouchers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
-						<XMLTAG>"VOUCHERS"</XMLTAG>
-						<LEFTFIELDS>CP_Temp1, CP_Temp2, CP_Temp3, CP_Temp4, CP_Temp5, CP_Temp6, CP_Temp7</LEFTFIELDS>
-						<LOCAL>Field : CP_Temp1 : Set as :$MASTERID</LOCAL>
-						<LOCAL>Field : CP_Temp2 : Set as :$DATE</LOCAL>
-						<LOCAL>Field : CP_Temp3 : Set as :$VOUCHERTYPENAME</LOCAL>
-						<LOCAL>Field : CP_Temp4 : Set as :$VOUCHERNUMBER</LOCAL>
-						<LOCAL>Field : CP_Temp5 : Set as : $$IfDr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
-						<LOCAL>Field : CP_Temp6 : Set as : $$IfCr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
-						<LOCAL>Field : CP_Temp7 : Set as : $NARRATION</LOCAL>
-						<LOCAL>Field : CP_Temp1  : XMLTag : "MASTERID"</LOCAL>
-						<LOCAL>Field : CP_Temp2  : XMLTag : "DATE"</LOCAL>
-						<LOCAL>Field : CP_Temp3  : XMLTag : "VOUCHERTYPE"</LOCAL>
-						<LOCAL>Field : CP_Temp4  : XMLTag : "VOUCHERNUMBER"</LOCAL>
-						<LOCAL>Field : CP_Temp5  : XMLTag : "DEBITAMT"</LOCAL>
-						<LOCAL>Field : CP_Temp6  : XMLTag : "CREDITAMT"</LOCAL>
-						<LOCAL>Field : CP_Temp7  : XMLTag : "NARRATION"</LOCAL>
-						<Explode>CP_Ledgers : Yes</Explode>
-					</LINE>
-					<PART NAME="CP_Ledgers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
-						<TOPLINES>CP_LedgerLine</TOPLINES>
-						<SCROLLED>Vertical</SCROLLED>
-					</PART>
-					<LINE NAME="CP_LedgerLine" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
-						<XMLTAG>"LEDGERS"</XMLTAG>
-						<LEFTFIELDS>CP_LedgerTemp1, CP_LedgerTemp2, CP_LedgerTemp3</LEFTFIELDS>
-						<LOCAL>Field : CP_LedgerTemp1 : Set as :$NAME</LOCAL>
-						<LOCAL>Field : CP_LedgerTemp2 : Set as :$LEDGERAMOUNT</LOCAL>
-						<LOCAL>Field : CP_LedgerTemp3 : Set as :$MASTERID</LOCAL>
-						<LOCAL>Field : CP_LedgerTemp1 : XMLTag : "NAME"</LOCAL>
-						<LOCAL>Field : CP_LedgerTemp2 : XMLTag : "AMOUNT"</LOCAL>
-						<LOCAL>Field : CP_LedgerTemp3 : XMLTag : "MASTERID"</LOCAL>
-					</LINE>
-				</TDLMESSAGE>
-			</TDL>
-		</DESC>
-	</BODY>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Data</TYPE>
+    <ID>CP_Vouchers</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <EXPORTFLAG>YES</EXPORTFLAG>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <REPORT NAME="CP_Vouchers">
+            <FORMS>CP_Vouchers</FORMS>
+            <KEEPXMLCASE>Yes</KEEPXMLCASE>
+            <OBJECTS>VOUCHER : $$Sprintf:@@VchMasterId:${escapedMasterId}</OBJECTS>
+          </REPORT>
+          <FORM NAME="CP_Vouchers">
+            <TOPPARTS>CP_Vouchers</TOPPARTS>
+          </FORM>
+          <PART NAME="CP_Vouchers">
+            <TOPLINES>CP_Vouchers</TOPLINES>
+            <SCROLLED>Vertical</SCROLLED>
+          </PART>
+          <LINE NAME="CP_Vouchers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
+            <XMLTAG>"VOUCHERS"</XMLTAG>
+            <LEFTFIELDS>CP_Temp1, CP_Temp2, CP_Temp3, CP_Temp4, CP_Temp5, CP_Temp6, CP_Temp7</LEFTFIELDS>
+            <LOCAL>Field : CP_Temp1 : Set as :$MASTERID</LOCAL>
+            <LOCAL>Field : CP_Temp2 : Set as :$DATE</LOCAL>
+            <LOCAL>Field : CP_Temp3 : Set as :$VOUCHERTYPENAME</LOCAL>
+            <LOCAL>Field : CP_Temp4 : Set as :$VOUCHERNUMBER</LOCAL>
+            <LOCAL>Field : CP_Temp5 : Set as : $$IfDr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
+            <LOCAL>Field : CP_Temp6 : Set as : $$IfCr:$$FNBillAllocTotal:@@AllocBillName</LOCAL>
+            <LOCAL>Field : CP_Temp7 : Set as : $NARRATION</LOCAL>
+            <LOCAL>Field : CP_Temp1  : XMLTag : "MASTERID"</LOCAL>
+            <LOCAL>Field : CP_Temp2  : XMLTag : "DATE"</LOCAL>
+            <LOCAL>Field : CP_Temp3  : XMLTag : "VOUCHERTYPE"</LOCAL>
+            <LOCAL>Field : CP_Temp4  : XMLTag : "VOUCHERNUMBER"</LOCAL>
+            <LOCAL>Field : CP_Temp5  : XMLTag : "DEBITAMT"</LOCAL>
+            <LOCAL>Field : CP_Temp6  : XMLTag : "CREDITAMT"</LOCAL>
+            <LOCAL>Field : CP_Temp7  : XMLTag : "NARRATION"</LOCAL>
+            <Explode>CP_Ledgers : Yes</Explode>
+          </LINE>
+          <PART NAME="CP_Ledgers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
+            <TOPLINES>CP_LedgerLine</TOPLINES>
+            <SCROLLED>Vertical</SCROLLED>
+          </PART>
+          <LINE NAME="CP_LedgerLine" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
+            <XMLTAG>"LEDGERS"</XMLTAG>
+            <LEFTFIELDS>CP_LedgerTemp1, CP_LedgerTemp2, CP_LedgerTemp3</LEFTFIELDS>
+            <LOCAL>Field : CP_LedgerTemp1 : Set as :$NAME</LOCAL>
+            <LOCAL>Field : CP_LedgerTemp2 : Set as :$LEDGERAMOUNT</LOCAL>
+            <LOCAL>Field : CP_LedgerTemp3 : Set as :$MASTERID</LOCAL>
+            <LOCAL>Field : CP_LedgerTemp1 : XMLTag : "NAME"</LOCAL>
+            <LOCAL>Field : CP_LedgerTemp2 : XMLTag : "AMOUNT"</LOCAL>
+            <LOCAL>Field : CP_LedgerTemp3 : XMLTag : "MASTERID"</LOCAL>
+          </LINE>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
 </ENVELOPE>`;
 
       const token = getAuthToken();
@@ -4457,39 +4299,39 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     
     if (voucher) {
       // Find all items in this voucher (same masterid and vchno)
-      const voucherItems = sales.filter(s => 
+      const voucherItems = sales.filter(s =>
         (s.masterid === voucher.masterid || String(s.masterid) === String(voucher.masterid)) &&
         s.vchno === voucher.vchno
       );
 
       // Calculate total amount
       const totalAmount = voucherItems.reduce((sum, item) => sum + (item.amount || 0), 0);
-      
+
       // Aggregate tax values from all items in the voucher
       const totalCGST = voucherItems.reduce((sum, item) => sum + (item.cgst || item.CGST || 0), 0);
       const totalSGST = voucherItems.reduce((sum, item) => sum + (item.sgst || item.SGST || 0), 0);
       const totalRoundOff = voucherItems.reduce((sum, item) => sum + (item.roundoff || item.ROUNDOFF || item.round_off || 0), 0);
-      
+
       // If tax values are not available, calculate them
       // Assuming 18% GST (9% CGST + 9% SGST) on taxable amount if not provided
       const hasTaxData = totalCGST > 0 || totalSGST > 0;
       let cgstValue = totalCGST;
       let sgstValue = totalSGST;
-      
+
       if (!hasTaxData && totalAmount > 0) {
         // Calculate CGST and SGST as 9% each of taxable amount (assuming 18% GST)
         const taxableAmount = totalAmount / 1.18; // Remove GST to get taxable amount
         cgstValue = taxableAmount * 0.09;
         sgstValue = taxableAmount * 0.09;
       }
-      
+
       const roundOffValue = totalRoundOff;
 
       // Get narration from CP_Temp7 field (XML tag is "NARRATION" per line 1869)
       // Check NARRATION first since that's the XML tag, then fallback to CP_Temp7
       // The sales data has CP_Temp7 field from the transformation
       const narration = voucher.CP_Temp7 || voucher.cp_temp7 || voucher.NARRATION || voucher.narration || voucher.Narration || '';
-      
+
       // Debug: Log narration extraction
       console.log('🔍 Extracting narration for voucher:', {
         masterid: voucher.masterid,
@@ -4646,7 +4488,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const handleBillRowClick = useCallback((row) => {
     // Get masterid from the row to open voucher details directly
     const masterId = row.masterid || row.masterId;
-    
+
     if (masterId) {
       // Directly open voucher details modal
       handleVoucherRowClick(masterId);
@@ -4654,13 +4496,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       // Fallback: try to find by customer and voucher number
       const customer = row.customer || '';
       const voucherNo = row.vchno || row.voucherNo || '';
-      
+
       if (customer && voucherNo) {
         // Find the first transaction matching customer and voucher number
-        const transaction = sales.find(sale => 
+        const transaction = sales.find(sale =>
           sale.customer === customer && sale.vchno === voucherNo
         );
-        
+
         if (transaction && transaction.masterid) {
           handleVoucherRowClick(transaction.masterid);
         } else {
@@ -4675,65 +4517,65 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Helper function to create SVG charts
   const createBarChart = (data, title, width = 600, height = 300) => {
     if (!data || data.length === 0) return '';
-    
+
     // Filter out invalid items and ensure data has valid structure
     const validData = data.filter(d => d && d.value !== undefined && d.value !== null && d.label !== undefined && d.label !== null);
     if (validData.length === 0) return '';
-    
+
     const maxValue = Math.max(...validData.map(d => d.value));
     if (maxValue === 0 || !isFinite(maxValue)) return '';
-    
+
     const barWidth = (width - 100) / validData.length;
     const barHeight = height - 80;
-    
+
     let svg = `<svg width="${width}" height="${height}" style="border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
-      <text x="${width/2}" y="20" text-anchor="middle" style="font-size: 16px; font-weight: bold; fill: #1e293b;">${title}</text>`;
-    
+      <text x="${width / 2}" y="20" text-anchor="middle" style="font-size: 16px; font-weight: bold; fill: #1e293b;">${title}</text>`;
+
     validData.slice(0, 10).forEach((item, index) => {
       const x = 50 + index * barWidth;
       const barH = (item.value / maxValue) * barHeight;
       const y = height - 30 - barH;
       const label = item.label || 'Unknown';
       const displayLabel = label.length > 8 ? label.substring(0, 8) + '...' : label;
-      
+
       svg += `
         <rect x="${x + 5}" y="${y}" width="${barWidth - 10}" height="${barH}" fill="${item.color || '#3b82f6'}" />
-        <text x="${x + barWidth/2}" y="${height - 10}" text-anchor="middle" style="font-size: 10px; fill: #64748b;">${displayLabel}</text>
-        <text x="${x + barWidth/2}" y="${y - 5}" text-anchor="middle" style="font-size: 10px; fill: #1e293b; font-weight: bold;">${formatCurrency(item.value)}</text>
+        <text x="${x + barWidth / 2}" y="${height - 10}" text-anchor="middle" style="font-size: 10px; fill: #64748b;">${displayLabel}</text>
+        <text x="${x + barWidth / 2}" y="${y - 5}" text-anchor="middle" style="font-size: 10px; fill: #1e293b; font-weight: bold;">${formatCurrency(item.value)}</text>
       `;
     });
-    
+
     svg += '</svg>';
     return svg;
   };
 
   const createPieChart = (data, title, size = 300) => {
     if (!data || data.length === 0) return '';
-    
+
     const total = data.reduce((sum, d) => sum + d.value, 0);
     const centerX = size / 2;
     const centerY = size / 2;
     const radius = size / 3;
-    
+
     let currentAngle = -90;
     let svg = `<svg width="${size}" height="${size}" style="border: 1px solid #e2e8f0; border-radius: 8px; background: white;">
       <text x="${centerX}" y="20" text-anchor="middle" style="font-size: 16px; font-weight: bold; fill: #1e293b;">${title}</text>`;
-    
+
     data.slice(0, 8).forEach((item, index) => {
       const percentage = (item.value / total) * 100;
       const angle = (percentage / 100) * 360;
       const startAngle = currentAngle;
       const endAngle = currentAngle + angle;
-      
+
       const start = polarToCartesian(centerX, centerY, radius, endAngle);
       const end = polarToCartesian(centerX, centerY, radius, startAngle);
       const largeArc = endAngle - startAngle <= 180 ? 0 : 1;
-      
+
       svg += `<path d="M ${centerX} ${centerY} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArc} 0 ${end.x} ${end.y} Z" fill="${item.color || '#3b82f6'}" />`;
-      
+
       currentAngle = endAngle;
     });
-    
+
     svg += '</svg>';
     return svg;
   };
@@ -4752,7 +4594,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       // Create a new window for PDF content
       const printWindow = window.open('', '_blank');
       const currentDate = new Date().toLocaleDateString('en-IN');
-      
+
       printWindow.document.write(`
         <!DOCTYPE html>
         <html>
@@ -5032,9 +4874,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           ` : ''}
           
           ${customCards && customCards.length > 0 ? customCards.map(card => {
-            const cardData = generateCustomCardData(card, filteredSales);
-            if (!cardData || cardData.length === 0) return '';
-            return `
+        const cardData = generateCustomCardData(card, filteredSales);
+        if (!cardData || cardData.length === 0) return '';
+        return `
             <div class="chart-section">
               <div class="chart-title">${card.title || 'Custom Card'}</div>
               <div class="chart-container">
@@ -5050,7 +4892,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               </div>
             </div>
             `;
-          }).join('') : ''}
+      }).join('') : ''}
           
           <div class="footer">
             <p>Report generated by DataLynk Sales Dashboard</p>
@@ -5059,15 +4901,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </body>
         </html>
       `);
-      
+
       printWindow.document.close();
-      
+
       // Wait for content to load, then print
       setTimeout(() => {
         printWindow.print();
         printWindow.close();
       }, 500);
-      
+
     } catch (error) {
       console.error('Error generating PDF:', error);
       alert('Error generating PDF. Please try again.');
@@ -5179,15 +5021,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
-      
+
       link.setAttribute('href', url);
       link.setAttribute('download', `Sales_Dashboard_${new Date().toISOString().split('T')[0]}.csv`);
       link.style.visibility = 'hidden';
-      
+
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
     } catch (error) {
       console.error('Error exporting to Excel:', error);
       alert('Error exporting to Excel. Please try again.');
@@ -5199,7 +5041,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       // Create a new window for print content
       const printWindow = window.open('', '_blank');
       const currentDate = new Date().toLocaleDateString('en-IN');
-      
+
       printWindow.document.write(`
         <!DOCTYPE html>
         <html>
@@ -5480,9 +5322,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           ` : ''}
           
           ${customCards && customCards.length > 0 ? customCards.map(card => {
-            const cardData = generateCustomCardData(card, filteredSales);
-            if (!cardData || cardData.length === 0) return '';
-            return `
+        const cardData = generateCustomCardData(card, filteredSales);
+        if (!cardData || cardData.length === 0) return '';
+        return `
             <div class="chart-section">
               <div class="chart-title">${card.title || 'Custom Card'}</div>
               <div class="chart-container">
@@ -5498,7 +5340,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               </div>
             </div>
             `;
-          }).join('') : ''}
+      }).join('') : ''}
           
           <div class="footer">
             <p>Report generated by DataLynk Sales Dashboard</p>
@@ -5507,15 +5349,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </body>
         </html>
       `);
-      
+
       printWindow.document.close();
-      
+
       // Wait for content to load, then print
       setTimeout(() => {
         printWindow.print();
         printWindow.close();
       }, 500);
-      
+
     } catch (error) {
       console.error('Error printing dashboard:', error);
       alert('Error printing dashboard. Please try again.');
@@ -6243,3195 +6085,2312 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           }
         `}
       </style>
-     <div
-       style={{
-         background: 'transparent',
-         minHeight: '100vh',
-         padding: isMobile ? '12px' : '24px',
-         paddingTop: isMobile ? '12px' : '40px',
-         width: isMobile ? '100vw' : '80vw',
-         margin: 0,
-         display: 'block',
-         overflowX: 'hidden',
-       }}
-     >
-       <div
-         style={{
-           width: '100%',
-           margin: '0 auto',
-           maxWidth: '100%',
-           background: 'white',
-           borderRadius: '16px',
-           boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-           overflow: 'visible',
-           border: '1px solid #e2e8f0',
-           position: 'relative',
-         }}
-       >
-        {/* Header */}
-        <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
-        <div style={{
-            padding: isMobile ? '12px 16px' : '18px 24px',
-          borderBottom: '1px solid #f1f5f9',
+      <div
+        style={{
           background: 'transparent',
-          position: 'relative'
-          }}>
-            {/* Cache Update Progress Bar Indicator */}
-            {isDownloadingCache && (() => {
-              // Use current values directly to ensure real-time updates
-              const current = cacheDownloadProgress.current || 0;
-              const total = cacheDownloadProgress.total || 0;
-              const hasTotal = total > 0;
-              
-              const progressPercentage = hasTotal && total > 0
-                ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
-                : 0;
-              
-              // Calculate ETA
-              const calculateETA = () => {
-                const startTime = cacheDownloadStartTime || cacheDownloadStartTimeRef.current;
-                if (!hasTotal || !startTime || current === 0 || current >= total) {
-                  return null;
-                }
-                
-                const elapsed = Date.now() - startTime; // milliseconds
-                const elapsedSeconds = elapsed / 1000;
-                const rate = current / elapsedSeconds; // items per second
-                
-                if (rate === 0 || !isFinite(rate)) {
-                  return null;
-                }
-                
-                const remaining = total - current;
-                const remainingSeconds = remaining / rate;
-                
-                if (!isFinite(remainingSeconds) || remainingSeconds < 0) {
-                  return null;
-                }
-                
-                // Format ETA
-                if (remainingSeconds < 60) {
-                  return `${Math.round(remainingSeconds)}s`;
-                } else if (remainingSeconds < 3600) {
-                  const minutes = Math.floor(remainingSeconds / 60);
-                  const seconds = Math.round(remainingSeconds % 60);
-                  return `${minutes}m ${seconds}s`;
-                } else {
-                  const hours = Math.floor(remainingSeconds / 3600);
-                  const minutes = Math.round((remainingSeconds % 3600) / 60);
-                  return `${hours}h ${minutes}m`;
-                }
-              };
-              
-              const eta = calculateETA();
-              
-              // Show indeterminate progress when total is not yet known
-              const isIndeterminate = !hasTotal;
-              
-              // Ensure we always show at least some progress visually
-              // When progress is 0%, show 5% so user knows something is happening
-              // When progress > 0%, show actual progress (minimum 1% for visibility)
-              const displayProgress = hasTotal 
-                ? (progressPercentage === 0 ? 5 : Math.max(progressPercentage, 1))
-                : 0;
-              
-              const tooltipText = hasTotal
-                ? `${cacheDownloadProgress.message || 'Updating cache'}: ${progressPercentage}% (${current}/${total})${eta ? ` • ETA: ${eta}` : ''}`
-                : (cacheDownloadProgress.message || 'Updating cache...');
-
-              return (
-                <Tooltip
-                  title={tooltipText}
-                  arrow
-                  placement="left"
-                >
-              <div style={{
-                position: 'absolute',
-                top: '20px',
-                right: '20px',
-                zIndex: 1000,
-                display: 'flex',
-                alignItems: 'center',
-                    gap: '8px',
-                    cursor: 'pointer'
-                  }}>
-                    {/* ETA Display */}
-                    {eta && (
-                      <span style={{
-                        fontSize: '11px',
-                        color: '#64748b',
-                        fontWeight: 500,
-                        whiteSpace: 'nowrap'
-                      }}>
-                        ETA: {eta}
-                      </span>
-                    )}
+          minHeight: '100vh',
+          padding: isMobile ? '12px' : '24px',
+          paddingTop: isMobile ? '12px' : '40px',
+          width: isMobile ? '100vw' : '80vw',
+          margin: 0,
+          display: 'block',
+          overflowX: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            width: '100%',
+            margin: '0 auto',
+            maxWidth: '100%',
+            background: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+            overflow: 'visible',
+            border: '1px solid #e2e8f0',
+            position: 'relative',
+          }}
+        >
+          {/* Header */}
+          <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
+            <div style={{
+              padding: isMobile ? '12px 16px' : '18px 24px',
+              borderBottom: '1px solid #f1f5f9',
+              background: 'transparent',
+              position: 'relative'
+            }}>
+              {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
+              {isMobile ? (
+                <>
+                  {/* Mobile: Title Section */}
                   <div style={{
-                      width: '120px',
-                      height: '6px',
-                      backgroundColor: '#e2e8f0',
-                      borderRadius: '3px',
-                      overflow: 'hidden',
-                      position: 'relative',
-                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-                    }}>
-                      {isIndeterminate ? (
-                        // Indeterminate progress bar (animated sliding)
-                        <div
-                          style={{
-                            width: '30%',
-                            height: '100%',
-                            backgroundColor: '#10b981',
-                            borderRadius: '3px',
-                            animation: 'indeterminateProgress 1.5s ease-in-out infinite',
-                    position: 'absolute',
-                            left: 0,
-                            top: 0
-                          }}
-                        />
-                      ) : (
-                        // Determinate progress bar
-                        <div
-                          style={{
-                            width: `${displayProgress}%`,
-                            height: '100%',
-                            backgroundColor: '#10b981',
-                            borderRadius: '3px',
-                            transition: 'width 0.3s ease',
-                            position: 'relative',
-                            overflow: 'hidden',
-                            minWidth: progressPercentage > 0 ? '2px' : '0px'
-                          }}
-                        >
-                          {progressPercentage > 0 && progressPercentage < 100 && (
-                            <div
-                              style={{
-                    position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent)',
-                                animation: 'progressShimmer 1.5s infinite'
-                              }}
-                            />
-                          )}
-              </div>
-            )}
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    width: '100%',
+                    marginBottom: '12px'
+                  }}>
+                    <div style={{
+                      width: '36px',
+                      height: '36px',
+                      borderRadius: '10px',
+                      background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
+                      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                      flexShrink: 0
+                    }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'scale(1.05)';
+                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'scale(1)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
+                      }}
+                    >
+                      <span className="material-icons" style={{ color: 'white', fontSize: '18px' }}>analytics</span>
+                    </div>
+                    <div style={{ flex: '1' }}>
+                      <h1 style={{
+                        margin: 0,
+                        color: '#0f172a',
+                        fontSize: '18px',
+                        fontWeight: '800',
+                        lineHeight: '1.2',
+                        letterSpacing: '-0.02em'
+                      }}>
+                        Sales Analytics Dashboard
+                      </h1>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                        <p style={{
+                          margin: 0,
+                          color: '#64748b',
+                          fontSize: '11px',
+                          fontWeight: '500',
+                          lineHeight: '1.4'
+                        }}>
+                          Comprehensive sales insights
+                        </p>
+                        {/* Records Available Badge - Inline */}
+                        <div style={{
+                          display: 'inline-flex',
+                          background: '#f0f9ff',
+                          color: '#0369a1',
+                          padding: '4px 10px',
+                          borderRadius: '16px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          alignItems: 'center',
+                          gap: '5px',
+                          border: '1px solid #bae6fd',
+                          whiteSpace: 'nowrap'
+                        }}>
+                          <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
+                          {filteredSales.length} records
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </Tooltip>
-              );
-            })()}
-            {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
-        {isMobile ? (
-          <>
-            {/* Mobile: Title Section */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              width: '100%',
-              marginBottom: '12px'
-            }}>
-              <div style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
-                background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                flexShrink: 0
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
-              }}
-              >
-                <span className="material-icons" style={{ color: 'white', fontSize: '18px' }}>analytics</span>
-              </div>
-              <div style={{ flex: '1' }}>
-                <h1 style={{
-                  margin: 0,
-                  color: '#0f172a',
-                  fontSize: '18px',
-                  fontWeight: '800',
-                  lineHeight: '1.2',
-                  letterSpacing: '-0.02em'
-                }}>
-                  Sales Analytics Dashboard
-                </h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
-                  <p style={{
-                    margin: 0,
-                    color: '#64748b',
-                    fontSize: '11px',
-                    fontWeight: '500',
-                    lineHeight: '1.4'
-                  }}>
-                    Comprehensive sales insights
-                  </p>
-                  {/* Records Available Badge - Inline */}
+
+                  {/* Mobile: Buttons Section */}
                   <div style={{
-                    display: 'inline-flex',
-                    background: '#f0f9ff',
-                    color: '#0369a1',
-                    padding: '4px 10px',
-                    borderRadius: '16px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    alignItems: 'center',
-                    gap: '5px',
-                    border: '1px solid #bae6fd',
-                    whiteSpace: 'nowrap'
+                    display: 'grid',
+                    gridTemplateColumns: '1fr',
+                    gap: '10px',
+                    width: '100%',
+                    boxSizing: 'border-box'
                   }}>
-                    <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
-                    {filteredSales.length} records
+                    {/* Create Custom Card Button */}
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('🔒 Opening Custom Card Modal - using existing sales data only, no API calls should occur. Sales data count:', sales.length);
+                        setShowCustomCardModal(true);
+                      }}
+                      disabled={sales.length === 0}
+                      style={{
+                        background: sales.length === 0
+                          ? '#e5e7eb'
+                          : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        color: sales.length === 0 ? '#9ca3af' : '#fff',
+                        border: 'none',
+                        borderRadius: '8px',
+                        padding: '10px 16px',
+                        cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        transition: 'all 0.2s ease',
+                        boxShadow: sales.length === 0
+                          ? 'none'
+                          : '0 2px 4px rgba(16, 185, 129, 0.2)',
+                        whiteSpace: 'nowrap',
+                        justifyContent: 'center',
+                        width: '100%'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (sales.length > 0) {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+                          e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (sales.length > 0) {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
+                        }
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '18px' }}>add_chart</span>
+                      <span>Create Custom Card</span>
+                    </button>
+
+                    {/* Calendar Button */}
+                    <button
+                      type="button"
+                      onClick={handleOpenCalendar}
+                      title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
+                      style={{
+                        background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                        border: 'none',
+                        borderRadius: '8px',
+                        padding: '10px 16px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        color: '#fff',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 3px 8px rgba(124, 58, 237, 0.3)',
+                        justifyContent: 'center',
+                        whiteSpace: 'nowrap',
+                        width: '100%'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
+                        e.target.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)';
+                        e.target.style.transform = 'translateY(-1px)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
+                        e.target.style.boxShadow = '0 3px 8px rgba(124, 58, 237, 0.3)';
+                        e.target.style.transform = 'translateY(0)';
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '18px' }}>calendar_month</span>
+                      <span>Select Date Range</span>
+                    </button>
+
+                    {/* Last Updated & Refresh - Mobile */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '8px',
+                      width: '100%',
+                      padding: '10px 12px',
+                      background: '#f8fafc',
+                      borderRadius: '8px',
+                      border: '1px solid #e2e8f0',
+                      boxSizing: 'border-box',
+                      position: 'relative',
+                      overflow: 'hidden'
+                    }}>
+                      {/* Progress Bar Background */}
+                      {isDownloadingCache && (() => {
+                        const current = cacheDownloadProgress.current || 0;
+                        const total = cacheDownloadProgress.total || 0;
+                        const hasTotal = total > 0;
+                        const progressPercentage = hasTotal && total > 0
+                          ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
+                          : 0;
+                        const displayProgress = hasTotal
+                          ? (progressPercentage === 0 ? 5 : Math.max(progressPercentage, 1))
+                          : 0;
+
+                        return (
+                          <div style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            bottom: 0,
+                            width: hasTotal ? `${displayProgress}%` : '30%',
+                            background: hasTotal
+                              ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)'
+                              : 'linear-gradient(90deg, #10b981 0%, #059669 100%)',
+                            transition: hasTotal ? 'width 0.3s ease' : 'none',
+                            animation: !hasTotal ? 'indeterminateProgress 1.5s ease-in-out infinite' : 'none',
+                            zIndex: 0
+                          }} />
+                        );
+                      })()}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        flex: '1 1 0',
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        position: 'relative',
+                        zIndex: 1
+                      }}>
+                        <span className="material-icons" style={{ fontSize: '16px', color: '#64748b', flexShrink: 0 }}>schedule</span>
+                        <span style={{
+                          fontSize: '11px',
+                          color: '#64748b',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          flex: '1 1 0',
+                          minWidth: 0
+                        }}>
+                          {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleRefresh}
+                        disabled={loading || !fromDate || !toDate || isDownloadingCache}
+                        style={{
+                          background: loading || !fromDate || !toDate || isDownloadingCache
+                            ? '#e5e7eb'
+                            : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                          border: 'none',
+                          borderRadius: '6px',
+                          padding: '6px 10px',
+                          cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          transition: 'all 0.2s ease',
+                          boxShadow: loading || !fromDate || !toDate || isDownloadingCache
+                            ? 'none'
+                            : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                          flexShrink: 0,
+                          whiteSpace: 'nowrap',
+                          position: 'relative',
+                          zIndex: 1
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!loading && fromDate && toDate && !isDownloadingCache) {
+                            e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
+                            e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!loading && fromDate && toDate && !isDownloadingCache) {
+                            e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                            e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                          }
+                        }}
+                      >
+                        <span className="material-icons" style={{
+                          fontSize: '16px',
+                          animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
+                        }}>
+                          {downloadStatus === 'none' ? 'download' : downloadStatus === 'interrupted' ? 'play_arrow' : 'refresh'}
+                        </span>
+                        <span>
+                          {downloadStatus === 'none' ? 'Download' : downloadStatus === 'interrupted' ? 'Continue Download' : 'Refresh'}
+                        </span>
+                      </button>
+                    </div>
+
+                    {/* Export Button */}
+                    <div style={{ position: 'relative', width: '100%' }} ref={downloadDropdownRef}>
+                      <button
+                        type="button"
+                        title="Export"
+                        onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+                        style={{
+                          background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                          border: 'none',
+                          borderRadius: '8px',
+                          padding: '10px 16px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          color: '#fff',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          transition: 'all 0.2s ease',
+                          boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
+                          width: '100%',
+                          justifyContent: 'center'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)';
+                          e.target.style.boxShadow = '0 3px 10px rgba(5, 150, 105, 0.35)';
+                          e.target.style.transform = 'translateY(-1px)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+                          e.target.style.boxShadow = '0 2px 6px rgba(5, 150, 105, 0.25)';
+                          e.target.style.transform = 'translateY(0)';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
+                        <span>Export</span>
+                        <span className="material-icons" style={{ fontSize: '18px' }}>
+                          {showDownloadDropdown ? 'expand_less' : 'expand_more'}
+                        </span>
+                      </button>
+
+                      {/* Download Dropdown Menu - Mobile */}
+                      {showDownloadDropdown && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '48px',
+                          left: '0',
+                          right: '0',
+                          background: 'white',
+                          borderRadius: '8px',
+                          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                          zIndex: 1000,
+                          width: '100%',
+                          overflow: 'hidden',
+                          border: '1px solid #e2e8f0'
+                        }}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              exportToPDF();
+                              setShowDownloadDropdown(false);
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '12px 16px',
+                              border: 'none',
+                              background: 'white',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              color: '#1e293b',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              transition: 'background 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
+                            onMouseLeave={(e) => e.target.style.background = 'white'}
+                          >
+                            <span className="material-icons" style={{ fontSize: '20px', color: '#dc2626' }}>picture_as_pdf</span>
+                            <span>Export as PDF</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              exportToExcel();
+                              setShowDownloadDropdown(false);
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '12px 16px',
+                              border: 'none',
+                              borderTop: '1px solid #e2e8f0',
+                              background: 'white',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '10px',
+                              color: '#1e293b',
+                              fontSize: '14px',
+                              textAlign: 'left',
+                              transition: 'background 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
+                            onMouseLeave={(e) => e.target.style.background = 'white'}
+                          >
+                            <span className="material-icons" style={{ fontSize: '20px', color: '#16a34a' }}>table_chart</span>
+                            <span>Export as Excel</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Mobile: Buttons Section */}
-            <div style={{ 
-              display: 'grid',
-              gridTemplateColumns: '1fr',
-              gap: '10px', 
-              width: '100%',
-              boxSizing: 'border-box'
-            }}>
-              {/* Create Custom Card Button */}
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  console.log('🔒 Opening Custom Card Modal - using existing sales data only, no API calls should occur. Sales data count:', sales.length);
-                  setShowCustomCardModal(true);
-                }}
-                disabled={sales.length === 0}
-                style={{
-                  background: sales.length === 0 
-                    ? '#e5e7eb' 
-                    : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                  color: sales.length === 0 ? '#9ca3af' : '#fff',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '10px 16px',
-                  cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: sales.length === 0 
-                    ? 'none' 
-                    : '0 2px 4px rgba(16, 185, 129, 0.2)',
-                  whiteSpace: 'nowrap',
-                  justifyContent: 'center',
-                  width: '100%'
-                }}
-                onMouseEnter={(e) => {
-                  if (sales.length > 0) {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (sales.length > 0) {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
-                  }
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: '18px' }}>add_chart</span>
-                <span>Create Custom Card</span>
-              </button>
-
-              {/* Calendar Button */}
-              <button
-                type="button"
-                onClick={handleOpenCalendar}
-                title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
-                style={{
-                  background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
-                  border: 'none',
-                  borderRadius: '8px',
-                  padding: '10px 16px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  color: '#fff',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 3px 8px rgba(124, 58, 237, 0.3)',
-                  justifyContent: 'center',
-                  whiteSpace: 'nowrap',
-                  width: '100%'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
-                  e.target.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)';
-                  e.target.style.transform = 'translateY(-1px)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
-                  e.target.style.boxShadow = '0 3px 8px rgba(124, 58, 237, 0.3)';
-                  e.target.style.transform = 'translateY(0)';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: '18px' }}>calendar_month</span>
-                <span>Select Date Range</span>
-              </button>
-
-              {/* Last Updated & Refresh - Mobile */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '8px',
-                width: '100%',
-                padding: '10px 12px',
-                background: '#f8fafc',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
-                boxSizing: 'border-box'
-              }}>
+                </>
+              ) : (
                 <div style={{
                   display: 'flex',
+                  flexDirection: 'row',
                   alignItems: 'center',
-                  gap: '6px',
-                  flex: '1 1 0',
-                  minWidth: 0,
-                  overflow: 'hidden'
-                }}>
-                  <span className="material-icons" style={{ fontSize: '16px', color: '#64748b', flexShrink: 0 }}>schedule</span>
-                  <span style={{
-                    fontSize: '11px',
-                    color: '#64748b',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    flex: '1 1 0',
-                    minWidth: 0
-                  }}>
-                    {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRefresh}
-                  disabled={loading || !fromDate || !toDate}
-                  style={{
-                    background: loading || !fromDate || !toDate
-                      ? '#e5e7eb'
-                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: '6px 10px',
-                    cursor: loading || !fromDate || !toDate ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '4px',
-                    color: loading || !fromDate || !toDate ? '#9ca3af' : '#fff',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: loading || !fromDate || !toDate
-                      ? 'none'
-                      : '0 2px 4px rgba(59, 130, 246, 0.25)',
-                    flexShrink: 0,
-                    whiteSpace: 'nowrap'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!loading && fromDate && toDate) {
-                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!loading && fromDate && toDate) {
-                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
-                    }
-                  }}
-                >
-                  <span className="material-icons" style={{
-                    fontSize: '16px',
-                    animation: loading ? 'spin 1s linear infinite' : 'none'
-                  }}>refresh</span>
-                  <span>Refresh</span>
-                </button>
-              </div>
-
-              {/* Download Button */}
-              <div style={{ position: 'relative', width: '100%' }} ref={downloadDropdownRef}>
-                <button
-                  type="button"
-                  title="Download"
-                  onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
-                  style={{
-                    background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '10px 16px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    color: '#fff',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
-                    width: '100%',
-                    justifyContent: 'center'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)';
-                    e.target.style.boxShadow = '0 3px 10px rgba(5, 150, 105, 0.35)';
-                    e.target.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                    e.target.style.boxShadow = '0 2px 6px rgba(5, 150, 105, 0.25)';
-                    e.target.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
-                  <span>Download</span>
-                  <span className="material-icons" style={{ fontSize: '18px' }}>
-                    {showDownloadDropdown ? 'expand_less' : 'expand_more'}
-                  </span>
-                </button>
-                
-                {/* Download Dropdown Menu - Mobile */}
-                {showDownloadDropdown && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '48px',
-                    left: '0',
-                    right: '0',
-                    background: 'white',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                    zIndex: 1000,
-                    width: '100%',
-                    overflow: 'hidden',
-                    border: '1px solid #e2e8f0'
-                  }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        exportToPDF();
-                        setShowDownloadDropdown(false);
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '12px 16px',
-                        border: 'none',
-                        background: 'white',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        color: '#1e293b',
-                        fontSize: '14px',
-                        textAlign: 'left',
-                        transition: 'background 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
-                      onMouseLeave={(e) => e.target.style.background = 'white'}
-                    >
-                      <span className="material-icons" style={{ fontSize: '20px', color: '#dc2626' }}>picture_as_pdf</span>
-                      <span>Export as PDF</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        exportToExcel();
-                        setShowDownloadDropdown(false);
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '12px 16px',
-                        border: 'none',
-                        borderTop: '1px solid #e2e8f0',
-                        background: 'white',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        color: '#1e293b',
-                        fontSize: '14px',
-                        textAlign: 'left',
-                        transition: 'background 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
-                      onMouseLeave={(e) => e.target.style.background = 'white'}
-                    >
-                      <span className="material-icons" style={{ fontSize: '20px', color: '#16a34a' }}>table_chart</span>
-                      <span>Export as Excel</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
-        ) : (
-          <div style={{
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: '16px',
-            flexWrap: 'wrap',
-            width: '100%',
-            position: 'relative',
-            overflow: 'visible'
-          }}>
-            {/* Desktop: Icon + Title Section */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              flex: '0 1 auto',
-              minWidth: '200px',
-              maxWidth: '400px',
-              overflow: 'hidden'
-            }}>
-              <div style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '10px',
-                background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                flexShrink: 0
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
-              }}
-              >
-                <span className="material-icons" style={{ color: 'white', fontSize: '22px' }}>analytics</span>
-              </div>
-              <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
-                <h1 style={{
-                  margin: 0,
-                  color: '#0f172a',
-                  fontSize: '24px',
-                  fontWeight: '800',
-                  lineHeight: '1.2',
-                  letterSpacing: '-0.02em',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis'
-                }}>
-                  Sales Analytics Dashboard
-                </h1>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '10px', 
-                  marginTop: '4px', 
+                  gap: '16px',
                   flexWrap: 'wrap',
-                  overflow: 'hidden',
-                  minWidth: 0
+                  width: '100%',
+                  position: 'relative',
+                  overflow: 'visible'
                 }}>
-                  <p style={{
-                    margin: 0,
-                    color: '#64748b',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    lineHeight: '1.4',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    flex: '0 1 auto'
-                  }}>
-                    Comprehensive sales insights
-                  </p>
-                  {/* Records Available Badge - Inline */}
+                  {/* Desktop: Icon + Title Section */}
                   <div style={{
-                    display: 'inline-flex',
-                    background: '#f0f9ff',
-                    color: '#0369a1',
-                    padding: '4px 10px',
-                    borderRadius: '16px',
-                    fontSize: '11px',
-                    fontWeight: '600',
+                    display: 'flex',
                     alignItems: 'center',
-                    gap: '5px',
-                    border: '1px solid #bae6fd',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0
+                    gap: '12px',
+                    flex: '0 1 auto',
+                    minWidth: '200px',
+                    maxWidth: '400px',
+                    overflow: 'hidden'
                   }}>
-                    <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
-                    {filteredSales.length} records
+                    <div style={{
+                      width: '44px',
+                      height: '44px',
+                      borderRadius: '10px',
+                      background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
+                      transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                      flexShrink: 0
+                    }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'scale(1.05)';
+                        e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'scale(1)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
+                      }}
+                    >
+                      <span className="material-icons" style={{ color: 'white', fontSize: '22px' }}>analytics</span>
+                    </div>
+                    <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
+                      <h1 style={{
+                        margin: 0,
+                        color: '#0f172a',
+                        fontSize: '24px',
+                        fontWeight: '800',
+                        lineHeight: '1.2',
+                        letterSpacing: '-0.02em',
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
+                      }}>
+                        Sales Analytics Dashboard
+                      </h1>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        marginTop: '4px',
+                        flexWrap: 'wrap',
+                        overflow: 'hidden',
+                        minWidth: 0
+                      }}>
+                        <p style={{
+                          margin: 0,
+                          color: '#64748b',
+                          fontSize: '13px',
+                          fontWeight: '500',
+                          lineHeight: '1.4',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          flex: '0 1 auto'
+                        }}>
+                          Comprehensive sales insights
+                        </p>
+                        {/* Records Available Badge - Inline */}
+                        <div style={{
+                          display: 'inline-flex',
+                          background: '#f0f9ff',
+                          color: '#0369a1',
+                          padding: '4px 10px',
+                          borderRadius: '16px',
+                          fontSize: '11px',
+                          fontWeight: '600',
+                          alignItems: 'center',
+                          gap: '5px',
+                          border: '1px solid #bae6fd',
+                          whiteSpace: 'nowrap',
+                          flexShrink: 0
+                        }}>
+                          <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
+                          {filteredSales.length} records
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Desktop: Buttons */}
+                  {/* Create Custom Card Button - Desktop */}
+                  <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        console.log('🔒 Opening Custom Card Modal - using existing sales data only, no API calls should occur. Sales data count:', sales.length);
+                        setShowCustomCardModal(true);
+                      }}
+                      disabled={sales.length === 0}
+                      style={{
+                        background: sales.length === 0
+                          ? '#e5e7eb'
+                          : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                        color: sales.length === 0 ? '#9ca3af' : '#fff',
+                        border: 'none',
+                        borderRadius: '10px',
+                        padding: '10px 20px',
+                        cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        transition: 'all 0.2s ease',
+                        boxShadow: sales.length === 0
+                          ? 'none'
+                          : '0 2px 4px rgba(16, 185, 129, 0.2)',
+                        whiteSpace: 'nowrap'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (sales.length > 0) {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+                          e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (sales.length > 0) {
+                          e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                          e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
+                        }
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '20px' }}>add_chart</span>
+                      Create Custom Card
+                    </button>
+                  </div>
+
+                  {/* Center: Calendar Button - Desktop */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    flex: '0 1 auto',
+                    justifyContent: 'center',
+                    flexWrap: 'wrap',
+                    minWidth: '140px',
+                    flexShrink: 1
+                  }}>
+                    <button
+                      type="button"
+                      onClick={handleOpenCalendar}
+                      title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
+                      style={{
+                        background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                        border: 'none',
+                        borderRadius: '10px',
+                        padding: '9px 18px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        color: '#fff',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 3px 8px rgba(124, 58, 237, 0.3)',
+                        minWidth: '140px',
+                        justifyContent: 'center',
+                        height: '40px',
+                        whiteSpace: 'nowrap'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
+                        e.target.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)';
+                        e.target.style.transform = 'translateY(-1px)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
+                        e.target.style.boxShadow = '0 3px 8px rgba(124, 58, 237, 0.3)';
+                        e.target.style.transform = 'translateY(0)';
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '16px' }}>calendar_month</span>
+                      <span>
+                        {fromDate && toDate ? 'Date Range' : 'Select Dates'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Last Updated & Refresh - Desktop */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    flex: '0 0 auto',
+                    padding: '6px 12px',
+                    background: '#f8fafc',
+                    borderRadius: '8px',
+                    border: '1px solid #e2e8f0',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    position: 'relative',
+                    overflow: 'hidden'
+                  }}>
+                    {/* Progress Bar Background */}
+                    {isDownloadingCache && (() => {
+                      const current = cacheDownloadProgress.current || 0;
+                      const total = cacheDownloadProgress.total || 0;
+                      const hasTotal = total > 0;
+                      const progressPercentage = hasTotal && total > 0
+                        ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
+                        : 0;
+                      const displayProgress = hasTotal
+                        ? (progressPercentage === 0 ? 5 : Math.max(progressPercentage, 1))
+                        : 0;
+
+                      return (
+                        <div style={{
+                          position: 'absolute',
+                          top: 0,
+                          left: 0,
+                          bottom: 0,
+                          width: hasTotal ? `${displayProgress}%` : '30%',
+                          background: hasTotal
+                            ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)'
+                            : 'linear-gradient(90deg, #10b981 0%, #059669 100%)',
+                          transition: hasTotal ? 'width 0.3s ease' : 'none',
+                          animation: !hasTotal ? 'indeterminateProgress 1.5s ease-in-out infinite' : 'none',
+                          zIndex: 0
+                        }} />
+                      );
+                    })()}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      position: 'relative',
+                      zIndex: 1
+                    }}>
+                      <span className="material-icons" style={{ fontSize: '14px', color: '#64748b' }}>schedule</span>
+                      <span style={{
+                        fontSize: '12px',
+                        color: '#64748b',
+                        whiteSpace: 'nowrap'
+                      }}>
+                        {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRefresh}
+                      disabled={loading || !fromDate || !toDate || isDownloadingCache}
+                      style={{
+                        background: loading || !fromDate || !toDate || isDownloadingCache
+                          ? '#e5e7eb'
+                          : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                        border: 'none',
+                        borderRadius: '6px',
+                        padding: '6px 12px',
+                        cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
+                        fontSize: '12px',
+                        fontWeight: '600',
+                        transition: 'all 0.2s ease',
+                        boxShadow: loading || !fromDate || !toDate || isDownloadingCache
+                          ? 'none'
+                          : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                        position: 'relative',
+                        zIndex: 1
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!loading && fromDate && toDate && !isDownloadingCache) {
+                          e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
+                          e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!loading && fromDate && toDate && !isDownloadingCache) {
+                          e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
+                          e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                        }
+                      }}
+                    >
+                      <span className="material-icons" style={{
+                        fontSize: '16px',
+                        animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
+                      }}>
+                        {downloadStatus === 'none' ? 'download' : downloadStatus === 'interrupted' ? 'play_arrow' : 'refresh'}
+                      </span>
+                      <span>
+                        {downloadStatus === 'none' ? 'Download' : downloadStatus === 'interrupted' ? 'Continue Download' : 'Refresh'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Right: Download Dropdown - Desktop */}
+                  <div style={{
+                    display: 'flex',
+                    gap: '6px',
+                    alignItems: 'center',
+                    flex: '0 0 auto',
+                    justifyContent: 'flex-end',
+                    minWidth: '120px',
+                    position: 'relative',
+                    flexShrink: 0
+                  }} ref={downloadDropdownRef}>
+                    <button
+                      type="button"
+                      title="Export"
+                      onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+                      style={{
+                        background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                        border: 'none',
+                        borderRadius: '8px',
+                        padding: '8px 16px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        color: '#fff',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        transition: 'all 0.2s ease',
+                        boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
+                        height: '40px'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)';
+                        e.target.style.boxShadow = '0 3px 10px rgba(5, 150, 105, 0.35)';
+                        e.target.style.transform = 'translateY(-1px)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
+                        e.target.style.boxShadow = '0 2px 6px rgba(5, 150, 105, 0.25)';
+                        e.target.style.transform = 'translateY(0)';
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
+                      <span>Export</span>
+                      <span className="material-icons" style={{ fontSize: '18px' }}>
+                        {showDownloadDropdown ? 'expand_less' : 'expand_more'}
+                      </span>
+                    </button>
+
+                    {/* Download Dropdown Menu - Desktop */}
+                    {showDownloadDropdown && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '45px',
+                        right: '0',
+                        background: 'white',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                        zIndex: 1000,
+                        minWidth: '150px',
+                        overflow: 'hidden',
+                        border: '1px solid #e2e8f0'
+                      }}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            exportToPDF();
+                            setShowDownloadDropdown(false);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '12px 16px',
+                            border: 'none',
+                            background: 'white',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            color: '#1e293b',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            transition: 'background 0.2s ease',
+                            textAlign: 'left'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = '#f8fafc';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = 'white';
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px', color: '#dc2626' }}>picture_as_pdf</span>
+                          <span>PDF</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            exportToExcel();
+                            setShowDownloadDropdown(false);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '12px 16px',
+                            border: 'none',
+                            background: 'white',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            color: '#1e293b',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            transition: 'background 0.2s ease',
+                            textAlign: 'left',
+                            borderTop: '1px solid #e2e8f0'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = '#f8fafc';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = 'white';
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px', color: '#059669' }}>table_chart</span>
+                          <span>Excel</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            printDashboard();
+                            setShowDownloadDropdown(false);
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '12px 16px',
+                            border: 'none',
+                            background: 'white',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            color: '#1e293b',
+                            fontSize: '13px',
+                            fontWeight: '500',
+                            transition: 'background 0.2s ease',
+                            textAlign: 'left',
+                            borderTop: '1px solid #e2e8f0'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = '#f8fafc';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = 'white';
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px', color: '#1e40af' }}>print</span>
+                          <span>Print</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
-            {/* Desktop: Buttons */}
-            {/* Create Custom Card Button - Desktop */}
-            <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('🔒 Opening Custom Card Modal - using existing sales data only, no API calls should occur. Sales data count:', sales.length);
-                    setShowCustomCardModal(true);
-                  }}
-                  disabled={sales.length === 0}
-                  style={{
-                    background: sales.length === 0 
-                      ? '#e5e7eb' 
-                      : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                    color: sales.length === 0 ? '#9ca3af' : '#fff',
-                    border: 'none',
-                    borderRadius: '10px',
-                    padding: '10px 20px',
-                    cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: sales.length === 0 
-                      ? 'none' 
-                      : '0 2px 4px rgba(16, 185, 129, 0.2)',
-                    whiteSpace: 'nowrap'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (sales.length > 0) {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (sales.length > 0) {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
-                    }
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '20px' }}>add_chart</span>
-                  Create Custom Card
-                </button>
-              </div>
+            {/* Progress Bar - Removed: Sales dashboard uses cache-only mode, no server fetching notifications */}
 
-              {/* Center: Calendar Button - Desktop */}
+            {/* Error Message */}
+            {error && (
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                flex: '0 1 auto',
-                justifyContent: 'center',
-                flexWrap: 'wrap',
-                minWidth: '140px',
-                flexShrink: 1
-              }}>
-                <button
-                  type="button"
-                  onClick={handleOpenCalendar}
-                  title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
-                  style={{
-                    background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
-                    border: 'none',
-                    borderRadius: '10px',
-                    padding: '9px 18px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    color: '#fff',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 3px 8px rgba(124, 58, 237, 0.3)',
-                    minWidth: '140px',
-                    justifyContent: 'center',
-                    height: '40px',
-                    whiteSpace: 'nowrap'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
-                    e.target.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)';
-                    e.target.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
-                    e.target.style.boxShadow = '0 3px 8px rgba(124, 58, 237, 0.3)';
-                    e.target.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>calendar_month</span>
-                  <span>
-                    {fromDate && toDate ? 'Date Range' : 'Select Dates'}
-                  </span>
-                </button>
-              </div>
-
-              {/* Last Updated & Refresh - Desktop */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                flex: '0 0 auto',
-                padding: '6px 12px',
-                background: '#f8fafc',
+                background: noCompanySelected ? '#fef3c7' : '#fef2f2',
+                border: noCompanySelected ? '1px solid #f59e0b' : '1px solid #fecaca',
                 borderRadius: '8px',
-                border: '1px solid #e2e8f0',
-                whiteSpace: 'nowrap',
-                flexShrink: 0
-              }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}>
-                  <span className="material-icons" style={{ fontSize: '14px', color: '#64748b' }}>schedule</span>
-                  <span style={{
-                    fontSize: '12px',
-                    color: '#64748b',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRefresh}
-                  disabled={loading || !fromDate || !toDate}
-                  style={{
-                    background: loading || !fromDate || !toDate
-                      ? '#e5e7eb'
-                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                    border: 'none',
-                    borderRadius: '6px',
-                    padding: '6px 12px',
-                    cursor: loading || !fromDate || !toDate ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    color: loading || !fromDate || !toDate ? '#9ca3af' : '#fff',
-                    fontSize: '12px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: loading || !fromDate || !toDate
-                      ? 'none'
-                      : '0 2px 4px rgba(59, 130, 246, 0.25)'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!loading && fromDate && toDate) {
-                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!loading && fromDate && toDate) {
-                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
-                    }
-                  }}
-                >
-                  <span className="material-icons" style={{
-                    fontSize: '16px',
-                    animation: loading ? 'spin 1s linear infinite' : 'none'
-                  }}>refresh</span>
-                  <span>Refresh</span>
-                </button>
-              </div>
-
-              {/* Right: Download Dropdown - Desktop */}
-              <div style={{
-                display: 'flex', 
-                gap: '6px', 
+                padding: '12px 16px',
+                margin: '16px 0',
+                color: noCompanySelected ? '#92400e' : '#dc2626',
+                fontSize: '14px',
+                display: 'flex',
                 alignItems: 'center',
-                flex: '0 0 auto',
-                justifyContent: 'flex-end',
-                minWidth: '120px',
-                position: 'relative',
-                flexShrink: 0
-              }} ref={downloadDropdownRef}>
-                <button
-                  type="button"
-                  title="Download"
-                  onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
-                  style={{
-                    background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '8px 16px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    color: '#fff',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
-                    height: '40px'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)';
-                    e.target.style.boxShadow = '0 3px 10px rgba(5, 150, 105, 0.35)';
-                    e.target.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                    e.target.style.boxShadow = '0 2px 6px rgba(5, 150, 105, 0.25)';
-                    e.target.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
-                  <span>Download</span>
-                  <span className="material-icons" style={{ fontSize: '18px' }}>
-                    {showDownloadDropdown ? 'expand_less' : 'expand_more'}
-                  </span>
-                </button>
-                
-                {/* Download Dropdown Menu - Desktop */}
-                {showDownloadDropdown && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '45px',
-                    right: '0',
-                    background: 'white',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                    zIndex: 1000,
-                    minWidth: '150px',
-                    overflow: 'hidden',
-                    border: '1px solid #e2e8f0'
-                  }}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    exportToPDF();
-                    setShowDownloadDropdown(false);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: 'none',
-                    background: 'white',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    color: '#1e293b',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    transition: 'background 0.2s ease',
-                    textAlign: 'left'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = '#f8fafc';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'white';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '18px', color: '#dc2626' }}>picture_as_pdf</span>
-                  <span>PDF</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    exportToExcel();
-                    setShowDownloadDropdown(false);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: 'none',
-                    background: 'white',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    color: '#1e293b',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    transition: 'background 0.2s ease',
-                    textAlign: 'left',
-                    borderTop: '1px solid #e2e8f0'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = '#f8fafc';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'white';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '18px', color: '#059669' }}>table_chart</span>
-                  <span>Excel</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    printDashboard();
-                    setShowDownloadDropdown(false);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    border: 'none',
-                    background: 'white',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    color: '#1e293b',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    transition: 'background 0.2s ease',
-                    textAlign: 'left',
-                    borderTop: '1px solid #e2e8f0'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = '#f8fafc';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'white';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '18px', color: '#1e40af' }}>print</span>
-                  <span>Print</span>
-                </button>
+                gap: '8px'
+              }}>
+                <span className="material-icons" style={{ fontSize: '18px' }}>
+                  {noCompanySelected ? 'warning' : 'error'}
+                </span>
+                {error}
               </div>
             )}
-              </div>
-          </div>
-        )}
-        </div>
-
-        {/* Progress Bar - Removed: Sales dashboard uses cache-only mode, no server fetching notifications */}
-
-        {/* Error Message */}
-        {error && (
-          <div style={{
-            background: noCompanySelected ? '#fef3c7' : '#fef2f2',
-            border: noCompanySelected ? '1px solid #f59e0b' : '1px solid #fecaca',
-            borderRadius: '8px',
-            padding: '12px 16px',
-            margin: '16px 0',
-            color: noCompanySelected ? '#92400e' : '#dc2626',
-            fontSize: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            <span className="material-icons" style={{ fontSize: '18px' }}>
-              {noCompanySelected ? 'warning' : 'error'}
-            </span>
-            {error}
-          </div>
-        )}
 
 
-        {/* Active Filters Display */}
-        {hasActiveFilters && (
-          <div style={{ marginBottom: isMobile ? '12px' : '16px' }}>
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: isMobile ? '8px' : '12px',
-              flexWrap: 'wrap'
-            }}>
-              <span style={{
-                fontSize: isMobile ? '11px' : '12px',
-                fontWeight: '600',
-                color: '#64748b',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em'
-              }}>
-                Active Filters:
-              </span>
-              
-              {selectedCustomer !== 'all' && (
+            {/* Active Filters Display */}
+            {hasActiveFilters && (
+              <div style={{ marginBottom: isMobile ? '12px' : '16px' }}>
                 <div style={{
-                  background: '#dbeafe',
-                  border: '1px solid #93c5fd',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
-                  color: '#1e40af',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: isMobile ? '8px' : '12px',
+                  flexWrap: 'wrap'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>person</span>
-                  {isMobile ? 'Customer' : 'Customer:'} {selectedCustomer}
-                  <button
-                    onClick={() => setSelectedCustomer('all')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#1e40af',
-                      cursor: 'pointer',
-                      padding: '2px',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#93c5fd';
-                      e.target.style.color = '#1e40af';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#1e40af';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
-                  </button>
-                </div>
-              )}
-              
-              {selectedItem !== 'all' && (
-                <div style={{
-                  background: '#dcfce7',
-                  border: '1px solid #86efac',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
-                  color: '#166534',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>inventory_2</span>
-                  {isMobile ? 'Item' : 'Item:'} {selectedItem}
-                  <button
-                    onClick={() => setSelectedItem('all')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#166534',
-                      cursor: 'pointer',
-                      padding: '2px',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#86efac';
-                      e.target.style.color = '#166534';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#166534';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
-                  </button>
-                </div>
-              )}
-              
-              {selectedStockGroup !== 'all' && (
-                <div style={{
-                  background: '#fef3c7',
-                  border: '1px solid #fcd34d',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
-                  color: '#92400e',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>category</span>
-                  {isMobile ? 'Stock' : 'Stock Group:'} {selectedStockGroup}
-                  <button
-                    onClick={() => setSelectedStockGroup('all')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#92400e',
-                      cursor: 'pointer',
-                      padding: '2px',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#fcd34d';
-                      e.target.style.color = '#92400e';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#92400e';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
-                  </button>
-                </div>
-              )}
-              
-              {selectedLedgerGroup !== 'all' && (
-                <div style={{
-                  background: '#f3e8ff',
-                  border: '1px solid #c4b5fd',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
-                  color: '#6b21a8',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>account_tree</span>
-                  {isMobile ? 'Ledger' : 'Ledger Group:'} {selectedLedgerGroup}
-                  <button
-                    onClick={() => setSelectedLedgerGroup('all')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#6b21a8',
-                      cursor: 'pointer',
-                      padding: '2px',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#c4b5fd';
-                      e.target.style.color = '#6b21a8';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#6b21a8';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
-                  </button>
-                </div>
-              )}
-              
-              {selectedRegion !== 'all' && (
-                <div style={{
-                  background: '#e0e7ff',
-                  border: '1px solid #a5b4fc',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
-                  color: '#3730a3',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>place</span>
-                  {isMobile ? 'State' : 'State:'} {selectedRegion}
-                  <button
-                    onClick={() => setSelectedRegion('all')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#3730a3',
-                      cursor: 'pointer',
-                      padding: '2px',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#a5b4fc';
-                      e.target.style.color = '#3730a3';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#3730a3';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
-                  </button>
-                </div>
-              )}
+                  <span style={{
+                    fontSize: isMobile ? '11px' : '12px',
+                    fontWeight: '600',
+                    color: '#64748b',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em'
+                  }}>
+                    Active Filters:
+                  </span>
 
-              {selectedCountry !== 'all' && (
-                <div style={{
-                  background: '#fef3c7',
-                  border: '1px solid #fcd34d',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
-                  color: '#92400e',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>public</span>
-                  {isMobile ? 'Country' : 'Country:'} {selectedCountry}
-                  <button
-                    onClick={() => setSelectedCountry('all')}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#92400e',
-                      cursor: 'pointer',
-                      padding: '2px',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#fcd34d';
-                      e.target.style.color = '#92400e';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#92400e';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
-                  </button>
-                </div>
-              )}
-
-              {selectedPeriod && (
-                <div style={{
-                  background: '#fce7f3',
-                  border: '1px solid #f9a8d4',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
-                  color: '#9d174d',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>calendar_month</span>
-                  {isMobile ? 'Period' : 'Period:'} {formatPeriodLabel(selectedPeriod)}
-                  <button
-                    onClick={() => setSelectedPeriod(null)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#9d174d',
-                      cursor: 'pointer',
-                      padding: '2px',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#f9a8d4';
-                      e.target.style.color = '#9d174d';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#9d174d';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
-                  </button>
-                </div>
-              )}
-
-              {selectedSalesperson && (
-                <div style={{
-                  background: '#fff7ed',
-                  border: '1px solid #fed7aa',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
-                  color: '#c2410c',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>person_outline</span>
-                  {isMobile ? 'Salesperson' : 'Salesperson:'} {selectedSalesperson}
-                  <button
-                    onClick={() => setSelectedSalesperson(null)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#c2410c',
-                      cursor: 'pointer',
-                      padding: '2px',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#fed7aa';
-                      e.target.style.color = '#c2410c';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#c2410c';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
-                  </button>
-                </div>
-              )}
-
-              {/* Display generic filters from custom cards */}
-              {genericFilters && Object.keys(genericFilters).length > 0 && Object.entries(genericFilters).map(([filterKey, filterValue]) => {
-                if (!filterValue || filterValue === 'all' || filterValue === '') return null;
-                
-                // Extract cardId and fieldName from filterKey (format: "cardId_fieldName")
-                const [cardId, ...fieldParts] = filterKey.split('_');
-                const fieldName = fieldParts.join('_'); // Rejoin in case fieldName contains underscores
-                
-                // Find the card to get its title and groupBy field
-                const card = customCards.find(c => c.id === cardId);
-                if (!card) return null;
-                
-                // Format field name for display
-                const fieldLabel = fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
-                
-                return (
-                  <div
-                    key={filterKey}
-                    style={{
-                      background: '#f0f9ff',
-                      border: '1px solid #7dd3fc',
+                  {selectedCustomer !== 'all' && (
+                    <div style={{
+                      background: '#dbeafe',
+                      border: '1px solid #93c5fd',
                       borderRadius: '16px',
                       padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
                       fontSize: isMobile ? '11px' : '12px',
-                      color: '#0c4a6e',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: isMobile ? '4px' : '6px'
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>filter_alt</span>
-                    {isMobile ? `${card.title}: ${fieldLabel}` : `${card.title}: ${fieldLabel} = ${filterValue}`}
-                    <button
-                      onClick={() => {
-                        setGenericFilters(prev => {
-                          const updated = { ...prev };
-                          delete updated[filterKey];
-                          try {
-                            sessionStorage.setItem('customCardGenericFilters', JSON.stringify(updated));
-                          } catch (e) {
-                            console.warn('Failed to update generic filters:', e);
-                          }
-                          return updated;
-                        });
-                      }}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: '#0c4a6e',
-                        cursor: 'pointer',
-                        padding: '2px',
-                        borderRadius: '50%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        transition: 'all 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.target.style.background = '#7dd3fc';
-                        e.target.style.color = '#0c4a6e';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.target.style.background = 'none';
-                        e.target.style.color = '#0c4a6e';
-                      }}
-                    >
-                      <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Clear Filters Button */}
-          {hasActiveFilters && (
-            <div style={{ marginBottom: isMobile ? '12px' : '20px' }}>
-              <button
-                type="button"
-                onClick={clearAllFilters}
-                style={{
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  padding: isMobile ? '6px 12px' : '8px 16px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: isMobile ? '6px' : '8px',
-                  color: '#64748b',
-                  fontSize: isMobile ? '12px' : '14px',
-                  fontWeight: '500',
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#f1f5f9';
-                  e.target.style.borderColor = '#cbd5e1';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#f8fafc';
-                  e.target.style.borderColor = '#e2e8f0';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>clear</span>
-                {isMobile ? 'Clear Filters' : 'Clear All Filters'}
-              </button>
-            </div>
-          )}
-
-        {/* Dashboard Content */}
-        <div style={{ padding: isMobile ? '12px 16px' : '24px 28px 28px 28px' }}>
-          {/* Date Range Display */}
-          {fromDate && toDate && (
-            <div style={{
-              marginBottom: isMobile ? '16px' : '24px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: isMobile ? '8px' : '12px',
-              fontSize: isMobile ? '14px' : '16px',
-              fontWeight: '600',
-              color: '#475569',
-              flexWrap: 'wrap'
-            }}>
-              <span>
-                {new Date(fromDate).toLocaleDateString('en-IN', { 
-                  day: 'numeric', 
-                  month: 'short', 
-                  year: 'numeric' 
-                })}
-              </span>
-              <span style={{ color: '#94a3b8' }}>→</span>
-              <span>
-                {new Date(toDate).toLocaleDateString('en-IN', { 
-                  day: 'numeric', 
-                  month: 'short', 
-                  year: 'numeric' 
-                })}
-              </span>
-            </div>
-          )}
-          
-          {/* KPI Cards */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: isMobile ? '12px' : '20px',
-            marginBottom: isMobile ? '16px' : '28px'
-          }}>
-            <div style={{
-              background: 'white',
-              borderRadius: isMobile ? '12px' : '14px',
-              padding: isMobile ? '16px' : '20px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              transition: 'all 0.3s ease',
-              cursor: 'default'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.borderColor = '#cbd5e1';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = '#e2e8f0';
-            }}
-            >
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                  Total Revenue
-                </p>
-                <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                  ₹{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-              </div>
-              <div style={{
-                width: isMobile ? '40px' : '52px',
-                height: isMobile ? '40px' : '52px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(59, 130, 246, 0.15)'
-              }}>
-                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>account_balance_wallet</span>
-              </div>
-            </div>
-
-            <div style={{
-              background: 'white',
-              borderRadius: isMobile ? '12px' : '14px',
-              padding: isMobile ? '16px' : '20px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              transition: 'all 0.3s ease',
-              cursor: 'default'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.borderColor = '#cbd5e1';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = '#e2e8f0';
-            }}
-            >
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                  Total Invoices
-                </p>
-                <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                  {totalOrders}
-                </p>
-              </div>
-              <div style={{
-                width: isMobile ? '40px' : '52px',
-                height: isMobile ? '40px' : '52px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(22, 163, 74, 0.15)'
-              }}>
-                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>shopping_cart</span>
-              </div>
-            </div>
-
-            <div style={{
-              background: 'white',
-              borderRadius: isMobile ? '12px' : '14px',
-              padding: isMobile ? '16px' : '20px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              transition: 'all 0.3s ease',
-              cursor: 'default'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.borderColor = '#cbd5e1';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = '#e2e8f0';
-            }}
-            >
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                  Unique Customers
-                </p>
-                <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                  {uniqueCustomers}
-                </p>
-              </div>
-              <div style={{
-                width: isMobile ? '40px' : '52px',
-                height: isMobile ? '40px' : '52px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #e9d5ff 0%, #ddd6fe 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(147, 51, 234, 0.15)'
-              }}>
-                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#9333ea' }}>people</span>
-              </div>
-            </div>
-
-            <div style={{
-              background: 'white',
-              borderRadius: isMobile ? '12px' : '14px',
-              padding: isMobile ? '16px' : '20px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              transition: 'all 0.3s ease',
-              cursor: 'default'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.borderColor = '#cbd5e1';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = '#e2e8f0';
-            }}
-            >
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                  Avg Invoice Value
-                </p>
-                <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                  ₹{avgOrderValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-              </div>
-              <div style={{
-                width: isMobile ? '40px' : '52px',
-                height: isMobile ? '40px' : '52px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(22, 163, 74, 0.15)'
-              }}>
-                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>trending_up</span>
-              </div>
-              </div>
-            </div>
-
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: '20px',
-            marginBottom: isMobile ? '16px' : '28px'
-          }}>
-            {canShowProfit && (
-              <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Total Profit
-                  </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: totalProfit >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                    ₹{totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
-                <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: totalProfit >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: totalProfit >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: totalProfit >= 0 ? '#16a34a' : '#dc2626' }}>
-                    {totalProfit >= 0 ? 'trending_up' : 'trending_down'}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {canShowProfit && (
-              <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Profit Margin
-                  </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: profitMargin >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                    {profitMargin >= 0 ? '+' : ''}{profitMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
-                  </p>
-                </div>
-                <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: profitMargin >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: profitMargin >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: profitMargin >= 0 ? '#16a34a' : '#dc2626' }}>
-                    {profitMargin >= 0 ? 'percent' : 'remove'}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {canShowProfit && (
-              <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Avg Profit per Order
-                  </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                    ₹{avgProfitPerOrder.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
-                <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: avgProfitPerOrder >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: avgProfitPerOrder >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626' }}>
-                    {avgProfitPerOrder >= 0 ? 'trending_up' : 'trending_down'}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Charts Section */}
-          {/* Row 1: Sales by Ledger Group and Salesperson Totals */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
-          }}>
-            {/* Ledger Group Chart */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
-              {ledgerGroupChartType === 'bar' && (
-                <BarChart
-                  data={ledgerGroupChartData}
-                  customHeader={
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                      justifyContent: 'space-between'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => openRawData('ledgerGroup')}
-                    style={rawDataIconButtonStyle}
-                    onMouseEnter={handleRawDataButtonMouseEnter}
-                    onMouseLeave={handleRawDataButtonMouseLeave}
-                    title="View raw data"
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                  </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                    Sales by Ledger Group
-                </h3>
-                {renderCardFilterBadges('ledgerGroup')}
-                </div>
-                <select
-                  value={ledgerGroupChartType}
-                  onChange={(e) => setLedgerGroupChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                </select>
-              </div>
-                  }
-                  onBarClick={(ledgerGroup) => {
-                    console.log('🎯 Setting selectedLedgerGroup from BarChart click:', ledgerGroup);
-                    setSelectedLedgerGroup(ledgerGroup);
-                  }}
-                  onBackClick={() => setSelectedLedgerGroup('all')}
-                  showBackButton={selectedLedgerGroup !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
-                  }}
-                />
-                )}
-                {ledgerGroupChartType === 'pie' && (
-                  <PieChart
-                    data={ledgerGroupChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('ledgerGroup')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Ledger Group
-                        </h3>
-                        {renderCardFilterBadges('ledgerGroup')}
-                      </div>
-                      <select
-                        value={ledgerGroupChartType}
-                        onChange={(e) => setLedgerGroupChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onSliceClick={(ledgerGroup) => {
-                      console.log('🎯 Setting selectedLedgerGroup from PieChart click:', ledgerGroup);
-                      setSelectedLedgerGroup(ledgerGroup);
-                    }}
-                    onBackClick={() => setSelectedLedgerGroup('all')}
-                    showBackButton={selectedLedgerGroup !== 'all'}
-                    rowAction={{
-                      icon: 'table_view',
-                      title: 'View raw data',
-                      onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
-                    }}
-                  />
-                )}
-                {ledgerGroupChartType === 'treemap' && (
-                  <TreeMap
-                    data={ledgerGroupChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('ledgerGroup')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Ledger Group
-                        </h3>
-                        {renderCardFilterBadges('ledgerGroup')}
-                      </div>
-                      <select
-                        value={ledgerGroupChartType}
-                        onChange={(e) => setLedgerGroupChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onBoxClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
-                    onBackClick={() => setSelectedLedgerGroup('all')}
-                    showBackButton={selectedLedgerGroup !== 'all'}
-                    rowAction={{
-                      icon: 'table_view',
-                      title: 'View raw data',
-                      onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
-                    }}
-                  />
-                )}
-                {ledgerGroupChartType === 'line' && (
-                  <LineChart
-                    data={ledgerGroupChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('ledgerGroup')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Ledger Group
-                        </h3>
-                        {renderCardFilterBadges('ledgerGroup')}
-                      </div>
-                      <select
-                        value={ledgerGroupChartType}
-                        onChange={(e) => setLedgerGroupChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onPointClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
-                    onBackClick={() => setSelectedLedgerGroup('all')}
-                    showBackButton={selectedLedgerGroup !== 'all'}
-                    rowAction={{
-                      icon: 'table_view',
-                      title: 'View raw data',
-                      onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
-                    }}
-                  />
-                )}
-            </div>
-
-            {/* Salesperson Totals */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: '500px',
-              overflow: 'hidden'
-            }}>
-              <div style={{
-                background: 'white',
-                borderRadius: '12px',
-                padding: '12px 16px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                overflow: 'hidden'
-              }}>
-                {/* Header */}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: '12px',
-                  paddingBottom: '12px',
-                  borderBottom: '1px solid #e2e8f0'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                      type="button"
-                      onClick={() => openRawData('salesperson')}
-                      style={rawDataIconButtonStyle}
-                      onMouseEnter={handleRawDataButtonMouseEnter}
-                      onMouseLeave={handleRawDataButtonMouseLeave}
-                      title="View raw data"
-                    >
-                      <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                    </button>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                      Salesperson Totals
-                    </h3>
-                    {renderCardFilterBadges('salesperson')}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowSalespersonConfig(!showSalespersonConfig)}
-                    style={{
-                      padding: '6px 12px',
-                      background: showSalespersonConfig ? '#2c5aa0' : '#3182ce',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '12px',
-                      fontWeight: '500',
-                      transition: 'background-color 0.2s',
+                      color: '#1e40af',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '6px'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#2c5aa0';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = showSalespersonConfig ? '#2c5aa0' : '#3182ce';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: '16px' }}>settings</span>
-                    {showSalespersonConfig ? 'Hide Config' : 'Configure Salespersons'}
-                  </button>
-                </div>
-
-                {/* Config Panel */}
-                {showSalespersonConfig && (
-                  <div style={{
-                    background: '#f8fafc',
-                    borderRadius: '8px',
-                    padding: '12px',
-                    marginBottom: '12px',
-                    border: '1px solid #e2e8f0',
-                    maxHeight: '200px',
-                    overflowY: 'auto'
-                  }}>
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      marginBottom: '8px',
-                      paddingBottom: '8px',
-                      borderBottom: '1px solid #e2e8f0'
                     }}>
-                      <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1a202c' }}>
-                        Select Salespersons to Include
-                      </h4>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>person</span>
+                      {isMobile ? 'Customer' : 'Customer:'} {selectedCustomer}
+                      <button
+                        onClick={() => setSelectedCustomer('all')}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#1e40af',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = '#93c5fd';
+                          e.target.style.color = '#1e40af';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = 'none';
+                          e.target.style.color = '#1e40af';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
+                      </button>
                     </div>
+                  )}
+
+                  {selectedItem !== 'all' && (
                     <div style={{
+                      background: '#dcfce7',
+                      border: '1px solid #86efac',
+                      borderRadius: '16px',
+                      padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
+                      fontSize: isMobile ? '11px' : '12px',
+                      color: '#166534',
                       display: 'flex',
-                      flexDirection: 'column',
-                      gap: '4px',
-                      marginBottom: '8px'
+                      alignItems: 'center',
+                      gap: '6px'
                     }}>
-                      {/* Master checkbox */}
-                      <label style={{
-                        fontWeight: '600',
-                        padding: '6px 0',
-                        borderBottom: '1px solid #e5e7eb',
-                        marginBottom: '6px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        cursor: 'pointer'
-                      }}>
-                        <input
-                          type="checkbox"
-                          checked={enabledSalespersons.size === allSalespersons.length && enabledSalespersons.size > 0}
-                          onChange={() => {
-                            if (enabledSalespersons.size === allSalespersons.length) {
-                              setEnabledSalespersons(new Set());
-                            } else {
-                              setEnabledSalespersons(new Set(allSalespersons));
-                            }
+                      <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>inventory_2</span>
+                      {isMobile ? 'Item' : 'Item:'} {selectedItem}
+                      <button
+                        onClick={() => setSelectedItem('all')}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#166534',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = '#86efac';
+                          e.target.style.color = '#166534';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = 'none';
+                          e.target.style.color = '#166534';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {selectedStockGroup !== 'all' && (
+                    <div style={{
+                      background: '#fef3c7',
+                      border: '1px solid #fcd34d',
+                      borderRadius: '16px',
+                      padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
+                      fontSize: isMobile ? '11px' : '12px',
+                      color: '#92400e',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>category</span>
+                      {isMobile ? 'Stock' : 'Stock Group:'} {selectedStockGroup}
+                      <button
+                        onClick={() => setSelectedStockGroup('all')}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#92400e',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = '#fcd34d';
+                          e.target.style.color = '#92400e';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = 'none';
+                          e.target.style.color = '#92400e';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {selectedLedgerGroup !== 'all' && (
+                    <div style={{
+                      background: '#f3e8ff',
+                      border: '1px solid #c4b5fd',
+                      borderRadius: '16px',
+                      padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
+                      fontSize: isMobile ? '11px' : '12px',
+                      color: '#6b21a8',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>account_tree</span>
+                      {isMobile ? 'Ledger' : 'Ledger Group:'} {selectedLedgerGroup}
+                      <button
+                        onClick={() => setSelectedLedgerGroup('all')}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#6b21a8',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = '#c4b5fd';
+                          e.target.style.color = '#6b21a8';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = 'none';
+                          e.target.style.color = '#6b21a8';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {selectedRegion !== 'all' && (
+                    <div style={{
+                      background: '#e0e7ff',
+                      border: '1px solid #a5b4fc',
+                      borderRadius: '16px',
+                      padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
+                      fontSize: isMobile ? '11px' : '12px',
+                      color: '#3730a3',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>place</span>
+                      {isMobile ? 'State' : 'State:'} {selectedRegion}
+                      <button
+                        onClick={() => setSelectedRegion('all')}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#3730a3',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = '#a5b4fc';
+                          e.target.style.color = '#3730a3';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = 'none';
+                          e.target.style.color = '#3730a3';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {selectedCountry !== 'all' && (
+                    <div style={{
+                      background: '#fef3c7',
+                      border: '1px solid #fcd34d',
+                      borderRadius: '16px',
+                      padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
+                      fontSize: isMobile ? '11px' : '12px',
+                      color: '#92400e',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>public</span>
+                      {isMobile ? 'Country' : 'Country:'} {selectedCountry}
+                      <button
+                        onClick={() => setSelectedCountry('all')}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#92400e',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = '#fcd34d';
+                          e.target.style.color = '#92400e';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = 'none';
+                          e.target.style.color = '#92400e';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {selectedPeriod && (
+                    <div style={{
+                      background: '#fce7f3',
+                      border: '1px solid #f9a8d4',
+                      borderRadius: '16px',
+                      padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
+                      fontSize: isMobile ? '11px' : '12px',
+                      color: '#9d174d',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>calendar_month</span>
+                      {isMobile ? 'Period' : 'Period:'} {formatPeriodLabel(selectedPeriod)}
+                      <button
+                        onClick={() => setSelectedPeriod(null)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#9d174d',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = '#f9a8d4';
+                          e.target.style.color = '#9d174d';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = 'none';
+                          e.target.style.color = '#9d174d';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {selectedSalesperson && (
+                    <div style={{
+                      background: '#fff7ed',
+                      border: '1px solid #fed7aa',
+                      borderRadius: '16px',
+                      padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
+                      fontSize: isMobile ? '11px' : '12px',
+                      color: '#c2410c',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>person_outline</span>
+                      {isMobile ? 'Salesperson' : 'Salesperson:'} {selectedSalesperson}
+                      <button
+                        onClick={() => setSelectedSalesperson(null)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#c2410c',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '50%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          transition: 'all 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = '#fed7aa';
+                          e.target.style.color = '#c2410c';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = 'none';
+                          e.target.style.color = '#c2410c';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Display generic filters from custom cards */}
+                  {genericFilters && Object.keys(genericFilters).length > 0 && Object.entries(genericFilters).map(([filterKey, filterValue]) => {
+                    if (!filterValue || filterValue === 'all' || filterValue === '') return null;
+
+                    // Extract cardId and fieldName from filterKey (format: "cardId_fieldName")
+                    const [cardId, ...fieldParts] = filterKey.split('_');
+                    const fieldName = fieldParts.join('_'); // Rejoin in case fieldName contains underscores
+
+                    // Find the card to get its title and groupBy field
+                    const card = customCards.find(c => c.id === cardId);
+                    if (!card) return null;
+
+                    // Format field name for display
+                    const fieldLabel = fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
+
+                    return (
+                      <div
+                        key={filterKey}
+                        style={{
+                          background: '#f0f9ff',
+                          border: '1px solid #7dd3fc',
+                          borderRadius: '16px',
+                          padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
+                          fontSize: isMobile ? '11px' : '12px',
+                          color: '#0c4a6e',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: isMobile ? '4px' : '6px'
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>filter_alt</span>
+                        {isMobile ? `${card.title}: ${fieldLabel}` : `${card.title}: ${fieldLabel} = ${filterValue}`}
+                        <button
+                          onClick={() => {
+                            setGenericFilters(prev => {
+                              const updated = { ...prev };
+                              delete updated[filterKey];
+                              try {
+                                sessionStorage.setItem('customCardGenericFilters', JSON.stringify(updated));
+                              } catch (e) {
+                                console.warn('Failed to update generic filters:', e);
+                              }
+                              return updated;
+                            });
                           }}
                           style={{
-                            marginRight: '8px',
+                            background: 'none',
+                            border: 'none',
+                            color: '#0c4a6e',
                             cursor: 'pointer',
-                            width: '16px',
-                            height: '16px',
-                            accentColor: '#3182ce'
+                            padding: '2px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'all 0.2s ease'
                           }}
-                        />
-                        <span style={{ fontWeight: '600', fontSize: '12px' }}>
-                          {enabledSalespersons.size === allSalespersons.length && enabledSalespersons.size > 0
-                            ? 'All Selected'
-                            : enabledSalespersons.size > 0
-                            ? 'Some Selected'
-                            : 'None Selected'}
-                        </span>
-                      </label>
-                      {allSalespersons.map((salesperson) => {
-                        const isEnabled = isSalespersonEnabled(salesperson);
-                        return (
-                          <label
-                            key={salesperson}
+                          onMouseEnter={(e) => {
+                            e.target.style.background = '#7dd3fc';
+                            e.target.style.color = '#0c4a6e';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.background = 'none';
+                            e.target.style.color = '#0c4a6e';
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Clear Filters Button */}
+            {hasActiveFilters && (
+              <div style={{ marginBottom: isMobile ? '12px' : '20px' }}>
+                <button
+                  type="button"
+                  onClick={clearAllFilters}
+                  style={{
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    padding: isMobile ? '6px 12px' : '8px 16px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: isMobile ? '6px' : '8px',
+                    color: '#64748b',
+                    fontSize: isMobile ? '12px' : '14px',
+                    fontWeight: '500',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#f1f5f9';
+                    e.target.style.borderColor = '#cbd5e1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = '#f8fafc';
+                    e.target.style.borderColor = '#e2e8f0';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>clear</span>
+                  {isMobile ? 'Clear Filters' : 'Clear All Filters'}
+                </button>
+              </div>
+            )}
+
+            {/* Dashboard Content */}
+            <div style={{ padding: isMobile ? '12px 16px' : '24px 28px 28px 28px' }}>
+              {/* Date Range Display */}
+              {fromDate && toDate && (
+                <div style={{
+                  marginBottom: isMobile ? '16px' : '24px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: isMobile ? '8px' : '12px',
+                  fontSize: isMobile ? '14px' : '16px',
+                  fontWeight: '600',
+                  color: '#475569',
+                  flexWrap: 'wrap'
+                }}>
+                  <span>
+                    {new Date(fromDate).toLocaleDateString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric'
+                    })}
+                  </span>
+                  <span style={{ color: '#94a3b8' }}>→</span>
+                  <span>
+                    {new Date(toDate).toLocaleDateString('en-IN', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric'
+                    })}
+                  </span>
+                </div>
+              )}
+
+              {/* KPI Cards */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
+                gap: isMobile ? '12px' : '20px',
+                marginBottom: isMobile ? '16px' : '28px'
+              }}>
+                <div style={{
+                  background: 'white',
+                  borderRadius: isMobile ? '12px' : '14px',
+                  padding: isMobile ? '16px' : '20px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'all 0.3s ease',
+                  cursor: 'default'
+                }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                  }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                      Total Revenue
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                      ₹{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div style={{
+                    width: isMobile ? '40px' : '52px',
+                    height: isMobile ? '40px' : '52px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    boxShadow: '0 2px 8px rgba(59, 130, 246, 0.15)'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>account_balance_wallet</span>
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'white',
+                  borderRadius: isMobile ? '12px' : '14px',
+                  padding: isMobile ? '16px' : '20px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'all 0.3s ease',
+                  cursor: 'default'
+                }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                  }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                      Total Invoices
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                      {totalOrders}
+                    </p>
+                  </div>
+                  <div style={{
+                    width: isMobile ? '40px' : '52px',
+                    height: isMobile ? '40px' : '52px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    boxShadow: '0 2px 8px rgba(22, 163, 74, 0.15)'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>shopping_cart</span>
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'white',
+                  borderRadius: isMobile ? '12px' : '14px',
+                  padding: isMobile ? '16px' : '20px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'all 0.3s ease',
+                  cursor: 'default'
+                }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                  }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                      Unique Customers
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                      {uniqueCustomers}
+                    </p>
+                  </div>
+                  <div style={{
+                    width: isMobile ? '40px' : '52px',
+                    height: isMobile ? '40px' : '52px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #e9d5ff 0%, #ddd6fe 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    boxShadow: '0 2px 8px rgba(147, 51, 234, 0.15)'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#9333ea' }}>people</span>
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'white',
+                  borderRadius: isMobile ? '12px' : '14px',
+                  padding: isMobile ? '16px' : '20px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  transition: 'all 0.3s ease',
+                  cursor: 'default'
+                }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                  }}
+                >
+                  <div style={{ flex: 1 }}>
+                    <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                      Avg Invoice Value
+                    </p>
+                    <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                      ₹{avgOrderValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                  <div style={{
+                    width: isMobile ? '40px' : '52px',
+                    height: isMobile ? '40px' : '52px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    boxShadow: '0 2px 8px rgba(22, 163, 74, 0.15)'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>trending_up</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                gap: '20px',
+                marginBottom: isMobile ? '16px' : '28px'
+              }}>
+                {canShowProfit && (
+                  <div style={{
+                    background: 'white',
+                    borderRadius: isMobile ? '12px' : '14px',
+                    padding: isMobile ? '16px' : '20px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    transition: 'all 0.3s ease',
+                    cursor: 'default'
+                  }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.borderColor = '#cbd5e1';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.borderColor = '#e2e8f0';
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                        Total Profit
+                      </p>
+                      <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: totalProfit >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                        ₹{totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                    <div style={{
+                      width: isMobile ? '40px' : '52px',
+                      height: isMobile ? '40px' : '52px',
+                      borderRadius: '12px',
+                      background: totalProfit >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      boxShadow: totalProfit >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: totalProfit >= 0 ? '#16a34a' : '#dc2626' }}>
+                        {totalProfit >= 0 ? 'trending_up' : 'trending_down'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {canShowProfit && (
+                  <div style={{
+                    background: 'white',
+                    borderRadius: isMobile ? '12px' : '14px',
+                    padding: isMobile ? '16px' : '20px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    transition: 'all 0.3s ease',
+                    cursor: 'default'
+                  }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.borderColor = '#cbd5e1';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.borderColor = '#e2e8f0';
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                        Profit Margin
+                      </p>
+                      <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: profitMargin >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                        {profitMargin >= 0 ? '+' : ''}{profitMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                      </p>
+                    </div>
+                    <div style={{
+                      width: isMobile ? '40px' : '52px',
+                      height: isMobile ? '40px' : '52px',
+                      borderRadius: '12px',
+                      background: profitMargin >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      boxShadow: profitMargin >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: profitMargin >= 0 ? '#16a34a' : '#dc2626' }}>
+                        {profitMargin >= 0 ? 'percent' : 'remove'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {canShowProfit && (
+                  <div style={{
+                    background: 'white',
+                    borderRadius: isMobile ? '12px' : '14px',
+                    padding: isMobile ? '16px' : '20px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    transition: 'all 0.3s ease',
+                    cursor: 'default'
+                  }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.borderColor = '#cbd5e1';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.borderColor = '#e2e8f0';
+                    }}
+                  >
+                    <div style={{ flex: 1 }}>
+                      <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                        Avg Profit per Order
+                      </p>
+                      <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                        ₹{avgProfitPerOrder.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                    <div style={{
+                      width: isMobile ? '40px' : '52px',
+                      height: isMobile ? '40px' : '52px',
+                      borderRadius: '12px',
+                      background: avgProfitPerOrder >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      boxShadow: avgProfitPerOrder >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626' }}>
+                        {avgProfitPerOrder >= 0 ? 'trending_up' : 'trending_down'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Charts Section */}
+              {/* Row 1: Sales by Ledger Group and Salesperson Totals */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gap: isMobile ? '16px' : '24px',
+                marginBottom: isMobile ? '16px' : '24px'
+              }}>
+                {/* Ledger Group Chart */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  height: isMobile ? '400px' : '550px',
+                  minHeight: isMobile ? '350px' : '500px',
+                  overflow: 'hidden'
+                }}>
+                  {ledgerGroupChartType === 'bar' && (
+                    <BarChart
+                      data={ledgerGroupChartData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('ledgerGroup')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Sales by Ledger Group
+                            </h3>
+                            {renderCardFilterBadges('ledgerGroup')}
+                          </div>
+                          <select
+                            value={ledgerGroupChartType}
+                            onChange={(e) => setLedgerGroupChartType(e.target.value)}
                             style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '8px',
-                              padding: '4px',
-                              borderRadius: '4px',
-                              cursor: 'pointer',
-                              transition: 'background-color 0.2s',
-                              fontSize: '12px'
-                            }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.backgroundColor = '#f7fafc';
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.backgroundColor = 'transparent';
+                              padding: '6px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              background: 'white',
+                              color: '#374151'
                             }}
                           >
+                            <option value="bar">Bar</option>
+                            <option value="pie">Pie</option>
+                            <option value="treemap">Tree Map</option>
+                            <option value="line">Line</option>
+                          </select>
+                        </div>
+                      }
+                      onBarClick={(ledgerGroup) => {
+                        console.log('🎯 Setting selectedLedgerGroup from BarChart click:', ledgerGroup);
+                        setSelectedLedgerGroup(ledgerGroup);
+                      }}
+                      onBackClick={() => setSelectedLedgerGroup('all')}
+                      showBackButton={selectedLedgerGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
+                  {ledgerGroupChartType === 'pie' && (
+                    <PieChart
+                      data={ledgerGroupChartData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('ledgerGroup')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Sales by Ledger Group
+                            </h3>
+                            {renderCardFilterBadges('ledgerGroup')}
+                          </div>
+                          <select
+                            value={ledgerGroupChartType}
+                            onChange={(e) => setLedgerGroupChartType(e.target.value)}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              background: 'white',
+                              color: '#374151'
+                            }}
+                          >
+                            <option value="bar">Bar</option>
+                            <option value="pie">Pie</option>
+                            <option value="treemap">Tree Map</option>
+                            <option value="line">Line</option>
+                          </select>
+                        </div>
+                      }
+                      onSliceClick={(ledgerGroup) => {
+                        console.log('🎯 Setting selectedLedgerGroup from PieChart click:', ledgerGroup);
+                        setSelectedLedgerGroup(ledgerGroup);
+                      }}
+                      onBackClick={() => setSelectedLedgerGroup('all')}
+                      showBackButton={selectedLedgerGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
+                  {ledgerGroupChartType === 'treemap' && (
+                    <TreeMap
+                      data={ledgerGroupChartData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('ledgerGroup')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Sales by Ledger Group
+                            </h3>
+                            {renderCardFilterBadges('ledgerGroup')}
+                          </div>
+                          <select
+                            value={ledgerGroupChartType}
+                            onChange={(e) => setLedgerGroupChartType(e.target.value)}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              background: 'white',
+                              color: '#374151'
+                            }}
+                          >
+                            <option value="bar">Bar</option>
+                            <option value="pie">Pie</option>
+                            <option value="treemap">Tree Map</option>
+                            <option value="line">Line</option>
+                          </select>
+                        </div>
+                      }
+                      onBoxClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                      onBackClick={() => setSelectedLedgerGroup('all')}
+                      showBackButton={selectedLedgerGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
+                  {ledgerGroupChartType === 'line' && (
+                    <LineChart
+                      data={ledgerGroupChartData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('ledgerGroup')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Sales by Ledger Group
+                            </h3>
+                            {renderCardFilterBadges('ledgerGroup')}
+                          </div>
+                          <select
+                            value={ledgerGroupChartType}
+                            onChange={(e) => setLedgerGroupChartType(e.target.value)}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              background: 'white',
+                              color: '#374151'
+                            }}
+                          >
+                            <option value="bar">Bar</option>
+                            <option value="pie">Pie</option>
+                            <option value="treemap">Tree Map</option>
+                            <option value="line">Line</option>
+                          </select>
+                        </div>
+                      }
+                      onPointClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                      onBackClick={() => setSelectedLedgerGroup('all')}
+                      showBackButton={selectedLedgerGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
+                </div>
+
+                {/* Salesperson Totals */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  height: '500px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    background: 'white',
+                    borderRadius: '12px',
+                    padding: '12px 16px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden'
+                  }}>
+                    {/* Header */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginBottom: '12px',
+                      paddingBottom: '12px',
+                      borderBottom: '1px solid #e2e8f0'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('salesperson')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Salesperson Totals
+                        </h3>
+                        {renderCardFilterBadges('salesperson')}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowSalespersonConfig(!showSalespersonConfig)}
+                        style={{
+                          padding: '6px 12px',
+                          background: showSalespersonConfig ? '#2c5aa0' : '#3182ce',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          transition: 'background-color 0.2s',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.background = '#2c5aa0';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.background = showSalespersonConfig ? '#2c5aa0' : '#3182ce';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: '16px' }}>settings</span>
+                        {showSalespersonConfig ? 'Hide Config' : 'Configure Salespersons'}
+                      </button>
+                    </div>
+
+                    {/* Config Panel */}
+                    {showSalespersonConfig && (
+                      <div style={{
+                        background: '#f8fafc',
+                        borderRadius: '8px',
+                        padding: '12px',
+                        marginBottom: '12px',
+                        border: '1px solid #e2e8f0',
+                        maxHeight: '200px',
+                        overflowY: 'auto'
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: '8px',
+                          paddingBottom: '8px',
+                          borderBottom: '1px solid #e2e8f0'
+                        }}>
+                          <h4 style={{ margin: 0, fontSize: '14px', fontWeight: '600', color: '#1a202c' }}>
+                            Select Salespersons to Include
+                          </h4>
+                        </div>
+                        <div style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: '4px',
+                          marginBottom: '8px'
+                        }}>
+                          {/* Master checkbox */}
+                          <label style={{
+                            fontWeight: '600',
+                            padding: '6px 0',
+                            borderBottom: '1px solid #e5e7eb',
+                            marginBottom: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            cursor: 'pointer'
+                          }}>
                             <input
                               type="checkbox"
-                              checked={isEnabled}
+                              checked={enabledSalespersons.size === allSalespersons.length && enabledSalespersons.size > 0}
                               onChange={() => {
-                                const newEnabled = new Set(enabledSalespersons);
-                                if (newEnabled.has(salesperson)) {
-                                  newEnabled.delete(salesperson);
+                                if (enabledSalespersons.size === allSalespersons.length) {
+                                  setEnabledSalespersons(new Set());
                                 } else {
-                                  newEnabled.add(salesperson);
+                                  setEnabledSalespersons(new Set(allSalespersons));
                                 }
-                                setEnabledSalespersons(newEnabled);
                               }}
                               style={{
+                                marginRight: '8px',
                                 cursor: 'pointer',
                                 width: '16px',
                                 height: '16px',
                                 accentColor: '#3182ce'
                               }}
                             />
-                            <span style={{ color: '#2d3748', userSelect: 'none' }}>{salesperson}</span>
+                            <span style={{ fontWeight: '600', fontSize: '12px' }}>
+                              {enabledSalespersons.size === allSalespersons.length && enabledSalespersons.size > 0
+                                ? 'All Selected'
+                                : enabledSalespersons.size > 0
+                                  ? 'Some Selected'
+                                  : 'None Selected'}
+                            </span>
                           </label>
-                        );
-                      })}
-                    </div>
-                    <div style={{
-                      paddingTop: '8px',
-                      borderTop: '1px solid #e2e8f0',
-                      fontSize: '11px',
-                      color: '#718096',
-                      fontStyle: 'italic'
-                    }}>
-                      {allSalespersons.length === 0
-                        ? 'No salespersons found'
-                        : enabledSalespersons.size === 0
-                        ? `0 of ${allSalespersons.length} salespersons selected (none included)`
-                        : `${enabledSalespersons.size} of ${allSalespersons.length} salespersons selected`}
+                          {allSalespersons.map((salesperson) => {
+                            const isEnabled = isSalespersonEnabled(salesperson);
+                            return (
+                              <label
+                                key={salesperson}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  padding: '4px',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  transition: 'background-color 0.2s',
+                                  fontSize: '12px'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = '#f7fafc';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = 'transparent';
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isEnabled}
+                                  onChange={() => {
+                                    const newEnabled = new Set(enabledSalespersons);
+                                    if (newEnabled.has(salesperson)) {
+                                      newEnabled.delete(salesperson);
+                                    } else {
+                                      newEnabled.add(salesperson);
+                                    }
+                                    setEnabledSalespersons(newEnabled);
+                                  }}
+                                  style={{
+                                    cursor: 'pointer',
+                                    width: '16px',
+                                    height: '16px',
+                                    accentColor: '#3182ce'
+                                  }}
+                                />
+                                <span style={{ color: '#2d3748', userSelect: 'none' }}>{salesperson}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        <div style={{
+                          paddingTop: '8px',
+                          borderTop: '1px solid #e2e8f0',
+                          fontSize: '11px',
+                          color: '#718096',
+                          fontStyle: 'italic'
+                        }}>
+                          {allSalespersons.length === 0
+                            ? 'No salespersons found'
+                            : enabledSalespersons.size === 0
+                              ? `0 of ${allSalespersons.length} salespersons selected (none included)`
+                              : `${enabledSalespersons.size} of ${allSalespersons.length} salespersons selected`}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Salesperson Chart */}
+                    <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+                      {salespersonTotals.length === 0 ? (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          height: '100%',
+                          color: '#64748b',
+                          fontSize: '14px'
+                        }}>
+                          {sales.length === 0
+                            ? 'No sales data available'
+                            : enabledSalespersons.size === 0
+                              ? 'No salespersons selected'
+                              : 'No data for selected salespersons'}
+                        </div>
+                      ) : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <Treemap
+                            data={salespersonTotals.map((item, index) => {
+                              const name = item.name || 'Unknown';
+                              const isDimmed = !!selectedSalesperson && selectedSalesperson !== name;
+                              return {
+                                name,
+                                value: item.value || 0,
+                                billCount: item.billCount || 0,
+                                fill: isDimmed
+                                  ? 'rgba(148, 163, 184, 0.45)'
+                                  : salespersonColorPalette[index % salespersonColorPalette.length],
+                              };
+                            })}
+                            dataKey="value"
+                            stroke="#ffffff"
+                            animationDuration={400}
+                            isAnimationActive
+                            content={
+                              <CustomTreemapCell selectedSalesperson={selectedSalesperson} />
+                            }
+                            onClick={(node) => {
+                              const name = node?.name;
+                              if (!name) return;
+                              const nextSelection = selectedSalesperson === name ? null : name;
+                              setSelectedSalesperson(nextSelection);
+                            }}
+                          >
+                            <RechartsTooltip
+                              content={({ payload }) => {
+                                if (!payload || payload.length === 0) {
+                                  return null;
+                                }
+                                const node = payload[0].payload || {};
+                                return (
+                                  <div style={{
+                                    background: 'rgba(17, 24, 39, 0.92)',
+                                    padding: '8px 12px',
+                                    color: '#f8fafc',
+                                    borderRadius: '8px',
+                                    fontSize: '12px'
+                                  }}>
+                                    <div style={{ fontWeight: '600', marginBottom: '4px' }}>{node.name}</div>
+                                    <div style={{ marginBottom: '2px' }}>
+                                      Total Sales: {formatCompactCurrency(node.value)}
+                                    </div>
+                                    <div>
+                                      Orders Count: {node.billCount || 0}
+                                    </div>
+                                  </div>
+                                );
+                              }}
+                            />
+                          </Treemap>
+                        </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
-                )}
-
-                {/* Salesperson Chart */}
-                <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-                  {salespersonTotals.length === 0 ? (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      height: '100%',
-                      color: '#64748b',
-                      fontSize: '14px'
-                    }}>
-                      {sales.length === 0
-                        ? 'No sales data available'
-                        : enabledSalespersons.size === 0
-                        ? 'No salespersons selected'
-                        : 'No data for selected salespersons'}
-                    </div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <Treemap
-                        data={salespersonTotals.map((item, index) => {
-                          const name = item.name || 'Unknown';
-                          const isDimmed = !!selectedSalesperson && selectedSalesperson !== name;
-                          return {
-                            name,
-                            value: item.value || 0,
-                            billCount: item.billCount || 0,
-                            fill: isDimmed
-                              ? 'rgba(148, 163, 184, 0.45)'
-                              : salespersonColorPalette[index % salespersonColorPalette.length],
-                          };
-                        })}
-                        dataKey="value"
-                        stroke="#ffffff"
-                        animationDuration={400}
-                        isAnimationActive
-                        content={
-                          <CustomTreemapCell selectedSalesperson={selectedSalesperson} />
-                        }
-                        onClick={(node) => {
-                          const name = node?.name;
-                          if (!name) return;
-                          const nextSelection = selectedSalesperson === name ? null : name;
-                          setSelectedSalesperson(nextSelection);
-                        }}
-                      >
-                        <RechartsTooltip
-                          content={({ payload }) => {
-                            if (!payload || payload.length === 0) {
-                              return null;
-                            }
-                            const node = payload[0].payload || {};
-                            return (
-                              <div style={{
-                                background: 'rgba(17, 24, 39, 0.92)',
-                                padding: '8px 12px',
-                                color: '#f8fafc',
-                                borderRadius: '8px',
-                                fontSize: '12px'
-                              }}>
-                                <div style={{ fontWeight: '600', marginBottom: '4px' }}>{node.name}</div>
-                                <div style={{ marginBottom: '2px' }}>
-                                  Total Sales: {formatCompactCurrency(node.value)}
-                                </div>
-                                <div>
-                                  Orders Count: {node.billCount || 0}
-                                </div>
-                              </div>
-                            );
-                          }}
-                        />
-                      </Treemap>
-                    </ResponsiveContainer>
-                  )}
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Row 2: Sales by State and Sales by Country */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
-          }}>
-            {/* Region Chart */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
-              {regionChartType === 'bar' && (
-                <BarChart
-                  data={regionChartData}
-                  customHeader={
+              {/* Row 2: Sales by State and Sales by Country */}
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                      justifyContent: 'space-between'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => openRawData('region')}
-                    style={rawDataIconButtonStyle}
-                    onMouseEnter={handleRawDataButtonMouseEnter}
-                    onMouseLeave={handleRawDataButtonMouseLeave}
-                    title="View raw data"
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                  </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                    Sales by State
-                </h3>
-                  {renderCardFilterBadges('region')}
-                </div>
-                <select
-                  value={regionChartType}
-                  onChange={(e) => setRegionChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                </select>
-              </div>
-                  }
-                  onBarClick={(region) => setSelectedRegion(region)}
-                  onBackClick={() => setSelectedRegion('all')}
-                  showBackButton={selectedRegion !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
-                      ),
-                  }}
-                />
-              )}
-              {regionChartType === 'pie' && (
-                <PieChart
-                  data={regionChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('region')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by State
-                        </h3>
-                        {renderCardFilterBadges('region')}
-                      </div>
-                      <select
-                        value={regionChartType}
-                        onChange={(e) => setRegionChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onSliceClick={(region) => setSelectedRegion(region)}
-                  onBackClick={() => setSelectedRegion('all')}
-                  showBackButton={selectedRegion !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
-                      ),
-                  }}
-                />
-              )}
-              {regionChartType === 'treemap' && (
-                <TreeMap
-                  data={regionChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('region')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by State
-                        </h3>
-                        {renderCardFilterBadges('region')}
-                      </div>
-                      <select
-                        value={regionChartType}
-                        onChange={(e) => setRegionChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onBoxClick={(region) => setSelectedRegion(region)}
-                  onBackClick={() => setSelectedRegion('all')}
-                  showBackButton={selectedRegion !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
-                      ),
-                  }}
-                />
-              )}
-              {regionChartType === 'line' && (
-                <LineChart
-                  data={regionChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('region')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by State
-                        </h3>
-                        {renderCardFilterBadges('region')}
-                      </div>
-                      <select
-                        value={regionChartType}
-                        onChange={(e) => setRegionChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onPointClick={(region) => setSelectedRegion(region)}
-                  onBackClick={() => setSelectedRegion('all')}
-                  showBackButton={selectedRegion !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
-                      ),
-                  }}
-                />
-              )}
-            </div>
-
-            {/* Country Chart */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
-              {countryChartType === 'bar' && (
-                <BarChart
-                  data={countryChartData}
-                  customHeader={
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                      justifyContent: 'space-between'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => openRawData('country')}
-                    style={rawDataIconButtonStyle}
-                    onMouseEnter={handleRawDataButtonMouseEnter}
-                    onMouseLeave={handleRawDataButtonMouseLeave}
-                    title="View raw data"
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                  </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                    Sales by Country
-                </h3>
-                  {renderCardFilterBadges('country')}
-                </div>
-                <select
-                  value={countryChartType}
-                  onChange={(e) => setCountryChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                </select>
-              </div>
-                  }
-                  onBarClick={(country) => setSelectedCountry(country)}
-                  onBackClick={() => setSelectedCountry('all')}
-                  showBackButton={selectedCountry !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => {
-                          const saleCountry = String(sale.country || 'Unknown').trim();
-                          const itemCountry = String(item.label || 'Unknown').trim();
-                          return saleCountry === itemCountry;
-                        }
-                      ),
-                  }}
-                />
-              )}
-              {countryChartType === 'pie' && (
-                <PieChart
-                  data={countryChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('country')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Country
-                        </h3>
-                        {renderCardFilterBadges('country')}
-                      </div>
-                      <select
-                        value={countryChartType}
-                        onChange={(e) => setCountryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onSliceClick={(country) => setSelectedCountry(country)}
-                  onBackClick={() => setSelectedCountry('all')}
-                  showBackButton={selectedCountry !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => {
-                          const saleCountry = String(sale.country || 'Unknown').trim();
-                          const itemCountry = String(item.label || 'Unknown').trim();
-                          return saleCountry === itemCountry;
-                        }
-                      ),
-                  }}
-                />
-              )}
-              {countryChartType === 'treemap' && (
-                <TreeMap
-                  data={countryChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('country')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Country
-                        </h3>
-                        {renderCardFilterBadges('country')}
-                      </div>
-                      <select
-                        value={countryChartType}
-                        onChange={(e) => setCountryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onBoxClick={(country) => setSelectedCountry(country)}
-                  onBackClick={() => setSelectedCountry('all')}
-                  showBackButton={selectedCountry !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => {
-                          const saleCountry = String(sale.country || 'Unknown').trim();
-                          const itemCountry = String(item.label || 'Unknown').trim();
-                          return saleCountry === itemCountry;
-                        }
-                      ),
-                  }}
-                />
-              )}
-              {countryChartType === 'line' && (
-                <LineChart
-                  data={countryChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('country')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Country
-                        </h3>
-                        {renderCardFilterBadges('country')}
-                      </div>
-                      <select
-                        value={countryChartType}
-                        onChange={(e) => setCountryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onPointClick={(country) => setSelectedCountry(country)}
-                  onBackClick={() => setSelectedCountry('all')}
-                  showBackButton={selectedCountry !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => {
-                          const saleCountry = String(sale.country || 'Unknown').trim();
-                          const itemCountry = String(item.label || 'Unknown').trim();
-                          return saleCountry === itemCountry;
-                        }
-                      ),
-                  }}
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Row 3: Period Chart and Top Customers */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
-          }}>
-            {/* Period Chart */}
-            <div style={{ 
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
-              {periodChartType === 'bar' && (
-                <BarChart
-                  data={periodChartData}
-                  customHeader={
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                      justifyContent: 'space-between'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => openRawData('period')}
-                    style={rawDataIconButtonStyle}
-                    onMouseEnter={handleRawDataButtonMouseEnter}
-                    onMouseLeave={handleRawDataButtonMouseLeave}
-                    title="View raw data"
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                  </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                  Period Chart
-                </h3>
-                  {renderCardFilterBadges('period')}
-                </div>
-                <select
-                  value={periodChartType}
-                  onChange={(e) => setPeriodChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                </select>
-              </div>
-                  }
-                   onBarClick={(periodLabel) => {
-                     const clickedPeriod = periodChartData.find(p => p.label === periodLabel);
-                     if (clickedPeriod) {
-                       setSelectedPeriod(clickedPeriod.originalLabel);
-                     }
-                   }}
-                   onBackClick={() => {
-                     setSelectedPeriod(null);
-                   }}
-                   showBackButton={selectedPeriod !== null}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
-                        (sale) => {
-                          const saleDate = sale.cp_date || sale.date;
-                          const date = new Date(saleDate);
-                          const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                          return yearMonth === (item.originalLabel || item.label);
-                        }
-                      ),
-                  }}
-                />
-              )}
-              {periodChartType === 'pie' && (
-                <PieChart
-                  data={periodChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('period')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Period Chart
-                        </h3>
-                      </div>
-                      <select
-                        value={periodChartType}
-                        onChange={(e) => setPeriodChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                   onSliceClick={(periodLabel) => {
-                     const clickedPeriod = periodChartData.find(p => p.label === periodLabel);
-                     if (clickedPeriod) {
-                       setSelectedPeriod(clickedPeriod.originalLabel);
-                     }
-                   }}
-                   onBackClick={() => {
-                     setSelectedPeriod(null);
-                   }}
-                   showBackButton={selectedPeriod !== null}
-                   rowAction={{
-                     icon: 'table_view',
-                     title: 'View raw data',
-                     onClick: (item) =>
-                       openTransactionRawData(
-                         `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
-                         (sale) => {
-                           const saleDate = sale.cp_date || sale.date;
-                           const date = new Date(saleDate);
-                           const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                           return yearMonth === (item.originalLabel || item.label);
-                         }
-                       ),
-                   }}
-                />
-              )}
-              {periodChartType === 'treemap' && (
-                <TreeMap
-                  data={periodChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('period')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Period Chart
-                        </h3>
-                      </div>
-                      <select
-                        value={periodChartType}
-                        onChange={(e) => setPeriodChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                   onBoxClick={(periodLabel) => {
-                     const clickedPeriod = periodChartData.find(p => p.label === periodLabel);
-                     if (clickedPeriod) {
-                       setSelectedPeriod(clickedPeriod.originalLabel);
-                     }
-                   }}
-                   onBackClick={() => {
-                     setSelectedPeriod(null);
-                   }}
-                   showBackButton={selectedPeriod !== null}
-                   rowAction={{
-                     icon: 'table_view',
-                     title: 'View raw data',
-                     onClick: (item) =>
-                       openTransactionRawData(
-                         `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
-                         (sale) => {
-                           const saleDate = sale.cp_date || sale.date;
-                           const date = new Date(saleDate);
-                           const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                           return yearMonth === (item.originalLabel || item.label);
-                         }
-                       ),
-                   }}
-                />
-              )}
-              {periodChartType === 'line' && (
-                <LineChart
-                  data={periodChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('period')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Period Chart
-                        </h3>
-                      </div>
-                      <select
-                        value={periodChartType}
-                        onChange={(e) => setPeriodChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                   onPointClick={(periodLabel) => {
-                     const clickedPeriod = periodChartData.find(p => p.label === periodLabel);
-                     if (clickedPeriod) {
-                       setSelectedPeriod(clickedPeriod.originalLabel);
-                     }
-                   }}
-                   onBackClick={() => {
-                     setSelectedPeriod(null);
-                   }}
-                   showBackButton={selectedPeriod !== null}
-                   rowAction={{
-                     icon: 'table_view',
-                     title: 'View raw data',
-                     onClick: (item) =>
-                       openTransactionRawData(
-                         `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
-                         (sale) => {
-                           const saleDate = sale.cp_date || sale.date;
-                           const date = new Date(saleDate);
-                           const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                           return yearMonth === (item.originalLabel || item.label);
-                         }
-                       ),
-                   }}
-                />
-              )}
-            </div>
-
-            {/* Top Customers */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
-              {topCustomersChartType === 'bar' && (
-                <BarChart
-                  data={topCustomersData}
-                  customHeader={
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                      justifyContent: 'space-between'
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gap: isMobile ? '16px' : '24px',
+                marginBottom: isMobile ? '16px' : '24px'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
@@ -9811,28 +8770,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             </div>
           </div>
 
-          {/* Row 4: Top Items by Revenue and Top Items by Quantity */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
-          }}>
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
-              {topItemsByRevenueChartType === 'bar' && (
-                <BarChart
-                  data={topItemsByRevenueData}
-                  customHeader={
+              {/* Row 3: Period Chart and Top Customers */}
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                      justifyContent: 'space-between'
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gap: isMobile ? '16px' : '24px',
+                marginBottom: isMobile ? '16px' : '24px'
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <button
@@ -10222,25 +9165,350 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   data={topItemsByQuantityData}
                   customHeader={
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                      justifyContent: 'space-between'
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gap: isMobile ? '16px' : '24px',
+                marginBottom: isMobile ? '16px' : '24px'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => openRawData('topItemsQuantity')}
-                    style={rawDataIconButtonStyle}
-                    onMouseEnter={handleRawDataButtonMouseEnter}
-                    onMouseLeave={handleRawDataButtonMouseLeave}
-                    title="View raw data"
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                  </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                  Top Items by Quantity Chart
-                </h3>
-                  {renderCardFilterBadges('topItems')}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  height: isMobile ? '400px' : '550px',
+                  minHeight: isMobile ? '350px' : '500px',
+                  overflow: 'hidden'
+                }}>
+                  {topItemsByRevenueChartType === 'bar' && (
+                    <BarChart
+                      data={topItemsByRevenueData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('topItemsRevenue')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Top Items by Revenue Chart
+                            </h3>
+                            {renderCardFilterBadges('topItems')}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input
+                              type="number"
+                              value={topItemsByRevenueN}
+                              onChange={(e) => {
+                                const value = parseInt(e.target.value, 10);
+                                if (!isNaN(value) && value >= 0) {
+                                  setTopItemsByRevenueN(value);
+                                }
+                              }}
+                              min="0"
+                              placeholder="N"
+                              style={{
+                                width: '60px',
+                                padding: '6px 8px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151',
+                                textAlign: 'center'
+                              }}
+                              title="Enter number of top items to display"
+                            />
+                            <select
+                              value={topItemsByRevenueChartType}
+                              onChange={(e) => setTopItemsByRevenueChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        </div>
+                      }
+                      onBarClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topItemsByRevenueChartType === 'pie' && (
+                    <PieChart
+                      data={topItemsByRevenueData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('topItemsRevenue')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Top Items by Revenue Chart
+                            </h3>
+                            {renderCardFilterBadges('topItems')}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input
+                              type="number"
+                              value={topItemsByRevenueN}
+                              onChange={(e) => {
+                                const value = parseInt(e.target.value, 10);
+                                if (value > 0) {
+                                  setTopItemsByRevenueN(value);
+                                }
+                              }}
+                              min="1"
+                              placeholder="N"
+                              style={{
+                                width: '60px',
+                                padding: '6px 8px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151',
+                                textAlign: 'center'
+                              }}
+                              title="Enter number of top items to display"
+                            />
+                            <select
+                              value={topItemsByRevenueChartType}
+                              onChange={(e) => setTopItemsByRevenueChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        </div>
+                      }
+                      onSliceClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (entry) =>
+                          openTransactionRawData(
+                            `Raw Data - ${entry.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topItemsByRevenueChartType === 'treemap' && (
+                    <TreeMap
+                      data={topItemsByRevenueData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('topItemsRevenue')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Top Items by Revenue Chart
+                            </h3>
+                            {renderCardFilterBadges('topItems')}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input
+                              type="number"
+                              value={topItemsByRevenueN}
+                              onChange={(e) => {
+                                const value = parseInt(e.target.value, 10);
+                                if (value > 0) {
+                                  setTopItemsByRevenueN(value);
+                                }
+                              }}
+                              min="1"
+                              placeholder="N"
+                              style={{
+                                width: '60px',
+                                padding: '6px 8px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151',
+                                textAlign: 'center'
+                              }}
+                              title="Enter number of top items to display"
+                            />
+                            <select
+                              value={topItemsByRevenueChartType}
+                              onChange={(e) => setTopItemsByRevenueChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        </div>
+                      }
+                      onBoxClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (entry) =>
+                          openTransactionRawData(
+                            `Raw Data - ${entry.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topItemsByRevenueChartType === 'line' && (
+                    <LineChart
+                      data={topItemsByRevenueData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('topItemsRevenue')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Top Items by Revenue Chart
+                            </h3>
+                            {renderCardFilterBadges('topItems')}
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <input
+                              type="number"
+                              value={topItemsByRevenueN}
+                              onChange={(e) => {
+                                const value = parseInt(e.target.value, 10);
+                                if (value > 0) {
+                                  setTopItemsByRevenueN(value);
+                                }
+                              }}
+                              min="1"
+                              placeholder="N"
+                              style={{
+                                width: '60px',
+                                padding: '6px 8px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151',
+                                textAlign: 'center'
+                              }}
+                              title="Enter number of top items to display"
+                            />
+                            <select
+                              value={topItemsByRevenueChartType}
+                              onChange={(e) => setTopItemsByRevenueChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        </div>
+                      }
+                      onPointClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (entry) =>
+                          openTransactionRawData(
+                            `Raw Data - ${entry.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(entry.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
@@ -10626,317 +9894,228 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               }}>
                 {revenueVsProfitChartType === 'line' && (
                 <div style={{
-                  background: 'white',
-                  borderRadius: '12px',
-                    padding: '12px 16px',
-                  border: '1px solid #e2e8f0',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                    flex: 1
-                  }}>
-                    <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                      marginBottom: '12px'
+                  display: 'grid',
+                  gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                  gap: '24px',
+                  marginBottom: '24px'
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <button
-                      type="button"
-                      onClick={() => openRawData('revenueVsProfit')}
-                      style={rawDataIconButtonStyle}
-                      onMouseEnter={handleRawDataButtonMouseEnter}
-                      onMouseLeave={handleRawDataButtonMouseLeave}
-                      title="View raw data"
-                    >
-                      <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                    </button>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                      Revenue vs Profit (Monthly)
-                    </h3>
-                    {renderCardFilterBadges('period')}
-          </div>
-                  <select
-                    value={revenueVsProfitChartType}
-                    onChange={(e) => setRevenueVsProfitChartType(e.target.value)}
-                    style={{
-                      padding: '6px 12px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      background: 'white',
-                      color: '#374151'
-                    }}
-                  >
-                    <option value="line">Line</option>
-                    <option value="bar">Bar</option>
-                  </select>
-        </div>
-                    <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px' }}>
-                      {/* Grid lines */}
-                      {[0, 1, 2, 3, 4].map((i) => {
-                        const y = 40 + (i / 4) * 240;
-                        return (
-                          <line
-                            key={i}
-                            x1="40"
-                            y1={y}
-                            x2="560"
-                            y2={y}
-                            stroke="#e5e7eb"
-                            strokeWidth="1"
-                          />
-                        );
-                      })}
-                      
-                      {/* X-axis labels */}
-                      {revenueVsProfitChartData.map((item, index) => {
-                        const x = 40 + (index / Math.max(revenueVsProfitChartData.length - 1, 1)) * 520;
-                        return (
-                          <text
-                            key={index}
-                            x={x}
-                            y={290}
-                            textAnchor="middle"
-                            style={{ fontSize: '10px', fill: '#6b7280' }}
-                            transform={`rotate(-45 ${x} 290)`}
-                          >
-                            {item.label}
-                          </text>
-                        );
-                      })}
-                      
-                      {/* Revenue line */}
-                      {revenueVsProfitChartData.length > 0 && (() => {
-                        const maxRevenue = Math.max(...revenueVsProfitChartData.map(d => d.revenue));
-                        const maxProfit = Math.max(...revenueVsProfitChartData.map(d => Math.abs(d.profit)));
-                        const maxValue = Math.max(maxRevenue, maxProfit, 1); // Ensure at least 1 to avoid division by zero
-                        const minProfit = Math.min(...revenueVsProfitChartData.map(d => d.profit));
-                        const minValue = Math.min(0, minProfit);
-                        const range = Math.max(maxValue - minValue, 1); // Ensure at least 1 to avoid division by zero
-                        const dataLength = Math.max(revenueVsProfitChartData.length - 1, 1);
-                        
-                        const revenuePoints = revenueVsProfitChartData.map((item, index) => {
-                          const x = 40 + (index / dataLength) * 520;
-                          const y = 40 + 240 - ((item.revenue - minValue) / range) * 240;
-                          return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
-                        }).join(' ');
-                        
-                        const profitPoints = revenueVsProfitChartData.map((item, index) => {
-                          const x = 40 + (index / dataLength) * 520;
-                          const y = 40 + 240 - ((item.profit - minValue) / range) * 240;
-                          return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
-                        }).join(' ');
-                        
-                        return (
-                          <>
-                            <path
-                              d={revenuePoints}
-                              fill="none"
-                              stroke="#3b82f6"
-                              strokeWidth="2"
-                            />
-                            <path
-                              d={profitPoints}
-                              fill="none"
-                              stroke={profitMargin >= 0 ? '#10b981' : '#ef4444'}
-                              strokeWidth="2"
-                              strokeDasharray="5,5"
-                            />
-                            {revenueVsProfitChartData.map((item, index) => {
-                              const dataLength = Math.max(revenueVsProfitChartData.length - 1, 1);
-                              const x = 40 + (index / dataLength) * 520;
-                              const revenueY = 40 + 240 - ((item.revenue - minValue) / range) * 240;
-                              const profitY = 40 + 240 - ((item.profit - minValue) / range) * 240;
-                              return (
-                                <g key={index}>
-                                  <circle
-                                    cx={x}
-                                    cy={revenueY}
-                                    r="4"
-                                    fill="#3b82f6"
-                                  />
-                                  <circle
-                                    cx={x}
-                                    cy={profitY}
-                                    r="4"
-                                    fill={profitMargin >= 0 ? '#10b981' : '#ef4444'}
-                                  />
-                                </g>
-                              );
-                            })}
-                          </>
-                        );
-                      })()}
-                      
-                      {/* Legend */}
-                      <g transform="translate(20, 20)">
-                        <line x1="0" y1="0" x2="20" y2="0" stroke="#3b82f6" strokeWidth="2" />
-                        <text x="25" y="4" style={{ fontSize: '12px', fill: '#1e293b' }}>Revenue</text>
-                        <line x1="0" y1="15" x2="20" y2="15" stroke={profitMargin >= 0 ? '#10b981' : '#ef4444'} strokeWidth="2" strokeDasharray="5,5" />
-                        <text x="25" y="19" style={{ fontSize: '12px', fill: '#1e293b' }}>Profit</text>
-                      </g>
-                    </svg>
-          </div>
-                )}
-                {revenueVsProfitChartType === 'bar' && (
+                  {/* Revenue vs Profit Chart */}
                   <div style={{
-                    background: 'white',
-                    borderRadius: '12px',
-                    padding: '12px 16px',
-                    border: '1px solid #e2e8f0',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                    flex: 1
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '500px',
+                    overflow: 'hidden'
                   }}>
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      marginBottom: '12px'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('revenueVsProfit')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Revenue vs Profit (Monthly)
-                        </h3>
-                        {renderCardFilterBadges('period')}
-                      </div>
-                      <select
-                        value={revenueVsProfitChartType}
-                        onChange={(e) => setRevenueVsProfitChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="line">Line</option>
-                        <option value="bar">Bar</option>
-                      </select>
-        </div>
-                    <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px' }}>
-                      {revenueVsProfitChartData.map((item, index) => {
-                        const maxRevenue = Math.max(...revenueVsProfitChartData.map(d => d.revenue));
-                        const maxProfit = Math.max(...revenueVsProfitChartData.map(d => Math.abs(d.profit)));
-                        const maxValue = Math.max(maxRevenue, maxProfit);
-                        const barWidth = 480 / revenueVsProfitChartData.length;
-                        const x = 60 + index * barWidth;
-                        const revenueHeight = (item.revenue / maxValue) * 200;
-                        const profitHeight = (Math.abs(item.profit) / maxValue) * 200;
-                        
-                        return (
-                          <g key={index}>
-                            <rect
-                              x={x + 5}
-                              y={240 - revenueHeight}
-                              width={barWidth / 2 - 10}
-                              height={revenueHeight}
-                              fill="#3b82f6"
-                              onClick={() =>
-                                openTransactionRawData(
-                                  `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
-                                  (sale) => {
-                                    const saleDate = sale.cp_date || sale.date;
-                                    const date = new Date(saleDate);
-                                    const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                                    return yearMonth === (item.originalLabel || item.label);
-                                  }
-                                )
-                              }
-                              style={{ cursor: 'pointer' }}
-                            />
-                            <rect
-                              x={x + barWidth / 2 + 5}
-                              y={240 - profitHeight}
-                              width={barWidth / 2 - 10}
-                              height={profitHeight}
-                              fill={item.profit >= 0 ? '#10b981' : '#ef4444'}
-                              onClick={() =>
-                                openTransactionRawData(
-                                  `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
-                                  (sale) => {
-                                    const saleDate = sale.cp_date || sale.date;
-                                    const date = new Date(saleDate);
-                                    const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                                    return yearMonth === (item.originalLabel || item.label);
-                                  }
-                                )
-                              }
-                              style={{ cursor: 'pointer' }}
-                            />
-                            <text
-                              x={x + barWidth / 2}
-                              y={280}
-                              textAnchor="middle"
-                              style={{ fontSize: '8px', fill: '#6b7280' }}
-                              transform={`rotate(-45 ${x + barWidth / 2} 280)`}
+                    {revenueVsProfitChartType === 'line' && (
+                      <div style={{
+                        background: 'white',
+                        borderRadius: '12px',
+                        padding: '12px 16px',
+                        border: '1px solid #e2e8f0',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                        flex: 1
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: '12px'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('revenueVsProfit')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
                             >
-                              {item.label}
-                            </text>
-                          </g>
-                        );
-                      })}
-                      
-                      {/* Legend */}
-                      <g transform="translate(20, 20)">
-                        <rect x="0" y="0" width="15" height="10" fill="#3b82f6" />
-                        <text x="20" y="9" style={{ fontSize: '12px', fill: '#1e293b' }}>Revenue</text>
-                        <rect x="0" y="15" width="15" height="10" fill="#10b981" />
-                        <text x="20" y="24" style={{ fontSize: '12px', fill: '#1e293b' }}>Profit</text>
-                      </g>
-                    </svg>
-                    <div style={{
-                      marginTop: '16px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px'
-                    }}>
-                      {revenueVsProfitChartData.map((item) => (
-                        <div
-                          key={item.originalLabel}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '8px 12px',
-                            border: '1px solid #e2e8f0',
-                            borderRadius: '8px',
-                            background: '#f8fafc'
-                          }}
-                        >
-                          <div style={{ display: 'flex', flexDirection: 'column' }}>
-                            <span style={{ fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>{item.label}</span>
-                            <span style={{ fontSize: '12px', color: '#475569' }}>
-                              Revenue: ₹{item.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Profit: ₹{item.profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Revenue vs Profit (Monthly)
+                            </h3>
+                            {renderCardFilterBadges('period')}
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => openRawData('revenueVsProfit', item.originalLabel)}
-                            style={rawDataIconButtonStyle}
-                            onMouseEnter={handleRawDataButtonMouseEnter}
-                            onMouseLeave={handleRawDataButtonMouseLeave}
-                            title={`View raw data for ${item.label}`}
+                          <select
+                            value={revenueVsProfitChartType}
+                            onChange={(e) => setRevenueVsProfitChartType(e.target.value)}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              background: 'white',
+                              color: '#374151'
+                            }}
                           >
-                            <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                          </button>
+                            <option value="line">Line</option>
+                            <option value="bar">Bar</option>
+                          </select>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+                        <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px' }}>
+                          {/* Grid lines */}
+                          {[0, 1, 2, 3, 4].map((i) => {
+                            const y = 40 + (i / 4) * 240;
+                            return (
+                              <line
+                                key={i}
+                                x1="40"
+                                y1={y}
+                                x2="560"
+                                y2={y}
+                                stroke="#e5e7eb"
+                                strokeWidth="1"
+                              />
+                            );
+                          })}
+
+                          {/* X-axis labels */}
+                          {revenueVsProfitChartData.map((item, index) => {
+                            const x = 40 + (index / Math.max(revenueVsProfitChartData.length - 1, 1)) * 520;
+                            return (
+                              <text
+                                key={index}
+                                x={x}
+                                y={290}
+                                textAnchor="middle"
+                                style={{ fontSize: '10px', fill: '#6b7280' }}
+                                transform={`rotate(-45 ${x} 290)`}
+                              >
+                                {item.label}
+                              </text>
+                            );
+                          })}
+
+                          {/* Revenue line */}
+                          {revenueVsProfitChartData.length > 0 && (() => {
+                            const maxRevenue = Math.max(...revenueVsProfitChartData.map(d => d.revenue));
+                            const maxProfit = Math.max(...revenueVsProfitChartData.map(d => Math.abs(d.profit)));
+                            const maxValue = Math.max(maxRevenue, maxProfit, 1); // Ensure at least 1 to avoid division by zero
+                            const minProfit = Math.min(...revenueVsProfitChartData.map(d => d.profit));
+                            const minValue = Math.min(0, minProfit);
+                            const range = Math.max(maxValue - minValue, 1); // Ensure at least 1 to avoid division by zero
+                            const dataLength = Math.max(revenueVsProfitChartData.length - 1, 1);
+
+                            const revenuePoints = revenueVsProfitChartData.map((item, index) => {
+                              const x = 40 + (index / dataLength) * 520;
+                              const y = 40 + 240 - ((item.revenue - minValue) / range) * 240;
+                              return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
+                            }).join(' ');
+
+                            const profitPoints = revenueVsProfitChartData.map((item, index) => {
+                              const x = 40 + (index / dataLength) * 520;
+                              const y = 40 + 240 - ((item.profit - minValue) / range) * 240;
+                              return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
+                            }).join(' ');
+
+                            return (
+                              <>
+                                <path
+                                  d={revenuePoints}
+                                  fill="none"
+                                  stroke="#3b82f6"
+                                  strokeWidth="2"
+                                />
+                                <path
+                                  d={profitPoints}
+                                  fill="none"
+                                  stroke={profitMargin >= 0 ? '#10b981' : '#ef4444'}
+                                  strokeWidth="2"
+                                  strokeDasharray="5,5"
+                                />
+                                {revenueVsProfitChartData.map((item, index) => {
+                                  const dataLength = Math.max(revenueVsProfitChartData.length - 1, 1);
+                                  const x = 40 + (index / dataLength) * 520;
+                                  const revenueY = 40 + 240 - ((item.revenue - minValue) / range) * 240;
+                                  const profitY = 40 + 240 - ((item.profit - minValue) / range) * 240;
+                                  return (
+                                    <g key={index}>
+                                      <circle
+                                        cx={x}
+                                        cy={revenueY}
+                                        r="4"
+                                        fill="#3b82f6"
+                                      />
+                                      <circle
+                                        cx={x}
+                                        cy={profitY}
+                                        r="4"
+                                        fill={profitMargin >= 0 ? '#10b981' : '#ef4444'}
+                                      />
+                                    </g>
+                                  );
+                                })}
+                              </>
+                            );
+                          })()}
+
+                          {/* Legend */}
+                          <g transform="translate(20, 20)">
+                            <line x1="0" y1="0" x2="20" y2="0" stroke="#3b82f6" strokeWidth="2" />
+                            <text x="25" y="4" style={{ fontSize: '12px', fill: '#1e293b' }}>Revenue</text>
+                            <line x1="0" y1="15" x2="20" y2="15" stroke={profitMargin >= 0 ? '#10b981' : '#ef4444'} strokeWidth="2" strokeDasharray="5,5" />
+                            <text x="25" y="19" style={{ fontSize: '12px', fill: '#1e293b' }}>Profit</text>
+                          </g>
+                        </svg>
+                      </div>
+                    )}
+                    {revenueVsProfitChartType === 'bar' && (
+                      <div style={{
+                        background: 'white',
+                        borderRadius: '12px',
+                        padding: '12px 16px',
+                        border: '1px solid #e2e8f0',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                        flex: 1
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          marginBottom: '12px'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('revenueVsProfit')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Revenue vs Profit (Monthly)
+                            </h3>
+                            {renderCardFilterBadges('period')}
+                          </div>
+                          <select
+                            value={revenueVsProfitChartType}
+                            onChange={(e) => setRevenueVsProfitChartType(e.target.value)}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              background: 'white',
+                              color: '#374151'
+                            }}
+                          >
+                            <option value="line">Line</option>
+                            <option value="bar">Bar</option>
+                          </select>
+                        </div>
+                        <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px' }}>
+                          {revenueVsProfitChartData.map((item, index) => {
+                            const maxRevenue = Math.max(...revenueVsProfitChartData.map(d => d.revenue));
+                            const maxProfit = Math.max(...revenueVsProfitChartData.map(d => Math.abs(d.profit)));
+                            const maxValue = Math.max(maxRevenue, maxProfit);
+                            const barWidth = 480 / revenueVsProfitChartData.length;
+                            const x = 60 + index * barWidth;
+                            const revenueHeight = (item.revenue / maxValue) * 200;
+                            const profitHeight = (Math.abs(item.profit) / maxValue) * 200;
 
               {/* Month-wise Profit Chart */}
               <div style={{
@@ -10971,1040 +10150,1047 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     </h3>
                     {renderCardFilterBadges('period')}
                   </div>
-                  <select
-                    value={monthWiseProfitChartType}
-                    onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
-                    style={{
-                      padding: '6px 12px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      background: 'white',
-                      color: '#374151'
-                    }}
-                  >
-                    <option value="bar">Bar</option>
-                    <option value="pie">Pie</option>
-                    <option value="treemap">Tree Map</option>
-                    <option value="line">Line</option>
-                  </select>
+
+                  {/* Month-wise Profit Chart */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '500px',
+                    overflow: 'hidden'
+                  }}>
+                    {monthWiseProfitChartType === 'bar' && (
+                      <BarChart
+                        data={monthWiseProfitChartData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('monthProfit')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Month-wise Profit
+                              </h3>
+                              {renderCardFilterBadges('period')}
+                            </div>
+                            <select
+                              value={monthWiseProfitChartType}
+                              onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        onBarClick={(periodLabel) => {
+                          const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
+                          if (clickedPeriod) {
+                            setSelectedPeriod(clickedPeriod.originalLabel);
+                          }
+                        }}
+                        onBackClick={() => {
+                          setSelectedPeriod(null);
+                        }}
+                        showBackButton={selectedPeriod !== null}
+                        rowAction={{
+                          icon: 'table_view',
+                          title: 'View raw data',
+                          onClick: (item) =>
+                            openTransactionRawData(
+                              `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                              (sale) => {
+                                const saleDate = sale.cp_date || sale.date;
+                                const date = new Date(saleDate);
+                                const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                                return yearMonth === (item.originalLabel || item.label);
+                              }
+                            ),
+                        }}
+                      />
+                    )}
+                    {monthWiseProfitChartType === 'pie' && (
+                      <PieChart
+                        data={monthWiseProfitChartData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('monthProfit')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Month-wise Profit
+                              </h3>
+                              {renderCardFilterBadges('period')}
+                            </div>
+                            <select
+                              value={monthWiseProfitChartType}
+                              onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        onSliceClick={(periodLabel) => {
+                          const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
+                          if (clickedPeriod) {
+                            setSelectedPeriod(clickedPeriod.originalLabel);
+                          }
+                        }}
+                        onBackClick={() => {
+                          setSelectedPeriod(null);
+                        }}
+                        showBackButton={selectedPeriod !== null}
+                        rowAction={{
+                          icon: 'table_view',
+                          title: 'View raw data',
+                          onClick: (item) =>
+                            openTransactionRawData(
+                              `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                              (sale) => {
+                                const saleDate = sale.cp_date || sale.date;
+                                const date = new Date(saleDate);
+                                const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                                return yearMonth === (item.originalLabel || item.label);
+                              }
+                            ),
+                        }}
+                      />
+                    )}
+                    {monthWiseProfitChartType === 'treemap' && (
+                      <TreeMap
+                        data={monthWiseProfitChartData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('monthProfit')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Month-wise Profit
+                              </h3>
+                              {renderCardFilterBadges('period')}
+                            </div>
+                            <select
+                              value={monthWiseProfitChartType}
+                              onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        onBoxClick={(periodLabel) => {
+                          const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
+                          if (clickedPeriod) {
+                            setSelectedPeriod(clickedPeriod.originalLabel);
+                          }
+                        }}
+                        onBackClick={() => {
+                          setSelectedPeriod(null);
+                        }}
+                        showBackButton={selectedPeriod !== null}
+                        rowAction={{
+                          icon: 'table_view',
+                          title: 'View raw data',
+                          onClick: (item) =>
+                            openTransactionRawData(
+                              `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                              (sale) => {
+                                const saleDate = sale.cp_date || sale.date;
+                                const date = new Date(saleDate);
+                                const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                                return yearMonth === (item.originalLabel || item.label);
+                              }
+                            ),
+                        }}
+                      />
+                    )}
+                    {monthWiseProfitChartType === 'line' && (
+                      <LineChart
+                        data={monthWiseProfitChartData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('monthProfit')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Month-wise Profit
+                              </h3>
+                              {renderCardFilterBadges('period')}
+                            </div>
+                            <select
+                              value={monthWiseProfitChartType}
+                              onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        onPointClick={(periodLabel) => {
+                          const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
+                          if (clickedPeriod) {
+                            setSelectedPeriod(clickedPeriod.originalLabel);
+                          }
+                        }}
+                        onBackClick={() => {
+                          setSelectedPeriod(null);
+                        }}
+                        showBackButton={selectedPeriod !== null}
+                        rowAction={{
+                          icon: 'table_view',
+                          title: 'View raw data',
+                          onClick: (item) =>
+                            openTransactionRawData(
+                              `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                              (sale) => {
+                                const saleDate = sale.cp_date || sale.date;
+                                const date = new Date(saleDate);
+                                const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                                return yearMonth === (item.originalLabel || item.label);
+                              }
+                            ),
+                        }}
+                      />
+                    )}
+                  </div>
                 </div>
-                     }
-                     onBarClick={(periodLabel) => {
-                       const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
-                       if (clickedPeriod) {
-                         setSelectedPeriod(clickedPeriod.originalLabel);
-                       }
-                     }}
-                     onBackClick={() => {
-                       setSelectedPeriod(null);
-                     }}
-                     showBackButton={selectedPeriod !== null}
-                     rowAction={{
-                       icon: 'table_view',
-                       title: 'View raw data',
-                       onClick: (item) =>
-                         openTransactionRawData(
-                           `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
-                           (sale) => {
-                             const saleDate = sale.cp_date || sale.date;
-                             const date = new Date(saleDate);
-                             const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                             return yearMonth === (item.originalLabel || item.label);
-                           }
-                         ),
-                     }}
-                   />
-                 )}
-                 {monthWiseProfitChartType === 'pie' && (
-                   <PieChart
-                     data={monthWiseProfitChartData}
-                     customHeader={
-                       <div style={{
-                         display: 'flex',
-                         alignItems: 'center',
-                         justifyContent: 'space-between'
-                       }}>
-                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                           <button
-                             type="button"
-                             onClick={() => openRawData('monthProfit')}
-                             style={rawDataIconButtonStyle}
-                             onMouseEnter={handleRawDataButtonMouseEnter}
-                             onMouseLeave={handleRawDataButtonMouseLeave}
-                             title="View raw data"
-                           >
-                             <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                           </button>
-                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                             Month-wise Profit
-                           </h3>
-                           {renderCardFilterBadges('period')}
-                         </div>
-                         <select
-                           value={monthWiseProfitChartType}
-                           onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
-                           style={{
-                             padding: '6px 12px',
-                             border: '1px solid #d1d5db',
-                             borderRadius: '6px',
-                             fontSize: '12px',
-                             background: 'white',
-                             color: '#374151'
-                           }}
-                         >
-                           <option value="bar">Bar</option>
-                           <option value="pie">Pie</option>
-                           <option value="treemap">Tree Map</option>
-                           <option value="line">Line</option>
-                         </select>
-                       </div>
-                     }
-                     onSliceClick={(periodLabel) => {
-                       const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
-                       if (clickedPeriod) {
-                         setSelectedPeriod(clickedPeriod.originalLabel);
-                       }
-                     }}
-                     onBackClick={() => {
-                       setSelectedPeriod(null);
-                     }}
-                     showBackButton={selectedPeriod !== null}
-                     rowAction={{
-                       icon: 'table_view',
-                       title: 'View raw data',
-                       onClick: (item) =>
-                         openTransactionRawData(
-                           `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
-                           (sale) => {
-                             const saleDate = sale.cp_date || sale.date;
-                             const date = new Date(saleDate);
-                             const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                             return yearMonth === (item.originalLabel || item.label);
-                           }
-                         ),
-                     }}
-                   />
-                 )}
-                 {monthWiseProfitChartType === 'treemap' && (
-                   <TreeMap
-                     data={monthWiseProfitChartData}
-                     customHeader={
-                       <div style={{
-                         display: 'flex',
-                         alignItems: 'center',
-                         justifyContent: 'space-between'
-                       }}>
-                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                           <button
-                             type="button"
-                             onClick={() => openRawData('monthProfit')}
-                             style={rawDataIconButtonStyle}
-                             onMouseEnter={handleRawDataButtonMouseEnter}
-                             onMouseLeave={handleRawDataButtonMouseLeave}
-                             title="View raw data"
-                           >
-                             <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                           </button>
-                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                             Month-wise Profit
-                           </h3>
-                           {renderCardFilterBadges('period')}
-                         </div>
-                         <select
-                           value={monthWiseProfitChartType}
-                           onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
-                           style={{
-                             padding: '6px 12px',
-                             border: '1px solid #d1d5db',
-                             borderRadius: '6px',
-                             fontSize: '12px',
-                             background: 'white',
-                             color: '#374151'
-                           }}
-                         >
-                           <option value="bar">Bar</option>
-                           <option value="pie">Pie</option>
-                           <option value="treemap">Tree Map</option>
-                           <option value="line">Line</option>
-                         </select>
-                       </div>
-                     }
-                     onBoxClick={(periodLabel) => {
-                       const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
-                       if (clickedPeriod) {
-                         setSelectedPeriod(clickedPeriod.originalLabel);
-                       }
-                     }}
-                     onBackClick={() => {
-                       setSelectedPeriod(null);
-                     }}
-                     showBackButton={selectedPeriod !== null}
-                     rowAction={{
-                       icon: 'table_view',
-                       title: 'View raw data',
-                       onClick: (item) =>
-                         openTransactionRawData(
-                           `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
-                           (sale) => {
-                             const saleDate = sale.cp_date || sale.date;
-                             const date = new Date(saleDate);
-                             const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                             return yearMonth === (item.originalLabel || item.label);
-                           }
-                         ),
-                     }}
-                   />
-                 )}
-                 {monthWiseProfitChartType === 'line' && (
-                   <LineChart
-                     data={monthWiseProfitChartData}
-                     customHeader={
-                       <div style={{
-                         display: 'flex',
-                         alignItems: 'center',
-                         justifyContent: 'space-between'
-                       }}>
-                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                           <button
-                             type="button"
-                             onClick={() => openRawData('monthProfit')}
-                             style={rawDataIconButtonStyle}
-                             onMouseEnter={handleRawDataButtonMouseEnter}
-                             onMouseLeave={handleRawDataButtonMouseLeave}
-                             title="View raw data"
-                           >
-                             <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                           </button>
-                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                             Month-wise Profit
-                           </h3>
-                           {renderCardFilterBadges('period')}
-                         </div>
-                         <select
-                           value={monthWiseProfitChartType}
-                           onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
-                           style={{
-                             padding: '6px 12px',
-                             border: '1px solid #d1d5db',
-                             borderRadius: '6px',
-                             fontSize: '12px',
-                             background: 'white',
-                             color: '#374151'
-                           }}
-                         >
-                           <option value="bar">Bar</option>
-                           <option value="pie">Pie</option>
-                           <option value="treemap">Tree Map</option>
-                           <option value="line">Line</option>
-                         </select>
-                       </div>
-                     }
-                     onPointClick={(periodLabel) => {
-                       const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
-                       if (clickedPeriod) {
-                         setSelectedPeriod(clickedPeriod.originalLabel);
-                       }
-                     }}
-                     onBackClick={() => {
-                       setSelectedPeriod(null);
-                     }}
-                     showBackButton={selectedPeriod !== null}
-                     rowAction={{
-                       icon: 'table_view',
-                       title: 'View raw data',
-                       onClick: (item) =>
-                         openTransactionRawData(
-                           `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
-                           (sale) => {
-                             const saleDate = sale.cp_date || sale.date;
-                             const date = new Date(saleDate);
-                             const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-                             return yearMonth === (item.originalLabel || item.label);
-                           }
-                         ),
-                     }}
-                   />
-                 )}
-              </div>
-            </div>
-          )}
+              )}
 
-          {/* Row 6: Top 10 Profitable Items and Top 10 Loss Items */}
-          {canShowProfit && (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
-          }}>
-            {/* Top 10 Profitable Items */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: '500px',
-              overflow: 'hidden'
-            }}>
-              {topProfitableItemsChartType === 'bar' && (
-                <BarChart
-                  data={topProfitableItemsData}
-                  customHeader={
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                      justifyContent: 'space-between'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => openRawData('topProfitable')}
-                    style={rawDataIconButtonStyle}
-                    onMouseEnter={handleRawDataButtonMouseEnter}
-                    onMouseLeave={handleRawDataButtonMouseLeave}
-                    title="View raw data"
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                  </button>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                    Top 10 Profitable Items
-                  </h3>
-                  {renderCardFilterBadges('topItems')}
+              {/* Row 6: Top 10 Profitable Items and Top 10 Loss Items */}
+              {canShowProfit && (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                  gap: isMobile ? '16px' : '24px',
+                  marginBottom: isMobile ? '16px' : '24px'
+                }}>
+                  {/* Top 10 Profitable Items */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '500px',
+                    overflow: 'hidden'
+                  }}>
+                    {topProfitableItemsChartType === 'bar' && (
+                      <BarChart
+                        data={topProfitableItemsData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('topProfitable')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Top 10 Profitable Items
+                              </h3>
+                              {renderCardFilterBadges('topItems')}
+                            </div>
+                            <select
+                              value={topProfitableItemsChartType}
+                              onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        valuePrefix="₹"
+                        onBarClick={(item) => setSelectedItem(item)}
+                        onBackClick={() => setSelectedItem('all')}
+                        showBackButton={selectedItem !== 'all'}
+                        rowAction={{
+                          icon: 'table_view',
+                          title: 'View raw data',
+                          onClick: (item) =>
+                            openTransactionRawData(
+                              `Raw Data - ${item.label}`,
+                              (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                            ),
+                        }}
+                      />
+                    )}
+                    {topProfitableItemsChartType === 'pie' && (
+                      <PieChart
+                        data={topProfitableItemsData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('topProfitable')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Top 10 Profitable Items
+                              </h3>
+                              {renderCardFilterBadges('topItems')}
+                            </div>
+                            <select
+                              value={topProfitableItemsChartType}
+                              onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        onSliceClick={(item) => setSelectedItem(item)}
+                        onBackClick={() => setSelectedItem('all')}
+                        showBackButton={selectedItem !== 'all'}
+                        rowAction={{
+                          icon: 'table_view',
+                          title: 'View raw data',
+                          onClick: (item) =>
+                            openTransactionRawData(
+                              `Raw Data - ${item.label}`,
+                              (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                            ),
+                        }}
+                      />
+                    )}
+                    {topProfitableItemsChartType === 'treemap' && (
+                      <TreeMap
+                        data={topProfitableItemsData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('topProfitable')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Top 10 Profitable Items
+                              </h3>
+                              {renderCardFilterBadges('topItems')}
+                            </div>
+                            <select
+                              value={topProfitableItemsChartType}
+                              onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        onBoxClick={(item) => setSelectedItem(item)}
+                        onBackClick={() => setSelectedItem('all')}
+                        showBackButton={selectedItem !== 'all'}
+                        rowAction={{
+                          icon: 'table_view',
+                          title: 'View raw data',
+                          onClick: (item) =>
+                            openTransactionRawData(
+                              `Raw Data - ${item.label}`,
+                              (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                            ),
+                        }}
+                      />
+                    )}
+                    {topProfitableItemsChartType === 'line' && (
+                      <LineChart
+                        data={topProfitableItemsData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('topProfitable')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Top 10 Profitable Items
+                              </h3>
+                              {renderCardFilterBadges('topItems')}
+                            </div>
+                            <select
+                              value={topProfitableItemsChartType}
+                              onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        onPointClick={(item) => setSelectedItem(item)}
+                        onBackClick={() => setSelectedItem('all')}
+                        showBackButton={selectedItem !== 'all'}
+                        rowAction={{
+                          icon: 'table_view',
+                          title: 'View raw data',
+                          onClick: (item) =>
+                            openTransactionRawData(
+                              `Raw Data - ${item.label}`,
+                              (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                            ),
+                        }}
+                      />
+                    )}
+                  </div>
+
+                  {/* Top 10 Loss Items */}
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    height: '500px',
+                    overflow: 'hidden'
+                  }}>
+                    {topLossItemsChartType === 'bar' && (
+                      <BarChart
+                        data={topLossItemsData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('topLoss')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Top 10 Loss Items
+                              </h3>
+                              {renderCardFilterBadges('topItems')}
+                            </div>
+                            <select
+                              value={topLossItemsChartType}
+                              onChange={(e) => setTopLossItemsChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        valuePrefix="₹"
+                        onBarClick={(item) => setSelectedItem(item)}
+                        onBackClick={() => setSelectedItem('all')}
+                        showBackButton={selectedItem !== 'all'}
+                        rowAction={{
+                          icon: 'table_view',
+                          title: 'View raw data',
+                          onClick: (item) =>
+                            openTransactionRawData(
+                              `Raw Data - ${item.label}`,
+                              (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                            ),
+                        }}
+                      />
+                    )}
+                    {topLossItemsChartType === 'pie' && (
+                      <PieChart
+                        data={topLossItemsData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('topLoss')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Top 10 Loss Items
+                              </h3>
+                              {renderCardFilterBadges('topItems')}
+                            </div>
+                            <select
+                              value={topLossItemsChartType}
+                              onChange={(e) => setTopLossItemsChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        onSliceClick={(item) => setSelectedItem(item)}
+                        onBackClick={() => setSelectedItem('all')}
+                        showBackButton={selectedItem !== 'all'}
+                      />
+                    )}
+                    {topLossItemsChartType === 'treemap' && (
+                      <TreeMap
+                        data={topLossItemsData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('topLoss')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Top 10 Loss Items
+                              </h3>
+                              {renderCardFilterBadges('topItems')}
+                            </div>
+                            <select
+                              value={topLossItemsChartType}
+                              onChange={(e) => setTopLossItemsChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        onBoxClick={(item) => setSelectedItem(item)}
+                        onBackClick={() => setSelectedItem('all')}
+                        showBackButton={selectedItem !== 'all'}
+                      />
+                    )}
+                    {topLossItemsChartType === 'line' && (
+                      <LineChart
+                        data={topLossItemsData}
+                        customHeader={
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <button
+                                type="button"
+                                onClick={() => openRawData('topLoss')}
+                                style={rawDataIconButtonStyle}
+                                onMouseEnter={handleRawDataButtonMouseEnter}
+                                onMouseLeave={handleRawDataButtonMouseLeave}
+                                title="View raw data"
+                              >
+                                <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                              </button>
+                              <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                                Top 10 Loss Items
+                              </h3>
+                              {renderCardFilterBadges('topItems')}
+                            </div>
+                            <select
+                              value={topLossItemsChartType}
+                              onChange={(e) => setTopLossItemsChartType(e.target.value)}
+                              style={{
+                                padding: '6px 12px',
+                                border: '1px solid #d1d5db',
+                                borderRadius: '6px',
+                                fontSize: '12px',
+                                background: 'white',
+                                color: '#374151'
+                              }}
+                            >
+                              <option value="bar">Bar</option>
+                              <option value="pie">Pie</option>
+                              <option value="treemap">Tree Map</option>
+                              <option value="line">Line</option>
+                            </select>
+                          </div>
+                        }
+                        onPointClick={(item) => setSelectedItem(item)}
+                        onBackClick={() => setSelectedItem('all')}
+                        showBackButton={selectedItem !== 'all'}
+                      />
+                    )}
+                  </div>
                 </div>
-                <select
-                  value={topProfitableItemsChartType}
-                  onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                </select>
-              </div>
-                  }
-                  valuePrefix="₹"
-                  onBarClick={(item) => setSelectedItem(item)}
-                  onBackClick={() => setSelectedItem('all')}
-                  showBackButton={selectedItem !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
-                      ),
-                  }}
-                />
               )}
-              {topProfitableItemsChartType === 'pie' && (
-                <PieChart
-                  data={topProfitableItemsData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('topProfitable')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Top 10 Profitable Items
-                        </h3>
-                        {renderCardFilterBadges('topItems')}
-                      </div>
-                      <select
-                        value={topProfitableItemsChartType}
-                        onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                  onSliceClick={(item) => setSelectedItem(item)}
-                  onBackClick={() => setSelectedItem('all')}
-                  showBackButton={selectedItem !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
-                      ),
-                  }}
-                />
-              )}
-              {topProfitableItemsChartType === 'treemap' && (
-                <TreeMap
-                  data={topProfitableItemsData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('topProfitable')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Top 10 Profitable Items
-                        </h3>
-                        {renderCardFilterBadges('topItems')}
-                      </div>
-                      <select
-                        value={topProfitableItemsChartType}
-                        onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                  onBoxClick={(item) => setSelectedItem(item)}
-                  onBackClick={() => setSelectedItem('all')}
-                  showBackButton={selectedItem !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
-                      ),
-                  }}
-                />
-              )}
-              {topProfitableItemsChartType === 'line' && (
-                <LineChart
-                  data={topProfitableItemsData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('topProfitable')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Top 10 Profitable Items
-                        </h3>
-                        {renderCardFilterBadges('topItems')}
-                      </div>
-                      <select
-                        value={topProfitableItemsChartType}
-                        onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                  onPointClick={(item) => setSelectedItem(item)}
-                  onBackClick={() => setSelectedItem('all')}
-                  showBackButton={selectedItem !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
-                      ),
-                  }}
-                />
-              )}
-            </div>
 
-            {/* Top 10 Loss Items */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: '500px',
-              overflow: 'hidden'
-            }}>
-              {topLossItemsChartType === 'bar' && (
-                <BarChart
-                  data={topLossItemsData}
-                  customHeader={
+              {/* Sales by Stock Group and Custom Cards - Moved to end */}
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                      justifyContent: 'space-between'
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gap: isMobile ? '16px' : '24px',
+                marginBottom: isMobile ? '16px' : '24px'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    type="button"
-                    onClick={() => openRawData('topLoss')}
-                    style={rawDataIconButtonStyle}
-                    onMouseEnter={handleRawDataButtonMouseEnter}
-                    onMouseLeave={handleRawDataButtonMouseLeave}
-                    title="View raw data"
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                  </button>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                    Top 10 Loss Items
-                  </h3>
-                  {renderCardFilterBadges('topItems')}
+                {/* Sales by Stock Group */}
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  height: '500px',
+                  overflow: 'hidden'
+                }}>
+                  {categoryChartType === 'bar' && (
+                    <BarChart
+                      data={categoryChartData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('stockGroup')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Sales by Stock Group
+                            </h3>
+                            {renderCardFilterBadges('stockGroup')}
+                          </div>
+                          <select
+                            value={categoryChartType}
+                            onChange={(e) => setCategoryChartType(e.target.value)}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              background: 'white',
+                              color: '#374151'
+                            }}
+                          >
+                            <option value="bar">Bar</option>
+                            <option value="pie">Pie</option>
+                            <option value="treemap">Tree Map</option>
+                            <option value="line">Line</option>
+                          </select>
+                        </div>
+                      }
+                      onBarClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                      onBackClick={() => setSelectedStockGroup('all')}
+                      showBackButton={selectedStockGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
+                  {categoryChartType === 'pie' && (
+                    <PieChart
+                      data={categoryChartData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('stockGroup')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Sales by Stock Group
+                            </h3>
+                          </div>
+                          <select
+                            value={categoryChartType}
+                            onChange={(e) => setCategoryChartType(e.target.value)}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              background: 'white',
+                              color: '#374151'
+                            }}
+                          >
+                            <option value="bar">Bar</option>
+                            <option value="pie">Pie</option>
+                            <option value="treemap">Tree Map</option>
+                            <option value="line">Line</option>
+                          </select>
+                        </div>
+                      }
+                      onSliceClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                      onBackClick={() => setSelectedStockGroup('all')}
+                      showBackButton={selectedStockGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
+                  {categoryChartType === 'treemap' && (
+                    <TreeMap
+                      data={categoryChartData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('stockGroup')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Sales by Stock Group
+                            </h3>
+                          </div>
+                          <select
+                            value={categoryChartType}
+                            onChange={(e) => setCategoryChartType(e.target.value)}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              background: 'white',
+                              color: '#374151'
+                            }}
+                          >
+                            <option value="bar">Bar</option>
+                            <option value="pie">Pie</option>
+                            <option value="treemap">Tree Map</option>
+                            <option value="line">Line</option>
+                          </select>
+                        </div>
+                      }
+                      onBoxClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                      onBackClick={() => setSelectedStockGroup('all')}
+                      showBackButton={selectedStockGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
+                  {categoryChartType === 'line' && (
+                    <LineChart
+                      data={categoryChartData}
+                      customHeader={
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('stockGroup')}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                            <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                              Sales by Stock Group
+                            </h3>
+                          </div>
+                          <select
+                            value={categoryChartType}
+                            onChange={(e) => setCategoryChartType(e.target.value)}
+                            style={{
+                              padding: '6px 12px',
+                              border: '1px solid #d1d5db',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              background: 'white',
+                              color: '#374151'
+                            }}
+                          >
+                            <option value="bar">Bar</option>
+                            <option value="pie">Pie</option>
+                            <option value="treemap">Tree Map</option>
+                            <option value="line">Line</option>
+                          </select>
+                        </div>
+                      }
+                      onPointClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                      onBackClick={() => setSelectedStockGroup('all')}
+                      showBackButton={selectedStockGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
                 </div>
-                <select
-                  value={topLossItemsChartType}
-                  onChange={(e) => setTopLossItemsChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                </select>
+
+                {/* First Custom Card - Next to Sales by Stock Group */}
+                {customCards.length > 0 && (
+                  <div ref={customCards.length === 1 ? customCardsSectionRef : null}>
+                    <CustomCard
+                      key={customCards[0].id}
+                      card={customCards[0]}
+                      salesData={filteredSales}
+                      generateCustomCardData={generateCustomCardData}
+                      chartType={customCardChartTypes[customCards[0].id] || customCards[0].chartType || 'bar'}
+                      onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [customCards[0].id]: newType }))}
+                      onDelete={() => handleDeleteCustomCard(customCards[0].id)}
+                      onEdit={handleEditCustomCard}
+                      openTransactionRawData={openTransactionRawData}
+                      setSelectedCustomer={setSelectedCustomer}
+                      setSelectedItem={setSelectedItem}
+                      setSelectedStockGroup={setSelectedStockGroup}
+                      setSelectedRegion={setSelectedRegion}
+                      setSelectedCountry={setSelectedCountry}
+                      setSelectedPeriod={setSelectedPeriod}
+                      setSelectedLedgerGroup={setSelectedLedgerGroup}
+                      selectedCustomer={selectedCustomer}
+                      selectedItem={selectedItem}
+                      selectedStockGroup={selectedStockGroup}
+                      selectedRegion={selectedRegion}
+                      selectedCountry={selectedCountry}
+                      selectedPeriod={selectedPeriod}
+                      selectedLedgerGroup={selectedLedgerGroup}
+                      genericFilters={genericFilters}
+                      setGenericFilters={setGenericFilters}
+                      renderCardFilterBadges={renderCardFilterBadges}
+                      customCards={customCards}
+                      isMobile={isMobile}
+                      formatPeriodLabel={formatPeriodLabel}
+                    />
+                  </div>
+                )}
               </div>
-                  }
-                  valuePrefix="₹"
-                  onBarClick={(item) => setSelectedItem(item)}
-                  onBackClick={() => setSelectedItem('all')}
-                  showBackButton={selectedItem !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) =>
-                      openTransactionRawData(
-                        `Raw Data - ${item.label}`,
-                        (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
-                      ),
-                  }}
-                />
-              )}
-              {topLossItemsChartType === 'pie' && (
-                <PieChart
-                  data={topLossItemsData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('topLoss')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Top 10 Loss Items
-                        </h3>
-                        {renderCardFilterBadges('topItems')}
-                      </div>
-                      <select
-                        value={topLossItemsChartType}
-                        onChange={(e) => setTopLossItemsChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onSliceClick={(item) => setSelectedItem(item)}
-                  onBackClick={() => setSelectedItem('all')}
-                  showBackButton={selectedItem !== 'all'}
-                />
-              )}
-              {topLossItemsChartType === 'treemap' && (
-                <TreeMap
-                  data={topLossItemsData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('topLoss')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Top 10 Loss Items
-                        </h3>
-                        {renderCardFilterBadges('topItems')}
-                      </div>
-                      <select
-                        value={topLossItemsChartType}
-                        onChange={(e) => setTopLossItemsChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onBoxClick={(item) => setSelectedItem(item)}
-                  onBackClick={() => setSelectedItem('all')}
-                  showBackButton={selectedItem !== 'all'}
-                />
-              )}
-              {topLossItemsChartType === 'line' && (
-                <LineChart
-                  data={topLossItemsData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('topLoss')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Top 10 Loss Items
-                        </h3>
-                        {renderCardFilterBadges('topItems')}
-                      </div>
-                      <select
-                        value={topLossItemsChartType}
-                        onChange={(e) => setTopLossItemsChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onPointClick={(item) => setSelectedItem(item)}
-                  onBackClick={() => setSelectedItem('all')}
-                  showBackButton={selectedItem !== 'all'}
-                />
-              )}
-            </div>
-          </div>
-          )}
 
-          {/* Sales by Stock Group (Position 13) and First Custom Card (Position 14) */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px',
-            width: '100%',
-            maxWidth: '100%',
-            minWidth: 0
-          }}>
-            {/* Sales by Stock Group - Position 13 */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: '500px',
-              overflow: 'hidden',
-              width: '100%',
-              maxWidth: '100%',
-              minWidth: 0
-            }}>
-              {categoryChartType === 'bar' && (
-                <BarChart
-                  data={categoryChartData}
-                  customHeader={
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                      justifyContent: 'space-between'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={() => openRawData('stockGroup')}
-                    style={rawDataIconButtonStyle}
-                    onMouseEnter={handleRawDataButtonMouseEnter}
-                    onMouseLeave={handleRawDataButtonMouseLeave}
-                    title="View raw data"
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                  </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                    Sales by Stock Group
-                </h3>
-                  {renderCardFilterBadges('stockGroup')}
-        </div>
-                <select
-                  value={categoryChartType}
-                  onChange={(e) => setCategoryChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                </select>
-      </div>
-                  }
-                  onBarClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
-                  onBackClick={() => setSelectedStockGroup('all')}
-                  showBackButton={selectedStockGroup !== 'all'}
-                  rowAction={{
-                    icon: 'table_view',
-                    title: 'View raw data',
-                    onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
-                  }}
-                />
-                )}
-                {categoryChartType === 'pie' && (
-                  <PieChart
-                    data={categoryChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('stockGroup')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Stock Group
-                        </h3>
-                      </div>
-                      <select
-                        value={categoryChartType}
-                        onChange={(e) => setCategoryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onSliceClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
-                    onBackClick={() => setSelectedStockGroup('all')}
-                    showBackButton={selectedStockGroup !== 'all'}
-                    rowAction={{
-                      icon: 'table_view',
-                      title: 'View raw data',
-                      onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
-                    }}
-                  />
-                )}
-                {categoryChartType === 'treemap' && (
-                  <TreeMap
-                    data={categoryChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('stockGroup')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Stock Group
-                        </h3>
-                      </div>
-                      <select
-                        value={categoryChartType}
-                        onChange={(e) => setCategoryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onBoxClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
-                    onBackClick={() => setSelectedStockGroup('all')}
-                    showBackButton={selectedStockGroup !== 'all'}
-                    rowAction={{
-                      icon: 'table_view',
-                      title: 'View raw data',
-                      onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
-                    }}
-                  />
-                )}
-                {categoryChartType === 'line' && (
-                  <LineChart
-                    data={categoryChartData}
-                  customHeader={
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between'
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={() => openRawData('stockGroup')}
-                          style={rawDataIconButtonStyle}
-                          onMouseEnter={handleRawDataButtonMouseEnter}
-                          onMouseLeave={handleRawDataButtonMouseLeave}
-                          title="View raw data"
-                        >
-                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
-                        </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
-                          Sales by Stock Group
-                        </h3>
-                      </div>
-                      <select
-                        value={categoryChartType}
-                        onChange={(e) => setCategoryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                      </select>
-                    </div>
-                  }
-                    onPointClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
-                    onBackClick={() => setSelectedStockGroup('all')}
-                    showBackButton={selectedStockGroup !== 'all'}
-                    rowAction={{
-                      icon: 'table_view',
-                      title: 'View raw data',
-                      onClick: (item) => openRawData('stockGroupItemTransactions', item.label),
-                    }}
-                  />
-                )}
-    </div>
-
-            {/* First Custom Card - Position 14 */}
-            {customCards.length > 0 && (
-              <div 
-                ref={customCards.length === 1 ? customCardsSectionRef : null}
-                style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
-              >
-                <CustomCard
-                  key={customCards[0].id}
-                  card={customCards[0]}
-                  salesData={filteredSales}
-                  generateCustomCardData={generateCustomCardData}
-                  chartType={customCardChartTypes[customCards[0].id] || customCards[0].chartType || 'bar'}
-                  onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [customCards[0].id]: newType }))}
-                  onDelete={() => handleDeleteCustomCard(customCards[0].id)}
-                  onEdit={handleEditCustomCard}
-                  openTransactionRawData={openTransactionRawData}
-                  setSelectedCustomer={setSelectedCustomer}
-                  setSelectedItem={setSelectedItem}
-                  setSelectedStockGroup={setSelectedStockGroup}
-                  setSelectedRegion={setSelectedRegion}
-                  setSelectedCountry={setSelectedCountry}
-                  setSelectedPeriod={setSelectedPeriod}
-                  setSelectedLedgerGroup={setSelectedLedgerGroup}
-                  selectedCustomer={selectedCustomer}
-                  selectedItem={selectedItem}
-                  selectedStockGroup={selectedStockGroup}
-                  selectedRegion={selectedRegion}
-                  selectedCountry={selectedCountry}
-                  selectedPeriod={selectedPeriod}
-                  selectedLedgerGroup={selectedLedgerGroup}
-                  genericFilters={genericFilters}
-                  setGenericFilters={setGenericFilters}
-                  renderCardFilterBadges={renderCardFilterBadges}
-                  customCards={customCards}
-                  isMobile={isMobile}
-                  formatPeriodLabel={formatPeriodLabel}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Additional Custom Cards - Starting from Position 15, continuing sequentially */}
-          {customCards.length > 1 && (() => {
-            // Process remaining custom cards (starting from index 1) in pairs for 2-column grid layout
-            const remainingCards = customCards.slice(1);
-            const cardRows = [];
-            for (let i = 0; i < remainingCards.length; i += 2) {
-              const rowCards = remainingCards.slice(i, i + 2);
-              cardRows.push(rowCards);
-            }
-            
-            return cardRows.map((rowCards, rowIndex) => {
-              const isLastRow = rowIndex === cardRows.length - 1;
-              const shouldAttachRef = (rowIndex === 0 && remainingCards.length === 1) || 
-                                     (rowIndex === 0 && remainingCards.length === 2) ||
-                                     (isLastRow && rowCards.length === 1);
-              
-              return (
+              {/* Additional Custom Cards - Continue in the same grid layout, filling positions sequentially */}
+              {customCards.length > 1 && (
                 <div
-                  key={`custom-cards-row-${rowIndex}`}
-                  ref={shouldAttachRef ? customCardsSectionRef : null}
+                  ref={customCards.length === 2 ? customCardsSectionRef : null}
                   style={{
                     display: 'grid',
                     gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-                    gap: isMobile ? '16px' : '24px',
-                    marginBottom: isMobile ? '16px' : '24px',
-                    width: '100%',
-                    maxWidth: '100%',
-                    minWidth: 0
-                  }}
-                >
-                  {rowCards.map((card, cardIndex) => (
-                    <div key={card.id} style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
+                    gap: '24px',
+                    marginBottom: '24px'
+                  }}>
+                  {customCards.slice(1).map((card, index) => (
+                    <div
+                      key={card.id}
+                      ref={index === customCards.slice(1).length - 1 ? customCardsSectionRef : null}
+                    >
                       <CustomCard
                         card={card}
                         salesData={filteredSales}
@@ -12038,278 +11224,260 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     </div>
                   ))}
                 </div>
-              );
-            });
-          })()}
-          
-        </div>
-        </form>
-      </div>
-    </div>
+              )}
 
-    {rawDataModal.open && (
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(15, 23, 42, 0.45)',
-          zIndex: 12000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '24px'
-        }}
-        onClick={closeRawData}
-      >
+            </div>
+          </form>
+        </div>
+      </div>
+
+      {rawDataModal.open && (
         <div
           style={{
-            background: '#ffffff',
-            borderRadius: '16px',
-            width: 'min(1580px, 100%)',
-            height: '80vh',
-            maxHeight: '90vh',
-            overflow: 'hidden',
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            zIndex: 12000,
             display: 'flex',
-            flexDirection: 'column',
-            boxShadow: '0 24px 60px rgba(15, 23, 42, 0.35)'
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '24px'
           }}
-          onClick={(e) => e.stopPropagation()}
+          onClick={closeRawData}
         >
           <div
             style={{
-              padding: '20px 24px',
-              borderBottom: '1px solid #e2e8f0',
+              background: '#ffffff',
+              borderRadius: '16px',
+              width: 'min(1580px, 100%)',
+              height: '80vh',
+              maxHeight: '90vh',
+              overflow: 'hidden',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '16px'
+              flexDirection: 'column',
+              boxShadow: '0 24px 60px rgba(15, 23, 42, 0.35)'
             }}
-          >
-            <div>
-              <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#1e293b' }}>{rawDataModal.title}</h2>
-              <div style={{ marginTop: '4px', fontSize: '13px', color: '#64748b' }}>
-                {totalRawRows} {totalRawRows === 1 ? 'record' : 'records'}
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={closeRawData}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#64748b',
-                borderRadius: '50%',
-                padding: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background 0.2s ease, color 0.2s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#e2e8f0';
-                e.currentTarget.style.color = '#1e293b';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.color = '#64748b';
-              }}
-              title="Close"
-            >
-              <span className="material-icons" style={{ fontSize: '22px' }}>close</span>
-            </button>
-          </div>
-
-          <div
-            style={{
-              padding: '16px 24px',
-              borderBottom: '1px solid #e2e8f0',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              flexWrap: 'wrap'
-            }}
+            onClick={(e) => e.stopPropagation()}
           >
             <div
               style={{
-                flex: '1 1 260px',
+                padding: '20px 24px',
+                borderBottom: '1px solid #e2e8f0',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                background: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                padding: '8px 12px'
+                justifyContent: 'space-between',
+                gap: '16px'
               }}
             >
-              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>search</span>
-              <input
-                value={rawDataSearch}
-                onChange={(e) => {
-                  setRawDataSearch(e.target.value);
-                  setRawDataPage(1);
-                }}
-                placeholder="Search raw data..."
+              <div>
+                <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: '#1e293b' }}>{rawDataModal.title}</h2>
+                <div style={{ marginTop: '4px', fontSize: '13px', color: '#64748b' }}>
+                  {totalRawRows} {totalRawRows === 1 ? 'record' : 'records'}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={closeRawData}
                 style={{
-                  flex: 1,
-                  border: 'none',
-                  outline: 'none',
                   background: 'transparent',
-                  fontSize: '14px',
-                  color: '#1e293b'
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#64748b',
+                  borderRadius: '50%',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.2s ease, color 0.2s ease'
                 }}
-              />
-              {rawDataSearch && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRawDataSearch('');
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e2e8f0';
+                  e.currentTarget.style.color = '#1e293b';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = '#64748b';
+                }}
+                title="Close"
+              >
+                <span className="material-icons" style={{ fontSize: '22px' }}>close</span>
+              </button>
+            </div>
+
+            <div
+              style={{
+                padding: '16px 24px',
+                borderBottom: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                flexWrap: 'wrap'
+              }}
+            >
+              <div
+                style={{
+                  flex: '1 1 260px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  padding: '8px 12px'
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>search</span>
+                <input
+                  value={rawDataSearch}
+                  onChange={(e) => {
+                    setRawDataSearch(e.target.value);
                     setRawDataPage(1);
                   }}
+                  placeholder="Search raw data..."
                   style={{
+                    flex: 1,
                     border: 'none',
-                    background: '#e2e8f0',
-                    borderRadius: '50%',
-                    width: '24px',
-                    height: '24px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    color: '#475569',
-                    transition: 'background 0.2s ease, color 0.2s ease'
+                    outline: 'none',
+                    background: 'transparent',
+                    fontSize: '14px',
+                    color: '#1e293b'
                   }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#cbd5f5';
-                    e.currentTarget.style.color = '#1e293b';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = '#e2e8f0';
-                    e.currentTarget.style.color = '#475569';
-                  }}
-                  title="Clear search"
-                >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>close</span>
-                </button>
-              )}
-            </div>
-            <button
-              type="button"
-              onClick={exportRawDataToCSV}
-              style={{
-                background: 'linear-gradient(135deg, #047857 0%, #065f46 100%)',
-                border: 'none',
-                borderRadius: '8px',
-                padding: '10px 16px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                color: '#fff',
-                fontSize: '14px',
-                fontWeight: 600,
-                boxShadow: '0 2px 6px rgba(4, 120, 87, 0.2)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(4, 120, 87, 0.3)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 2px 6px rgba(4, 120, 87, 0.2)';
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: '18px' }}>file_download</span>
-              Export CSV
-            </button>
-          </div>
-
-          <div style={{ flex: 1, overflow: 'auto' }}>
-            {paginatedRawRows.length === 0 ? (
-              <div style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
-                No data available for the current selection.
+                />
+                {rawDataSearch && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRawDataSearch('');
+                      setRawDataPage(1);
+                    }}
+                    style={{
+                      border: 'none',
+                      background: '#e2e8f0',
+                      borderRadius: '50%',
+                      width: '24px',
+                      height: '24px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      color: '#475569',
+                      transition: 'background 0.2s ease, color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#cbd5f5';
+                      e.currentTarget.style.color = '#1e293b';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '#e2e8f0';
+                      e.currentTarget.style.color = '#475569';
+                    }}
+                    title="Clear search"
+                  >
+                    <span className="material-icons" style={{ fontSize: '16px' }}>close</span>
+                  </button>
+                )}
               </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    {rawDataModal.columns.map((column) => (
-                      <th
-                        key={column.key}
-                        style={{
-                          padding: '12px 16px',
-                          textAlign: column.format ? 'right' : 'left',
-                          fontSize: '12px',
-                          color: '#64748b',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.05em',
-                          fontWeight: 600,
-                          position: 'sticky',
-                          top: 0,
-                          background: '#f8fafc'
-                        }}
-                      >
-                        {column.label}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {paginatedRawRows.map((row, rowIndex) => (
-                    <tr
-                      key={rowIndex}
-                      style={{ 
-                        borderBottom: '1px solid #e2e8f0', 
-                        transition: 'background 0.2s ease',
-                        cursor: 'pointer'
-                      }}
-                      onClick={() => handleBillRowClick(row)}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#f8fafc';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'transparent';
-                      }}
-                    >
+              <button
+                type="button"
+                onClick={exportRawDataToCSV}
+                style={{
+                  background: 'linear-gradient(135deg, #047857 0%, #065f46 100%)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '10px 16px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  color: '#fff',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  boxShadow: '0 2px 6px rgba(4, 120, 87, 0.2)',
+                  transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(4, 120, 87, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 2px 6px rgba(4, 120, 87, 0.2)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>file_download</span>
+                Export CSV
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflow: 'auto' }}>
+              {paginatedRawRows.length === 0 ? (
+                <div style={{ padding: '32px', textAlign: 'center', color: '#64748b' }}>
+                  No data available for the current selection.
+                </div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                       {rawDataModal.columns.map((column) => (
-                        <td
+                        <th
                           key={column.key}
                           style={{
                             padding: '12px 16px',
-                            fontSize: '14px',
-                            color: '#1e293b',
                             textAlign: column.format ? 'right' : 'left',
-                            whiteSpace: 'nowrap'
+                            fontSize: '12px',
+                            color: '#64748b',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            fontWeight: 600,
+                            position: 'sticky',
+                            top: 0,
+                            background: '#f8fafc'
                           }}
                         >
-                          {renderRawDataCell(row, column)}
-                        </td>
+                          {column.label}
+                        </th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          <div
-            style={{
-              padding: '16px 24px',
-              borderTop: '1px solid #e2e8f0',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: '12px'
-            }}
-          >
-            <div style={{ fontSize: '13px', color: '#64748b' }}>
-              {totalRawRows === 0
-                ? 'Showing 0 results'
-                : `Showing ${rawDataStart} - ${rawDataEnd} of ${totalRawRows}`}
+                  </thead>
+                  <tbody>
+                    {paginatedRawRows.map((row, rowIndex) => (
+                      <tr
+                        key={rowIndex}
+                        style={{
+                          borderBottom: '1px solid #e2e8f0',
+                          transition: 'background 0.2s ease',
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => handleBillRowClick(row)}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f8fafc';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                      >
+                        {rawDataModal.columns.map((column) => (
+                          <td
+                            key={column.key}
+                            style={{
+                              padding: '12px 16px',
+                              fontSize: '14px',
+                              color: '#1e293b',
+                              textAlign: column.format ? 'right' : 'left',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            {renderRawDataCell(row, column)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ fontSize: '13px', color: '#64748b' }}>Show</span>
@@ -12435,271 +11603,270 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             </div>
           </div>
         </div>
-      </div>
-    )}
+      )}
 
-    {/* AI ChatBot */}
-    {sales.length > 0 && (
-      <ChatBot 
-        salesData={sales} 
-        metrics={metrics}
-      />
-    )}
-
-    {/* Bill Drilldown Modal */}
-    {showDrilldown && (
-      <div 
-        style={{ 
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          zIndex: 13000,
-          pointerEvents: 'auto'
-        }}
-      >
-        <BillDrilldownModal
-          data={drilldownData}
-          loading={drilldownLoading}
-          error={drilldownError}
-          selectedBill={selectedBill}
-          showInfoCard={false}
-          onClose={() => {
-            setShowDrilldown(false);
-            setDrilldownData(null);
-            setDrilldownError(null);
-            if (abortControllerRef.current) {
-              abortControllerRef.current.abort();
-              abortControllerRef.current = null;
-            }
-          }}
-          onRowClick={handleVoucherRowClick}
+      {/* AI ChatBot */}
+      {sales.length > 0 && (
+        <ChatBot
+          salesData={sales}
+          metrics={metrics}
         />
-      </div>
-    )}
+      )}
 
-    {/* Voucher Details Modal */}
-    {showVoucherDetails && (
-      <div 
-        style={{ 
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          zIndex: 15000,
-          pointerEvents: 'auto'
-        }}
-      >
-        <VoucherDetailsModal
-          voucherData={voucherDetailsData}
-          loading={voucherDetailsLoading}
-          error={voucherDetailsError}
-          onClose={() => {
-            setShowVoucherDetails(false);
-            setVoucherDetailsData(null);
-            setVoucherDetailsError(null);
-            if (abortControllerRef.current) {
-              abortControllerRef.current.abort();
-              abortControllerRef.current = null;
-            }
-          }}
-        />
-      </div>
-    )}
-
-    {/* Navigation Warning Modal */}
-    {showNavigationWarning && (
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.6)',
-          zIndex: 20000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px',
-          backdropFilter: 'blur(4px)'
-        }}
-      >
+      {/* Bill Drilldown Modal */}
+      {showDrilldown && (
         <div
           style={{
-            background: 'white',
-            borderRadius: '16px',
-            width: '90%',
-            maxWidth: '480px',
-            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-            overflow: 'hidden'
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 13000,
+            pointerEvents: 'auto'
           }}
-          onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
-          <div style={{
-            padding: '24px 28px',
-            background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
+          <BillDrilldownModal
+            data={drilldownData}
+            loading={drilldownLoading}
+            error={drilldownError}
+            selectedBill={selectedBill}
+            showInfoCard={false}
+            onClose={() => {
+              setShowDrilldown(false);
+              setDrilldownData(null);
+              setDrilldownError(null);
+              if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+                abortControllerRef.current = null;
+              }
+            }}
+            onRowClick={handleVoucherRowClick}
+          />
+        </div>
+      )}
+
+      {/* Voucher Details Modal */}
+      {showVoucherDetails && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 15000,
+            pointerEvents: 'auto'
+          }}
+        >
+          <VoucherDetailsModal
+            voucherData={voucherDetailsData}
+            loading={voucherDetailsLoading}
+            error={voucherDetailsError}
+            onClose={() => {
+              setShowVoucherDetails(false);
+              setVoucherDetailsData(null);
+              setVoucherDetailsError(null);
+              if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+                abortControllerRef.current = null;
+              }
+            }}
+          />
+        </div>
+      )}
+
+      {/* Navigation Warning Modal */}
+      {showNavigationWarning && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.6)',
+            zIndex: 20000,
             display: 'flex',
             alignItems: 'center',
-            gap: '12px'
-          }}>
-            <span className="material-icons" style={{ 
-              fontSize: '32px', 
-              color: '#fff',
-              animation: 'pulse 2s ease-in-out infinite'
-            }}>
-              warning
-            </span>
-            <h3 style={{
-              margin: 0,
-              fontSize: '20px',
-              fontWeight: '700',
-              color: '#fff',
-              letterSpacing: '-0.01em'
-            }}>
-              Data Loading in Progress
-            </h3>
-          </div>
-
-          {/* Content */}
-          <div style={{
-            padding: '28px'
-          }}>
-            <p style={{
-              margin: '0 0 20px 0',
-              fontSize: '15px',
-              lineHeight: '1.6',
-              color: '#334155',
-              fontWeight: '400'
-            }}>
-              Sales data is currently being fetched in chunks 
-              ({progress.current} of {progress.total} completed, {progress.percentage}% done).
-            </p>
-            <p style={{
-              margin: '0 0 24px 0',
-              fontSize: '15px',
-              lineHeight: '1.6',
-              color: '#334155',
-              fontWeight: '500'
-            }}>
-              If you navigate away now, the data loading will stop and you may lose progress.
-            </p>
-
+            justifyContent: 'center',
+            padding: '20px',
+            backdropFilter: 'blur(4px)'
+          }}
+        >
+          <div
+            style={{
+              background: 'white',
+              borderRadius: '16px',
+              width: '90%',
+              maxWidth: '480px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              overflow: 'hidden'
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
             <div style={{
-              background: '#fef3c7',
-              border: '1px solid #fcd34d',
-              borderRadius: '10px',
-              padding: '14px 16px',
-              marginBottom: '24px',
+              padding: '24px 28px',
+              background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
               display: 'flex',
-              alignItems: 'flex-start',
-              gap: '10px'
+              alignItems: 'center',
+              gap: '12px'
             }}>
-              <span className="material-icons" style={{ 
-                fontSize: '20px', 
-                color: '#f59e0b',
-                marginTop: '1px'
+              <span className="material-icons" style={{
+                fontSize: '32px',
+                color: '#fff',
+                animation: 'pulse 2s ease-in-out infinite'
               }}>
-                info
+                warning
               </span>
-              <p style={{
+              <h3 style={{
                 margin: 0,
-                fontSize: '13px',
-                lineHeight: '1.5',
-                color: '#78350f',
+                fontSize: '20px',
+                fontWeight: '700',
+                color: '#fff',
+                letterSpacing: '-0.01em'
+              }}>
+                Data Loading in Progress
+              </h3>
+            </div>
+
+            {/* Content */}
+            <div style={{
+              padding: '28px'
+            }}>
+              <p style={{
+                margin: '0 0 20px 0',
+                fontSize: '15px',
+                lineHeight: '1.6',
+                color: '#334155',
+                fontWeight: '400'
+              }}>
+                Sales data is currently being fetched in chunks
+                ({progress.current} of {progress.total} completed, {progress.percentage}% done).
+              </p>
+              <p style={{
+                margin: '0 0 24px 0',
+                fontSize: '15px',
+                lineHeight: '1.6',
+                color: '#334155',
                 fontWeight: '500'
               }}>
-                Recommended: Wait for the data loading to complete for best results.
+                If you navigate away now, the data loading will stop and you may lose progress.
               </p>
+
+              <div style={{
+                background: '#fef3c7',
+                border: '1px solid #fcd34d',
+                borderRadius: '10px',
+                padding: '14px 16px',
+                marginBottom: '24px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '10px'
+              }}>
+                <span className="material-icons" style={{
+                  fontSize: '20px',
+                  color: '#f59e0b',
+                  marginTop: '1px'
+                }}>
+                  info
+                </span>
+                <p style={{
+                  margin: 0,
+                  fontSize: '13px',
+                  lineHeight: '1.5',
+                  color: '#78350f',
+                  fontWeight: '500'
+                }}>
+                  Recommended: Wait for the data loading to complete for best results.
+                </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div style={{
+                display: 'flex',
+                gap: '12px',
+                justifyContent: 'flex-end'
+              }}>
+                <button
+                  onClick={() => {
+                    setShowNavigationWarning(false);
+                    setPendingNavigation(null);
+                  }}
+                  style={{
+                    padding: '12px 24px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    background: '#ffffff',
+                    color: '#64748b',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    minWidth: '120px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = '#f8fafc';
+                    e.target.style.borderColor = '#cbd5e1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = '#ffffff';
+                    e.target.style.borderColor = '#e2e8f0';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '18px' }}>schedule</span>
+                  Wait & Continue
+                </button>
+                <button
+                  onClick={() => {
+                    abortLoadingRef.current = true;
+                    setLoading(false);
+                    setLoadingStartTime(null);
+                    setShowNavigationWarning(false);
+                    if (pendingNavigation) {
+                      pendingNavigation();
+                    }
+                    setPendingNavigation(null);
+                  }}
+                  style={{
+                    padding: '12px 24px',
+                    border: 'none',
+                    borderRadius: '10px',
+                    background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                    color: 'white',
+                    fontSize: '14px',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)',
+                    minWidth: '120px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)';
+                    e.target.style.boxShadow = '0 4px 6px rgba(239, 68, 68, 0.3)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
+                    e.target.style.boxShadow = '0 2px 4px rgba(239, 68, 68, 0.2)';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '18px' }}>exit_to_app</span>
+                  Stop & Leave
+                </button>
+              </div>
             </div>
 
-            {/* Action Buttons */}
-            <div style={{
-              display: 'flex',
-              gap: '12px',
-              justifyContent: 'flex-end'
-            }}>
-              <button
-                onClick={() => {
-                  setShowNavigationWarning(false);
-                  setPendingNavigation(null);
-                }}
-                style={{
-                  padding: '12px 24px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '10px',
-                  background: '#ffffff',
-                  color: '#64748b',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  minWidth: '120px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = '#f8fafc';
-                  e.target.style.borderColor = '#cbd5e1';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = '#ffffff';
-                  e.target.style.borderColor = '#e2e8f0';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: '18px' }}>schedule</span>
-                Wait & Continue
-              </button>
-              <button
-                onClick={() => {
-                  abortLoadingRef.current = true;
-                  setLoading(false);
-                  setLoadingStartTime(null);
-                  setShowNavigationWarning(false);
-                  if (pendingNavigation) {
-                    pendingNavigation();
-                  }
-                  setPendingNavigation(null);
-                }}
-                style={{
-                  padding: '12px 24px',
-                  border: 'none',
-                  borderRadius: '10px',
-                  background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                  color: 'white',
-                  fontSize: '14px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)',
-                  minWidth: '120px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px'
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.background = 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)';
-                  e.target.style.boxShadow = '0 4px 6px rgba(239, 68, 68, 0.3)';
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.background = 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)';
-                  e.target.style.boxShadow = '0 2px 4px rgba(239, 68, 68, 0.2)';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: '18px' }}>exit_to_app</span>
-                Stop & Leave
-              </button>
-            </div>
-          </div>
-
-          {/* Pulse animation */}
-          <style>{`
+            {/* Pulse animation */}
+            <style>{`
             @keyframes pulse {
               0%, 100% {
                 opacity: 1;
@@ -12709,75 +11876,65 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               }
             }
           `}</style>
+          </div>
         </div>
-      </div>
-    )}
+      )}
 
-    {/* Custom Card Modal */}
-    {showCustomCardModal && (
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.5)',
-          zIndex: 16000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px'
-        }}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) {
-            setShowCustomCardModal(false);
-          }
-        }}
-      >
-        <CustomCardModal
-          salesData={sales}
-          editingCard={editingCardId ? customCards.find(card => card.id === editingCardId) : null}
-          onClose={() => {
-            console.log('🔒 Custom Card Modal closed - no data fetching should occur');
-            setShowCustomCardModal(false);
-            setEditingCardId(null);
-          }}
-          onCreate={handleCreateCustomCard}
-        />
-      </div>
-    )}
-
-    {/* Calendar Modal */}
-    {showCalendarModal && (
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.5)',
-          zIndex: 17000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px'
-        }}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) {
-            handleCancelDates();
-          }
-        }}
-      >
+      {/* Custom Card Modal */}
+      {showCustomCardModal && (
         <div
           style={{
-            background: 'white',
-            borderRadius: '16px',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-            padding: '24px',
-            maxWidth: '400px',
-            width: '100%'
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 16000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowCustomCardModal(false);
+            }
+          }}
+        >
+          <CustomCardModal
+            salesData={sales}
+            editingCard={editingCardId ? customCards.find(card => card.id === editingCardId) : null}
+            onClose={() => {
+              console.log('🔒 Custom Card Modal closed - no data fetching should occur');
+              setShowCustomCardModal(false);
+              setEditingCardId(null);
+            }}
+            onCreate={handleCreateCustomCard}
+          />
+        </div>
+      )}
+
+      {/* Calendar Modal */}
+      {showCalendarModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 17000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              handleCancelDates();
+            }
           }}
         >
           <div style={{ marginBottom: '20px' }}>
@@ -12855,15 +12012,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             />
             {booksFromDate && (
               <p style={{
-                fontSize: '11px',
+                fontSize: '13px',
                 color: '#64748b',
-                marginTop: '4px',
-                marginBottom: 0
+                margin: 0
               }}>
                 Earliest available date: {formatDateForInput(booksFromDate)}
               </p>
-            )}
-          </div>
+            </div>
 
           <div style={{ marginBottom: '24px' }}>
             <label style={{
@@ -12938,52 +12093,150 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 color: '#64748b',
                 fontSize: '14px',
                 fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = '#f8fafc';
-                e.target.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = 'white';
-                e.target.style.borderColor = '#e2e8f0';
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleApplyDates}
-              style={{
-                padding: '10px 20px',
-                border: 'none',
-                borderRadius: '10px',
-                background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
-                color: 'white',
-                fontSize: '14px',
+                color: '#475569',
+                marginBottom: '6px'
+              }}>
+                From Date
+              </label>
+              <input
+                type="date"
+                value={tempFromDate}
+                min={booksFromDate}
+                onChange={(e) => setTempFromDate(e.target.value)}
+                style={{
+                  width: 'calc(100% - 4px)',
+                  maxWidth: '100%',
+                  padding: '8px 12px',
+                  border: '2px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  color: '#1e293b',
+                  outline: 'none',
+                  transition: 'all 0.2s ease',
+                  fontWeight: '500',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#7c3aed';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+              {booksFromDate && (
+                <p style={{
+                  fontSize: '11px',
+                  color: '#64748b',
+                  marginTop: '4px',
+                  marginBottom: 0
+                }}>
+                  Earliest available date: {booksFromDate}
+                </p>
+              )}
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '13px',
                 fontWeight: '600',
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-                boxShadow: '0 4px 6px rgba(124, 58, 237, 0.25)'
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
-                e.target.style.boxShadow = '0 6px 10px rgba(124, 58, 237, 0.35)';
-                e.target.style.transform = 'translateY(-1px)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
-                e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25)';
-                e.target.style.transform = 'translateY(0)';
-              }}
-            >
-              Apply
-            </button>
+                color: '#475569',
+                marginBottom: '6px'
+              }}>
+                To Date
+              </label>
+              <input
+                type="date"
+                value={tempToDate}
+                onChange={(e) => setTempToDate(e.target.value)}
+                style={{
+                  width: 'calc(100% - 4px)',
+                  maxWidth: '100%',
+                  padding: '8px 12px',
+                  border: '2px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  color: '#1e293b',
+                  outline: 'none',
+                  transition: 'all 0.2s ease',
+                  fontWeight: '500',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#7c3aed';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+            </div>
+
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'flex-end'
+            }}>
+              <button
+                type="button"
+                onClick={handleCancelDates}
+                style={{
+                  padding: '10px 20px',
+                  border: '2px solid #e2e8f0',
+                  borderRadius: '10px',
+                  background: 'white',
+                  color: '#64748b',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#f8fafc';
+                  e.target.style.borderColor = '#cbd5e1';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'white';
+                  e.target.style.borderColor = '#e2e8f0';
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyDates}
+                style={{
+                  padding: '10px 20px',
+                  border: 'none',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 4px 6px rgba(124, 58, 237, 0.25)'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
+                  e.target.style.boxShadow = '0 6px 10px rgba(124, 58, 237, 0.35)';
+                  e.target.style.transform = 'translateY(-1px)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
+                  e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25)';
+                  e.target.style.transform = 'translateY(0)';
+                }}
+              >
+                Apply
+              </button>
+            </div>
           </div>
         </div>
-      </div>
-    )}
+      )}
     </>
   );
 };
@@ -12992,7 +12245,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  
+
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 768);
@@ -13003,7 +12256,6 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
 
   // Initialize form state from editingCard if provided, otherwise use defaults
   const [cardTitle, setCardTitle] = useState(editingCard?.title || '');
-  const [chartType, setChartType] = useState(editingCard?.chartType || 'bar');
   const [selectedFields, setSelectedFields] = useState(() => {
     // Initialize from editingCard if available
     if (editingCard) {
@@ -13044,20 +12296,6 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     }
     return {};
   });
-  // Multiple filters support - array of { field: string, values: Set<string> }
-  const [filters, setFilters] = useState(() => {
-    // Initialize from editingCard if available
-    if (editingCard && editingCard.filters && editingCard.filters.length > 0) {
-      return editingCard.filters.map(f => ({
-        field: f.filterField,
-        values: new Set(f.filterValues || [])
-      }));
-    }
-    return [];
-  });
-  // Current filter being configured
-  const [currentFilterField, setCurrentFilterField] = useState('');
-  const [currentFilterValues, setCurrentFilterValues] = useState(new Set());
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [fieldBeingConfigured, setFieldBeingConfigured] = useState(null);
   const [isDateSettingsModal, setIsDateSettingsModal] = useState(false);
@@ -13072,7 +12310,6 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   useEffect(() => {
     if (editingCard) {
       setCardTitle(editingCard.title || '');
-      setChartType(editingCard.chartType || 'bar');
       const fields = new Set();
       // Add groupBy field
       if (editingCard.groupBy === 'date') {
@@ -13085,14 +12322,14 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
         fields.add(editingCard.valueField);
       }
       setSelectedFields(fields);
-      
+
       // Set aggregation for value field
       if (editingCard.valueField && editingCard.aggregation) {
         setFieldAggregations({
           [editingCard.valueField]: editingCard.aggregation
         });
       }
-      
+
       // Set date grouping for date field
       if (editingCard.groupBy === 'date' && editingCard.dateGrouping) {
         setDateGroupings({
@@ -13100,25 +12337,11 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
         });
       }
       setTopN(editingCard.topN ? String(editingCard.topN) : '');
-      
-      // Set filters
-      if (editingCard.filters && Array.isArray(editingCard.filters) && editingCard.filters.length > 0) {
-        setFilters(editingCard.filters.map(f => ({
-          field: f.filterField,
-          values: new Set(f.filterValues || [])
-        })));
-      } else {
-        setFilters([]);
-      }
     } else {
       // Reset to defaults when not editing
       setCardTitle('');
-      setChartType('bar');
       setSelectedFields(new Set());
       setTopN('');
-      setFilters([]);
-      setCurrentFilterField('');
-      setCurrentFilterValues(new Set());
     }
   }, [editingCard]);
 
@@ -13236,13 +12459,13 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     // Filter out non-groupable fields (dates, IDs, numeric-only fields, etc.) for groupBy
     // Keep fields that can be used for grouping (strings, categories, etc.)
     const nonGroupableFields = ['date', 'cp_date', 'vchno', 'masterid', 'issales'];
-    
+
     // Also filter out fields that are primarily numeric (but allow them if they might have string values)
     const numericOnlyFields = ['amount', 'quantity', 'profit', 'cgst', 'sgst', 'roundoff', 'invvalue', 'billedqty', 'rate', 'addlexpense', 'invtrytotal', 'grosscost'];
-    
+
     // Fields that should always be treated as categories, even if they're numeric (like pincode)
     const alwaysCategoryFields = ['pincode', 'pin', 'pincod', 'postalcode', 'postcode'];
-    
+
     // Group By fields (X-axis) - can be any field except calculated/numeric-only values
     // Check all sales records to see which fields have string/categorical values
     const fieldTypes = {};
@@ -13271,12 +12494,12 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
 
     // Combine all fields into a single list
     const fields = [];
-    
+
     // Add date field (grouping will be configured via settings)
     fields.push(
       { value: 'date', label: getFieldLabel('date'), type: 'category' }
     );
-    
+
     // Add category fields (for Axis)
     allKeys
       .filter(key => {
@@ -13293,7 +12516,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
           type: 'category'
         });
       });
-    
+
     // Add value fields (for Values bucket)
     const numericFields = allKeys.filter(key => {
       const lowerKey = key.toLowerCase();
@@ -13309,7 +12532,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       }
       return false;
     });
-    
+
     numericFields.forEach(key => {
       fields.push({
         value: key,
@@ -13318,7 +12541,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
         aggregation: 'sum' // Default aggregation
       });
     });
-    
+
     // Add count fields
     fields.push(
       { value: 'transactions', label: 'Number of Transactions', type: 'value', aggregation: 'count' },
@@ -13326,7 +12549,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       { value: 'unique_items', label: 'Number of Unique Items', type: 'value', aggregation: 'count' },
       { value: 'unique_orders', label: 'Number of Unique Orders', type: 'value', aggregation: 'count' }
     );
-    
+
     // Deduplicate fields by value (case-insensitive)
     // If a field appears as both category and value, prefer category for alwaysCategoryFields, otherwise prefer value
     const fieldsMap = new Map();
@@ -13350,27 +12573,27 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
         }
       }
     });
-    
+
     // Convert back to array and sort
     const uniqueFields = Array.from(fieldsMap.values());
     return uniqueFields.sort((a, b) => a.label.localeCompare(b.label));
   }, [salesData]);
-  
+
   // AI card generation function
   const generateCardWithAI = async (prompt) => {
     if (!prompt.trim()) {
       throw new Error('Please enter a prompt');
     }
-    
+
     // Extract category and value fields for the LLM
     const categoryFields = allFields
       .filter(f => f.type === 'category')
       .map(f => ({ value: f.value, label: f.label }));
-    
+
     const valueFields = allFields
       .filter(f => f.type === 'value')
       .map(f => ({ value: f.value, label: f.label, aggregation: f.aggregation }));
-    
+
     // Build system prompt
     const systemPrompt = `You are an AI assistant that helps create data visualization configurations for a sales dashboard.
 
@@ -13436,7 +12659,7 @@ IMPORTANT RULES:
 
     try {
       const llmUrl = 'http://127.0.0.1:11434/api/chat';
-      
+
       // Try to detect available model
       const modelsToTry = ['llama2', 'llama3', 'mistral', 'phi', 'gemma'];
       let requestBody = {
@@ -13468,7 +12691,7 @@ IMPORTANT RULES:
       if (!response.ok) {
         const errorText = await response.text();
         console.error('❌ LLM API error:', errorText);
-        
+
         // Try to get available models and retry
         if (response.status === 404 || errorText.includes('model') || errorText.includes('not found')) {
           try {
@@ -13486,7 +12709,7 @@ IMPORTANT RULES:
                   },
                   body: JSON.stringify(requestBody)
                 });
-                
+
                 if (retryResponse.ok) {
                   const retryData = await retryResponse.json();
                   return parseAIResponse(retryData);
@@ -13497,7 +12720,7 @@ IMPORTANT RULES:
             console.error('Failed to fetch models:', modelsError);
           }
         }
-        
+
         throw new Error(`LLM API error: ${response.status} ${response.statusText}`);
       }
 
@@ -13512,7 +12735,7 @@ IMPORTANT RULES:
   // Parse LLM response and extract cardConfig
   const parseAIResponse = (data) => {
     let responseText = '';
-    
+
     // Extract response text from various possible formats
     if (data.message && data.message.content) {
       responseText = data.message.content;
@@ -13528,19 +12751,19 @@ IMPORTANT RULES:
 
     // Try to extract JSON from response
     let jsonStr = responseText.trim();
-    
+
     // Remove markdown code blocks (both ```json and ``` or just ```)
     jsonStr = jsonStr.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
-    
+
     // Clean up common issues
     jsonStr = jsonStr.trim();
-    
+
     // Try to find the first complete JSON object with balanced braces
     // This handles cases where LLM returns multiple objects or corrupted data
     let braceCount = 0;
     let startIndex = -1;
     let endIndex = -1;
-    
+
     for (let i = 0; i < jsonStr.length; i++) {
       if (jsonStr[i] === '{') {
         if (braceCount === 0) {
@@ -13555,7 +12778,7 @@ IMPORTANT RULES:
         }
       }
     }
-    
+
     if (startIndex !== -1 && endIndex !== -1) {
       jsonStr = jsonStr.substring(startIndex, endIndex + 1);
     } else {
@@ -13565,34 +12788,34 @@ IMPORTANT RULES:
         jsonStr = jsonMatch[0];
       }
     }
-    
+
     // Remove any trailing commas before closing braces (common LLM error)
     jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
-    
+
     // Remove any line breaks within string values that might break JSON
     // This is a cautious approach - only fix obvious issues
     jsonStr = jsonStr.replace(/"\s*\n\s*"/g, '" "');
 
     try {
       const cardConfig = JSON.parse(jsonStr);
-      
+
       // Validate required fields
-      if (!cardConfig.title || !cardConfig.groupBy || !cardConfig.aggregation || 
-          !cardConfig.valueField || !cardConfig.chartType) {
+      if (!cardConfig.title || !cardConfig.groupBy || !cardConfig.aggregation ||
+        !cardConfig.valueField || !cardConfig.chartType) {
         throw new Error('Invalid card configuration: missing required fields');
       }
-      
+
       // Validate field values
       const validChartTypes = ['bar', 'pie', 'treemap', 'line'];
       if (!validChartTypes.includes(cardConfig.chartType)) {
         cardConfig.chartType = 'bar'; // Default to bar if invalid
       }
-      
+
       const validAggregations = ['sum', 'average', 'count', 'min', 'max'];
       if (!validAggregations.includes(cardConfig.aggregation)) {
         cardConfig.aggregation = 'sum'; // Default to sum if invalid
       }
-      
+
       // Validate dateGrouping if present
       if (cardConfig.dateGrouping) {
         const validDateGroupings = ['day', 'week', 'month', 'year'];
@@ -13600,7 +12823,7 @@ IMPORTANT RULES:
           delete cardConfig.dateGrouping;
         }
       }
-      
+
       // Validate topN if present
       if (cardConfig.topN !== undefined) {
         cardConfig.topN = parseInt(cardConfig.topN, 10);
@@ -13608,14 +12831,14 @@ IMPORTANT RULES:
           delete cardConfig.topN;
         }
       }
-      
+
       console.log('✅ Parsed card config:', cardConfig);
       return cardConfig;
     } catch (parseError) {
       console.error('Failed to parse JSON:', parseError);
       console.error('Attempted to parse:', jsonStr);
       console.error('Original response:', responseText);
-      
+
       // Provide more helpful error message
       throw new Error('Failed to parse AI response. The LLM returned invalid JSON. Please try again with a simpler prompt.');
     }
@@ -13625,62 +12848,40 @@ IMPORTANT RULES:
   const handleAIGenerate = async () => {
     setAiError(null);
     setAiLoading(true);
-    
+
     try {
       const cardConfig = await generateCardWithAI(aiPrompt);
-      
+
       // Auto-populate form fields with AI-generated config
       setCardTitle(cardConfig.title);
-      
-      // Set chart type
-      if (cardConfig.chartType) {
-        setChartType(cardConfig.chartType);
-      }
-      
+
       // Set selected fields
       const fields = new Set();
       fields.add(cardConfig.groupBy === 'date' ? 'date' : cardConfig.groupBy);
       fields.add(cardConfig.valueField);
       setSelectedFields(fields);
-      
+
       // Set aggregation
       setFieldAggregations({
         [cardConfig.valueField]: cardConfig.aggregation
       });
-      
+
       // Set date grouping if applicable
       if (cardConfig.groupBy === 'date' && cardConfig.dateGrouping) {
         setDateGroupings({
           date: cardConfig.dateGrouping
         });
       }
-      
+
       // Set topN if present
       if (cardConfig.topN) {
         setTopN(String(cardConfig.topN));
       }
-      
-      // Set filters if present
-      if (cardConfig.filters) {
-        if (Array.isArray(cardConfig.filters)) {
-          // Multiple filters
-          setFilters(cardConfig.filters.map(f => ({
-            field: f.filterField,
-            values: new Set(f.filterValues || [])
-          })));
-        } else if (cardConfig.filters.filterField) {
-          // Single filter (legacy format)
-          setFilters([{
-            field: cardConfig.filters.filterField,
-            values: new Set(cardConfig.filters.filterValues || [])
-          }]);
-        }
-      }
-      
+
       // Switch to manual tab for review
       setActiveTab('manual');
       setAiPrompt(''); // Clear prompt
-      
+
       alert('✅ Card configuration generated! Review and adjust the settings below, then click "Create Card".');
     } catch (error) {
       console.error('AI generation failed:', error);
@@ -13689,17 +12890,17 @@ IMPORTANT RULES:
       setAiLoading(false);
     }
   };
-  
+
   // Filter fields based on search term
   const filteredFields = useMemo(() => {
     if (!searchTerm.trim()) return allFields;
     const term = searchTerm.toLowerCase();
-    return allFields.filter(field => 
-      field.label.toLowerCase().includes(term) || 
+    return allFields.filter(field =>
+      field.label.toLowerCase().includes(term) ||
       field.value.toLowerCase().includes(term)
     );
   }, [allFields, searchTerm]);
-  
+
   // Get fields in each bucket
   const axisFields = useMemo(() => {
     return Array.from(selectedFields)
@@ -13840,7 +13041,7 @@ IMPORTANT RULES:
       return newSet;
     });
   };
-  
+
   // Handle settings icon click for value fields
   const handleSettingsClick = (field, e) => {
     e.stopPropagation();
@@ -13848,7 +13049,7 @@ IMPORTANT RULES:
     setIsDateSettingsModal(false);
     setSettingsModalOpen(true);
   };
-  
+
   // Handle settings icon click for date fields
   const handleDateSettingsClick = (field, e) => {
     e.stopPropagation();
@@ -13856,7 +13057,7 @@ IMPORTANT RULES:
     setIsDateSettingsModal(true);
     setSettingsModalOpen(true);
   };
-  
+
   // Handle aggregation change in settings modal
   const handleAggregationChange = (fieldValue, aggregation) => {
     setFieldAggregations(prev => ({
@@ -13864,96 +13065,13 @@ IMPORTANT RULES:
       [fieldValue]: aggregation
     }));
   };
-  
+
   // Handle date grouping change in settings modal
   const handleDateGroupingChange = (fieldValue, grouping) => {
     setDateGroupings(prev => ({
       ...prev,
       [fieldValue]: grouping
     }));
-  };
-
-  // Handle adding a new filter
-  const handleAddFilter = () => {
-    if (!currentFilterField) {
-      alert('Please select a filter field first');
-      return;
-    }
-    if (currentFilterValues.size === 0) {
-      alert('Please select at least one filter value');
-      return;
-    }
-    
-    // Add the filter to the filters array
-    setFilters(prev => [...prev, {
-      field: currentFilterField,
-      values: new Set(currentFilterValues)
-    }]);
-    
-    // Reset current filter configuration
-    setCurrentFilterField('');
-    setCurrentFilterValues(new Set());
-  };
-
-  // Handle removing a filter
-  const handleRemoveFilter = (index) => {
-    setFilters(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Handle filter field selection for new filter
-  const handleFilterFieldChange = (fieldValue) => {
-    setCurrentFilterField(fieldValue);
-    setCurrentFilterValues(new Set()); // Clear selected values when field changes
-  };
-
-  // Handle filter value toggle for current filter being configured
-  const handleFilterValueToggle = (value) => {
-    setCurrentFilterValues(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(value)) {
-        newSet.delete(value);
-      } else {
-        newSet.add(value);
-      }
-      return newSet;
-    });
-  };
-
-  // Get unique values for a specific filter field
-  const getFilterFieldValues = (fieldName) => {
-    if (!fieldName || !salesData || !Array.isArray(salesData) || salesData.length === 0) {
-      return [];
-    }
-    
-    const valuesSet = new Set();
-    salesData.forEach(sale => {
-      // Use case-insensitive field access
-      const fieldValue = sale[fieldName] || 
-                        sale[fieldName.toLowerCase()] ||
-                        sale[fieldName.toUpperCase()] ||
-                        (Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase()) 
-                          ? sale[Object.keys(sale).find(k => k.toLowerCase() === fieldName.toLowerCase())] 
-                          : null);
-      
-      if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
-        const stringValue = String(fieldValue).trim();
-        if (stringValue) {
-          valuesSet.add(stringValue);
-        }
-      }
-    });
-    
-    // Sort values for better UX
-    return Array.from(valuesSet).sort((a, b) => {
-      // Try to sort numerically if both are numbers
-      const numA = parseFloat(a);
-      const numB = parseFloat(b);
-      if (!isNaN(numA) && !isNaN(numB)) {
-        return numA - numB;
-      }
-      // Otherwise sort alphabetically
-      return a.localeCompare(b);
-    });
   };
 
 
@@ -13963,28 +13081,28 @@ IMPORTANT RULES:
       alert('Please enter a card title');
       return;
     }
-    
+
     if (axisFields.length === 0) {
       alert('Please select at least one field for Axis (Categories)');
       return;
     }
-    
+
     if (valueFields.length === 0) {
       alert('Please select at least one field for Values');
       return;
     }
-    
+
     // Use the first selected field for each bucket
     const groupByField = axisFields[0];
     const valueField = valueFields[0];
-    
+
     // Get aggregation from fieldAggregations state
     const aggregation = fieldAggregations[valueField.value] || valueField.aggregation || 'sum';
     let dateGrouping = 'month';
-    
+
     // Map valueField to internal field names
     const mappedValueField = valueField.value;
-    
+
     // Set date grouping based on groupBy and dateGroupings state
     const groupByValue = groupByField.value;
     if (groupByValue === 'date') {
@@ -13994,22 +13112,15 @@ IMPORTANT RULES:
 
     // Normalize date field value to 'date' for groupBy
     const normalizedGroupBy = (groupByValue === 'date' || groupByValue.startsWith('date_')) ? 'date' : groupByValue;
-    
-    // Build filters array from filters state
-    const filtersArray = filters.length > 0 ? filters.map(f => ({
-      filterField: f.field,
-      filterValues: Array.from(f.values)
-    })) : undefined;
-    
+
     const cardConfig = {
       title: cardTitle.trim(),
       groupBy: normalizedGroupBy,
       dateGrouping: (normalizedGroupBy === 'date') ? dateGrouping : undefined,
       aggregation,
       valueField: mappedValueField,
-      chartType: chartType, // Use chart type from state
-      topN: topN ? parseInt(topN, 10) : undefined,
-      filters: filtersArray
+      chartType: editingCard?.chartType || 'bar', // Keep existing chart type or default to bar
+      topN: topN ? parseInt(topN, 10) : undefined
     };
 
     onCreate(cardConfig);
@@ -14039,10 +13150,10 @@ IMPORTANT RULES:
         justifyContent: 'space-between',
         background: '#fafbfc'
       }}>
-        <h2 style={{ 
-          margin: 0, 
-          fontSize: '18px', 
-          fontWeight: '600', 
+        <h2 style={{
+          margin: 0,
+          fontSize: '18px',
+          fontWeight: '600',
           color: '#1e293b',
           letterSpacing: '-0.01em'
         }}>
@@ -14166,8 +13277,8 @@ IMPORTANT RULES:
             display: 'flex',
             gap: '10px'
           }}>
-            <span className="material-icons" style={{ 
-              fontSize: '20px', 
+            <span className="material-icons" style={{
+              fontSize: '20px',
               color: '#3b82f6',
               marginTop: '1px'
             }}>
@@ -14234,8 +13345,8 @@ IMPORTANT RULES:
               display: 'flex',
               gap: '10px'
             }}>
-              <span className="material-icons" style={{ 
-                fontSize: '20px', 
+              <span className="material-icons" style={{
+                fontSize: '20px',
                 color: '#ef4444',
                 marginTop: '1px'
               }}>
@@ -14346,131 +13457,37 @@ IMPORTANT RULES:
 
       {/* Manual Mode Content */}
       {activeTab === 'manual' && (
-      <form onSubmit={handleSubmit} style={{ 
-        padding: '24px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '20px',
-        overflowY: 'auto',
-        flex: 1
-      }}>
-        {/* Card Title */}
-        <div>
-          <label style={{
-            display: 'block',
-            fontSize: '13px',
-            fontWeight: '500',
-            color: '#475569',
-            marginBottom: '6px',
-            letterSpacing: '0.01em'
-          }}>
-            Card Title <span style={{ color: '#ef4444' }}>*</span>
-          </label>
-          <input
-            type="text"
-            value={cardTitle}
-            onChange={(e) => setCardTitle(e.target.value)}
-            placeholder="Enter card title..."
-            required
-            style={{
-              width: '100%',
-              padding: '11px 14px',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              fontSize: '14px',
-              outline: 'none',
-              transition: 'all 0.15s ease',
-              background: '#ffffff',
-              color: '#1e293b',
-              boxSizing: 'border-box'
-            }}
-            onFocus={(e) => {
-              e.target.style.borderColor = '#3b82f6';
-              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-            }}
-            onBlur={(e) => {
-              e.target.style.borderColor = '#e2e8f0';
-              e.target.style.boxShadow = 'none';
-            }}
-          />
-        </div>
-
-        {/* Chart Type */}
-        <div>
-          <label style={{
-            display: 'block',
-            fontSize: '13px',
-            fontWeight: '500',
-            color: '#475569',
-            marginBottom: '6px',
-            letterSpacing: '0.01em'
-          }}>
-            Default Chart Type
-          </label>
-          <select
-            value={chartType}
-            onChange={(e) => setChartType(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '11px 14px',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              fontSize: '14px',
-              outline: 'none',
-              transition: 'all 0.15s ease',
-              background: '#ffffff',
-              color: '#1e293b',
-              boxSizing: 'border-box',
-              cursor: 'pointer'
-            }}
-            onFocus={(e) => {
-              e.target.style.borderColor = '#3b82f6';
-              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
-            }}
-            onBlur={(e) => {
-              e.target.style.borderColor = '#e2e8f0';
-              e.target.style.boxShadow = 'none';
-            }}
-          >
-            <option value="bar">Bar Chart</option>
-            <option value="pie">Pie Chart</option>
-            <option value="treemap">Tree Map</option>
-            <option value="line">Line Chart</option>
-          </select>
-          <p style={{
-            margin: '6px 0 0 0',
-            fontSize: '12px',
-            color: '#64748b',
-            fontStyle: 'italic'
-          }}>
-            You can change this later using the dropdown in the card header
-          </p>
-        </div>
-
-        {/* Choose fields to add to report */}
-        <div>
-          <label style={{
-            display: 'block',
-            fontSize: '13px',
-            fontWeight: '500',
-            color: '#475569',
-            marginBottom: '8px',
-            letterSpacing: '0.01em'
-          }}>
-            Choose fields to add to report:
-          </label>
-          {/* Search */}
-          <div style={{ marginBottom: '12px', position: 'relative' }}>
+        <form onSubmit={handleSubmit} style={{
+          padding: '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '20px',
+          overflowY: 'auto',
+          flex: 1
+        }}>
+          {/* Card Title */}
+          <div>
+            <label style={{
+              display: 'block',
+              fontSize: '13px',
+              fontWeight: '500',
+              color: '#475569',
+              marginBottom: '6px',
+              letterSpacing: '0.01em'
+            }}>
+              Card Title <span style={{ color: '#ef4444' }}>*</span>
+            </label>
             <input
               type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search"
+              value={cardTitle}
+              onChange={(e) => setCardTitle(e.target.value)}
+              placeholder="Enter card title..."
+              required
               style={{
                 width: '100%',
-                padding: '10px 40px 10px 14px',
+                padding: '11px 14px',
                 border: '1px solid #e2e8f0',
-                borderRadius: '6px',
+                borderRadius: '8px',
                 fontSize: '14px',
                 outline: 'none',
                 transition: 'all 0.15s ease',
@@ -14480,235 +13497,258 @@ IMPORTANT RULES:
               }}
               onFocus={(e) => {
                 e.target.style.borderColor = '#3b82f6';
+                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
               }}
               onBlur={(e) => {
                 e.target.style.borderColor = '#e2e8f0';
+                e.target.style.boxShadow = 'none';
               }}
             />
-            <span className="material-icons" style={{
-              position: 'absolute',
-              right: '12px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              fontSize: '20px',
-              color: '#94a3b8',
-              pointerEvents: 'none'
-            }}>search</span>
           </div>
-          
-          {/* Fields list with checkboxes */}
-          <div style={{
-            background: '#ffffff',
-            border: '1px solid #e2e8f0',
-            borderRadius: '8px',
-            padding: '12px',
-            maxHeight: '300px',
-            overflowY: 'auto'
-          }}>
-            {filteredFields.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
-                No fields found
-              </div>
-            ) : (
-              filteredFields.map((field) => (
-                <div
-                  key={field.value}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '8px',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    transition: 'background 0.15s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f8fafc';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent';
-                  }}
-                  onClick={() => handleFieldToggle(field.value)}
-                >
-                  <div style={{
-                    width: '18px',
-                    height: '18px',
-                    border: selectedFields.has(field.value) ? 'none' : '2px solid #cbd5e1',
-                    borderRadius: '4px',
-                    background: selectedFields.has(field.value) ? '#10b981' : 'transparent',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: '10px',
-                    flexShrink: 0
-                  }}>
-                    {selectedFields.has(field.value) && (
-                      <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
-                    )}
-                  </div>
-                  <span style={{
-                    fontSize: '14px',
-                    fontWeight: selectedFields.has(field.value) ? '600' : '400',
-                    color: '#1e293b'
-                  }}>
-                    {field.label}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
 
-        {/* Field buckets */}
-        <div>
-          <div style={{
-            fontSize: '13px',
-            fontWeight: '500',
-            color: '#475569',
-            marginBottom: '12px',
-            paddingBottom: '8px',
-            borderBottom: '1px solid #e2e8f0'
-          }}>
-            Selected fields will appear in the buckets below:
-          </div>
-          
-          {/* Buckets Grid */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: '12px'
-          }}>
-            {/* Axis (Categories) */}
+          {/* Choose fields to add to report */}
+          <div>
+            <label style={{
+              display: 'block',
+              fontSize: '13px',
+              fontWeight: '500',
+              color: '#475569',
+              marginBottom: '8px',
+              letterSpacing: '0.01em'
+            }}>
+              Choose fields to add to report:
+            </label>
+            {/* Search */}
+            <div style={{ marginBottom: '12px', position: 'relative' }}>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Search"
+                style={{
+                  width: '100%',
+                  padding: '10px 40px 10px 14px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                  background: '#ffffff',
+                  color: '#1e293b',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0';
+                }}
+              />
+              <span className="material-icons" style={{
+                position: 'absolute',
+                right: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                fontSize: '20px',
+                color: '#94a3b8',
+                pointerEvents: 'none'
+              }}>search</span>
+            </div>
+
+            {/* Fields list with checkboxes */}
             <div style={{
-              background: '#f8fafc',
+              background: '#ffffff',
               border: '1px solid #e2e8f0',
               borderRadius: '8px',
               padding: '12px',
-              minHeight: '120px'
+              maxHeight: '300px',
+              overflowY: 'auto'
             }}>
+              {filteredFields.length === 0 ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+                  No fields found
+                </div>
+              ) : (
+                filteredFields.map((field) => (
+                  <div
+                    key={field.value}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#f8fafc';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                    onClick={() => handleFieldToggle(field.value)}
+                  >
+                    <div style={{
+                      width: '18px',
+                      height: '18px',
+                      border: selectedFields.has(field.value) ? 'none' : '2px solid #cbd5e1',
+                      borderRadius: '4px',
+                      background: selectedFields.has(field.value) ? '#10b981' : 'transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: '10px',
+                      flexShrink: 0
+                    }}>
+                      {selectedFields.has(field.value) && (
+                        <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
+                      )}
+                    </div>
+                    <span style={{
+                      fontSize: '14px',
+                      fontWeight: selectedFields.has(field.value) ? '600' : '400',
+                      color: '#1e293b'
+                    }}>
+                      {field.label}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Field buckets */}
+          <div>
+            <div style={{
+              fontSize: '13px',
+              fontWeight: '500',
+              color: '#475569',
+              marginBottom: '12px',
+              paddingBottom: '8px',
+              borderBottom: '1px solid #e2e8f0'
+            }}>
+              Selected fields will appear in the buckets below:
+            </div>
+
+            {/* Buckets Grid */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+              gap: '12px'
+            }}>
+              {/* Axis (Categories) */}
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                marginBottom: '8px',
-                fontSize: '13px',
-                fontWeight: '500',
-                color: '#475569'
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '12px',
+                minHeight: '120px'
               }}>
-                <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>view_list</span>
-                Axis (Categories)
-              </div>
-              <div style={{
-                background: '#ffffff',
-                border: '1px dashed #cbd5e1',
-                borderRadius: '6px',
-                padding: '8px',
-                minHeight: '80px'
-              }}>
-                {axisFields.length > 0 && axisFields.map((field) => {
-                  const isDateField = field.value === 'date';
-                  const dateGrouping = isDateField ? (dateGroupings[field.value] || 'month') : null;
-                  const groupingLabels = {
-                    day: 'Daily',
-                    week: 'Weekly',
-                    month: 'Monthly',
-                    year: 'Yearly'
-                  };
-                  
-                  return (
-                    <div
-                      key={field.value}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        background: '#e0e7ff',
-                        color: '#1e40af',
-                        padding: '6px 10px',
-                        borderRadius: '4px',
-                        fontSize: '12px',
-                        fontWeight: '500',
-                        margin: '4px',
-                        gap: '6px'
-                      }}
-                    >
-                      <span>
-                        {field.label}
-                        {isDateField && dateGrouping && ` (${groupingLabels[dateGrouping]})`}
-                      </span>
-                      {isDateField && (
-                        <span 
-                          className="material-icons" 
-                          style={{ 
-                            fontSize: '14px', 
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  marginBottom: '8px',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  color: '#475569'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>view_list</span>
+                  Axis (Categories)
+                </div>
+                <div style={{
+                  background: '#ffffff',
+                  border: '1px dashed #cbd5e1',
+                  borderRadius: '6px',
+                  padding: '8px',
+                  minHeight: '80px'
+                }}>
+                  {axisFields.length > 0 && axisFields.map((field) => {
+                    const isDateField = field.value === 'date';
+                    const dateGrouping = isDateField ? (dateGroupings[field.value] || 'month') : null;
+                    const groupingLabels = {
+                      day: 'Daily',
+                      week: 'Weekly',
+                      month: 'Monthly',
+                      year: 'Yearly'
+                    };
+
+                    return (
+                      <div
+                        key={field.value}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          background: '#e0e7ff',
+                          color: '#1e40af',
+                          padding: '6px 10px',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          margin: '4px',
+                          gap: '6px'
+                        }}
+                      >
+                        <span>
+                          {field.label}
+                          {isDateField && dateGrouping && ` (${groupingLabels[dateGrouping]})`}
+                        </span>
+                        {isDateField && (
+                          <span
+                            className="material-icons"
+                            style={{
+                              fontSize: '14px',
+                              cursor: 'pointer',
+                              padding: '2px',
+                              borderRadius: '2px',
+                              transition: 'background 0.2s'
+                            }}
+                            onClick={(e) => handleDateSettingsClick(field, e)}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = '#c7d2fe';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = 'transparent';
+                            }}
+                            title="Configure date grouping"
+                          >
+                            settings
+                          </span>
+                        )}
+                        <span
+                          className="material-icons"
+                          style={{
+                            fontSize: '16px',
+                            marginLeft: '2px',
                             cursor: 'pointer',
                             padding: '2px',
                             borderRadius: '2px',
                             transition: 'background 0.2s'
                           }}
-                          onClick={(e) => handleDateSettingsClick(field, e)}
+                          onClick={() => handleFieldToggle(field.value)}
                           onMouseEnter={(e) => {
                             e.currentTarget.style.background = '#c7d2fe';
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.background = 'transparent';
                           }}
-                          title="Configure date grouping"
+                          title="Remove field"
                         >
-                          settings
+                          close
                         </span>
-                      )}
-                      <span 
-                        className="material-icons" 
-                        style={{ 
-                          fontSize: '16px', 
-                          marginLeft: '2px',
-                          cursor: 'pointer',
-                          padding: '2px',
-                          borderRadius: '2px',
-                          transition: 'background 0.2s'
-                        }}
-                        onClick={() => handleFieldToggle(field.value)}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = '#c7d2fe';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'transparent';
-                        }}
-                        title="Remove field"
-                      >
-                        close
-                      </span>
-                    </div>
-                  );
-                })}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
 
-            {/* Values */}
-            <div style={{
-              background: '#f8fafc',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              padding: '12px',
-              minHeight: '120px'
-            }}>
+              {/* Values */}
               <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                marginBottom: '8px',
-                fontSize: '13px',
-                fontWeight: '500',
-                color: '#475569'
-              }}>
-                <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>functions</span>
-                Values
-              </div>
-              <div style={{
-                background: '#ffffff',
-                border: '1px dashed #cbd5e1',
-                borderRadius: '6px',
-                padding: '8px',
-                minHeight: '80px'
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '12px',
+                minHeight: '120px'
               }}>
                 {valueFields.length > 0 && valueFields.map((field) => {
                   const aggregation = fieldAggregations[field.value] || field.aggregation || 'sum';
@@ -14815,17 +13855,18 @@ IMPORTANT RULES:
             <div style={{
               fontSize: '12px',
               fontWeight: '500',
-              color: '#64748b',
-              marginBottom: '10px'
+              color: '#475569',
+              marginBottom: '6px',
+              letterSpacing: '0.01em'
             }}>
-              Add Filter:
-            </div>
-          
-          {/* Filter Field Dropdown */}
-          <div style={{ marginBottom: '12px' }}>
-            <select
-                value={currentFilterField}
-                onChange={(e) => handleFilterFieldChange(e.target.value)}
+              Top N <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '400' }}>(Optional)</span>
+            </label>
+            <input
+              type="number"
+              value={topN}
+              onChange={(e) => setTopN(e.target.value)}
+              placeholder="e.g., 10 (leave empty for all)"
+              min="0"
               style={{
                 width: '100%',
                 padding: '11px 14px',
@@ -14836,8 +13877,7 @@ IMPORTANT RULES:
                 transition: 'all 0.15s ease',
                 background: '#ffffff',
                 color: '#1e293b',
-                boxSizing: 'border-box',
-                cursor: 'pointer'
+                boxSizing: 'border-box'
               }}
               onFocus={(e) => {
                 e.target.style.borderColor = '#3b82f6';
@@ -14847,30 +13887,26 @@ IMPORTANT RULES:
                 e.target.style.borderColor = '#e2e8f0';
                 e.target.style.boxShadow = 'none';
               }}
-            >
-                <option value="">Select field to filter:</option>
-                {availableFilterFields.map((field) => (
-                <option key={field.value} value={field.value}>
-                  {field.label}
-                </option>
-              ))}
-            </select>
+            />
           </div>
 
-          {/* Filter Values Checkboxes */}
-            {currentFilterField && currentFilterFieldValues.length > 0 && (
-            <div style={{
+          {/* Action Buttons */}
+          <div style={{
+            display: 'flex',
+            gap: '10px',
+            justifyContent: 'flex-end',
+            marginTop: '8px',
+            paddingTop: '20px',
+            borderTop: '1px solid #f1f5f9'
+          }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                padding: '10px 20px',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
                 background: '#ffffff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              padding: '12px',
-              maxHeight: '200px',
-                overflowY: 'auto',
-                marginBottom: '12px'
-            }}>
-              <div style={{
-                fontSize: '12px',
-                fontWeight: '500',
                 color: '#64748b',
                 marginBottom: '8px'
               }}>
@@ -15216,7 +14252,7 @@ IMPORTANT RULES:
         </div>
       </form>
       )}
-      
+
       {/* Settings Modal (Value Field or Date Field) */}
       {settingsModalOpen && fieldBeingConfigured && (
         <div
@@ -15277,7 +14313,7 @@ IMPORTANT RULES:
                 <span className="material-icons" style={{ fontSize: '20px' }}>close</span>
               </button>
             </div>
-            
+
             <div style={{ marginBottom: '16px' }}>
               <div style={{
                 fontSize: '13px',
@@ -15295,7 +14331,7 @@ IMPORTANT RULES:
               }}>
                 {isDateSettingsModal ? 'Choose date grouping:' : 'Choose aggregation type:'}
               </div>
-              
+
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {isDateSettingsModal ? (
                   // Date grouping options
@@ -15308,7 +14344,7 @@ IMPORTANT RULES:
                       month: 'Monthly',
                       year: 'Yearly'
                     };
-                    
+
                     return (
                       <div
                         key={groupingType}
@@ -15382,7 +14418,7 @@ IMPORTANT RULES:
                       min: 'Min',
                       max: 'Max'
                     };
-                    
+
                     return (
                       <div
                         key={aggType}
@@ -15455,12 +14491,12 @@ IMPORTANT RULES:
 };
 
 // Custom Card Component
-const CustomCard = React.memo(({ 
-  card, 
-  salesData, 
-  generateCustomCardData, 
-  chartType, 
-  onChartTypeChange, 
+const CustomCard = React.memo(({
+  card,
+  salesData,
+  generateCustomCardData,
+  chartType,
+  onChartTypeChange,
   onDelete,
   onEdit,
   openTransactionRawData,
@@ -15492,7 +14528,7 @@ const CustomCard = React.memo(({
   const filterHandler = useMemo(() => {
     const groupBy = card.groupBy;
     const groupByLower = groupBy ? groupBy.toLowerCase() : '';
-    
+
     console.log('🔄 Recalculating filterHandler for custom card:', {
       cardId: card.id,
       cardTitle: card.title,
@@ -15500,7 +14536,7 @@ const CustomCard = React.memo(({
       groupByLower,
       dateGrouping: card.dateGrouping
     });
-    
+
     // Map groupBy to the appropriate filter setter and current value (case-insensitive)
     if (groupByLower === 'customer') {
       return {
@@ -15599,15 +14635,15 @@ const CustomCard = React.memo(({
         currentValue: selectedLedgerGroup
       };
     }
-    
+
     // For other groupBy fields, create a generic filter handler
     // This ensures cross-filtering always works, even for unmapped fields
     console.log('🔵 Creating generic filter handler for field:', groupBy);
-    
+
     // Create a unique key for this card's filter
     const filterKey = `${card.id}_${groupBy}`;
     const currentFilter = genericFilters?.[filterKey] || null;
-    
+
     return {
       onClick: (label) => {
         console.log('🔵 Generic filter click:', { field: groupBy, label, cardId: card.id, filterKey });
@@ -15952,10 +14988,7 @@ const CustomCard = React.memo(({
       maxHeight: '500px',
       minHeight: '500px',
       overflow: 'hidden',
-      position: 'relative',
-      width: '100%',
-      maxWidth: '100%',
-      minWidth: 0
+      position: 'relative'
     }}>
       {cardData.length > 0 ? (
         <>
@@ -16050,18 +15083,15 @@ const CustomCard = React.memo(({
           borderRadius: '12px',
           border: '1px solid #e2e8f0',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+          padding: '40px',
+          textAlign: 'center',
+          color: '#64748b',
           height: '500px',
           display: 'flex',
-          flexDirection: 'column'
+          alignItems: 'center',
+          justifyContent: 'center'
         }}>
-          {customHeader && (
-            <div style={{ 
-              padding: '16px 20px',
-              borderBottom: '2px solid #e2e8f0'
-            }}>
-              {customHeader}
-            </div>
-          )}
+          No data available for this card configuration.
         </div>
       )}
     </div>

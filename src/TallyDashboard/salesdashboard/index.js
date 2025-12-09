@@ -1,2 +1,1 @@
-import SalesDashboard from './SalesDashboard';
-export default SalesDashboard;
+export { default } from './SalesDashboard';

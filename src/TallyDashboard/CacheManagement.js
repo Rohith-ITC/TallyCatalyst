@@ -1,9 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { hybridCache } from '../utils/hybridCache';
-
 import { apiPost, apiGet } from '../utils/apiUtils';
-import { syncSalesData, syncCustomers, syncItems, cacheSyncManager } from '../utils/cacheSyncManager';
+import { syncSalesData, syncCustomers, syncItems, cacheSyncManager, safeSessionStorageGet, getCustomersFromOPFS, getItemsFromOPFS } from '../utils/cacheSyncManager';
 import { useIsMobile } from './MobileViewConfig';
+
+// Helper to remove sessionStorage key and its chunks (for backward compatibility)
+const removeSessionStorageKey = (key) => {
+  try {
+    sessionStorage.removeItem(key);
+    const chunksStr = sessionStorage.getItem(`${key}_chunks`);
+    if (chunksStr) {
+      const totalChunks = parseInt(chunksStr, 10);
+      for (let i = 0; i < totalChunks; i++) {
+        sessionStorage.removeItem(`${key}_chunk_${i}`);
+      }
+      sessionStorage.removeItem(`${key}_chunks`);
+    }
+  } catch (e) {
+    // Ignore
+  }
+};
 
 const CacheManagement = () => {
   const [cacheStats, setCacheStats] = useState(null);
@@ -11,7 +27,7 @@ const CacheManagement = () => {
   const [message, setMessage] = useState({ type: '', text: '' });
   const [selectedCompany, setSelectedCompany] = useState(null);
   const selectedCompanyRef = useRef(null);
-  
+
   // Keep ref in sync with state
   useEffect(() => {
     selectedCompanyRef.current = selectedCompany;
@@ -31,11 +47,11 @@ const CacheManagement = () => {
   const [timeRange, setTimeRange] = useState('all');
   const [selectedFinancialYear, setSelectedFinancialYear] = useState('');
   const [financialYearOptions, setFinancialYearOptions] = useState([]);
-  
+
   // Detect if running on mobile
   const isMobile = useIsMobile();
 
-  // Session Cache State
+  // Ledger Cache State
   const [sessionCacheStats, setSessionCacheStats] = useState({
     customers: 0,
     items: 0
@@ -59,10 +75,10 @@ const CacheManagement = () => {
 
     try {
       console.log('📊 Loading progress for company:', currentSelectedCompany.company);
-      
+
       // Check if there's progress for this company (this will also check active sync)
       const companyProgress = await cacheSyncManager.getCompanyProgress(currentSelectedCompany);
-      
+
       if (companyProgress) {
         console.log('📊 Found progress:', companyProgress);
         // Show progress for this company
@@ -93,13 +109,13 @@ const CacheManagement = () => {
     loadCacheStats();
     loadCurrentCompany();
     loadCacheExpiry();
-    
+
     // Subscribe to shared sync progress
     const unsubscribe = cacheSyncManager.subscribe((progress) => {
       // Only update if this progress is for the currently selected company
       const currentCompanyInfo = cacheSyncManager.getCompanyInfo();
-      if (currentCompanyInfo && selectedCompany && 
-          currentCompanyInfo.guid === selectedCompany.guid) {
+      if (currentCompanyInfo && selectedCompany &&
+        currentCompanyInfo.guid === selectedCompany.guid) {
         setDownloadProgress(progress);
         setDownloadingComplete(cacheSyncManager.isSyncInProgress());
         // Set start time if not already set and we have progress
@@ -113,13 +129,13 @@ const CacheManagement = () => {
         loadCompanyProgress();
       }
     });
-    
+
     // Initialize state - check progress for selected company
     const initProgress = async () => {
       await loadCompanyProgress();
     };
     initProgress();
-    
+
     // Listen for company changes from header
     const handleCompanyChange = () => {
       console.log('🔄 CacheManagement: Company changed event received');
@@ -134,9 +150,9 @@ const CacheManagement = () => {
         loadCacheEntries();
       }
     };
-    
+
     window.addEventListener('companyChanged', handleCompanyChange);
-    
+
     return () => {
       unsubscribe();
       window.removeEventListener('companyChanged', handleCompanyChange);
@@ -147,13 +163,13 @@ const CacheManagement = () => {
   useEffect(() => {
     if (selectedCompany) {
       loadCompanyProgress();
-      
+
       // Set up periodic polling for progress updates (every 2 seconds)
       // This ensures we show progress even when sync is happening in background
       const progressInterval = setInterval(async () => {
         await loadCompanyProgress();
       }, 2000);
-      
+
       return () => {
         clearInterval(progressInterval);
       };
@@ -165,7 +181,7 @@ const CacheManagement = () => {
     }
   }, [selectedCompany]);
 
-  const loadSessionCacheStats = () => {
+  const loadSessionCacheStats = async () => {
     if (!selectedCompany) return;
     const { tallyloc_id, company } = selectedCompany;
 
@@ -176,21 +192,100 @@ const CacheManagement = () => {
     let itemCount = 0;
 
     try {
-      const customers = sessionStorage.getItem(customerKey);
-      if (customers) customerCount = JSON.parse(customers).length;
-    } catch (e) { }
+      // WORKAROUND: OPFS has decryption issues, use sessionStorage count first
+      const countStr = safeSessionStorageGet(`${customerKey}_count`);
+      if (countStr) {
+        customerCount = parseInt(countStr, 10);
+        if (customerCount > 0) {
+          console.log(`✅ Loaded ${customerCount} customers count from sessionStorage`);
+        }
+      } else {
+        // Try OPFS (may fail with decryption error)
+        const customers = await getCustomersFromOPFS(customerKey);
+        if (customers && Array.isArray(customers) && customers.length > 0) {
+          customerCount = customers.length;
+          console.log(`✅ Loaded ${customerCount} customers from OPFS`);
+        } else {
+          // Fallback to sessionStorage (old storage)
+          const customersStr = safeSessionStorageGet(customerKey);
+          if (customersStr) {
+            try {
+              const parsed = JSON.parse(customersStr);
+              customerCount = Array.isArray(parsed) ? parsed.length : (parsed.ledgers?.length || 0);
+              if (customerCount > 0) {
+                console.log(`✅ Loaded ${customerCount} customers from sessionStorage (legacy)`);
+              }
+            } catch (parseError) {
+              console.warn('Error parsing customer data:', parseError);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error loading customer count:', e);
+      // Try sessionStorage count as last resort
+      try {
+        const countStr = safeSessionStorageGet(`${customerKey}_count`);
+        if (countStr) {
+          customerCount = parseInt(countStr, 10);
+        } else {
+          const customersStr = safeSessionStorageGet(customerKey);
+          if (customersStr) {
+            const parsed = JSON.parse(customersStr);
+            customerCount = Array.isArray(parsed) ? parsed.length : (parsed.ledgers?.length || 0);
+          }
+        }
+      } catch (e2) {
+        console.warn('Error loading from sessionStorage fallback:', e2);
+      }
+    }
 
     try {
-      const items = sessionStorage.getItem(itemKey);
-      if (items) itemCount = JSON.parse(items).length;
-    } catch (e) { }
+      // Try OPFS first (new storage)
+      const items = await getItemsFromOPFS(itemKey);
+      if (items && Array.isArray(items) && items.length > 0) {
+        itemCount = items.length;
+        console.log(`✅ Loaded ${itemCount} items from OPFS`);
+      } else {
+        // Fallback to sessionStorage (old storage)
+        const itemsStr = safeSessionStorageGet(itemKey);
+        if (itemsStr) {
+          try {
+            const parsed = JSON.parse(itemsStr);
+            itemCount = Array.isArray(parsed) ? parsed.length : (parsed.stockItems?.length || 0);
+            if (itemCount > 0) {
+              console.log(`✅ Loaded ${itemCount} items from sessionStorage (legacy)`);
+            }
+          } catch (parseError) {
+            console.warn('Error parsing item data:', parseError);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Error loading item count:', e);
+      // Try sessionStorage as last resort
+      try {
+        const itemsStr = safeSessionStorageGet(itemKey);
+        if (itemsStr) {
+          const parsed = JSON.parse(itemsStr);
+          itemCount = Array.isArray(parsed) ? parsed.length : (parsed.stockItems?.length || 0);
+        }
+      } catch (e2) {
+        console.warn('Error loading from sessionStorage fallback:', e2);
+      }
+    }
 
+    console.log(`📊 Cache stats: ${customerCount} customers, ${itemCount} items`);
     setSessionCacheStats({ customers: customerCount, items: itemCount });
   };
 
   useEffect(() => {
     if (selectedCompany) {
-      loadSessionCacheStats();
+      loadSessionCacheStats().catch(error => {
+        console.error('Error loading session cache stats:', error);
+        // Set to 0 on error to prevent UI issues
+        setSessionCacheStats({ customers: 0, items: 0 });
+      });
     } else {
       // Reset session cache stats when no company is selected
       setSessionCacheStats({ customers: 0, items: 0 });
@@ -216,7 +311,12 @@ const CacheManagement = () => {
         const result = await syncItems(selectedCompany);
         setMessage({ type: 'success', text: `Successfully refreshed ${result.count} items!` });
       }
-      loadSessionCacheStats();
+      // Reload cache stats after refresh (with delay to ensure OPFS write is complete)
+      setTimeout(async () => {
+        await loadSessionCacheStats().catch(err => {
+          console.error('Error reloading cache stats after refresh:', err);
+        });
+      }, 1500); // Increased delay to allow OPFS encryption/write to complete
     } catch (error) {
       console.error(`Error refreshing ${type}:`, error);
       setMessage({ type: 'error', text: `Failed to refresh ${type}: ${error.message}` });
@@ -299,7 +399,7 @@ const CacheManagement = () => {
   };
 
   const clearAllCache = async () => {
-    if (!window.confirm('Are you sure you want to clear ALL cache? This will remove all cached sales data and dashboard states for all companies.')) {
+    if (!window.confirm('Are you sure you want to clear ALL cache? This will remove all cached sales data and dashboard cache for all companies.')) {
       return;
     }
 
@@ -326,16 +426,20 @@ const CacheManagement = () => {
         // Directory might not exist
       }
 
-      // Clear metadata
+      // Clear metadata (both sales and dashboard)
       try {
         const metadataDir = await opfsRoot.getDirectoryHandle('metadata', { create: true });
+
+        // Clear sales metadata
         const salesFile = await metadataDir.getFileHandle('sales.json', { create: true });
-        const dashboardFile = await metadataDir.getFileHandle('dashboard.json', { create: true });
         const salesWritable = await salesFile.createWritable();
-        const dashboardWritable = await dashboardFile.createWritable();
         await salesWritable.write(JSON.stringify([]));
-        await dashboardWritable.write(JSON.stringify([]));
         await salesWritable.close();
+
+        // Clear dashboard metadata
+        const dashboardFile = await metadataDir.getFileHandle('dashboard.json', { create: true });
+        const dashboardWritable = await dashboardFile.createWritable();
+        await dashboardWritable.write(JSON.stringify([]));
         await dashboardWritable.close();
       } catch (err) {
         console.warn('Failed to clear metadata:', err);
@@ -358,13 +462,13 @@ const CacheManagement = () => {
       // Clear in-memory metadata cache to ensure listAllCacheEntries shows updated data
       await hybridCache.clearMetadataCache();
 
-      setMessage({ type: 'success', text: 'All cache cleared successfully!' });
-      
+      setMessage({ type: 'success', text: 'All cache cleared successfully! (Sales and Dashboard cache removed)' });
+
       // Reload cache entries if cache viewer is open
       if (showCacheViewer) {
         await loadCacheEntries();
       }
-      
+
       await loadCacheStats();
     } catch (error) {
       console.error('Error clearing all cache:', error);
@@ -380,7 +484,7 @@ const CacheManagement = () => {
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to clear cache for "${selectedCompany.company}"? This will remove all cached sales data and dashboard states for this company.`)) {
+    if (!window.confirm(`Are you sure you want to clear cache for "${selectedCompany.company}"? This will remove all cached sales data for this company.`)) {
       return;
     }
 
@@ -390,11 +494,16 @@ const CacheManagement = () => {
     try {
       await hybridCache.clearCompanyCache(selectedCompany);
 
-      // Clear session storage for this company
+      // Clear session storage for this company (backward compatibility with old sessionStorage data)
       if (selectedCompany) {
         const { tallyloc_id, company } = selectedCompany;
-        sessionStorage.removeItem(`stockitems_${tallyloc_id}_${company}`);
-        sessionStorage.removeItem(`ledgerlist-w-addrs_${tallyloc_id}_${company}`);
+        try {
+          removeSessionStorageKey(`stockitems_${tallyloc_id}_${company}`);
+          removeSessionStorageKey(`ledgerlist-w-addrs_${tallyloc_id}_${company}`);
+        } catch (e) {
+          // Ignore
+        }
+
         setSessionCacheStats({ customers: 0, items: 0 });
       }
 
@@ -402,12 +511,12 @@ const CacheManagement = () => {
       await hybridCache.clearMetadataCache();
 
       setMessage({ type: 'success', text: `Cache cleared successfully for ${selectedCompany.company}!` });
-      
+
       // Reload cache entries if cache viewer is open
       if (showCacheViewer) {
         await loadCacheEntries();
       }
-      
+
       await loadCacheStats();
     } catch (error) {
       console.error('Error clearing company cache:', error);
@@ -456,12 +565,12 @@ const CacheManagement = () => {
       await hybridCache.clearMetadataCache();
 
       setMessage({ type: 'success', text: `Sales cache cleared successfully for ${selectedCompany.company}!` });
-      
+
       // Reload cache entries if cache viewer is open
       if (showCacheViewer) {
         await loadCacheEntries();
       }
-      
+
       await loadCacheStats();
     } catch (error) {
       console.error('Error clearing sales cache:', error);
@@ -709,7 +818,7 @@ const CacheManagement = () => {
     console.log('='.repeat(60));
     console.log('🎯 DOWNLOAD COMPLETE DATA CALLED');
     console.log('='.repeat(60));
-    
+
     if (!selectedCompany) {
       console.error('❌ No company selected');
       setMessage({ type: 'error', text: 'No company selected' });
@@ -779,7 +888,7 @@ const CacheManagement = () => {
     setMessage({ type: '', text: '' });
 
     console.log('🚀 Calling syncSalesData...');
-    
+
     try {
       // syncSalesData will now use cacheSyncManager internally
       const result = await syncSalesData(selectedCompany);
@@ -795,10 +904,10 @@ const CacheManagement = () => {
 
     } catch (error) {
       console.error('❌ Error downloading complete data:', error);
-      
+
       // Provide more helpful error messages
       let errorMsg = error.message || 'Unknown error occurred';
-      
+
       if (!navigator.onLine) {
         errorMsg = 'Lost internet connection during download. Please check your network and try again.';
       } else if (error.message.includes('Failed to fetch')) {
@@ -814,7 +923,7 @@ const CacheManagement = () => {
       } else if (error.message.includes('500') || error.message.includes('502') || error.message.includes('503')) {
         errorMsg = 'Server error. Please try again later or contact support.';
       }
-      
+
       setMessage({ type: 'error', text: 'Failed to download data: ' + errorMsg });
     }
   };
@@ -829,7 +938,30 @@ const CacheManagement = () => {
       setJsonCacheData(data);
     } catch (error) {
       console.error('Error viewing cache as JSON:', error);
-      setMessage({ type: 'error', text: 'Failed to load cache data: ' + error.message });
+
+      // Check if file was auto-deleted due to corruption
+      if (error.message && error.message.includes('automatically deleted')) {
+        // Show as info message, not error - the system handled it correctly
+        setMessage({ 
+          type: 'info', 
+          text: `✅ Corrupted cache file automatically deleted.\n\n` +
+            `The cache file was corrupted (likely from an old write method) and has been automatically removed.\n\n` +
+            `Please re-sync/download the data to create a new cache file. The new file will use the improved storage method.`
+        });
+        setViewingJsonCache(null);
+        return;
+      }
+
+      // Provide user-friendly error message with actionable guidance
+      let errorMessage = 'Failed to load cache data: ' + error.message;
+
+      if (error.message.includes('corrupted') || error.message.includes('Invalid base64') || error.message.includes('decrypt')) {
+        errorMessage = `⚠️ Cache Corrupted: ${error.message}\n\n` +
+          `This cache entry appears to be corrupted or was encrypted with a different user account. ` +
+          `Please clear the sales cache and re-download the data to fix this issue.`;
+      }
+
+      setMessage({ type: 'error', text: errorMessage });
       setViewingJsonCache(null);
     }
   };
@@ -977,11 +1109,11 @@ const CacheManagement = () => {
         </div>
       )}
 
-      <div style={{ 
-        display: 'grid', 
-        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(400px, 1fr))', 
-        gap: isMobile ? '16px' : '24px', 
-        marginBottom: isMobile ? '16px' : '24px' 
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(400px, 1fr))',
+        gap: isMobile ? '16px' : '24px',
+        marginBottom: isMobile ? '16px' : '24px'
       }}>
         {/* Download Complete Sales Data */}
         <div style={{
@@ -1040,27 +1172,27 @@ const CacheManagement = () => {
                   const startTime = downloadStartTime || downloadStartTimeRef.current;
                   const current = downloadProgress.current || 0;
                   const total = downloadProgress.total || 0;
-                  
+
                   if (!startTime || current === 0 || current >= total) {
                     return null;
                   }
-                  
+
                   const elapsed = Date.now() - startTime; // milliseconds
                   const elapsedSeconds = Math.max(1, elapsed / 1000); // Ensure at least 1 second
                   const rate = current / elapsedSeconds; // chunks per second
-                  
+
                   if (rate <= 0 || !isFinite(rate)) {
                     return null;
                   }
-                  
+
                   const remaining = total - current;
                   const remainingSeconds = remaining / rate;
-                  
+
                   if (!isFinite(remainingSeconds) || remainingSeconds < 0 || remainingSeconds > 86400) {
                     // Don't show ETA if it's more than 24 hours (likely inaccurate)
                     return null;
                   }
-                  
+
                   // Format ETA
                   if (remainingSeconds < 60) {
                     return `${Math.round(remainingSeconds)}s`;
@@ -1074,10 +1206,10 @@ const CacheManagement = () => {
                     return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
                   }
                 };
-                
+
                 const eta = calculateETA();
                 const progressPercentage = Math.min(100, Math.round((downloadProgress.current / downloadProgress.total) * 100));
-                
+
                 return (
                   <>
                     <div style={{
@@ -1136,10 +1268,10 @@ const CacheManagement = () => {
             flexDirection: 'column'
           }}>
             {/* Time Range Selection */}
-            <div style={{ 
-              marginBottom: '8px', 
-              display: 'flex', 
-              gap: isMobile ? '8px' : '12px', 
+            <div style={{
+              marginBottom: '8px',
+              display: 'flex',
+              gap: isMobile ? '8px' : '12px',
               flexWrap: 'wrap',
               flexDirection: isMobile ? 'column' : 'row'
             }}>
@@ -1199,10 +1331,10 @@ const CacheManagement = () => {
               )}
             </div>
 
-            <div style={{ 
-              display: 'flex', 
-              gap: isMobile ? '8px' : '12px', 
-              flexWrap: 'wrap', 
+            <div style={{
+              display: 'flex',
+              gap: isMobile ? '8px' : '12px',
+              flexWrap: 'wrap',
               width: '100%',
               flexDirection: isMobile ? 'column' : 'row'
             }}>
@@ -1294,7 +1426,7 @@ const CacheManagement = () => {
           </div>
         </div>
 
-        {/* Session Cache */}
+        {/* Ledger Cache */}
         <div style={{
           background: '#fff',
           border: '1px solid #e2e8f0',
@@ -1309,7 +1441,7 @@ const CacheManagement = () => {
             marginBottom: isMobile ? '12px' : '16px'
           }}>
             <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '28px', color: '#10b981' }}>
-              memory
+              account_box
             </span>
             <h3 style={{
               fontSize: isMobile ? '16px' : '18px',
@@ -1317,7 +1449,7 @@ const CacheManagement = () => {
               color: '#1e293b',
               margin: 0
             }}>
-              Session Cache
+              Ledger Cache
             </h3>
           </div>
           <p style={{
@@ -1326,7 +1458,7 @@ const CacheManagement = () => {
             marginBottom: isMobile ? '16px' : '20px',
             lineHeight: '1.6'
           }}>
-            Manage temporary session cache for customers and items. This data is refreshed automatically every 30 minutes.
+            Manage cached ledger data (customers and items) stored in OPFS/IndexedDB. This data is stored securely and can handle large datasets.
           </p>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
@@ -1597,163 +1729,163 @@ const CacheManagement = () => {
                   overflowX: 'auto',
                   width: '100%'
                 }}>
-                <table style={{
-                  width: '100%',
-                  borderCollapse: 'collapse',
-                  fontSize: isMobile ? '12px' : '14px',
-                  minWidth: isMobile ? '600px' : 'auto'
-                }}>
-                  <thead style={{
-                    background: '#f8fafc',
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 10
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    fontSize: isMobile ? '12px' : '14px',
+                    minWidth: isMobile ? '600px' : 'auto'
                   }}>
-                    <tr>
-                    <th style={{
-                      padding: isMobile ? '8px' : '12px',
-                      textAlign: 'left',
-                      fontWeight: 600,
-                      color: '#1e293b',
-                      borderBottom: '2px solid #e2e8f0',
-                      fontSize: isMobile ? '11px' : '14px'
-                    }}>Type</th>
-                    <th style={{
-                      padding: isMobile ? '8px' : '12px',
-                      textAlign: 'left',
-                      fontWeight: 600,
-                      color: '#1e293b',
-                      borderBottom: '2px solid #e2e8f0',
-                      fontSize: isMobile ? '11px' : '14px'
-                    }}>Cache Key</th>
-                    <th style={{
-                      padding: isMobile ? '8px' : '12px',
-                      textAlign: 'left',
-                      fontWeight: 600,
-                      color: '#1e293b',
-                      borderBottom: '2px solid #e2e8f0',
-                      fontSize: isMobile ? '11px' : '14px'
-                    }}>Date Range</th>
-                    <th style={{
-                      padding: isMobile ? '8px' : '12px',
-                      textAlign: 'left',
-                      fontWeight: 600,
-                      color: '#1e293b',
-                      borderBottom: '2px solid #e2e8f0',
-                      fontSize: isMobile ? '11px' : '14px'
-                    }}>Size</th>
-                    <th style={{
-                      padding: isMobile ? '8px' : '12px',
-                      textAlign: 'left',
-                      fontWeight: 600,
-                      color: '#1e293b',
-                      borderBottom: '2px solid #e2e8f0',
-                      fontSize: isMobile ? '11px' : '14px'
-                    }}>Age</th>
-                    <th style={{
-                      padding: isMobile ? '8px' : '12px',
-                      textAlign: 'left',
-                      fontWeight: 600,
-                      color: '#1e293b',
-                      borderBottom: '2px solid #e2e8f0',
-                      fontSize: isMobile ? '11px' : '14px'
-                    }}>Cached Date</th>
-                    <th style={{
-                      padding: isMobile ? '8px' : '12px',
-                      textAlign: 'left',
-                      fontWeight: 600,
-                      color: '#1e293b',
-                      borderBottom: '2px solid #e2e8f0',
-                      fontSize: isMobile ? '11px' : '14px'
-                    }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cacheEntries.entries.map((entry, index) => (
-                      <tr
-                        key={index}
-                        style={{
-                          borderBottom: '1px solid #f1f5f9',
-                          background: index % 2 === 0 ? '#fff' : '#f8fafc'
-                        }}
-                      >
-                        <td style={{ padding: isMobile ? '8px' : '12px' }}>
-                          <span style={{
-                            padding: isMobile ? '3px 6px' : '4px 8px',
-                            borderRadius: '4px',
-                            fontSize: isMobile ? '10px' : '12px',
-                            fontWeight: 600,
-                            background: entry.type === 'sales' ? '#dbeafe' : '#dcfce7',
-                            color: entry.type === 'sales' ? '#1e40af' : '#166534'
-                          }}>
-                            {entry.type === 'sales' ? 'Sales' : 'Dashboard'}
-                          </span>
-                        </td>
-                        <td style={{
+                    <thead style={{
+                      background: '#f8fafc',
+                      position: 'sticky',
+                      top: 0,
+                      zIndex: 10
+                    }}>
+                      <tr>
+                        <th style={{
                           padding: isMobile ? '8px' : '12px',
-                          fontFamily: 'monospace',
-                          fontSize: isMobile ? '10px' : '12px',
-                          color: '#475569',
-                          wordBreak: 'break-all',
-                          maxWidth: isMobile ? '200px' : '400px'
-                        }}>
-                          {entry.cacheKey}
-                        </td>
-                        <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '13px' }}>
-                          {entry.startDate && entry.endDate ? (
-                            <div>
-                              <div>{formatDateForDisplay(entry.startDate)}</div>
-                              <div style={{ color: '#94a3b8' }}>to</div>
-                              <div>{formatDateForDisplay(entry.endDate)}</div>
-                            </div>
-                          ) : (
-                            <span style={{ color: '#cbd5e1' }}>—</span>
-                          )}
-                        </td>
-                        <td style={{ padding: isMobile ? '8px' : '12px', color: '#1e293b', fontWeight: 500, fontSize: isMobile ? '11px' : '14px' }}>
-                          {entry.sizeMB} MB
-                          <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#94a3b8' }}>
-                            ({entry.sizeKB} KB)
-                          </div>
-                        </td>
-                        <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '14px' }}>
-                          {entry.ageDays === 0 ? (
-                            <span style={{ color: '#10b981', fontWeight: 600 }}>Today</span>
-                          ) : entry.ageDays === 1 ? (
-                            <span style={{ color: '#3b82f6' }}>1 day ago</span>
-                          ) : (
-                            <span>{entry.ageDays} days ago</span>
-                          )}
-                        </td>
-                        <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '13px' }}>
-                          {entry.date}
-                        </td>
-                        <td style={{ padding: isMobile ? '8px' : '12px' }}>
-                          <button
-                            onClick={() => viewCacheAsJson(entry.cacheKey)}
-                            style={{
-                              padding: isMobile ? '5px 8px' : '6px 12px',
-                              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                              color: '#fff',
-                              border: 'none',
-                              borderRadius: '6px',
-                              fontSize: isMobile ? '11px' : '12px',
-                              fontWeight: 600,
-                              cursor: 'pointer',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              whiteSpace: 'nowrap'
-                            }}
-                          >
-                            <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>code</span>
-                            {isMobile ? 'JSON' : 'View JSON'}
-                          </button>
-                        </td>
+                          textAlign: 'left',
+                          fontWeight: 600,
+                          color: '#1e293b',
+                          borderBottom: '2px solid #e2e8f0',
+                          fontSize: isMobile ? '11px' : '14px'
+                        }}>Type</th>
+                        <th style={{
+                          padding: isMobile ? '8px' : '12px',
+                          textAlign: 'left',
+                          fontWeight: 600,
+                          color: '#1e293b',
+                          borderBottom: '2px solid #e2e8f0',
+                          fontSize: isMobile ? '11px' : '14px'
+                        }}>Cache Key</th>
+                        <th style={{
+                          padding: isMobile ? '8px' : '12px',
+                          textAlign: 'left',
+                          fontWeight: 600,
+                          color: '#1e293b',
+                          borderBottom: '2px solid #e2e8f0',
+                          fontSize: isMobile ? '11px' : '14px'
+                        }}>Date Range</th>
+                        <th style={{
+                          padding: isMobile ? '8px' : '12px',
+                          textAlign: 'left',
+                          fontWeight: 600,
+                          color: '#1e293b',
+                          borderBottom: '2px solid #e2e8f0',
+                          fontSize: isMobile ? '11px' : '14px'
+                        }}>Size</th>
+                        <th style={{
+                          padding: isMobile ? '8px' : '12px',
+                          textAlign: 'left',
+                          fontWeight: 600,
+                          color: '#1e293b',
+                          borderBottom: '2px solid #e2e8f0',
+                          fontSize: isMobile ? '11px' : '14px'
+                        }}>Age</th>
+                        <th style={{
+                          padding: isMobile ? '8px' : '12px',
+                          textAlign: 'left',
+                          fontWeight: 600,
+                          color: '#1e293b',
+                          borderBottom: '2px solid #e2e8f0',
+                          fontSize: isMobile ? '11px' : '14px'
+                        }}>Cached Date</th>
+                        <th style={{
+                          padding: isMobile ? '8px' : '12px',
+                          textAlign: 'left',
+                          fontWeight: 600,
+                          color: '#1e293b',
+                          borderBottom: '2px solid #e2e8f0',
+                          fontSize: isMobile ? '11px' : '14px'
+                        }}>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {cacheEntries.entries.map((entry, index) => (
+                        <tr
+                          key={index}
+                          style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            background: index % 2 === 0 ? '#fff' : '#f8fafc'
+                          }}
+                        >
+                          <td style={{ padding: isMobile ? '8px' : '12px' }}>
+                            <span style={{
+                              padding: isMobile ? '3px 6px' : '4px 8px',
+                              borderRadius: '4px',
+                              fontSize: isMobile ? '10px' : '12px',
+                              fontWeight: 600,
+                              background: entry.type === 'sales' ? '#dbeafe' : '#dcfce7',
+                              color: entry.type === 'sales' ? '#1e40af' : '#166534'
+                            }}>
+                              {entry.type === 'sales' ? 'Sales' : 'Dashboard'}
+                            </span>
+                          </td>
+                          <td style={{
+                            padding: isMobile ? '8px' : '12px',
+                            fontFamily: 'monospace',
+                            fontSize: isMobile ? '10px' : '12px',
+                            color: '#475569',
+                            wordBreak: 'break-all',
+                            maxWidth: isMobile ? '200px' : '400px'
+                          }}>
+                            {entry.cacheKey}
+                          </td>
+                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '13px' }}>
+                            {entry.startDate && entry.endDate ? (
+                              <div>
+                                <div>{formatDateForDisplay(entry.startDate)}</div>
+                                <div style={{ color: '#94a3b8' }}>to</div>
+                                <div>{formatDateForDisplay(entry.endDate)}</div>
+                              </div>
+                            ) : (
+                              <span style={{ color: '#cbd5e1' }}>—</span>
+                            )}
+                          </td>
+                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#1e293b', fontWeight: 500, fontSize: isMobile ? '11px' : '14px' }}>
+                            {entry.sizeMB} MB
+                            <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#94a3b8' }}>
+                              ({entry.sizeKB} KB)
+                            </div>
+                          </td>
+                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '14px' }}>
+                            {entry.ageDays === 0 ? (
+                              <span style={{ color: '#10b981', fontWeight: 600 }}>Today</span>
+                            ) : entry.ageDays === 1 ? (
+                              <span style={{ color: '#3b82f6' }}>1 day ago</span>
+                            ) : (
+                              <span>{entry.ageDays} days ago</span>
+                            )}
+                          </td>
+                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '13px' }}>
+                            {entry.date}
+                          </td>
+                          <td style={{ padding: isMobile ? '8px' : '12px' }}>
+                            <button
+                              onClick={() => viewCacheAsJson(entry.cacheKey)}
+                              style={{
+                                padding: isMobile ? '5px 8px' : '6px 12px',
+                                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                color: '#fff',
+                                border: 'none',
+                                borderRadius: '6px',
+                                fontSize: isMobile ? '11px' : '12px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                whiteSpace: 'nowrap'
+                              }}
+                            >
+                              <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>code</span>
+                              {isMobile ? 'JSON' : 'View JSON'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             ) : (
@@ -1926,7 +2058,7 @@ const CacheManagement = () => {
             marginBottom: isMobile ? '16px' : '20px',
             lineHeight: '1.6'
           }}>
-            Remove all cached data for all companies. This includes sales data, dashboard states, and metadata.
+            Remove all cached data for all companies. This includes sales data and metadata.
           </p>
           <button
             onClick={clearAllCache}
@@ -2011,7 +2143,7 @@ const CacheManagement = () => {
             marginBottom: isMobile ? '16px' : '20px',
             lineHeight: '1.6'
           }}>
-            Remove all cached data for the currently selected company. This includes sales data and dashboard states.
+            Remove all cached data for the currently selected company. This includes sales data.
           </p>
           <button
             onClick={clearCompanyCache}
@@ -2096,7 +2228,7 @@ const CacheManagement = () => {
             marginBottom: isMobile ? '16px' : '20px',
             lineHeight: '1.6'
           }}>
-            Remove only sales data cache for the currently selected company. Dashboard states will be preserved.
+            Remove only sales data cache for the currently selected company.
           </p>
           <button
             onClick={clearSalesCache}
