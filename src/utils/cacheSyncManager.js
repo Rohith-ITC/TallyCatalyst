@@ -37,7 +37,7 @@ const removeSessionStorageKey = (key) => {
 export const clearAllCaches = () => {
   try {
     console.log('🧹 clearAllCaches called');
-
+    
     // Clear localStorage
     const keys = Object.keys(localStorage);
     keys.forEach(key => {
@@ -45,26 +45,26 @@ export const clearAllCaches = () => {
         localStorage.removeItem(key);
       }
     });
-
+    
     // Clear only cache-related sessionStorage items, NOT authentication tokens
     const authKeys = ['token', 'email', 'name', 'tallyloc_id', 'company', 'guid', 'status', 'access_type'];
     const sessionKeys = Object.keys(sessionStorage);
-
+    
     let clearedCount = 0;
     sessionKeys.forEach(key => {
-      const isCacheKey = key.startsWith(CACHE_KEY_PREFIX) ||
-        key.startsWith('ledgerlist-w-addrs_') ||
+      const isCacheKey = key.startsWith(CACHE_KEY_PREFIX) || 
+                        key.startsWith('ledgerlist-w-addrs_') || 
         key.startsWith('stockitem_') ||
         key.endsWith('_chunks') ||
         key.includes('_chunk_');
       const isAuthKey = authKeys.includes(key);
-
+      
       if (!isAuthKey && isCacheKey) {
         // Check if this is a chunk metadata or chunk item
         if (key.endsWith('_chunks') || key.includes('_chunk_')) {
           // Remove chunked data
-          sessionStorage.removeItem(key);
-          clearedCount++;
+        sessionStorage.removeItem(key);
+        clearedCount++;
         } else {
           // Remove main key and its chunks
           removeSessionStorageKey(key);
@@ -72,7 +72,7 @@ export const clearAllCaches = () => {
         }
       }
     });
-
+    
     // Clear service worker caches if available
     if ('caches' in window) {
       caches.keys().then(cacheNames => {
@@ -81,7 +81,7 @@ export const clearAllCaches = () => {
         });
       });
     }
-
+    
     console.log(`🧹 All caches cleared successfully (authentication data preserved). Cleared ${clearedCount} cache keys`);
   } catch (error) {
     console.error('Error clearing caches:', error);
@@ -91,14 +91,14 @@ export const clearAllCaches = () => {
 // Check if app version has changed
 export const checkVersionUpdate = () => {
   const storedVersion = localStorage.getItem(`${CACHE_KEY_PREFIX}version`);
-
+  
   // Don't clear if storedVersion is a placeholder (build issue)
   if (storedVersion && storedVersion.includes('%') && storedVersion.includes('REACT_APP_VERSION')) {
     console.log('⚠️ Detected placeholder version, setting to current version without clearing');
     localStorage.setItem(`${CACHE_KEY_PREFIX}version`, CACHE_VERSION);
     return false;
   }
-
+  
   if (storedVersion && storedVersion !== CACHE_VERSION) {
     console.log(`🔄 Version changed from ${storedVersion} to ${CACHE_VERSION} - clearing caches`);
     clearAllCaches();
@@ -108,7 +108,7 @@ export const checkVersionUpdate = () => {
     console.log('🔄 No stored version found, setting initial version');
     localStorage.setItem(`${CACHE_KEY_PREFIX}version`, CACHE_VERSION);
   }
-
+  
   return false;
 };
 
@@ -132,14 +132,14 @@ const fetchWithTimeout = async (url, options, timeout = 300000, retries = 10) =>
   const isMobile = isMobileDevice();
   // Use longer timeout for large data - 5 minutes default, 7.5 minutes for mobile
   const effectiveTimeout = isMobile ? 450000 : timeout;
-
+  
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => {
         controller.abort();
       }, effectiveTimeout);
-
+      
       try {
         const response = await fetch(url, {
           ...options,
@@ -148,14 +148,14 @@ const fetchWithTimeout = async (url, options, timeout = 300000, retries = 10) =>
           mode: 'cors',
           credentials: 'omit'
         });
-
+        
         clearTimeout(timeoutId);
-
+        
         if (!response.ok) {
           const errorText = await response.text().catch(() => 'Unable to read error message');
           throw new Error(`HTTP ${response.status}: ${response.statusText}. ${errorText.substring(0, 200)}`);
         }
-
+        
         return response;
       } catch (fetchError) {
         clearTimeout(timeoutId);
@@ -164,12 +164,12 @@ const fetchWithTimeout = async (url, options, timeout = 300000, retries = 10) =>
     } catch (error) {
       const isTimeout = error.name === 'AbortError' || error.message.includes('timeout');
       const isNetworkError = error.message.includes('Failed to fetch') || error.message.includes('NetworkError') || error.message.includes('Network request failed');
-
+      
       // Don't retry on non-retryable errors
       if (!isTimeout && !isNetworkError && !error.message.includes('504') && !error.message.includes('408') && !error.message.includes('502')) {
         throw error;
       }
-
+      
       // If last attempt, throw detailed error
       if (attempt === retries) {
         throw new Error(
@@ -180,7 +180,7 @@ const fetchWithTimeout = async (url, options, timeout = 300000, retries = 10) =>
           `Please check your internet connection and try again.`
         );
       }
-
+      
       // Wait before retrying (exponential backoff)
       const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000);
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -338,7 +338,7 @@ const fetchBooksFrom = async (selectedGuid) => {
     // Check allConnections in sessionStorage
     const connectionsStr = sessionStorage.getItem('allConnections');
     const connections = JSON.parse(connectionsStr || '[]');
-
+    
     if (selectedGuid && Array.isArray(connections)) {
       const company = connections.find(c => c.guid === selectedGuid);
       if (company && company.booksfrom) {
@@ -348,7 +348,7 @@ const fetchBooksFrom = async (selectedGuid) => {
 
     // Fallback to API call
     const response = await apiGet(`/api/tally/user-connections?ts=${Date.now()}`);
-
+    
     if (response) {
       let apiConnections = [];
       if (Array.isArray(response)) {
@@ -358,14 +358,14 @@ const fetchBooksFrom = async (selectedGuid) => {
         const shared = Array.isArray(response.sharedWithMe) ? response.sharedWithMe : [];
         apiConnections = [...created, ...shared];
       }
-
+      
       const company = apiConnections.find(c => c.guid === selectedGuid);
       if (company && company.booksfrom) {
         sessionStorage.setItem('booksfrom', company.booksfrom);
         return company.booksfrom;
       }
     }
-
+    
     return null;
   } catch (error) {
     console.error('Error in fetchBooksFrom:', error);
@@ -474,30 +474,30 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
       }
     } else {
       // Load saved progress if exists (only if not starting fresh)
-      try {
-        savedProgress = await hybridCache.getDashboardState(progressKey);
-      } catch (e) {
-        console.warn('Could not load saved progress:', e);
+    try {
+      savedProgress = await hybridCache.getDashboardState(progressKey);
+    } catch (e) {
+      console.warn('Could not load saved progress:', e);
       }
     }
 
     // Update progress to in_progress
     try {
-      await hybridCache.setDashboardState(progressKey, {
-        email,
-        companyGuid: companyInfo.guid,
-        tallylocId: companyInfo.tallyloc_id,
-        status: 'in_progress',
-        lastUpdated: Date.now(),
-        chunksCompleted: savedProgress?.chunksCompleted || 0,
-        totalChunks: savedProgress?.totalChunks || 0
-      });
+    await hybridCache.setDashboardState(progressKey, {
+      email,
+      companyGuid: companyInfo.guid,
+      tallylocId: companyInfo.tallyloc_id,
+      status: 'in_progress',
+      lastUpdated: Date.now(),
+      chunksCompleted: savedProgress?.chunksCompleted || 0,
+      totalChunks: savedProgress?.totalChunks || 0
+    });
     } catch (e) {
       console.warn('Could not save progress state:', e);
     }
 
     const booksfrom = await fetchBooksFrom(companyInfo.guid);
-
+    
     if (!booksfrom) {
       throw new Error('Unable to fetch booksfrom date. Please ensure you have access to this company.');
     }
@@ -595,7 +595,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
         const responseText = await fetchResponse.text();
         if (!responseText) throw new Error('Empty response from server');
         response = JSON.parse(responseText);
-
+        
         if (response && response.frontendslice === 'Yes') {
           needsSlice = true;
         } else {
@@ -680,9 +680,9 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
       // Resume from saved chunk if available
       const startChunkIndex = savedProgress?.chunksCompleted || 0;
 
-      onProgress({
-        current: startChunkIndex,
-        total: chunks.length,
+      onProgress({ 
+        current: startChunkIndex, 
+        total: chunks.length, 
         message: `Syncing ${companyInfo.company}: Resuming from chunk ${startChunkIndex + 1} of ${chunks.length}...`,
         companyGuid: companyInfo.guid,
         companyName: companyInfo.company
@@ -690,15 +690,15 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
 
       // Update total chunks in progress
       try {
-        await hybridCache.setDashboardState(progressKey, {
-          email,
-          companyGuid: companyInfo.guid,
-          tallylocId: companyInfo.tallyloc_id,
-          status: 'in_progress',
-          lastUpdated: Date.now(),
-          chunksCompleted: startChunkIndex,
-          totalChunks: chunks.length
-        });
+      await hybridCache.setDashboardState(progressKey, {
+        email,
+        companyGuid: companyInfo.guid,
+        tallylocId: companyInfo.tallyloc_id,
+        status: 'in_progress',
+        lastUpdated: Date.now(),
+        chunksCompleted: startChunkIndex,
+        totalChunks: chunks.length
+      });
       } catch (e) {
         console.warn('Could not save progress state:', e);
       }
@@ -742,21 +742,21 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
 
           // Update progress after each chunk
           try {
-            const chunkProgress = {
-              email,
-              companyGuid: companyInfo.guid,
-              tallylocId: companyInfo.tallyloc_id,
-              status: 'in_progress',
-              lastUpdated: Date.now(),
-              chunksCompleted: i + 1,
-              totalChunks: chunks.length
-            };
-            await hybridCache.setDashboardState(progressKey, chunkProgress);
-            console.log(`📊 Progress updated: ${i + 1}/${chunks.length} chunks for ${companyInfo.company}`);
+          const chunkProgress = {
+            email,
+            companyGuid: companyInfo.guid,
+            tallylocId: companyInfo.tallyloc_id,
+            status: 'in_progress',
+            lastUpdated: Date.now(),
+            chunksCompleted: i + 1,
+            totalChunks: chunks.length
+          };
+          await hybridCache.setDashboardState(progressKey, chunkProgress);
+          console.log(`📊 Progress updated: ${i + 1}/${chunks.length} chunks for ${companyInfo.company}`);
           } catch (e) {
             console.warn('Could not save chunk progress:', e);
           }
-
+          
           // Notify subscribers if this is the currently active sync
           if (onProgress) {
             onProgress({
@@ -770,7 +770,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
         } catch (chunkError) {
           // Log error but continue with next chunk instead of stopping
           console.error(`❌ Error fetching chunk ${i + 1}/${chunks.length} for ${companyInfo.company}:`, chunkError);
-
+          
           // Get current saved progress to track failed chunks
           // DISABLED: Dashboard cache storage disabled
           // let currentSavedProgress = null;
@@ -779,7 +779,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
           // } catch (e) {
           //   // Ignore errors getting saved progress
           // }
-
+          
           // Save error state but don't mark as completely failed
           // DISABLED: Dashboard cache storage disabled
           // await hybridCache.setDashboardState(progressKey, {
@@ -793,11 +793,11 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
           //   error: `Chunk ${i + 1} failed: ${chunkError.message}`,
           //   failedChunks: [...(currentSavedProgress?.failedChunks || []), i]
           // });
-
+          
           // Continue with next chunk instead of throwing - allow download to complete
           // We'll retry failed chunks at the end if needed
           console.warn(`⚠️ Continuing with next chunk despite error in chunk ${i + 1}`);
-
+          
           // Update progress to show we're continuing
           if (onProgress) {
             onProgress({
@@ -808,12 +808,12 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
               companyName: companyInfo.company
             });
           }
-
+          
           // Continue to next chunk instead of throwing
           continue;
         }
       }
-
+      
       // After processing all chunks, retry any failed chunks
       let currentSavedProgress = null;
       try {
@@ -821,14 +821,14 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
       } catch (e) {
         // Ignore errors
       }
-
+      
       const failedChunks = currentSavedProgress?.failedChunks || [];
       if (failedChunks.length > 0) {
         console.log(`🔄 Retrying ${failedChunks.length} failed chunks...`);
-
+        
         for (const failedChunkIndex of failedChunks) {
           if (failedChunkIndex >= chunks.length) continue;
-
+          
           const chunk = chunks[failedChunkIndex];
           const chunkPayload = {
             ...payload,
@@ -839,7 +839,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
 
           try {
             console.log(`🔄 Retrying chunk ${failedChunkIndex + 1}/${chunks.length}...`);
-
+            
             const chunkFetchResponse = await fetchWithTimeout(
               salesextractUrl,
               {
@@ -859,7 +859,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
                 console.log(`✅ Successfully retried chunk ${failedChunkIndex + 1}`);
               }
             }
-
+            
             // Update progress to remove from failed chunks
             if (onProgress) {
               onProgress({
@@ -876,7 +876,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
           }
         }
       }
-
+      
       // If this is an update, ALWAYS merge with existing cache data to preserve old data
       if (isUpdate) {
         console.log(`🔄 Chunked path: Processing update merge with ${allVouchers.length} vouchers from chunks`);
@@ -897,7 +897,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
             console.error('❌ Could not load existing cache for merge (chunked):', error);
           }
         }
-
+        
         if (existingVouchers.length > 0) {
           console.log(`🔄 Starting merge: ${existingVouchers.length} existing vouchers + ${allVouchers.length} chunk vouchers`);
 
@@ -1071,7 +1071,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
       if (response && response.vouchers && Array.isArray(response.vouchers)) {
         allVouchers = response.vouchers;
         console.log(`📥 API returned ${allVouchers.length} vouchers (non-chunked path)`);
-
+        
         // If this is an update, ALWAYS merge with existing cache data to preserve old data
         if (isUpdate) {
           // Use pre-loaded existing vouchers, or try to load them again if pre-load failed
@@ -1090,7 +1090,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
               console.error('❌ Could not load existing cache for merge (non-chunked):', error);
             }
           }
-
+          
           if (existingVouchers.length > 0) {
             console.log(`🔄 Starting merge: ${existingVouchers.length} existing vouchers + ${allVouchers.length} API vouchers`);
 
@@ -1286,8 +1286,8 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
     // Final validation - but don't fail if we have some data (even if some chunks failed)
     if (isUpdate && (!mergedData.vouchers || !Array.isArray(mergedData.vouchers) || mergedData.vouchers.length === 0)) {
       console.warn('⚠️ Update resulted in empty merged data, attempting to preserve existing cache...');
-      try {
-        const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
+        try {
+            const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
         if (existingData && existingData.data && existingData.data.vouchers && existingData.data.vouchers.length > 0) {
           // Deduplicate existing vouchers by mstid
           const deduplicatedVouchers = deduplicateVouchersByMstid(existingData.data.vouchers);
@@ -1548,20 +1548,20 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
         console.warn(`⚠️ Could not verify saved data:`, verifyError);
       }
     }
-
+    
     // Mark progress as completed
     try {
-      await hybridCache.setDashboardState(progressKey, {
-        email,
-        companyGuid: companyInfo.guid,
-        tallylocId: companyInfo.tallyloc_id,
-        status: 'completed',
-        lastSyncedAlterId: maxAlterId,
-        lastSyncedDate: todayStr,
-        lastUpdated: Date.now(),
-        chunksCompleted: chunks ? chunks.length : 0,
-        totalChunks: chunks ? chunks.length : 0
-      });
+    await hybridCache.setDashboardState(progressKey, {
+      email,
+      companyGuid: companyInfo.guid,
+      tallylocId: companyInfo.tallyloc_id,
+      status: 'completed',
+      lastSyncedAlterId: maxAlterId,
+      lastSyncedDate: todayStr,
+      lastUpdated: Date.now(),
+      chunksCompleted: chunks ? chunks.length : 0,
+      totalChunks: chunks ? chunks.length : 0
+    });
     } catch (e) {
       console.warn('Could not mark progress as completed:', e);
     }
@@ -1611,7 +1611,7 @@ class CacheSyncManager {
    */
   async init() {
     if (this.initialized) return;
-
+    
     const email = getUserEmail();
     if (!email) {
       console.log('No user email found, skipping sync initialization');
@@ -1625,9 +1625,9 @@ class CacheSyncManager {
     } catch (error) {
       console.error('Error initializing sync manager:', error);
     }
-
+    
     this.initialized = true;
-
+    
     // Listen for connections updates to trigger auto-sync
     const connectionsHandler = () => {
       this.handleConnectionsUpdate();
@@ -1641,7 +1641,7 @@ class CacheSyncManager {
       }
     };
     window.addEventListener('storage', storageHandler);
-
+    
     // Also trigger immediately if connections are already available
     try {
       const connectionsStr = sessionStorage.getItem('allConnections');
@@ -1666,8 +1666,8 @@ class CacheSyncManager {
       if (!connectionsStr) return;
 
       const connections = JSON.parse(connectionsStr);
-      const eligibleCompanies = connections.filter(c =>
-        c.status === 'Connected' &&
+      const eligibleCompanies = connections.filter(c => 
+        c.status === 'Connected' && 
         (c.access_type === 'Internal' || c.access_type === 'Full Access')
       );
 
@@ -1706,8 +1706,8 @@ class CacheSyncManager {
       if (!connectionsStr) return;
 
       const connections = JSON.parse(connectionsStr);
-      const eligibleCompanies = connections.filter(c =>
-        c.status === 'Connected' &&
+      const eligibleCompanies = connections.filter(c => 
+        c.status === 'Connected' && 
         (c.access_type === 'Internal' || c.access_type === 'Full Access')
       );
 
@@ -1717,12 +1717,12 @@ class CacheSyncManager {
         if (this.autoSyncQueue.find(c => c.guid === company.guid)) {
           continue;
         }
-
+        
         // Skip if currently being synced
         if (this.isSyncing && this.companyInfo && this.companyInfo.guid === company.guid) {
           continue;
         }
-
+        
         const progressKey = getSyncProgressKey(email, company.guid);
         try {
           const progress = await hybridCache.getDashboardState(progressKey);
@@ -1758,8 +1758,8 @@ class CacheSyncManager {
     }
 
     // Filter for eligible companies
-    const eligibleCompanies = companies.filter(c =>
-      c.status === 'Connected' &&
+    const eligibleCompanies = companies.filter(c => 
+      c.status === 'Connected' && 
       (c.access_type === 'Internal' || c.access_type === 'Full Access')
     );
 
@@ -1808,7 +1808,7 @@ class CacheSyncManager {
 
     while (this.autoSyncQueue.length > 0) {
       const company = this.autoSyncQueue.shift();
-
+      
       try {
         console.log(`🔄 Auto-syncing company: ${company.company}`);
         await this.startSync(company, async (companyInfo, progressCallback) => {
@@ -1893,7 +1893,7 @@ class CacheSyncManager {
         return {
           current,
           total,
-          message: total > 0
+          message: total > 0 
             ? `Syncing ${companyInfo.company}: ${current} / ${total} chunks`
             : `Syncing ${companyInfo.company}...`,
           companyGuid: companyInfo.guid,
