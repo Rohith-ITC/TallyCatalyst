@@ -819,84 +819,51 @@ function PlaceOrder_ECommerce() {
       const cacheKey = `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`;
 
       console.log('Customer cache key:', cacheKey);
-      console.log('Cache exists:', !!sessionStorage.getItem(cacheKey));
       console.log('Refresh requested:', !!refreshCustomers);
 
-      // Check cache first
-      const cached = sessionStorage.getItem(cacheKey);
-      if (cached && !refreshCustomers) {
-        console.log('Using cached customer data');
+      // Check OPFS cache first (new storage)
+      if (!refreshCustomers) {
         try {
-          const customers = JSON.parse(cached);
-          setCustomerOptions(customers);
-          setCustomerLoading(false);
-          return;
-        } catch { }
+          const { getCustomersFromOPFS } = await import('../utils/cacheSyncManager');
+          const customers = await getCustomersFromOPFS(cacheKey);
+          if (customers && Array.isArray(customers) && customers.length > 0) {
+            console.log('Using cached customer data from OPFS');
+            setCustomerOptions(customers);
+            setCustomerLoading(false);
+            return;
+          }
+        } catch (e) {
+          console.warn('Error loading from OPFS, will fetch fresh:', e);
+        }
       }
 
-      // Clear cache if refresh requested
-      if (refreshCustomers) {
-        console.log('Clearing customer cache due to refresh');
-        sessionStorage.removeItem(cacheKey);
-      }
-
-      // Set loading state and fetch data
-      console.log('Fetching fresh customer data');
-      setCustomerLoading(true);
-      setCustomerOptions([]);
-
-      const token = sessionStorage.getItem('token');
-
-      // Create AbortController for request cancellation
-      const abortController = new AbortController();
-
+      // Only read from cache - do not fetch from API
+      // Cache updates are handled by Cache Management page
       try {
-        const data = await apiPost(`${API_CONFIG.ENDPOINTS.TALLY_LEDGERLIST_W_ADDRS}?ts=${Date.now()}`, {
-          tallyloc_id,
-          company: companyVal,
-          guid
-        });
+        const { getCustomersFromOPFS } = await import('../utils/cacheSyncManager');
+        const customers = await getCustomersFromOPFS(cacheKey);
 
-        if (data && data.ledgers && Array.isArray(data.ledgers)) {
-          console.log(`Successfully fetched ${data.ledgers.length} customers`);
-          setCustomerOptions(data.ledgers);
+        if (customers && Array.isArray(customers) && customers.length > 0) {
+          console.log(`✅ Loaded ${customers.length} customers from cache`);
+          setCustomerOptions(customers);
           // Don't auto-select customer if we're auto-populating from cart
           if (!isAutoPopulating) {
-            if (data.ledgers.length === 1) setSelectedCustomer(data.ledgers[0].NAME);
+            if (customers.length === 1) setSelectedCustomer(customers[0].NAME);
             else setSelectedCustomer('');
           }
-
-          // Cache the result with graceful fallback if storage is full
-          try {
-            const cacheString = JSON.stringify(data.ledgers);
-            sessionStorage.setItem(cacheKey, cacheString);
-          } catch (cacheError) {
-            console.warn('Failed to cache customers in sessionStorage:', cacheError.message);
-            // Don't fail the entire operation if caching fails
-          }
-        } else if (data && data.error) {
-          console.error('Customer API error:', data.error);
-          setCustomerOptions([]);
-          setSelectedCustomer('');
         } else {
-          console.error('Unknown customer API response:', data);
+          // No cache found - user needs to refresh from Cache Management
+          console.warn('No customer cache found. Please refresh from Cache Management.');
           setCustomerOptions([]);
           setSelectedCustomer('');
         }
       } catch (err) {
-        console.error('Error fetching customers:', err);
-        const errorMessage = err.message || 'Failed to fetch customers';
-        // Error state will be handled by the component's error handling
+        console.error('Error loading customers from cache:', err);
         setCustomerOptions([]);
         setSelectedCustomer('');
       } finally {
         setCustomerLoading(false);
       }
-
-      // Cleanup function to cancel request when effect re-runs or component unmounts
-      return () => {
-        abortController.abort();
-      };
     };
 
     fetchCustomers();
@@ -919,24 +886,21 @@ function PlaceOrder_ECommerce() {
       const cacheKey = `stockitems_${tallyloc_id}_${companyVal}`;
 
       console.log('Stock items cache key:', cacheKey);
-      console.log('Cache exists:', !!sessionStorage.getItem(cacheKey));
       console.log('Refresh requested:', !!refreshStockItems);
 
-      // Check cache first
-      const cached = sessionStorage.getItem(cacheKey);
-      if (cached && !refreshStockItems) {
-        console.log('Using cached stock items data');
+      // Check OPFS cache first (new storage)
+      if (!refreshStockItems) {
         try {
-          const items = JSON.parse(cached);
-          setStockItems(items);
-          return;
-        } catch { }
-      }
-
-      // Clear cache if refresh requested
-      if (refreshStockItems) {
-        console.log('Clearing stock items cache due to refresh');
-        sessionStorage.removeItem(cacheKey);
+          const { getItemsFromOPFS } = await import('../utils/cacheSyncManager');
+          const items = await getItemsFromOPFS(cacheKey);
+          if (items && Array.isArray(items) && items.length > 0) {
+            console.log('Using cached stock items data from OPFS');
+            setStockItems(items);
+            return;
+          }
+        } catch (e) {
+          console.warn('Error loading from OPFS, will fetch fresh:', e);
+        }
       }
 
       console.log('Fetching fresh stock items data');
@@ -958,11 +922,13 @@ function PlaceOrder_ECommerce() {
           const decryptedItems = deobfuscateStockItems(data.stockItems);
 
           setStockItems(decryptedItems);
-          // Cache the deobfuscated result with graceful fallback
+          // Cache the deobfuscated result in OPFS (handles large data)
           try {
-            sessionStorage.setItem(cacheKey, JSON.stringify(decryptedItems));
+            const { hybridCache } = await import('../utils/hybridCache');
+            await hybridCache.setSalesData(cacheKey, { stockItems: decryptedItems }, null);
+            console.log('✅ Cached stock items in OPFS');
           } catch (cacheError) {
-            console.warn('Failed to cache stock items in sessionStorage:', cacheError.message);
+            console.warn('Failed to cache stock items in OPFS:', cacheError.message);
           }
           console.log('Stock items fetched and deobfuscated:', decryptedItems);
         }

@@ -23,9 +23,10 @@ console.log('🚀 sessionStorage at startup:', {
 checkVersionUpdate();
 
 // Initialize cache sync manager to resume incomplete syncs
-cacheSyncManager.init().catch(error => {
-  console.error('Error initializing cache sync manager:', error);
-});
+// DISABLED: Automatic cache sync is now disabled - users must manually trigger downloads
+// cacheSyncManager.init().catch(error => {
+//   console.error('Error initializing cache sync manager:', error);
+// });
 
 // Register service worker
 if ('serviceWorker' in navigator) {

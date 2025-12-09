@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../config';
-import TallyLogo from '../DLlogo.png';
+import TallyLogo from '../DLrlogo.png';
 import '../AdminHomeResponsive.css';
 import Ledgerbook from './Ledgerbook';
 import PlaceOrder from './PlaceOrder';
@@ -1605,7 +1605,7 @@ function TallyDashboard() {
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text',
             whiteSpace: 'nowrap',
-          }}>DataLynk</span>
+          }}>DataLynkr</span>
         </div>
         
         {/* Company Selection Dropdown */}
@@ -2404,7 +2404,7 @@ function TallyDashboard() {
         }}>
           <img 
             src={TallyLogo} 
-            alt="DataLynk Logo" 
+            alt="DataLynkr Logo" 
             style={{ 
               width: sidebarOpen ? '140px' : '40px', 
               height: sidebarOpen ? 'auto' : '40px', 

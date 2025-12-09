@@ -181,6 +181,11 @@ const DEFAULT_AGING_BUCKETS = [
 ];
 
 const ReceivablesPage = ({ company, onBack }) => {
+  console.log('🎯 [Receivables] ReceivablesPage component rendered', { 
+    hasCompany: !!company, 
+    companyName: company?.company 
+  });
+  
   const canGoBack = typeof onBack === 'function';
   const handleBack = canGoBack ? onBack : () => {};
   const isMobile = useIsMobile();
@@ -232,43 +237,185 @@ const ReceivablesPage = ({ company, onBack }) => {
   const [agingBucketsConfig, setAgingBucketsConfig] = useState([...DEFAULT_AGING_BUCKETS]);
 
   const fetchReceivables = useCallback(async ({ forceRefresh = false } = {}) => {
-    if (!company) return;
+    console.log('🔵 [Receivables] fetchReceivables called', { forceRefresh, hasCompany: !!company });
+    
+    if (!company) {
+      console.log('🔴 [Receivables] No company, returning early');
+      return;
+    }
+    
+    // Cancel any pending request
+    if (abortControllerRef.current) {
+      console.log('⚠️ [Receivables] Aborting previous request');
+      abortControllerRef.current.abort();
+    }
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     try {
       if (!forceRefresh) {
         const cached = readReceivablesCache(company, salespersonFormula);
         if (cached) {
+          console.log('✅ [Receivables] Using cached data');
           setColumns(cached.columns);
           setReceivables(cached.rows);
           setError(null);
           setLoading(false);
           return;
         }
+        console.log('ℹ️ [Receivables] No cached data found');
       }
 
+      console.log('🔄 [Receivables] Starting fetch...');
       setLoading(true);
       setError(null);
 
-      const companyName = cleanAndEscapeForXML(company.company);
-      const token = getAuthToken();
-      const response = await fetch(getTallyDataUrl(), {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/xml',
-          'x-tallyloc-id': company.tallyloc_id.toString(),
-          'x-company': companyName,
-          'x-guid': company.guid,
-        },
-        body: buildReceivablesRequestXml(salespersonFormula, companyName),
+      // Use raw company name for header, escaped for XML body
+      const rawCompanyName = company.company;
+      const escapedCompanyName = cleanAndEscapeForXML(rawCompanyName);
+      
+      console.log('📋 [Receivables] Company info:', {
+        rawCompanyName,
+        escapedCompanyName,
+        tallyloc_id: company.tallyloc_id,
+        guid: company.guid,
+        salespersonFormula: salespersonFormula || '(empty)'
       });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+      
+      let token;
+      try {
+        token = getAuthToken();
+        console.log('✅ [Receivables] Auth token obtained', { hasToken: !!token, tokenLength: token?.length });
+      } catch (authError) {
+        console.error('🔴 [Receivables] Auth token error:', authError);
+        throw new Error('Authentication required. Please log in again.');
       }
 
-      const xmlText = await response.text();
-      const parsed = parseXml(xmlText);
+      const apiUrl = getTallyDataUrl();
+      const xmlBody = buildReceivablesRequestXml(salespersonFormula, escapedCompanyName);
+      
+      console.log('🌐 [Receivables] Request details:', {
+        url: apiUrl,
+        method: 'POST',
+        xmlBodyLength: xmlBody.length,
+        xmlBodyPreview: xmlBody.substring(0, 200) + '...'
+      });
+
+      // Add timeout to the fetch request
+      const timeoutId = setTimeout(() => {
+        console.error('⏱️ [Receivables] Request timeout after 60s');
+        abortController.abort();
+      }, 60000); // 60 second timeout
+
+      let response;
+      try {
+        console.log('🚀 [Receivables] Sending fetch request...');
+        const startTime = Date.now();
+        
+        response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/xml',
+            'x-tallyloc-id': company.tallyloc_id.toString(),
+            'x-company': rawCompanyName,
+            'x-guid': company.guid,
+          },
+          body: xmlBody,
+          signal: abortController.signal,
+        });
+        
+        const fetchDuration = Date.now() - startTime;
+        console.log('📡 [Receivables] Fetch response received:', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok,
+          headers: Object.fromEntries(response.headers.entries()),
+          duration: `${fetchDuration}ms`
+        });
+        
+        clearTimeout(timeoutId);
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        console.error('🔴 [Receivables] Fetch error:', {
+          name: fetchError.name,
+          message: fetchError.message,
+          stack: fetchError.stack,
+          isAbortError: fetchError.name === 'AbortError',
+          signalAborted: abortController.signal.aborted
+        });
+        
+        if (fetchError.name === 'AbortError') {
+          throw new Error('Request timeout. Please try again.');
+        }
+        if (fetchError.message === 'Failed to fetch' || fetchError.message.includes('network')) {
+          throw new Error('Network error. Please check your internet connection and try again.');
+        }
+        throw new Error(`Failed to fetch receivables data: ${fetchError.message}`);
+      }
+
+      if (!response.ok) {
+        let errorText = '';
+        try {
+          errorText = await response.text();
+          console.error('🔴 [Receivables] Response error text:', errorText);
+        } catch (e) {
+          console.error('🔴 [Receivables] Error reading error response:', e);
+          errorText = response.statusText || 'Unknown error';
+        }
+        
+        console.error('🔴 [Receivables] Non-OK response:', {
+          status: response.status,
+          statusText: response.statusText,
+          errorText
+        });
+        
+        if (response.status === 401 || response.status === 403) {
+          throw new Error('Authentication expired. Please refresh the page and log in again.');
+        }
+        throw new Error(`Server error (${response.status}): ${errorText || 'Please try again later.'}`);
+      }
+
+      let xmlText;
+      try {
+        xmlText = await response.text();
+        console.log('✅ [Receivables] Response text received:', {
+          length: xmlText.length,
+          preview: xmlText.substring(0, 500) + (xmlText.length > 500 ? '...' : '')
+        });
+      } catch (e) {
+        console.error('🔴 [Receivables] Error reading response text:', e);
+        throw new Error('Failed to read response from server.');
+      }
+
+      if (!xmlText || xmlText.trim().length === 0) {
+        console.error('🔴 [Receivables] Empty response received');
+        throw new Error('Empty response received from server.');
+      }
+
+      let parsed;
+      try {
+        console.log('🔍 [Receivables] Parsing XML...');
+        parsed = parseXml(xmlText);
+        console.log('✅ [Receivables] XML parsed successfully:', {
+          columnsCount: parsed?.columns?.length || 0,
+          rowsCount: parsed?.rows?.length || 0,
+          columns: parsed?.columns?.map(col => col.name || col.alias)
+        });
+      } catch (parseError) {
+        console.error('🔴 [Receivables] XML parsing error:', {
+          error: parseError,
+          message: parseError.message,
+          stack: parseError.stack,
+          xmlPreview: xmlText.substring(0, 1000)
+        });
+        throw new Error('Invalid response format received from server. Please try again.');
+      }
+
+      if (!parsed || !parsed.columns || !parsed.rows) {
+        console.error('🔴 [Receivables] Invalid parsed structure:', { parsed });
+        throw new Error('Invalid data structure received from server.');
+      }
 
       const closingBalanceIndex = parsed.columns.findIndex(
         (col) =>
@@ -297,16 +444,39 @@ const ReceivablesPage = ({ company, onBack }) => {
         });
       }
 
+      console.log('✅ [Receivables] Data transformed:', {
+        columnsCount: transformedColumns.length,
+        rowsCount: transformedRows.length
+      });
+
       setColumns(transformedColumns);
       setReceivables(transformedRows);
       writeReceivablesCache(company, salespersonFormula, {
         columns: transformedColumns,
         rows: transformedRows,
       });
+      console.log('✅ [Receivables] Successfully loaded and cached receivables data');
     } catch (err) {
-      setError(err.message);
+      // Don't set error if request was intentionally aborted
+      if (err.name === 'AbortError' || abortController.signal.aborted) {
+        console.log('⚠️ [Receivables] Request aborted, not setting error');
+        return;
+      }
+      const errorMessage = err.message || 'An unexpected error occurred. Please try again.';
+      console.error('🔴 [Receivables] Error in fetchReceivables:', {
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+        error: err
+      });
+      setError(errorMessage);
     } finally {
+      // Only clear the ref if this is still the current controller
+      if (abortControllerRef.current === abortController) {
+        abortControllerRef.current = null;
+      }
       setLoading(false);
+      console.log('🏁 [Receivables] fetchReceivables completed');
     }
   }, [company, salespersonFormula]);
 
@@ -341,6 +511,12 @@ const ReceivablesPage = ({ company, onBack }) => {
 
 
   useEffect(() => {
+    console.log('🔄 [Receivables] useEffect triggered - calling fetchReceivables', {
+      company: company?.company,
+      tallyloc_id: company?.tallyloc_id,
+      guid: company?.guid,
+      salespersonFormula: salespersonFormula || '(empty)'
+    });
     fetchReceivables();
     // Reset initialization and enabled salespersons when company changes
     salespersonsInitializedRef.current = false;
@@ -429,7 +605,15 @@ const ReceivablesPage = ({ company, onBack }) => {
   };
 
   const fetchBillDrilldown = async (ledgerName, billName, salesperson) => {
+    console.log('🔵 [Bill Drilldown] fetchBillDrilldown called', {
+      ledgerName,
+      billName,
+      salesperson,
+      hasCompany: !!company
+    });
+    
     if (abortControllerRef.current) {
+      console.log('⚠️ [Bill Drilldown] Aborting previous request');
       abortControllerRef.current.abort();
     }
     const abortController = new AbortController();
@@ -441,15 +625,29 @@ const ReceivablesPage = ({ company, onBack }) => {
     setSelectedBill({ ledgerName, billName, salesperson });
 
     try {
-      const companyName = cleanAndEscapeForXML(company.company);
+      // Use raw company name for header, escaped for XML body
+      const rawCompanyName = company.company;
+      const escapedCompanyName = cleanAndEscapeForXML(rawCompanyName);
       const escapedLedgerName = escapeForXML(ledgerName);
       const escapedBillName = escapeForXML(billName);
+
+      console.log('📋 [Bill Drilldown] Input parameters:', {
+        rawLedgerName: ledgerName,
+        escapedLedgerName,
+        rawBillName: billName,
+        escapedBillName,
+        rawCompanyName,
+        escapedCompanyName,
+        salesperson
+      });
 
       let booksFromDate = '1-Apr-00';
       const dateMatch = company.company.match(/from\s+(\d{1,2}-[A-Za-z]{3}-\d{2,4})/i);
       if (dateMatch && dateMatch[1]) {
         booksFromDate = dateMatch[1];
       }
+      
+      console.log('📅 [Bill Drilldown] Date range:', { booksFromDate });
 
       const drilldownXML = `<ENVELOPE>
 	<HEADER>
@@ -462,7 +660,7 @@ const ReceivablesPage = ({ company, onBack }) => {
 		<DESC>		
 			<STATICVARIABLES>
 				<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
+        <SVCURRENTCOMPANY>${escapedCompanyName}</SVCURRENTCOMPANY>
 			</STATICVARIABLES>	
             <TDL>
             <TDLMESSAGE>
@@ -516,35 +714,104 @@ const ReceivablesPage = ({ company, onBack }) => {
 	</BODY>
 </ENVELOPE>`;
 
+      console.log('📝 [Bill Drilldown] XML Request:', {
+        fullXML: drilldownXML,
+        xmlLength: drilldownXML.length,
+        formattedXML: drilldownXML
+      });
+      
+      // Log the full XML in a readable format
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('📤 [Bill Drilldown] BILL DRILLDOWN XML REQUEST:');
+      console.log('═══════════════════════════════════════════════════════');
+      console.log(drilldownXML);
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('END OF XML');
+      console.log('═══════════════════════════════════════════════════════');
+
       const token = getAuthToken();
-      const response = await fetch(getTallyDataUrl(), {
+      const apiUrl = getTallyDataUrl();
+      
+      console.log('🌐 [Bill Drilldown] Request details:', {
+        url: apiUrl,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/xml',
+          'x-tallyloc-id': company.tallyloc_id.toString(),
+          'x-company': rawCompanyName,
+          'x-guid': company.guid,
+          hasAuthToken: !!token
+        }
+      });
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/xml',
           'x-tallyloc-id': company.tallyloc_id.toString(),
-          'x-company': companyName,
+          'x-company': rawCompanyName,
           'x-guid': company.guid,
         },
         body: drilldownXML,
         signal: abortController.signal,
       });
 
+      console.log('📡 [Bill Drilldown] Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries())
+      });
+
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('🔴 [Bill Drilldown] Response error:', {
+          status: response.status,
+          errorText
+        });
         throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
       }
 
       const xmlText = await response.text();
+      console.log('✅ [Bill Drilldown] Response XML received:', {
+        length: xmlText.length,
+        preview: xmlText.substring(0, 500) + (xmlText.length > 500 ? '...' : ''),
+        fullXML: xmlText
+      });
+      
+      // Log full response XML
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('📥 [Bill Drilldown] BILL DRILLDOWN XML RESPONSE:');
+      console.log('═══════════════════════════════════════════════════════');
+      console.log(xmlText);
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('END OF RESPONSE XML');
+      console.log('═══════════════════════════════════════════════════════');
+      
       const parsed = parseXml(xmlText);
+      console.log('✅ [Bill Drilldown] XML parsed successfully:', {
+        columnsCount: parsed?.columns?.length || 0,
+        rowsCount: parsed?.rows?.length || 0,
+        columns: parsed?.columns?.map(col => col.name || col.alias),
+        rows: parsed?.rows
+      });
+      
       setDrilldownData(parsed);
     } catch (err) {
+      console.error('🔴 [Bill Drilldown] Error:', {
+        name: err.name,
+        message: err.message,
+        stack: err.stack,
+        error: err
+      });
       if (err.name !== 'AbortError') {
         setDrilldownError(err.message);
       }
     } finally {
       setDrilldownLoading(false);
       abortControllerRef.current = null;
+      console.log('🏁 [Bill Drilldown] fetchBillDrilldown completed');
     }
   };
 
@@ -560,7 +827,9 @@ const ReceivablesPage = ({ company, onBack }) => {
     setVoucherDetailsError(null);
 
     try {
-      const companyName = cleanAndEscapeForXML(company.company);
+      // Use raw company name for header, escaped for XML body
+      const rawCompanyName = company.company;
+      const escapedCompanyName = cleanAndEscapeForXML(rawCompanyName);
       const escapedMasterId = escapeForXML(masterId.toString());
 
       const voucherXML = `<ENVELOPE>
@@ -575,7 +844,7 @@ const ReceivablesPage = ({ company, onBack }) => {
 			<STATICVARIABLES>
 				<EXPORTFLAG>YES</EXPORTFLAG>
 				<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-				<SVCURRENTCOMPANY>${companyName}</SVCURRENTCOMPANY>
+				<SVCURRENTCOMPANY>${escapedCompanyName}</SVCURRENTCOMPANY>
 			</STATICVARIABLES>
 			<TDL>
 				<TDLMESSAGE>
@@ -679,7 +948,7 @@ const ReceivablesPage = ({ company, onBack }) => {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/xml',
           'x-tallyloc-id': company.tallyloc_id.toString(),
-          'x-company': companyName,
+          'x-company': rawCompanyName,
           'x-guid': company.guid,
         },
         body: voucherXML,

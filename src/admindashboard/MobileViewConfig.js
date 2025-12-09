@@ -1,5 +1,5 @@
 import React from 'react';
-import TallyLogo from '../DLlogo.png';
+import TallyLogo from '../DLrlogo.png';
 
 /**
  * Mobile View Configuration Component for Admin Dashboard
@@ -131,7 +131,7 @@ export const AdminMobileMenu = ({
             letterSpacing: 0.5, 
             textShadow: '0 2px 8px rgba(0,0,0,0.15)',
           }}>
-            DataLynk
+            DataLynkr
           </span>
         </div>
 
