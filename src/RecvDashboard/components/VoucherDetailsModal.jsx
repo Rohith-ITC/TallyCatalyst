@@ -21,38 +21,14 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
     return `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  const formatNumber = (num) => {
+    const value = parseAmount(num);
+    return value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   const normalizeToArray = (value) => {
     if (!value) return [];
     return Array.isArray(value) ? value : [value];
-  };
-
-  // Helper function to handle negative amounts - move to opposite side but keep negative sign
-  const getDisplayAmounts = (debitAmt, creditAmt) => {
-    const debitValue = parseAmount(debitAmt);
-    const creditValue = parseAmount(creditAmt);
-    
-    let displayDebit = '';
-    let displayCredit = '';
-    
-    // Handle debit amount
-    if (debitValue < 0) {
-      // Negative debit goes to credit side (keep negative)
-      displayCredit = formatCurrencyAmount(debitValue);
-    } else if (debitValue > 0) {
-      // Positive debit stays on debit side
-      displayDebit = formatCurrencyAmount(debitValue);
-    }
-    
-    // Handle credit amount
-    if (creditValue < 0) {
-      // Negative credit goes to debit side (keep negative)
-      displayDebit = formatCurrencyAmount(creditValue);
-    } else if (creditValue > 0) {
-      // Positive credit stays on credit side
-      displayCredit = formatCurrencyAmount(creditValue);
-    }
-    
-    return { displayDebit, displayCredit };
   };
 
   if (loading) {
@@ -160,17 +136,129 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
   }
 
   const voucher = voucherData.VOUCHERS;
-  const ledgerEntries = normalizeToArray(voucher.ALLLEDGERENTRIES);
-  const ledgerName = ledgerEntries.length > 0 && ledgerEntries[0].LEDGERNAME 
-    ? ledgerEntries[0].LEDGERNAME 
-    : '';
+  const ledgerEntries = normalizeToArray(voucher.ALLLEDGERENTRIES || voucher.LEDGERENTRIES || voucher.ledgerentries || []);
   
-  // Debug: Log narration data
-  console.log('🔍 VoucherDetailsModal - Narration check:', {
-    hasNARRATION: !!voucher.NARRATION,
-    NARRATION: voucher.NARRATION,
-    voucherKeys: Object.keys(voucher)
+  // Find party ledger (first ledger entry where ispartyledger = Yes, or first entry)
+  const partyLedger = ledgerEntries.find(entry => {
+    const ispartyledger = (entry.ISPARTYLEDGER || entry.ispartyledger || '').toString().toLowerCase().trim();
+    return ispartyledger === 'yes';
+  }) || ledgerEntries[0] || {};
+  
+  // Check if there's any ledger entry with ispartyledger = yes
+  const hasPartyLedger = ledgerEntries.some(entry => {
+    const ispartyledger = (entry.ISPARTYLEDGER || entry.ispartyledger || '').toString().toLowerCase().trim();
+    return ispartyledger === 'yes';
   });
+  
+  // Get party ledger name from the ledger entry itself (don't fallback to voucher level here)
+  const partyLedgerName = partyLedger.LEDGERNAME || partyLedger.ledgername || 'Unknown';
+  
+  // Get party ledger name from voucher level when ispartyledger is yes
+  // Only show this if it's different from the ledger name
+  const voucherPartyLedgerName = voucher.PARTYLEDGERNAME || voucher.partyledgername || voucher.PARTY || voucher.party || null;
+  
+  // Get inventory entries
+  const inventoryEntries = normalizeToArray(voucher.ALLINVENTORYENTRIES || voucher.INVENTORYENTRIES || voucher.INVENTRY || voucher.allinventoryentries || []);
+  
+  // Calculate totals
+  let totalQuantity = 0;
+  let totalAmount = 0;
+  let totalCgst = 0;
+  let totalSgst = 0;
+  let totalRoundoff = 0;
+  let totalDebit = 0;
+  let totalCredit = 0;
+  
+  inventoryEntries.forEach(item => {
+    const qty = parseAmount(item.BILLEQTY || item.ACTUALQTY || item.QTY || item.billedqty || item.actualqty || 0);
+    const amount = parseAmount(item.AMOUNT || item.VALUE || item.amount || 0);
+    totalQuantity += qty;
+    totalAmount += amount;
+  });
+  
+  // Extract taxes and calculate ledger totals from ledger entries
+  ledgerEntries.forEach(entry => {
+    const ledgerName = (entry.LEDGERNAME || entry.ledgername || '').toLowerCase();
+    const debitAmt = parseAmount(entry.DEBITAMT || entry.debitamt || entry.amount || 0);
+    const creditAmt = parseAmount(entry.CREDITAMT || entry.creditamt || 0);
+    totalDebit += debitAmt;
+    totalCredit += creditAmt;
+    
+    if (ledgerName.includes('cgst')) {
+      totalCgst += Math.abs(debitAmt || creditAmt);
+    } else if (ledgerName.includes('sgst')) {
+      totalSgst += Math.abs(debitAmt || creditAmt);
+    } else if (ledgerName.includes('round off') || ledgerName.includes('roundoff')) {
+      totalRoundoff = debitAmt || creditAmt;
+    }
+  });
+  
+  // Calculate grand total
+  const grandTotal = totalAmount + totalCgst + totalSgst + totalRoundoff;
+  
+  // Get bill allocations from party ledger
+  const billAllocations = normalizeToArray(partyLedger.BILLALLOCATIONS || partyLedger.billalloc || []);
+  
+  // Format date to DD-MMM-YY format (e.g., 15-Apr-25)
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '-';
+    
+    let dateObj = null;
+    
+    // Try to parse various date formats
+    if (typeof dateStr === 'string') {
+      // Format: YYYYMMDD
+      if (dateStr.length === 8 && /^\d+$/.test(dateStr)) {
+        const year = dateStr.substring(0, 4);
+        const month = dateStr.substring(4, 6);
+        const day = dateStr.substring(6, 8);
+        dateObj = new Date(`${year}-${month}-${day}`);
+      }
+      // Format: YYYY-MM-DD
+      else if (dateStr.includes('-') && dateStr.length >= 10 && /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+        dateObj = new Date(dateStr);
+      }
+      // Format: D-Mon-YY or D-Mon-YYYY
+      else if (dateStr.includes('-')) {
+        const parts = dateStr.split('-');
+        if (parts.length === 3) {
+          const day = parts[0];
+          const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          const monthIndex = monthNames.findIndex(m => m.toLowerCase() === parts[1].toLowerCase());
+          if (monthIndex !== -1) {
+            let year = parts[2];
+            if (year.length === 2) {
+              const yearNum = parseInt(year, 10);
+              year = yearNum < 50 ? `20${year}` : `19${year}`;
+            }
+            dateObj = new Date(`${year}-${String(monthIndex + 1).padStart(2, '0')}-${day.padStart(2, '0')}`);
+          }
+        }
+      }
+    }
+    
+    // If we couldn't parse it, try Date constructor directly
+    if (!dateObj || isNaN(dateObj.getTime())) {
+      dateObj = new Date(dateStr);
+    }
+    
+    // If still invalid, return original string
+    if (isNaN(dateObj.getTime())) {
+      return dateStr;
+    }
+    
+    // Format to DD-MMM-YY
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const month = monthNames[dateObj.getMonth()];
+    const year = String(dateObj.getFullYear()).slice(-2);
+    
+    return `${day}-${month}-${year}`;
+  };
+
+  const voucherNumber = voucher.VOUCHERNUMBER || voucher.VCHNO || voucher.vouchernumber || '-';
+  const voucherType = voucher.VOUCHERTYPE || voucher.VCHTYPE || voucher.vouchertypename || 'Sales';
+  const voucherDate = formatDate(voucher.DATE || voucher.CP_DATE || voucher.date || voucher.cp_date);
 
   return (
     <div
@@ -201,7 +289,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
           background: '#fff',
           borderRadius: isMobile ? '12px' : '18px',
           width: isMobile ? '95%' : '96%',
-          maxWidth: '1024px',
+          maxWidth: '900px',
           maxHeight: isMobile ? '95vh' : '90vh',
           display: 'flex',
           flexDirection: 'column',
@@ -212,40 +300,28 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
+        {/* Blue Header Bar */}
         <div
           style={{
-            padding: isMobile ? '16px' : '24px 28px',
-            borderBottom: '1px solid #e2e8f0',
+            background: '#2563eb',
+            color: '#fff',
+            padding: isMobile ? '12px 16px' : '16px 24px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            background: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)',
-            flexWrap: isMobile ? 'wrap' : 'nowrap',
-            gap: isMobile ? '8px' : '0'
+            flexShrink: 0
           }}
         >
           <div>
-            <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 22, fontWeight: 700, color: '#1e293b', lineHeight: 1.3 }}>
+            <div style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 600, marginBottom: '4px' }}>
               Voucher Details
-              {(voucher.VOUCHERNUMBER || voucher.VCHNO) && (
-                <span style={{ 
-                  marginLeft: isMobile ? 8 : 12, 
-                  fontSize: isMobile ? 12 : 14, 
-                  fontWeight: 500, 
-                  color: '#64748b',
-                  display: isMobile ? 'block' : 'inline',
-                  marginTop: isMobile ? 4 : 0
-                }}>
-                  {voucher.VOUCHERNUMBER || voucher.VCHNO} - {voucher.VOUCHERTYPE || voucher.VCHTYPE || '-'}
-                </span>
-              )}
-            </h2>
-            {ledgerName && (
-              <div style={{ marginTop: isMobile ? 6 : 8, fontSize: isMobile ? 12 : 14, color: '#64748b', fontWeight: 500 }}>
-                Ledger: {ledgerName}
+            </div>
+            <div style={{ fontSize: isMobile ? '14px' : '16px', fontWeight: 500, opacity: 0.95 }}>
+              {voucherNumber} - {voucherType}
+            </div>
+            <div style={{ fontSize: isMobile ? '12px' : '13px', opacity: 0.9, marginTop: '2px' }}>
+              Ledger: {partyLedgerName}
               </div>
-            )}
           </div>
           <button
             onClick={onClose}
@@ -253,204 +329,402 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
               background: 'transparent',
               border: 'none',
               cursor: 'pointer',
-              width: 40,
-              height: 40,
-              borderRadius: '50%',
+              color: '#fff',
+              width: 32,
+              height: 32,
+              borderRadius: '4px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              transition: 'background 0.2s'
+              transition: 'background 0.2s',
+              fontSize: '20px',
+              fontWeight: 'bold'
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(15, 23, 42, 0.08)')}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)')}
             onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
           >
-            <span className="material-icons" style={{ fontSize: 24, color: '#475569' }}>close</span>
+            ×
           </button>
         </div>
 
-        <div style={{ flex: 1, overflow: 'auto', padding: isMobile ? '16px' : '28px', WebkitOverflowScrolling: 'touch' }}>
-          {/* Voucher Summary */}
+        {/* Main Content */}
+        <div style={{ flex: 1, overflow: 'auto', padding: isMobile ? '16px' : '24px', WebkitOverflowScrolling: 'touch', background: '#f8fafc' }}>
+          {/* Voucher Identification Section */}
           <div
             style={{
-              background: '#f8fafc',
-              borderRadius: isMobile ? '10px' : '14px',
-              border: '1px solid #e2e8f0',
-              padding: isMobile ? '14px' : '20px 24px',
-              marginBottom: isMobile ? '16px' : '24px'
+              marginBottom: isMobile ? '20px' : '24px',
+              background: '#fff',
+              padding: isMobile ? '16px' : '20px',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0'
             }}
           >
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(180px, 1fr))', gap: isMobile ? '12px' : '16px' }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr',
+                gap: isMobile ? '16px' : '24px',
+                marginBottom: isMobile ? '16px' : '20px'
+              }}
+            >
               <div>
-                <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Voucher Type</div>
-                <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 700, color: '#1e293b' }}>{voucher.VOUCHERTYPE || voucher.VCHTYPE || '-'}</div>
+                <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Voucher Type</div>
+                <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 600 }}>
+                  {voucherType}
+                </div>
               </div>
               <div>
-                <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Voucher No.</div>
-                <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 700, color: '#1e293b' }}>{voucher.VOUCHERNUMBER || voucher.VCHNO || '-'}</div>
+                <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Voucher No.</div>
+                <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 600 }}>
+                  {voucherNumber}
+                </div>
               </div>
               <div>
-                <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Date</div>
-                <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 700, color: '#1e293b' }}>{voucher.DATE || '-'}</div>
+                <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Date</div>
+                <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 600 }}>
+                  {voucherDate}
+                </div>
               </div>
             </div>
-            {ledgerName && (
-              <div style={{ marginTop: isMobile ? 12 : 16, paddingTop: isMobile ? 12 : 16, borderTop: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Particulars</div>
-                <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 600, color: '#1e293b' }}>{ledgerName}</div>
-              </div>
-            )}
-            {voucher.NARRATION && (
-              <div style={{ marginTop: isMobile ? 12 : 16, paddingTop: isMobile ? 12 : 16, borderTop: '1px solid #e2e8f0' }}>
-                <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 600, color: '#64748b', marginBottom: isMobile ? 6 : 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? 14 : 16, color: '#64748b' }}>description</span>
-                  Narration
-                </div>
-                <div style={{ 
-                  fontSize: isMobile ? 12 : 14, 
-                  fontWeight: 500, 
-                  color: '#1e293b',
-                  padding: isMobile ? '10px 12px' : '12px 16px',
-                  background: '#f8fafc',
-                  borderRadius: isMobile ? '6px' : '8px',
-                  border: '1px solid #e2e8f0',
-                  lineHeight: '1.6',
-                  whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-word'
-                }}>
-                  {voucher.NARRATION}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gap: isMobile ? '16px' : '24px'
+              }}
+            >
+              <div>
+                <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Particulars</div>
+                <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 500 }}>
+                  {partyLedgerName}
                 </div>
               </div>
-            )}
+              {partyLedger && (partyLedger.ISPARTYLEDGER || partyLedger.ispartyledger || '').toString().toLowerCase().trim() === 'yes' && voucherPartyLedgerName && (
+                <div>
+                  <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Party Ledger Name</div>
+                  <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 500 }}>
+                    {voucherPartyLedgerName}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Ledger Entries */}
-          {ledgerEntries.length > 0 && (
-            <div style={{ marginBottom: isMobile ? 20 : 28 }}>
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, fontSize: isMobile ? 16 : 18, fontWeight: 700, color: '#1e293b', marginBottom: isMobile ? 14 : 18 }}>
-                <span className="material-icons" style={{ fontSize: isMobile ? 18 : 20 }}>account_balance</span>
+          {/* Inventory Allocations Section */}
+          {inventoryEntries.length > 0 && (
+            <div style={{ marginBottom: isMobile ? '20px' : '24px' }}>
+                <div style={{ 
+                fontSize: isMobile ? '14px' : '16px', 
+                fontWeight: 600, 
+                  color: '#1e293b',
+                marginBottom: isMobile ? '12px' : '16px'
+              }}>
+                Inventory Allocations
+              </div>
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', background: '#fff' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '2fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 1fr 0.8fr 1.2fr',
+                  padding: isMobile ? '10px 12px' : '12px 16px',
+                  background: '#f8fafc',
+                    borderBottom: '1px solid #e2e8f0',
+                    fontWeight: 600,
+                    fontSize: isMobile ? '11px' : '13px',
+                    color: '#1e293b',
+                    gap: isMobile ? '8px' : '12px'
+                  }}
+                >
+                  <div>Item Name</div>
+                  <div style={{ textAlign: 'right' }}>Quantity</div>
+                  <div style={{ textAlign: 'right' }}>Rate</div>
+                  <div style={{ textAlign: 'right' }}>Discount</div>
+                  <div style={{ textAlign: 'right' }}>Amount</div>
+                </div>
+                {inventoryEntries.map((item, idx) => {
+                  const itemName = item.STOCKITEMNAME || item.ITEMNAME || item.ITEM || item.stockitemname || item.itemname || '-';
+                  const quantity = parseAmount(item.BILLEQTY || item.ACTUALQTY || item.QTY || item.billedqty || item.actualqty || 0);
+                  const rate = parseAmount(item.RATE || item.rate || 0);
+                  const discount = parseAmount(item.DISCOUNT || item.discount || 0);
+                  const amount = parseAmount(item.AMOUNT || item.VALUE || item.amount || 0);
+                  
+                  return (
+                    <div
+                      key={idx}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile ? '2fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 1fr 0.8fr 1.2fr',
+                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        borderBottom: idx === inventoryEntries.length - 1 ? 'none' : '1px solid #e2e8f0',
+                        fontSize: isMobile ? '12px' : '14px',
+                        color: '#1e293b',
+                        gap: isMobile ? '8px' : '12px',
+                        alignItems: 'center',
+                        background: '#fff'
+                      }}
+                    >
+                      <div style={{ fontWeight: 500 }}>{itemName}</div>
+                      <div style={{ textAlign: 'right', fontWeight: 500 }}>{formatNumber(quantity)}</div>
+                      <div style={{ textAlign: 'right', fontWeight: 500 }}>{formatNumber(rate)}</div>
+                      <div style={{ textAlign: 'right', fontWeight: 500 }}>{formatNumber(discount)}</div>
+                      <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(amount)}</div>
+                    </div>
+                  );
+                })}
+                
+                {/* Tax and Round Off Section */}
+                <div style={{ borderTop: '2px solid #e2e8f0', background: '#fff' }}>
+                  {totalCgst > 0 && (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile ? '2fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 1fr 0.8fr 1.2fr',
+                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        borderTop: '1px solid #e2e8f0',
+                        fontSize: isMobile ? '12px' : '14px',
+                        color: '#1e293b',
+                        gap: isMobile ? '8px' : '12px',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <div style={{ fontWeight: 500 }}>CGST</div>
+                      <div style={{ textAlign: 'right' }}></div>
+                      <div style={{ textAlign: 'right' }}></div>
+                      <div style={{ textAlign: 'right' }}></div>
+                      <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(totalCgst)}</div>
+                    </div>
+                  )}
+                  {totalSgst > 0 && (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile ? '2fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 1fr 0.8fr 1.2fr',
+                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        borderTop: '1px solid #e2e8f0',
+                        fontSize: isMobile ? '12px' : '14px',
+                        color: '#1e293b',
+                        gap: isMobile ? '8px' : '12px',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <div style={{ fontWeight: 500 }}>SGST</div>
+                      <div style={{ textAlign: 'right' }}></div>
+                      <div style={{ textAlign: 'right' }}></div>
+                      <div style={{ textAlign: 'right' }}></div>
+                      <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(totalSgst)}</div>
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: isMobile ? '2fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 1fr 0.8fr 1.2fr',
+                      padding: isMobile ? '10px 12px' : '12px 16px',
+                      borderTop: '1px solid #e2e8f0',
+                      fontSize: isMobile ? '12px' : '14px',
+                      color: '#1e293b',
+                      gap: isMobile ? '8px' : '12px',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <div style={{ fontWeight: 500 }}>ROUND OFF</div>
+                    <div style={{ textAlign: 'right' }}></div>
+                    <div style={{ textAlign: 'right' }}></div>
+                    <div style={{ textAlign: 'right' }}></div>
+                    <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(totalRoundoff)}</div>
+                  </div>
+                </div>
+                
+                {/* Ledger Entries (shown directly after inventory when ispartyledger is "no") */}
+                {!hasPartyLedger && ledgerEntries.length > 0 && (
+                  <>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
+                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        background: '#f8fafc',
+                        borderTop: '2px solid #e2e8f0',
+                        borderBottom: '1px solid #e2e8f0',
+                        fontWeight: 600,
+                        fontSize: isMobile ? '11px' : '13px',
+                        color: '#1e293b',
+                        gap: isMobile ? '8px' : '12px'
+                      }}
+                    >
+                      <div>Ledger Name</div>
+                      <div style={{ textAlign: 'right' }}>Debit Amount</div>
+                      <div style={{ textAlign: 'right' }}>Credit Amount</div>
+                    </div>
+                    {ledgerEntries.map((entry, idx) => {
+                      const ledgerName = entry.LEDGERNAME || entry.ledgername || '-';
+                      const debitAmt = parseAmount(entry.DEBITAMT || entry.debitamt || entry.amount || 0);
+                      const creditAmt = parseAmount(entry.CREDITAMT || entry.creditamt || 0);
+                      
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
+                            padding: isMobile ? '10px 12px' : '12px 16px',
+                            borderBottom: idx === ledgerEntries.length - 1 ? 'none' : '1px solid #e2e8f0',
+                            fontSize: isMobile ? '12px' : '14px',
+                            color: '#1e293b',
+                            gap: isMobile ? '8px' : '12px',
+                            alignItems: 'center',
+                            background: '#fff'
+                          }}
+                        >
+                          <div style={{ fontWeight: 500 }}>{ledgerName}</div>
+                          <div style={{ textAlign: 'right', fontWeight: 500 }}>
+                            {debitAmt > 0 ? formatCurrencyAmount(debitAmt) : ''}
+                          </div>
+                          <div style={{ textAlign: 'right', fontWeight: 500 }}>
+                            {creditAmt > 0 ? formatCurrencyAmount(creditAmt) : ''}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    
+                    {/* Totals Section */}
+                    <div style={{ borderTop: '2px solid #e2e8f0', background: '#fff' }}>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
+                          padding: isMobile ? '10px 12px' : '12px 16px',
+                          borderTop: '1px solid #e2e8f0',
+                          fontSize: isMobile ? '12px' : '14px',
+                          color: '#1e293b',
+                          gap: isMobile ? '8px' : '12px',
+                          alignItems: 'center',
+                          fontWeight: 600
+                        }}
+                      >
+                        <div>Total</div>
+                        <div style={{ textAlign: 'right' }}>{formatCurrencyAmount(totalDebit)}</div>
+                        <div style={{ textAlign: 'right' }}>{formatCurrencyAmount(totalCredit)}</div>
+                      </div>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
+                          padding: isMobile ? '10px 12px' : '12px 16px',
+                          borderTop: '1px solid #e2e8f0',
+                          fontSize: isMobile ? '12px' : '14px',
+                          color: '#1e293b',
+                          gap: isMobile ? '8px' : '12px',
+                          alignItems: 'center',
+                          fontWeight: 600,
+                          background: '#f8fafc'
+                        }}
+                      >
+                        <div>Grand Total</div>
+                        <div style={{ textAlign: 'right', gridColumn: '2 / 4' }}>{formatCurrencyAmount(grandTotal)}</div>
+                      </div>
+                    </div>
+                  </>
+                )}
+                </div>
+              </div>
+            )}
+
+          {/* Ledger Entries Section (only shown when hasPartyLedger is true) */}
+          {hasPartyLedger && ledgerEntries.length > 0 && (
+            <div style={{ marginBottom: isMobile ? '20px' : '24px' }}>
+              <div style={{ 
+                fontSize: isMobile ? '14px' : '16px', 
+                fontWeight: 600, 
+                color: '#1e293b', 
+                marginBottom: isMobile ? '12px' : '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>business</span>
                 Ledger Entries
-              </h3>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: isMobile ? 10 : 12, overflow: 'hidden', background: '#fff', overflowX: 'auto' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(120px, 2fr) minmax(80px, 1fr) minmax(80px, 1fr)' : '2fr 1fr 1fr', padding: isMobile ? '10px 12px' : '14px 18px', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', fontWeight: 700, color: '#1e293b', fontSize: isMobile ? 11 : 14, minWidth: isMobile ? '400px' : 'auto' }}>
+              </div>
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', background: '#fff' }}>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
+                    padding: isMobile ? '10px 12px' : '12px 16px',
+                    background: '#f8fafc',
+                    borderBottom: '1px solid #e2e8f0',
+                    fontWeight: 600,
+                    fontSize: isMobile ? '11px' : '13px',
+                    color: '#1e293b',
+                    gap: isMobile ? '8px' : '12px'
+                  }}
+                >
                   <div>Ledger Name</div>
                   <div style={{ textAlign: 'right' }}>Debit Amount</div>
                   <div style={{ textAlign: 'right' }}>Credit Amount</div>
                 </div>
                 {ledgerEntries.map((entry, idx) => {
-                  const billAllocations = normalizeToArray(entry.BILLALLOCATIONS);
-                  const inventoryAllocations = normalizeToArray(entry.INVENTORYALLOCATIONS);
-                  const { displayDebit, displayCredit } = getDisplayAmounts(entry.DEBITAMT, entry.CREDITAMT);
+                  const ledgerName = entry.LEDGERNAME || entry.ledgername || '-';
+                  const debitAmt = parseAmount(entry.DEBITAMT || entry.debitamt || entry.amount || 0);
+                  const creditAmt = parseAmount(entry.CREDITAMT || entry.creditamt || 0);
+                  const isPartyLedger = (entry.ISPARTYLEDGER || entry.ispartyledger || '').toString().toLowerCase().trim() === 'yes';
+                  
                   return (
-                    <div key={idx} style={{ borderBottom: idx === ledgerEntries.length - 1 ? 'none' : '1px solid #e2e8f0' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(120px, 2fr) minmax(80px, 1fr) minmax(80px, 1fr)' : '2fr 1fr 1fr', padding: isMobile ? '12px' : '16px 18px', alignItems: 'center', minWidth: isMobile ? '400px' : 'auto' }}>
-                        <div style={{ fontSize: isMobile ? 13 : 15, fontWeight: 600, color: '#1e293b', wordBreak: 'break-word' }}>{entry.LEDGERNAME}</div>
-                        <div style={{ textAlign: 'right', fontSize: isMobile ? 12 : 14, color: '#1e293b', fontWeight: 600 }}>
-                          {displayDebit}
+                    <React.Fragment key={idx}>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
+                          padding: isMobile ? '10px 12px' : '12px 16px',
+                          borderBottom: idx === ledgerEntries.length - 1 && billAllocations.length === 0 ? 'none' : '1px solid #e2e8f0',
+                          fontSize: isMobile ? '12px' : '14px',
+                          color: '#1e293b',
+                          gap: isMobile ? '8px' : '12px',
+                          alignItems: 'center',
+                          background: '#fff'
+                        }}
+                      >
+                        <div style={{ fontWeight: 500 }}>{ledgerName}</div>
+                        <div style={{ textAlign: 'right', fontWeight: 500 }}>
+                          {debitAmt > 0 ? formatCurrencyAmount(debitAmt) : ''}
                         </div>
-                        <div style={{ textAlign: 'right', fontSize: isMobile ? 12 : 14, color: '#1e293b', fontWeight: 600 }}>
-                          {displayCredit}
+                        <div style={{ textAlign: 'right', fontWeight: 500 }}>
+                          {creditAmt > 0 ? formatCurrencyAmount(creditAmt) : ''}
                         </div>
                       </div>
 
-                      {billAllocations.length > 0 && (
-                        <div style={{ background: '#f8fafc', padding: isMobile ? '10px 16px' : '12px 34px', borderTop: '1px solid #e2e8f0' }}>
-                          <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 600, color: '#64748b', marginBottom: isMobile ? 6 : 8 }}>Bill Allocations</div>
-                          {billAllocations.map((bill, bIdx) => {
-                            const { displayDebit, displayCredit } = getDisplayAmounts(bill.DEBITAMT, bill.CREDITAMT);
-                            return (
-                              <div key={bIdx} style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(100px, 2fr) minmax(70px, 1fr) minmax(70px, 1fr)' : '2fr 1fr 1fr', padding: isMobile ? '4px 0' : '6px 0', fontSize: isMobile ? 11 : 13, color: '#475569', gap: isMobile ? 8 : 0, minWidth: isMobile ? '300px' : 'auto' }}>
-                                <div style={{ wordBreak: 'break-word' }}>{bill.BILLNAME || '-'}</div>
-                                <div style={{ textAlign: 'right' }}>
-                                  {displayDebit}
-                                </div>
-                                <div style={{ textAlign: 'right' }}>
-                                  {displayCredit}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {inventoryAllocations.length > 0 && (
-                        <div style={{ background: '#f8fafc', padding: isMobile ? '10px 12px' : '12px 34px', borderTop: '1px solid #e2e8f0', overflowX: 'auto' }}>
-                          <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 600, color: '#64748b', marginBottom: isMobile ? 6 : 8 }}>Inventory Allocations</div>
-                          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(80px, 2fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(60px, 1fr)' : '2fr 1fr 1fr 1fr 1fr', gap: isMobile ? 8 : 12, padding: isMobile ? '4px 0' : '6px 0', fontSize: isMobile ? 10 : 12, fontWeight: 600, color: '#64748b', borderBottom: '1px solid #e2e8f0', marginBottom: isMobile ? 6 : 8, minWidth: isMobile ? '500px' : 'auto' }}>
-                            <div>Item Name</div>
-                            <div style={{ textAlign: 'right' }}>Qty</div>
-                            <div style={{ textAlign: 'right' }}>Rate</div>
-                            <div style={{ textAlign: 'right' }}>Disc</div>
-                            <div style={{ textAlign: 'right' }}>Amount</div>
+                      {/* Bill Allocations for Party Ledger */}
+                      {isPartyLedger && billAllocations.length > 0 && (
+                        <div style={{ padding: isMobile ? '8px 12px' : '10px 16px', background: '#f8fafc', borderTop: '1px solid #e2e8f0' }}>
+                          <div style={{ fontSize: isMobile ? '11px' : '12px', fontWeight: 600, color: '#64748b', marginBottom: '8px' }}>
+                            Bill Allocations
                           </div>
-                          {inventoryAllocations.map((inv, invIndex) => {
-                            const batchAllocations = normalizeToArray(inv.BATCHALLOCATIONS);
+                          {billAllocations.map((bill, billIdx) => {
+                            const billName = bill.BILLNAME || bill.REFNO || bill.billname || bill.refno || voucherNumber;
+                            const billAmount = parseAmount(bill.AMOUNT || bill.DEBITAMT || bill.CREDITAMT || bill.amount || debitAmt);
                             return (
-                              <div key={invIndex}>
-                                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(80px, 2fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(60px, 1fr)' : '2fr 1fr 1fr 1fr 1fr', gap: isMobile ? 8 : 12, padding: isMobile ? '4px 0' : '6px 0', fontSize: isMobile ? 11 : 13, color: '#1e293b', minWidth: isMobile ? '500px' : 'auto' }}>
-                                  <div style={{ wordBreak: 'break-word' }}>{inv.STOCKITEMNAME || inv || '-'}</div>
-                                  <div style={{ textAlign: 'right' }}>{inv.BILLEQTY || inv.ACTUALQTY || '-'}</div>
-                                  <div style={{ textAlign: 'right' }}>{inv.RATE || '-'}</div>
-                                  <div style={{ textAlign: 'right' }}>{inv.DISCOUNT || '0'}</div>
-                                  <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(inv.AMOUNT || inv.VALUE || 0)}</div>
+                              <div
+                                key={billIdx}
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
+                                  padding: isMobile ? '6px 0' : '8px 0',
+                                  fontSize: isMobile ? '11px' : '12px',
+                                  color: '#1e293b',
+                                  gap: isMobile ? '8px' : '12px',
+                                  alignItems: 'center'
+                                }}
+                              >
+                                <div style={{ fontWeight: 500, paddingLeft: isMobile ? '8px' : '12px' }}>{billName}</div>
+                                <div style={{ textAlign: 'right', fontWeight: 500 }}>
+                                  {billAmount > 0 ? formatCurrencyAmount(billAmount) : ''}
                                 </div>
-                                {/* Batch Allocations under each item */}
-                                {batchAllocations.length > 0 && (
-                                  <div style={{ paddingLeft: '20px', paddingBottom: '8px', borderLeft: '2px solid #e2e8f0', marginLeft: '8px' }}>
-                                    {batchAllocations.map((batch, batchIndex) => (
-                                      <div key={batchIndex} style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(80px, 2fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(60px, 1fr)' : '2fr 1fr 1fr 1fr 1fr', gap: isMobile ? 8 : 12, padding: '4px 0', fontSize: isMobile ? 10 : 12, color: '#64748b', minWidth: isMobile ? '500px' : 'auto' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                          <span style={{ color: '#94a3b8' }}>•</span>
-                                          <span style={{ fontWeight: 500 }}>{batch.BATCHNAME || 'Any'}</span>
-                                        </div>
-                                        <div style={{ textAlign: 'right', color: '#475569' }}>
-                                          {batch.BILLEDQTY || batch.ACTUALQTY || '0'}
-                                        </div>
-                                        <div></div>
-                                        <div></div>
-                                        <div></div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
+                                <div style={{ textAlign: 'right', fontWeight: 500 }}></div>
                               </div>
                             );
                           })}
-                          {/* Tax Summary Rows (CGST, SGST, ROUND OFF) */}
-                          {(entry.CGST || entry.SGST || entry.ROUNDOFF !== undefined) && (
-                            <>
-                              <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '8px', paddingTop: '8px' }}></div>
-                              {entry.CGST && (
-                                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(80px, 2fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(60px, 1fr)' : '2fr 1fr 1fr 1fr 1fr', gap: isMobile ? 8 : 12, padding: isMobile ? '4px 0' : '6px 0', fontSize: isMobile ? 11 : 13, color: '#1e293b', fontWeight: 600, minWidth: isMobile ? '500px' : 'auto' }}>
-                                  <div>CGST</div>
-                                  <div></div>
-                                  <div></div>
-                                  <div></div>
-                                  <div style={{ textAlign: 'right' }}>{formatCurrencyAmount(entry.CGST)}</div>
-                                </div>
-                              )}
-                              {entry.SGST && (
-                                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(80px, 2fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(60px, 1fr)' : '2fr 1fr 1fr 1fr 1fr', gap: isMobile ? 8 : 12, padding: isMobile ? '4px 0' : '6px 0', fontSize: isMobile ? 11 : 13, color: '#1e293b', fontWeight: 600, minWidth: isMobile ? '500px' : 'auto' }}>
-                                  <div>SGST</div>
-                                  <div></div>
-                                  <div></div>
-                                  <div></div>
-                                  <div style={{ textAlign: 'right' }}>{formatCurrencyAmount(entry.SGST)}</div>
-                                </div>
-                              )}
-                              {entry.ROUNDOFF !== undefined && (
-                                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(80px, 2fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(50px, 1fr) minmax(60px, 1fr)' : '2fr 1fr 1fr 1fr 1fr', gap: isMobile ? 8 : 12, padding: isMobile ? '4px 0' : '6px 0', fontSize: isMobile ? 11 : 13, color: '#1e293b', fontWeight: 600, minWidth: isMobile ? '500px' : 'auto' }}>
-                                  <div>ROUND OFF</div>
-                                  <div></div>
-                                  <div></div>
-                                  <div></div>
-                                  <div style={{ textAlign: 'right' }}>{formatCurrencyAmount(entry.ROUNDOFF)}</div>
-                                </div>
-                              )}
-                            </>
-                          )}
                         </div>
                       )}
-                    </div>
+                    </React.Fragment>
                   );
                 })}
               </div>
