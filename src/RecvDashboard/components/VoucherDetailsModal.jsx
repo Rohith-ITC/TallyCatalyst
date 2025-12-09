@@ -412,7 +412,8 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
               style={{
                 display: 'grid',
                 gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-                gap: isMobile ? '16px' : '24px'
+                gap: isMobile ? '16px' : '24px',
+                marginBottom: isMobile ? '16px' : '20px'
               }}
             >
               <div>
@@ -430,6 +431,15 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                 </div>
               )}
             </div>
+            {/* Narration */}
+            {(voucher.NARRATION || voucher.narration) && (
+              <div>
+                <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Narration</div>
+                <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 500, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  {voucher.NARRATION || voucher.narration}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Inventory Allocations Section */}

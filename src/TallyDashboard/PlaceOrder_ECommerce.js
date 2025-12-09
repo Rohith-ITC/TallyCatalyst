@@ -1046,7 +1046,7 @@ function PlaceOrder_ECommerce() {
               console.log(`✅ Normalized ${normalizedItems.length} items from cache (${items.length - normalizedItems.length} invalid items filtered, ${itemsWithImages} items have images)`);
               setStockItems(normalizedItems);
               setStockItemsLoading(false);
-              return;
+            return;
             } else {
               console.warn('Cached items found but none are valid after normalization, fetching fresh');
             }
