@@ -110,6 +110,23 @@ export const MODULE_SEQUENCE = [
       }
     },
     {
+      key               : 'transaction',
+      id                : 'transaction',
+      label             : 'Transaction',
+      icon              : 'swap_horiz',
+      hasSubModules     : true,
+      subModules: [
+        {
+          key           : 'sales_order',
+          id            : 'sales_order',
+          label         : 'Sales Order',
+          icon          : 'receipt',
+          permissions   : {}
+        }
+      ],
+      permissions       : {}
+    },
+    {
       key               : 'ledger_book',
       id                : 'ledger',
       label             : 'Ledger Book',
