@@ -904,8 +904,11 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
           // Always preserve existing vouchers - this is critical to prevent data loss
           // If we have new vouchers, merge them; otherwise just keep ALL existing
           if (allVouchers.length > 0) {
-            // Create a comprehensive ID set from existing vouchers for duplicate detection
-            const existingIds = new Set();
+            // Build a map of existing vouchers by masterid for quick lookup and replacement
+            // Map<masterid, {voucher, alterid}>
+            const existingVouchersByMstid = new Map();
+            const existingIds = new Set(); // For exact ID matching (mstid_alterid)
+            
             existingVouchers.forEach(v => {
               const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
               const alterid = v.alterid || v.ALTERID;
@@ -913,7 +916,30 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
               const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
               const amount = v.amount || v.AMT || v.amt;
 
-              // Try multiple ID formats for robust matching
+              // Store by masterid for replacement logic
+              if (mstid !== null && mstid !== undefined) {
+                const mstidKey = String(mstid);
+                const alteridNum = alterid !== null && alterid !== undefined 
+                  ? (typeof alterid === 'string' ? parseInt(alterid, 10) : alterid)
+                  : null;
+                
+                if (!isNaN(alteridNum)) {
+                  // If we already have a voucher with this masterid, keep the one with higher alterid
+                  if (!existingVouchersByMstid.has(mstidKey)) {
+                    existingVouchersByMstid.set(mstidKey, { voucher: v, alterid: alteridNum });
+                  } else {
+                    const existing = existingVouchersByMstid.get(mstidKey);
+                    if (alteridNum > existing.alterid) {
+                      existingVouchersByMstid.set(mstidKey, { voucher: v, alterid: alteridNum });
+                    }
+                  }
+                } else if (!existingVouchersByMstid.has(mstidKey)) {
+                  // No alterid, but still store by masterid
+                  existingVouchersByMstid.set(mstidKey, { voucher: v, alterid: null });
+                }
+              }
+
+              // Also create exact ID set for duplicate detection
               if (mstid && alterid) {
                 existingIds.add(`${mstid}_${alterid}`);
                 existingIds.add(`${String(mstid)}_${String(alterid)}`);
@@ -922,85 +948,97 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
                 existingIds.add(`${vchno}_${date}`);
                 existingIds.add(`${String(vchno)}_${String(date)}`);
               }
-              if (mstid) {
-                existingIds.add(String(mstid));
-              }
               if (vchno && date && amount) {
                 existingIds.add(JSON.stringify({ vchno: String(vchno), date: String(date), amount: String(amount) }));
               }
             });
 
-            // CRITICAL: Always start with existing vouchers, then add only truly new ones from API
-            // This ensures we NEVER lose existing data, even if API returns all vouchers
-            const newVouchers = [];
+            // Process new vouchers: replace existing ones with same masterid if alterid is higher
+            const vouchersToKeep = new Map(); // Map<masterid, voucher> - will contain final vouchers
+            const vouchersWithoutMstid = []; // Vouchers without masterid
+            let replacedCount = 0;
+            let newCount = 0;
             const apiVoucherIds = new Set(); // Track what we've seen from API
 
+            // Start with existing vouchers
+            existingVouchersByMstid.forEach((entry, mstidKey) => {
+              vouchersToKeep.set(mstidKey, entry.voucher);
+            });
+
+            // Process new vouchers from API
             allVouchers.forEach(v => {
               const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
               const alterid = v.alterid || v.ALTERID;
               const vchno = v.vouchernumber || v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
               const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
 
-              // Create ID for this voucher
-              let voucherId = null;
+              // Create exact ID for duplicate detection
+              let exactVoucherId = null;
               if (mstid && alterid) {
-                voucherId = `${mstid}_${alterid}`;
+                exactVoucherId = `${mstid}_${alterid}`;
               } else if (vchno && date) {
-                voucherId = `${vchno}_${date}`;
-              } else if (mstid) {
-                voucherId = String(mstid);
+                exactVoucherId = `${vchno}_${date}`;
               }
 
-              // Only add if it's truly new (not in existing)
-              if (voucherId && !existingIds.has(voucherId)) {
-                // Also check string versions
-                if (mstid && alterid) {
-                  const strId = `${String(mstid)}_${String(alterid)}`;
-                  if (!existingIds.has(strId) && !apiVoucherIds.has(voucherId) && !apiVoucherIds.has(strId)) {
-                    newVouchers.push(v);
-                    apiVoucherIds.add(voucherId);
-                    apiVoucherIds.add(strId);
+              // Check if this is an exact duplicate (same mstid and alterid)
+              if (exactVoucherId && existingIds.has(exactVoucherId)) {
+                // Exact duplicate, skip it
+                return;
+              }
+
+              // Handle vouchers with masterid
+              if (mstid !== null && mstid !== undefined) {
+                const mstidKey = String(mstid);
+                const alteridNum = alterid !== null && alterid !== undefined 
+                  ? (typeof alterid === 'string' ? parseInt(alterid, 10) : alterid)
+                  : null;
+
+                if (!isNaN(alteridNum)) {
+                  // Check if we have an existing voucher with this masterid
+                  if (vouchersToKeep.has(mstidKey)) {
+                    const existing = existingVouchersByMstid.get(mstidKey);
+                    if (existing && existing.alterid !== null && alteridNum > existing.alterid) {
+                      // Replace existing voucher with new one (higher alterid)
+                      vouchersToKeep.set(mstidKey, v);
+                      replacedCount++;
+                      console.log(`🔄 Replacing voucher with masterid ${mstidKey}: alterid ${existing.alterid} -> ${alteridNum}`);
+                    }
+                    // If alterid is lower or equal, keep the existing one (skip this new voucher)
+                  } else {
+                    // New masterid, add it
+                    vouchersToKeep.set(mstidKey, v);
+                    newCount++;
                   }
-                } else if (!apiVoucherIds.has(voucherId)) {
-                  newVouchers.push(v);
-                  apiVoucherIds.add(voucherId);
+                } else {
+                  // Has masterid but no valid alterid
+                  if (!vouchersToKeep.has(mstidKey)) {
+                    vouchersToKeep.set(mstidKey, v);
+                    newCount++;
+                  }
                 }
-              } else if (!voucherId) {
-                // If we can't identify the voucher, be conservative and add it
-                // But check if we've already added a similar one
-                const fallbackId = JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
-                if (!existingIds.has(fallbackId) && !apiVoucherIds.has(fallbackId)) {
-                  newVouchers.push(v);
-                  apiVoucherIds.add(fallbackId);
+              } else {
+                // Voucher without masterid - use exact ID matching
+                if (!exactVoucherId) {
+                  // Can't identify, use fallback
+                  const fallbackId = JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
+                  if (!existingIds.has(fallbackId) && !apiVoucherIds.has(fallbackId)) {
+                    vouchersWithoutMstid.push(v);
+                    apiVoucherIds.add(fallbackId);
+                    newCount++;
+                  }
+                } else if (!existingIds.has(exactVoucherId) && !apiVoucherIds.has(exactVoucherId)) {
+                  vouchersWithoutMstid.push(v);
+                  apiVoucherIds.add(exactVoucherId);
+                  newCount++;
                 }
               }
             });
 
-            console.log(`✅ Merge complete: ${newVouchers.length} new vouchers identified from ${allVouchers.length} chunk vouchers`);
-            console.log(`📊 Final merge: ${existingVouchers.length} existing + ${newVouchers.length} new = ${existingVouchers.length + newVouchers.length} total vouchers`);
+            // Combine all vouchers: those with masterid (from map) + those without masterid
+            allVouchers = [...vouchersToKeep.values(), ...vouchersWithoutMstid];
 
-            // Always start with existing vouchers, then add new ones
-            allVouchers = [...existingVouchers, ...newVouchers];
-
-            // Validation: Ensure we didn't lose any existing vouchers
-            if (allVouchers.length < existingVouchers.length) {
-              console.error(`❌ CRITICAL: Merge resulted in fewer vouchers (${allVouchers.length}) than existing (${existingVouchers.length})!`);
-              // Fallback: use existing + all chunk vouchers (better to have duplicates than lose data)
-              console.warn('⚠️ Falling back to preserving all existing + all chunk vouchers');
-              allVouchers = [...existingVouchers, ...allVouchers];
-              // Remove duplicates by creating a Map with ID as key
-              const voucherMap = new Map();
-              allVouchers.forEach(v => {
-                const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
-                const alterid = v.alterid || v.ALTERID;
-                const key = mstid && alterid ? `${mstid}_${alterid}` : JSON.stringify(v);
-                if (!voucherMap.has(key)) {
-                  voucherMap.set(key, v);
-                }
-              });
-              allVouchers = Array.from(voucherMap.values());
-              console.log(`📊 After deduplication: ${allVouchers.length} vouchers`);
-            }
+            console.log(`✅ Merge complete: ${replacedCount} replaced, ${newCount} new vouchers from ${allVouchers.length} chunk vouchers`);
+            console.log(`📊 Final merge: ${existingVouchers.length} existing -> ${allVouchers.length} total vouchers (${replacedCount} replaced, ${newCount} new)`);
           } else {
             // No new vouchers from chunks, but preserve ALL existing data
             console.log(`📊 No new vouchers from chunks, preserving ALL ${existingVouchers.length} existing vouchers`);
@@ -1008,12 +1046,13 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
           }
 
           // Deduplicate vouchers by mstid (keep highest alterid for each mstid)
+          // This is a safety net in case the merge logic missed something
           allVouchers = deduplicateVouchersByMstid(allVouchers);
 
           mergedData = { vouchers: allVouchers };
 
           // Final validation log
-          console.log(`✅ Merge validation: ${mergedData.vouchers.length} vouchers in merged data (expected at least ${existingVouchers.length} existing)`);
+          console.log(`✅ Merge validation: ${mergedData.vouchers.length} vouchers in merged data`);
         } else {
           // No existing data found - this shouldn't happen in normal update flow
           // But if it does, use new vouchers (better than losing them)
@@ -1058,8 +1097,11 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
             // Always preserve existing vouchers - this is critical to prevent data loss
             // If we have new vouchers, merge them; otherwise just keep ALL existing
             if (allVouchers.length > 0) {
-              // Create a comprehensive ID set from existing vouchers for duplicate detection
-              const existingIds = new Set();
+              // Build a map of existing vouchers by masterid for quick lookup and replacement
+              // Map<masterid, {voucher, alterid}>
+              const existingVouchersByMstid = new Map();
+              const existingIds = new Set(); // For exact ID matching (mstid_alterid)
+              
               existingVouchers.forEach(v => {
                 const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
                 const alterid = v.alterid || v.ALTERID;
@@ -1067,7 +1109,30 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
                 const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
                 const amount = v.amount || v.AMT || v.amt;
 
-                // Try multiple ID formats for robust matching
+                // Store by masterid for replacement logic
+                if (mstid !== null && mstid !== undefined) {
+                  const mstidKey = String(mstid);
+                  const alteridNum = alterid !== null && alterid !== undefined 
+                    ? (typeof alterid === 'string' ? parseInt(alterid, 10) : alterid)
+                    : null;
+                  
+                  if (!isNaN(alteridNum)) {
+                    // If we already have a voucher with this masterid, keep the one with higher alterid
+                    if (!existingVouchersByMstid.has(mstidKey)) {
+                      existingVouchersByMstid.set(mstidKey, { voucher: v, alterid: alteridNum });
+                    } else {
+                      const existing = existingVouchersByMstid.get(mstidKey);
+                      if (alteridNum > existing.alterid) {
+                        existingVouchersByMstid.set(mstidKey, { voucher: v, alterid: alteridNum });
+                      }
+                    }
+                  } else if (!existingVouchersByMstid.has(mstidKey)) {
+                    // No alterid, but still store by masterid
+                    existingVouchersByMstid.set(mstidKey, { voucher: v, alterid: null });
+                  }
+                }
+
+                // Also create exact ID set for duplicate detection
                 if (mstid && alterid) {
                   existingIds.add(`${mstid}_${alterid}`);
                   existingIds.add(`${String(mstid)}_${String(alterid)}`);
@@ -1076,70 +1141,97 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
                   existingIds.add(`${vchno}_${date}`);
                   existingIds.add(`${String(vchno)}_${String(date)}`);
                 }
-                if (mstid) {
-                  existingIds.add(String(mstid));
-                }
                 if (vchno && date && amount) {
                   existingIds.add(JSON.stringify({ vchno: String(vchno), date: String(date), amount: String(amount) }));
                 }
               });
 
-              // Filter out vouchers that already exist
-              const newVouchers = allVouchers.filter(v => {
+              // Process new vouchers: replace existing ones with same masterid if alterid is higher
+              const vouchersToKeep = new Map(); // Map<masterid, voucher> - will contain final vouchers
+              const vouchersWithoutMstid = []; // Vouchers without masterid
+              let replacedCount = 0;
+              let newCount = 0;
+              const apiVoucherIds = new Set(); // Track what we've seen from API
+
+              // Start with existing vouchers
+              existingVouchersByMstid.forEach((entry, mstidKey) => {
+                vouchersToKeep.set(mstidKey, entry.voucher);
+              });
+
+              // Process new vouchers from API
+              allVouchers.forEach(v => {
                 const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
                 const alterid = v.alterid || v.ALTERID;
                 const vchno = v.vouchernumber || v.voucher_number || v.VCHNO || v.vchno || v.VCHNO;
                 const date = v.cp_date || v.DATE || v.date || v.CP_DATE;
-                const amount = v.amount || v.AMT || v.amt;
 
-                // Check multiple ID formats
+                // Create exact ID for duplicate detection
+                let exactVoucherId = null;
                 if (mstid && alterid) {
-                  if (existingIds.has(`${mstid}_${alterid}`) || existingIds.has(`${String(mstid)}_${String(alterid)}`)) {
-                    return false; // Already exists
+                  exactVoucherId = `${mstid}_${alterid}`;
+                } else if (vchno && date) {
+                  exactVoucherId = `${vchno}_${date}`;
+                }
+
+                // Check if this is an exact duplicate (same mstid and alterid)
+                if (exactVoucherId && existingIds.has(exactVoucherId)) {
+                  // Exact duplicate, skip it
+                  return;
+                }
+
+                // Handle vouchers with masterid
+                if (mstid !== null && mstid !== undefined) {
+                  const mstidKey = String(mstid);
+                  const alteridNum = alterid !== null && alterid !== undefined 
+                    ? (typeof alterid === 'string' ? parseInt(alterid, 10) : alterid)
+                    : null;
+
+                  if (!isNaN(alteridNum)) {
+                    // Check if we have an existing voucher with this masterid
+                    if (vouchersToKeep.has(mstidKey)) {
+                      const existing = existingVouchersByMstid.get(mstidKey);
+                      if (existing && existing.alterid !== null && alteridNum > existing.alterid) {
+                        // Replace existing voucher with new one (higher alterid)
+                        vouchersToKeep.set(mstidKey, v);
+                        replacedCount++;
+                        console.log(`🔄 Replacing voucher with masterid ${mstidKey}: alterid ${existing.alterid} -> ${alteridNum}`);
+                      }
+                      // If alterid is lower or equal, keep the existing one (skip this new voucher)
+                    } else {
+                      // New masterid, add it
+                      vouchersToKeep.set(mstidKey, v);
+                      newCount++;
+                    }
+                  } else {
+                    // Has masterid but no valid alterid
+                    if (!vouchersToKeep.has(mstidKey)) {
+                      vouchersToKeep.set(mstidKey, v);
+                      newCount++;
+                    }
+                  }
+                } else {
+                  // Voucher without masterid - use exact ID matching
+                  if (!exactVoucherId) {
+                    // Can't identify, use fallback
+                    const fallbackId = JSON.stringify({ vchno, date, amount: v.amount || v.AMT || v.amt });
+                    if (!existingIds.has(fallbackId) && !apiVoucherIds.has(fallbackId)) {
+                      vouchersWithoutMstid.push(v);
+                      apiVoucherIds.add(fallbackId);
+                      newCount++;
+                    }
+                  } else if (!existingIds.has(exactVoucherId) && !apiVoucherIds.has(exactVoucherId)) {
+                    vouchersWithoutMstid.push(v);
+                    apiVoucherIds.add(exactVoucherId);
+                    newCount++;
                   }
                 }
-                if (vchno && date) {
-                  if (existingIds.has(`${vchno}_${date}`) || existingIds.has(`${String(vchno)}_${String(date)}`)) {
-                    return false; // Already exists
-                  }
-                }
-                if (mstid && existingIds.has(String(mstid))) {
-                  return false; // Already exists
-                }
-                if (vchno && date && amount) {
-                  const id = JSON.stringify({ vchno: String(vchno), date: String(date), amount: String(amount) });
-                  if (existingIds.has(id)) {
-                    return false; // Already exists
-                  }
-                }
-                return true; // New voucher
               });
 
-              console.log(`✅ Merge complete: ${newVouchers.length} new vouchers identified from ${allVouchers.length} API vouchers`);
-              console.log(`📊 Final merge: ${existingVouchers.length} existing + ${newVouchers.length} new = ${existingVouchers.length + newVouchers.length} total vouchers`);
+              // Combine all vouchers: those with masterid (from map) + those without masterid
+              allVouchers = [...vouchersToKeep.values(), ...vouchersWithoutMstid];
 
-              // Always start with existing vouchers, then add new ones
-              allVouchers = [...existingVouchers, ...newVouchers];
-
-              // Validation: Ensure we didn't lose any existing vouchers
-              if (allVouchers.length < existingVouchers.length) {
-                console.error(`❌ CRITICAL: Merge resulted in fewer vouchers (${allVouchers.length}) than existing (${existingVouchers.length})!`);
-                // Fallback: use existing + all API vouchers (better to have duplicates than lose data)
-                console.warn('⚠️ Falling back to preserving all existing + all API vouchers');
-                allVouchers = [...existingVouchers, ...allVouchers];
-                // Remove duplicates by creating a Map with ID as key
-                const voucherMap = new Map();
-                allVouchers.forEach(v => {
-                  const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
-                  const alterid = v.alterid || v.ALTERID;
-                  const key = mstid && alterid ? `${mstid}_${alterid}` : JSON.stringify(v);
-                  if (!voucherMap.has(key)) {
-                    voucherMap.set(key, v);
-                  }
-                });
-                allVouchers = Array.from(voucherMap.values());
-                console.log(`📊 After deduplication: ${allVouchers.length} vouchers`);
-              }
+              console.log(`✅ Merge complete: ${replacedCount} replaced, ${newCount} new vouchers from ${allVouchers.length} API vouchers`);
+              console.log(`📊 Final merge: ${existingVouchers.length} existing -> ${allVouchers.length} total vouchers (${replacedCount} replaced, ${newCount} new)`);
             } else {
               // No new vouchers from API, but preserve ALL existing data
               console.log(`📊 No new vouchers from API, preserving ALL ${existingVouchers.length} existing vouchers`);
@@ -1147,12 +1239,13 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
             }
 
             // Deduplicate vouchers by mstid (keep highest alterid for each mstid)
+            // This is a safety net in case the merge logic missed something
             allVouchers = deduplicateVouchersByMstid(allVouchers);
 
             mergedData = { vouchers: allVouchers };
 
             // Final validation log
-            console.log(`✅ Merge validation: ${mergedData.vouchers.length} vouchers in merged data (expected at least ${existingVouchers.length} existing)`);
+            console.log(`✅ Merge validation: ${mergedData.vouchers.length} vouchers in merged data`);
           } else {
             // No existing data found - this shouldn't happen in normal update flow
             console.warn('⚠️ Update mode but no existing data found (non-chunked). This might be a first-time download. Using API vouchers only.');
@@ -1312,53 +1405,72 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
     }
 
     const maxAlterId = calculateMaxAlterId(mergedData);
+    const previousLastAltId = isUpdate ? lastaltid : null;
     const metadata = {
       booksfrom: booksfrom || formatDateForAPI(todayStr),
       lastaltid: maxAlterId
     };
 
-    // CRITICAL: Final validation before save - ensure ALL existing vouchers are preserved
+    console.log(`📊 LastAltId calculation: Previous=${previousLastAltId}, New=${maxAlterId}, Vouchers=${mergedData.vouchers.length}`);
+    if (isUpdate && previousLastAltId !== null && maxAlterId !== null) {
+      if (maxAlterId > previousLastAltId) {
+        console.log(`✅ LastAltId updated: ${previousLastAltId} -> ${maxAlterId} (+${maxAlterId - previousLastAltId})`);
+      } else if (maxAlterId === previousLastAltId) {
+        console.log(`ℹ️ LastAltId unchanged: ${maxAlterId}`);
+      } else {
+        console.warn(`⚠️ LastAltId decreased: ${previousLastAltId} -> ${maxAlterId} (this might indicate an issue)`);
+      }
+    }
+
+    // CRITICAL: Final validation before save - ensure masterid coverage is preserved
+    // Note: We check for masterid coverage, not exact voucher IDs, because vouchers with
+    // same masterid but higher alterid are valid replacements
     if (isUpdate && existingVouchersForMerge.length > 0) {
       const finalCount = mergedData.vouchers.length;
       const originalCount = existingVouchersForMerge.length;
 
-      // Create a Set of all existing voucher IDs for verification
-      const existingVoucherIdSet = new Set();
+      // Build a set of masterids from existing vouchers
+      const existingMasterIds = new Set();
+      const existingVouchersWithoutMstid = [];
       existingVouchersForMerge.forEach(v => {
         const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
-        const alterid = v.alterid || v.ALTERID;
-        if (mstid && alterid) {
-          existingVoucherIdSet.add(`${mstid}_${alterid}`);
-          existingVoucherIdSet.add(`${String(mstid)}_${String(alterid)}`);
+        if (mstid !== null && mstid !== undefined) {
+          existingMasterIds.add(String(mstid));
+        } else {
+          existingVouchersWithoutMstid.push(v);
         }
       });
 
-      // Verify all existing vouchers are in merged data
-      const mergedVoucherIdSet = new Set();
+      // Build a set of masterids from merged vouchers
+      const mergedMasterIds = new Set();
+      const mergedVouchersWithoutMstid = [];
       mergedData.vouchers.forEach(v => {
         const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
-        const alterid = v.alterid || v.ALTERID;
-        if (mstid && alterid) {
-          mergedVoucherIdSet.add(`${mstid}_${alterid}`);
-          mergedVoucherIdSet.add(`${String(mstid)}_${String(alterid)}`);
+        if (mstid !== null && mstid !== undefined) {
+          mergedMasterIds.add(String(mstid));
+        } else {
+          mergedVouchersWithoutMstid.push(v);
         }
       });
 
-      // Check for missing vouchers
-      const missingVouchers = [];
-      existingVoucherIdSet.forEach(id => {
-        if (!mergedVoucherIdSet.has(id)) {
-          missingVouchers.push(id);
+      // Check for missing masterids (vouchers that were completely lost)
+      const missingMasterIds = [];
+      existingMasterIds.forEach(mstid => {
+        if (!mergedMasterIds.has(mstid)) {
+          missingMasterIds.push(mstid);
         }
       });
 
-      if (missingVouchers.length > 0 || finalCount < originalCount) {
-        console.error(`❌ FINAL VALIDATION FAILED BEFORE SAVE!`);
-        console.error(`❌ Original vouchers: ${originalCount}`);
-        console.error(`❌ Final vouchers: ${finalCount}`);
-        console.error(`❌ Missing voucher IDs: ${missingVouchers.length}`, missingVouchers.slice(0, 10));
-        console.error(`❌ ABORTING SAVE to prevent data loss!`);
+      // Validation: 
+      // 1. All masterids from existing should be present in merged (or replaced with higher alterid)
+      // 2. Count should be reasonable (may be less due to deduplication, but shouldn't be drastically less)
+      const countDifference = originalCount - finalCount;
+      const maxAllowedDifference = Math.max(100, originalCount * 0.1); // Allow up to 10% reduction or 100 vouchers, whichever is larger
 
+      if (missingMasterIds.length > 0) {
+        console.error(`❌ FINAL VALIDATION FAILED: Missing masterids: ${missingMasterIds.length}`, missingMasterIds.slice(0, 10));
+        console.error(`❌ This indicates data loss. Attempting emergency recovery...`);
+        
         // Emergency: Force merge with all existing + all new
         console.log(`🚨 EMERGENCY: Forcing merge with ALL existing vouchers...`);
         const emergencyMerged = [...existingVouchersForMerge, ...mergedData.vouchers];
@@ -1367,12 +1479,41 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
         mergedData = { vouchers: deduplicated };
         console.log(`✅ Emergency merge complete: ${deduplicated.length} vouchers (${originalCount} existing + ${deduplicated.length - originalCount} new, after deduplication)`);
 
-        // Verify emergency merge
-        if (mergedData.vouchers.length < originalCount) {
-          throw new Error(`EMERGENCY MERGE FAILED: Cannot save. Would lose ${originalCount - mergedData.vouchers.length} vouchers. Aborting.`);
+        // Re-check masterid coverage after emergency merge
+        const emergencyMasterIds = new Set();
+        mergedData.vouchers.forEach(v => {
+          const mstid = v.mstid || v.MSTID || v.masterid || v.MASTERID;
+          if (mstid !== null && mstid !== undefined) {
+            emergencyMasterIds.add(String(mstid));
+          }
+        });
+        const stillMissing = [];
+        existingMasterIds.forEach(mstid => {
+          if (!emergencyMasterIds.has(mstid)) {
+            stillMissing.push(mstid);
+          }
+        });
+
+        if (stillMissing.length > 0) {
+          throw new Error(`EMERGENCY MERGE FAILED: Still missing ${stillMissing.length} masterids after emergency merge. Aborting.`);
+        }
+      } else if (countDifference > maxAllowedDifference) {
+        // Count difference is too large, might indicate data loss
+        console.warn(`⚠️ Large count difference: ${countDifference} vouchers (${originalCount} -> ${finalCount})`);
+        console.warn(`⚠️ This might be due to deduplication. Checking masterid coverage...`);
+        
+        // If masterid coverage is good, allow it (deduplication can reduce count)
+        if (mergedMasterIds.size >= existingMasterIds.size * 0.95) {
+          console.log(`✅ Masterid coverage is good (${mergedMasterIds.size}/${existingMasterIds.size}), allowing save`);
+        } else {
+          console.error(`❌ Masterid coverage is poor (${mergedMasterIds.size}/${existingMasterIds.size}), attempting recovery...`);
+          // Emergency recovery
+          const emergencyMerged = [...existingVouchersForMerge, ...mergedData.vouchers];
+          const deduplicated = deduplicateVouchersByMstid(emergencyMerged);
+          mergedData = { vouchers: deduplicated };
         }
       } else {
-        console.log(`✅ Final validation passed: All ${originalCount} existing vouchers are preserved`);
+        console.log(`✅ Final validation passed: All ${existingMasterIds.size} masterids are covered (${originalCount} -> ${finalCount} vouchers, ${countDifference} removed via deduplication/replacement)`);
       }
     }
 
@@ -1390,11 +1531,17 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
         const verifyData = await hybridCache.getCompleteSalesData(companyInfo, email);
         if (verifyData && verifyData.data && verifyData.data.vouchers) {
           const savedCount = verifyData.data.vouchers.length;
-          console.log(`✅ Post-save verification: ${savedCount} vouchers in cache`);
+          const savedLastAltId = verifyData.metadata?.lastaltid || calculateMaxAlterId(verifyData.data);
+          console.log(`✅ Post-save verification: ${savedCount} vouchers in cache, lastaltid=${savedLastAltId}`);
           if (savedCount < existingVouchersForMerge.length) {
             console.error(`❌ POST-SAVE VERIFICATION FAILED: Only ${savedCount} vouchers saved, expected at least ${existingVouchersForMerge.length}`);
           } else {
             console.log(`✅ Post-save verification passed: ${savedCount} >= ${existingVouchersForMerge.length}`);
+          }
+          if (savedLastAltId !== maxAlterId) {
+            console.warn(`⚠️ LastAltId mismatch: Expected ${maxAlterId}, Got ${savedLastAltId}`);
+          } else {
+            console.log(`✅ LastAltId saved correctly: ${savedLastAltId}`);
           }
         }
       } catch (verifyError) {
