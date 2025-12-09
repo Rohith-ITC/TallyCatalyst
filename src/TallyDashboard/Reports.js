@@ -125,43 +125,13 @@ function Reports() {
     return () => window.removeEventListener('companyChanged', handleCompanyChange);
   }, []);
 
-  // Floating label style for date inputs
-  const dateInputWrapperStyle = { position: 'relative', width: '100%' };
-  const dateInputStyle = {
-    width: '100%',
-    padding: '10px 12px',
-    borderRadius: 8,
-    border: '1px solid #cbd5e1',
-    fontSize: 15,
-    outline: 'none',
-    transition: 'border 0.2s',
-    marginBottom: 2,
-    background: '#fff',
-    height: '42px',
-    boxSizing: 'border-box',
-  };
-  const floatingLabelStyle = (focused, value) => ({
-    position: 'absolute',
-    left: 12,
-    top: focused || value ? '-10px' : '10px',
-    fontSize: focused || value ? 14 : 15,
-    fontWeight: 600,
-    color: '#60a5fa',
-    backgroundColor: '#fff',
-    padding: '0 6px',
-    transition: 'all 0.25s cubic-bezier(.4,0,.2,1)',
-    pointerEvents: 'none',
-    letterSpacing: 0.5,
-    fontFamily: 'Segoe UI, Roboto, Arial, sans-serif',
-  });
 
   return (
     <div className="reports-container" style={{
       width: '100%',
-      maxWidth: '100%',
       minHeight: 'calc(100vh - 120px)',
-      padding: '20px',
-      margin: '0',
+      padding: 0,
+      margin: 0,
       boxSizing: 'border-box',
     }}>
       <style>
@@ -172,9 +142,6 @@ function Reports() {
           }
           
           @media (max-width: 1200px) {
-            .reports-container {
-              padding: 16px !important;
-            }
             .reports-form {
               padding: 16px !important;
             }
@@ -184,9 +151,6 @@ function Reports() {
           }
           
           @media (max-width: 768px) {
-            .reports-container {
-              padding: 12px !important;
-            }
             .reports-form {
               padding: 12px !important;
             }
@@ -205,13 +169,13 @@ function Reports() {
       </style>
       <div style={{
         background: '#fff',
-        margin: '0',
+        margin: 0,
         width: '100%',
-        maxWidth: '100%',
-        borderRadius: '12px',
-        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
+        minHeight: 'calc(100vh - 120px)',
+        borderRadius: 0,
+        boxShadow: 'none',
         overflow: 'hidden',
-        border: '1px solid #e5e7eb',
+        border: 'none',
         boxSizing: 'border-box',
       }}>
         {/* Form */}
@@ -237,8 +201,19 @@ function Reports() {
             boxSizing: 'border-box',
           }}>
             {/* From Date */}
-            <div style={{ ...dateInputWrapperStyle, width: '160px', flex: '0 0 auto' }}>
-              <label style={floatingLabelStyle(fromDateFocused, fromDate)}>
+            <div style={{ position: 'relative', width: '160px', flex: '0 0 auto' }}>
+              <label style={{
+                position: 'absolute',
+                left: 12,
+                top: fromDateFocused || fromDate ? '-10px' : '10px',
+                fontSize: fromDateFocused || fromDate ? 14 : 15,
+                fontWeight: 600,
+                color: '#60a5fa',
+                backgroundColor: '#fff',
+                padding: '0 6px',
+                transition: 'all 0.25s cubic-bezier(.4,0,.2,1)',
+                pointerEvents: 'none',
+              }}>
                 From Date
               </label>
               <input
@@ -248,17 +223,35 @@ function Reports() {
                 onFocus={() => setFromDateFocused(true)}
                 onBlur={() => setFromDateFocused(false)}
                 style={{
-                  ...dateInputStyle,
-                  borderColor: fromDateFocused ? '#60a5fa' : '#cbd5e1',
                   width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  border: `1px solid ${fromDateFocused ? '#60a5fa' : '#cbd5e1'}`,
+                  fontSize: 15,
+                  outline: 'none',
+                  transition: 'border 0.2s',
+                  background: '#fff',
+                  height: '42px',
+                  boxSizing: 'border-box',
                 }}
                 required
               />
             </div>
 
             {/* To Date */}
-            <div style={{ ...dateInputWrapperStyle, width: '160px', flex: '0 0 auto' }}>
-              <label style={floatingLabelStyle(toDateFocused, toDate)}>
+            <div style={{ position: 'relative', width: '160px', flex: '0 0 auto' }}>
+              <label style={{
+                position: 'absolute',
+                left: 12,
+                top: toDateFocused || toDate ? '-10px' : '10px',
+                fontSize: toDateFocused || toDate ? 14 : 15,
+                fontWeight: 600,
+                color: '#60a5fa',
+                backgroundColor: '#fff',
+                padding: '0 6px',
+                transition: 'all 0.25s cubic-bezier(.4,0,.2,1)',
+                pointerEvents: 'none',
+              }}>
                 To Date
               </label>
               <input
@@ -268,9 +261,16 @@ function Reports() {
                 onFocus={() => setToDateFocused(true)}
                 onBlur={() => setToDateFocused(false)}
                 style={{
-                  ...dateInputStyle,
-                  borderColor: toDateFocused ? '#60a5fa' : '#cbd5e1',
                   width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: 8,
+                  border: `1px solid ${toDateFocused ? '#60a5fa' : '#cbd5e1'}`,
+                  fontSize: 15,
+                  outline: 'none',
+                  transition: 'border 0.2s',
+                  background: '#fff',
+                  height: '42px',
+                  boxSizing: 'border-box',
                 }}
                 required
               />

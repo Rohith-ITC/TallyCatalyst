@@ -977,11 +977,8 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
 
   // Handle Find All button - find matches for all receipts
   const handleFindAll = useCallback((skipCancelCheck: boolean = false) => {
-    console.log('handleFindAll called, findAllLoading:', findAllLoading, 'filteredReceipts.length:', filteredReceipts.length);
-    
     if (!skipCancelCheck && findAllLoading) {
       // Cancel if already running
-      console.log('Cancelling Find All...');
       findAllCancelRef.current = true;
       setFindAllLoading(false);
       setFindAllProgress(0);
@@ -1011,11 +1008,8 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
     const CHUNK_SIZE = 10; // Process 10 receipts per chunk for Find All
     
     const processChunk = (startIndex: number) => {
-      console.log('processChunk called with startIndex:', startIndex, 'total:', receiptsToProcess.length);
-      
       // Check if we should stop
       if (findAllCancelRef.current) {
-        console.log('Cancelled, stopping...');
         setFindAllLoading(false);
         setFindAllProgress(0);
         setFindAllMode(false);
@@ -1023,7 +1017,6 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
       }
       
       if (startIndex >= receiptsToProcess.length) {
-        console.log('Finished processing all receipts');
         setFindAllLoading(false);
         setFindAllProgress(100);
         setExpandedReceipts(results);
@@ -1033,7 +1026,6 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
       }
       
       const endIndex = Math.min(startIndex + CHUNK_SIZE, receiptsToProcess.length);
-      console.log(`Processing chunk ${startIndex} to ${endIndex - 1}`);
       
       // Process chunk of receipts
       for (let i = startIndex; i < endIndex; i++) {
@@ -1051,7 +1043,6 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
             matches,
             isLoading: false,
           };
-          console.log(`Found ${matches.length} matches for receipt ${receiptKey}`);
         }
         
         processedCount++;
@@ -1059,7 +1050,6 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
       
       const progress = Math.round((processedCount / receiptsToProcess.length) * 100);
       setFindAllProgress(progress);
-      console.log(`Progress: ${progress}% (${processedCount}/${receiptsToProcess.length})`);
       
       // Update results incrementally
       setExpandedReceipts({...results});
@@ -1077,11 +1067,8 @@ export const ReceiptListScreen: React.FC<ReceiptListScreenProps> = ({
     };
     
     // Start processing
-    console.log('Starting Find All processing...', 'Total receipts to process:', receiptsToProcess.length);
-    
     // Use a small delay to ensure state is updated
     setTimeout(() => {
-      console.log('Starting processChunk(0)...');
       processChunk(0);
     }, 100);
   }, [findAllLoading, filteredReceipts, findMatchingReceipts]);
