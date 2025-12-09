@@ -1095,8 +1095,9 @@ function PlaceOrder() {
 
 
 
-  // Edit item state
+  // Edit item state - track which item ID is being edited (null means not editing)
 
+  const [editingItemId, setEditingItemId] = useState(null);
   const [editingItemIndex, setEditingItemIndex] = useState(null);
 
   const [editQuantity, setEditQuantity] = useState(1);
@@ -4395,49 +4396,56 @@ function PlaceOrder() {
 
   const getGridTemplateColumns = () => {
 
-    let columns = '450px'; // Item Name column (always visible)
-
-
+    // Use flexible columns to fit within container without scrolling
+    // Item Name gets more space, other columns are compact but visible
 
     if (canShowRateAmtColumn) {
 
-      columns += ' 80px'; // Qty column
+      let columns = 'minmax(200px, 2fr)'; // Item Name column (flexible)
+
+      columns += ' minmax(70px, 0.8fr)'; // Qty column
 
       if (canShowClosingStock) {
 
-        columns += ' 80px'; // Stock column
+        columns += ' minmax(60px, 0.7fr)'; // Stock column
 
       }
 
-      columns += ' 80px'; // Rate column
+      columns += ' minmax(70px, 0.8fr)'; // Rate column
 
-      columns += ' 100px'; // Rate UOM column
+      columns += ' minmax(80px, 0.9fr)'; // Rate UOM column
 
       if (canShowDiscColumn) {
 
-        columns += ' 80px'; // Disc % column
+        columns += ' minmax(60px, 0.7fr)'; // Disc % column
 
       }
 
-      columns += ' 80px 180px 140px'; // GST %, Amount, Action columns
+      columns += ' minmax(60px, 0.7fr)'; // GST % column
+
+      columns += ' minmax(90px, 1fr)'; // Amount column
+
+      columns += ' minmax(120px, 140px)'; // Action column (fixed min, flexible max)
+
+      return columns;
 
     } else {
 
-      columns += ' 80px'; // Qty column
+      let columns = 'minmax(200px, 1fr)'; // Item Name column (flexible)
+
+      columns += ' minmax(70px, 0.8fr)'; // Qty column
 
       if (canShowClosingStock) {
 
-        columns += ' 80px'; // Stock column
+        columns += ' minmax(60px, 0.7fr)'; // Stock column
 
       }
 
-      columns += ' 140px'; // Action column only
+      columns += ' minmax(120px, 140px)'; // Action column (fixed min, flexible max)
+
+      return columns;
 
     }
-
-
-
-    return columns;
 
   };
 
@@ -7033,7 +7041,7 @@ function PlaceOrder() {
 
     const newItem = {
 
-      id: `item_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: editingItemId || `item_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, // Preserve ID if editing
 
       name: selectedItem,
 
@@ -7059,11 +7067,13 @@ function PlaceOrder() {
       baseQtyOnly: baseQtyOnly // Store base quantity only (for simple base + compound additional)
     };
 
-
-
-    setOrderItems(prev => [...prev, newItem]);
-
-
+    // If editing, update the item; otherwise add new item
+    if (editingItemId) {
+      setOrderItems(prev => prev.map(item => item.id === editingItemId ? newItem : item));
+      setEditingItemId(null); // Clear editing state
+    } else {
+      setOrderItems(prev => [...prev, newItem]);
+    }
 
     // Reset form
 
@@ -7084,6 +7094,11 @@ function PlaceOrder() {
     setQuantityInput('');
     setRateUOM('base');
     setEnteredUnitType('base');
+    setCustomConversion(null);
+    setCustomAddlQty(null);
+    setCompoundBaseQty(null);
+    setCompoundAddlQty(null);
+    setBaseQtyOnly(null);
     // Don't reset showDescription - keep it on until order is saved
 
   };
@@ -7202,7 +7217,11 @@ function PlaceOrder() {
 
     const item = orderItems[index];
 
-    setEditingItemIndex(index);
+    // Remove the item from the list temporarily (will be re-added when saved)
+    setOrderItems(prev => prev.filter(i => i.id !== item.id));
+
+    // Set editing item ID
+    setEditingItemId(item.id);
 
     // Populate main form fields with item data
     setSelectedItem(item.name);
@@ -7222,47 +7241,36 @@ function PlaceOrder() {
     setBaseQtyOnly(item.baseQtyOnly || null);
     setEnteredUnitType(item.enteredUnitType || 'base');
 
-    // Initialize edit states with item's stored values
-    setEditQuantityInput(item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`);
-    setEditItemQuantity(item.quantity);
-    setEditRate(item.rate);
-    setEditRateUOM(item.rateUOM || 'base');
-    setEditDiscountPercent(item.discountPercent || 0);
-    setEditDescription(item.description || '');
-    setEditSelectedItemUnitConfig(item.unitConfig);
-    setEditCustomConversion(item.customConversion || null);
-    setEditCustomAddlQty(item.customAddlQty || null);
-    setEditCompoundBaseQty(item.compoundBaseQty || null);
-    setEditCompoundAddlQty(item.compoundAddlQty || null);
-    setEditBaseQtyOnly(item.baseQtyOnly || null);
-    setEditItemAmount(item.amount);
+    // Scroll to the form fields for better UX
+    const formElement = document.querySelector('[data-item-entry-form]');
+    if (formElement) {
+      formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 
   };
 
 
 
-  // Cancel editing
-
+  // Cancel editing - clear form fields
   const cancelEditItem = () => {
-
-    setEditingItemIndex(null);
-
-    setEditQuantity(1);
-    setEditQuantityInput('');
-    setEditItemQuantity(1);
-    setEditRate(0);
-    setEditRateUOM('base');
-    setEditDiscountPercent(0);
-    setEditDescription('');
-    setEditSelectedItemUnitConfig(null);
-    setEditCustomConversion(null);
-    setEditCustomAddlQty(null);
-    setEditCompoundBaseQty(null);
-    setEditCompoundAddlQty(null);
-    setEditBaseQtyOnly(null);
-    setEditItemAmount(0);
-    setEditShowRateUOMDropdown(false);
-
+    setEditingItemId(null);
+    // Clear form fields
+    setSelectedItem('');
+    setItemSearchTerm('');
+    setQuantityInput('');
+    setItemQuantity(1);
+    setItemRate(0);
+    setRateUOM('base');
+    setItemDiscountPercent(0);
+    setItemGstPercent(0);
+    setItemDescription('');
+    setSelectedItemUnitConfig(null);
+    setCustomConversion(null);
+    setCustomAddlQty(null);
+    setCompoundBaseQty(null);
+    setCompoundAddlQty(null);
+    setBaseQtyOnly(null);
+    setEnteredUnitType('base');
   };
 
 
@@ -9438,6 +9446,7 @@ function PlaceOrder() {
       }}>
 
         {/* Add Item Form */}
+        <div data-item-entry-form>
 
         <div style={{
 
@@ -11473,7 +11482,7 @@ function PlaceOrder() {
 
               style={{
 
-                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                background: editingItemId ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
 
                 color: 'white',
 
@@ -11513,11 +11522,11 @@ function PlaceOrder() {
 
               <span className="material-icons" style={{ fontSize: '18px' }}>
 
-                add_shopping_cart
+                {editingItemId ? 'edit' : 'add_shopping_cart'}
 
               </span>
 
-              Add Item
+              {editingItemId ? 'Update Item' : 'Add Item'}
 
             </button>
 
@@ -11750,6 +11759,7 @@ function PlaceOrder() {
           )}
 
         </div>
+        </div>
 
 
 
@@ -11767,7 +11777,7 @@ function PlaceOrder() {
 
               border: '1px solid #e2e8f0',
 
-              overflow: isMobile ? 'auto' : 'hidden',
+              overflow: 'hidden',
 
               boxShadow: isMobile ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.1)',
 
@@ -11783,9 +11793,9 @@ function PlaceOrder() {
 
                 gridTemplateColumns: getGridTemplateColumns(),
 
-                gap: isMobile ? '12px' : '24px',
+                gap: isMobile ? '8px' : '12px',
 
-                padding: isMobile ? '12px 12px 12px 16px' : '10px 10px 10px 20px',
+                padding: isMobile ? '12px 12px 12px 16px' : '10px 8px 10px 16px',
 
                 backgroundColor: '#f8fafc',
 
@@ -11797,9 +11807,7 @@ function PlaceOrder() {
 
                 fontSize: isMobile ? '13px' : '14px',
 
-                letterSpacing: '0.025em',
-
-                minWidth: isMobile ? '800px' : 'auto'
+                letterSpacing: '0.025em'
 
               }}>
 
@@ -11835,9 +11843,9 @@ function PlaceOrder() {
 
                   gridTemplateColumns: getGridTemplateColumns(),
 
-                  gap: isMobile ? '12px' : '24px',
+                  gap: isMobile ? '8px' : '12px',
 
-                  padding: isMobile ? '14px 12px 14px 16px' : '12px 12px 12px 20px',
+                  padding: isMobile ? '14px 12px 14px 16px' : '12px 8px 12px 16px',
 
                   borderBottom: '1px solid #f1f5f9',
 
@@ -11847,17 +11855,23 @@ function PlaceOrder() {
 
                   color: '#1e293b',
 
-                  transition: 'background-color 0.2s ease',
+                  transition: 'background-color 0.2s ease'
 
-                  minWidth: isMobile ? '800px' : 'auto',
+                }}
 
-                  ':hover': {
+                onMouseEnter={(e) => {
 
-                    backgroundColor: '#f8fafc'
+                  e.currentTarget.style.backgroundColor = '#f8fafc';
 
-                  }
+                }}
 
-                }}>
+                onMouseLeave={(e) => {
+
+                  e.currentTarget.style.backgroundColor = 'transparent';
+
+                }}
+
+                >
 
                   <div style={{
 
@@ -11865,75 +11879,39 @@ function PlaceOrder() {
 
                     color: '#1e293b',
 
-                    fontSize: isMobile ? '14px' : '15px'
+                    fontSize: isMobile ? '14px' : '15px',
+
+                    overflow: 'hidden',
+
+                    wordBreak: 'break-word',
+
+                    lineHeight: '1.4'
 
                   }}>
 
                     {item.name}
 
-                    {editingItemIndex === index ? (
+                    {item.description && (
 
-                      <div style={{ marginTop: '8px' }}>
+                      <div style={{
 
-                        <textarea
+                        fontSize: '12px',
 
-                          value={editDescription}
+                        color: '#64748b',
 
-                          onChange={(e) => setEditDescription(e.target.value)}
+                        fontWeight: '400',
 
-                          placeholder="Add description (optional)"
+                        marginTop: '4px',
 
-                          style={{
+                        fontStyle: 'italic',
 
-                            width: '100%',
+                        lineHeight: '1.3'
 
-                            minHeight: '60px',
+                      }}>
 
-                            padding: '6px 8px',
-
-                            border: '1px solid #d1d5db',
-
-                            borderRadius: '4px',
-
-                            fontSize: '12px',
-
-                            color: '#64748b',
-
-                            fontFamily: 'inherit',
-
-                            resize: 'vertical'
-
-                          }}
-
-                        />
+                        {item.description}
 
                       </div>
-
-                    ) : (
-
-                      item.description && (
-
-                        <div style={{
-
-                          fontSize: '12px',
-
-                          color: '#64748b',
-
-                          fontWeight: '400',
-
-                          marginTop: '4px',
-
-                          fontStyle: 'italic',
-
-                          lineHeight: '1.3'
-
-                        }}>
-
-                          {item.description}
-
-                        </div>
-
-                      )
 
                     )}
 
@@ -11957,184 +11935,21 @@ function PlaceOrder() {
 
                   }}>
 
-                    {editingItemIndex === index ? (
-
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', width: '100%' }}>
-                        <div style={{ width: '200px' }}>
-                          <input
-                            type="text"
-                            value={editQuantityInput}
-                            onChange={(e) => {
-                              const inputValue = e.target.value;
-                              const filtered = inputValue.replace(/[^0-9.\sA-Za-z=]/g, '');
-                              if (filtered !== inputValue) return;
-                              const validated = validateQuantityInput(filtered, editSelectedItemUnitConfig, units, false);
-                              if (validated !== '') {
-                                setEditQuantityInput(validated);
-                              }
-                            }}
-                            onBlur={(e) => {
-                              const validated = validateQuantityInput(e.target.value, editSelectedItemUnitConfig, units, true);
-                              if (validated && editSelectedItemUnitConfig) {
-                                const originalParsedQty = parseQuantityInput(editQuantityInput, editSelectedItemUnitConfig, units);
-                                const parsedQty = parseQuantityInput(validated, editSelectedItemUnitConfig, units);
-
-                                // Preserve UOM-related quantities
-                                if (originalParsedQty.isCustomConversion && originalParsedQty.customAddlQty !== undefined) {
-                                  setEditCustomAddlQty(originalParsedQty.customAddlQty);
-                                  if (!editCustomConversion && originalParsedQty.isCustomConversion) {
-                                    const baseQty = convertToPrimaryQty(originalParsedQty, editSelectedItemUnitConfig, null, units);
-                                    setEditCustomConversion({
-                                      baseQty: baseQty,
-                                      addlQty: originalParsedQty.customAddlQty,
-                                      denominator: baseQty,
-                                      conversion: originalParsedQty.customAddlQty
-                                    });
-                                  }
-                                } else if (originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
-                                  setEditCustomAddlQty(originalParsedQty.customAddlQty);
-                                } else if (originalParsedQty.compoundAddlQty !== undefined && originalParsedQty.compoundAddlQty !== null) {
-                                  setEditCompoundAddlQty(originalParsedQty.compoundAddlQty);
-                                }
-
-                                // Format for display
-                                let baseUnitDisplay;
-                                const qtyToUse = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
-                                  ? originalParsedQty
-                                  : parsedQty;
-
-                                if (qtyToUse && qtyToUse.isCompound && qtyToUse.qty !== undefined && qtyToUse.subQty !== undefined) {
-                                  const baseUnitObj = units.find(u => u.NAME === editSelectedItemUnitConfig.BASEUNITS);
-                                  if (baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No') {
-                                    let subDecimalPlaces = 0;
-                                    if (baseUnitObj.ADDITIONALUNITS) {
-                                      const subUnitObj = units.find(u => u.NAME === baseUnitObj.ADDITIONALUNITS);
-                                      if (subUnitObj) {
-                                        subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
-                                          ? parseInt(subUnitObj.DECIMALPLACES) || 0
-                                          : (subUnitObj.DECIMALPLACES || 0);
-                                      }
-                                    }
-                                    const formattedSubQty = subDecimalPlaces === 0
-                                      ? Math.round(qtyToUse.subQty).toString()
-                                      : parseFloat(qtyToUse.subQty).toFixed(subDecimalPlaces);
-                                    const displayUnit = baseUnitObj.BASEUNITS || editSelectedItemUnitConfig.BASEUNITS;
-                                    baseUnitDisplay = `${Math.round(qtyToUse.qty)}-${formattedSubQty} ${displayUnit}`;
-                                  }
-                                } else {
-                                  const primaryQty = convertToPrimaryQty(parsedQty, editSelectedItemUnitConfig, editCustomConversion, units);
-                                  let baseUnitDecimal = 0;
-                                  if (units && units.length > 0) {
-                                    const baseUnit = units.find(u => u.NAME === editSelectedItemUnitConfig.BASEUNITS);
-                                    if (baseUnit) {
-                                      baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string'
-                                        ? parseInt(baseUnit.DECIMALPLACES) || 0
-                                        : (baseUnit.DECIMALPLACES || 0);
-                                    }
-                                  }
-                                  const formattedQty = baseUnitDecimal === 0
-                                    ? Math.round(primaryQty).toString()
-                                    : primaryQty.toFixed(baseUnitDecimal);
-                                  baseUnitDisplay = `${formattedQty} ${editSelectedItemUnitConfig.BASEUNITS}`;
-                                }
-
-                                if (baseUnitDisplay) {
-                                  setEditQuantityInput(baseUnitDisplay);
-                                }
-                              }
-                            }}
-                            style={{
-                              width: '100%',
-                              padding: '6px 10px',
-                              border: '1px solid #d1d5db',
-                              borderRadius: '4px',
-                              fontSize: '13px',
-                              fontWeight: '600',
-                              color: '#059669',
-                              textAlign: 'left'
-                            }}
-                            placeholder="Qty"
-                          />
-                        </div>
-                        {/* Alternative quantity display - below the input */}
-                        {editSelectedItemUnitConfig && editSelectedItemUnitConfig.ADDITIONALUNITS && editItemQuantity > 0 && (
-                          <div style={{
-                            fontSize: '11px',
-                            color: '#64748b',
-                            fontStyle: 'italic',
-                            textAlign: 'center',
-                            marginTop: '2px'
-                          }}>
-                            {(() => {
-                              const altQty = convertToAlternativeQty(editItemQuantity, editSelectedItemUnitConfig, units, editCustomConversion);
-                              const qtyToDisplay = editCustomAddlQty !== null && editCustomAddlQty !== undefined
-                                ? editCustomAddlQty
-                                : (editCompoundAddlQty !== null && editCompoundAddlQty !== undefined ? editCompoundAddlQty : null);
-
-                              if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
-                                const addlUnitObj = units && units.length > 0
-                                  ? units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS)
-                                  : null;
-                                const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
-                                if (hasCompoundAddlUnit && addlUnitObj) {
-                                  const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
-                                  const mainQty = Math.floor(qtyToDisplay);
-                                  const subQty = (qtyToDisplay - mainQty) * addlConversion;
-                                  let subDecimalPlaces = 0;
-                                  if (addlUnitObj.ADDITIONALUNITS) {
-                                    const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
-                                    if (subUnitObj) {
-                                      subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
-                                        ? parseInt(subUnitObj.DECIMALPLACES) || 0
-                                        : (subUnitObj.DECIMALPLACES || 0);
-                                    }
-                                  }
-                                  const formattedSubQty = subDecimalPlaces === 0
-                                    ? Math.round(subQty).toString()
-                                    : subQty.toFixed(subDecimalPlaces);
-                                  const displayUnit = addlUnitObj.BASEUNITS || editSelectedItemUnitConfig.ADDITIONALUNITS;
-                                  return `(${mainQty}-${formattedSubQty} ${displayUnit})`;
-                                } else {
-                                  let decimalPlaces = 0;
-                                  if (units && units.length > 0) {
-                                    const addlUnit = units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS);
-                                    if (addlUnit) {
-                                      decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string'
-                                        ? parseInt(addlUnit.DECIMALPLACES) || 0
-                                        : (addlUnit.DECIMALPLACES || 0);
-                                    }
-                                  }
-                                  const formattedQty = decimalPlaces === 0
-                                    ? Math.round(qtyToDisplay).toString()
-                                    : qtyToDisplay.toFixed(decimalPlaces);
-                                  return `(${formattedQty} ${editSelectedItemUnitConfig.ADDITIONALUNITS})`;
-                                }
-                              }
-                              return altQty ? `(${altQty.qty} ${altQty.unit})` : '';
-                            })()}
-                          </div>
-                        )}
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontWeight: '600', color: '#1e293b' }}>
+                        {item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`}
                       </div>
-
-                    ) : (
-
-                      <div style={{ textAlign: 'center' }}>
-                        <div style={{ fontWeight: '600', color: '#1e293b' }}>
-                          {item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`}
+                      {item.altQtyDisplay && (
+                        <div style={{
+                          fontSize: '12px',
+                          color: '#64748b',
+                          fontStyle: 'italic',
+                          marginTop: '2px'
+                        }}>
+                          ({item.altQtyDisplay})
                         </div>
-                        {item.altQtyDisplay && (
-                          <div style={{
-                            fontSize: '12px',
-                            color: '#64748b',
-                            fontStyle: 'italic',
-                            marginTop: '2px'
-                          }}>
-                            ({item.altQtyDisplay})
-                          </div>
-                        )}
-                      </div>
-                    )}
+                      )}
+                    </div>
 
                   </div>
 
@@ -12190,47 +12005,7 @@ function PlaceOrder() {
 
                     }}>
 
-                      {editingItemIndex === index && canEditRate ? (
-
-                        <input
-
-                          type="number"
-
-                          value={editRate}
-
-                          onChange={(e) => setEditRate(e.target.value)}
-
-                          style={{
-
-                            width: '80px',
-
-                            padding: '4px 8px',
-
-                            border: '1px solid #d1d5db',
-
-                            borderRadius: '4px',
-
-                            textAlign: 'right',
-
-                            fontSize: '14px',
-
-                            fontWeight: '600',
-
-                            color: '#dc2626'
-
-                          }}
-
-                          min="0"
-
-                          step="0.01"
-
-                        />
-
-                      ) : (
-
-                        `₹${item.rate.toFixed(2)}`
-
-                      )}
+                      `₹${item.rate.toFixed(2)}`
 
                     </div>
 
@@ -12252,247 +12027,34 @@ function PlaceOrder() {
 
                     }}>
 
-                      {editingItemIndex === index ? (
-                        (() => {
-                          const baseUnitObj = units && units.length > 0 && editSelectedItemUnitConfig
-                            ? units.find(u => u.NAME === editSelectedItemUnitConfig.BASEUNITS)
-                            : null;
-                          const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-                          const addlUnitObj = units && units.length > 0 && editSelectedItemUnitConfig && editSelectedItemUnitConfig.ADDITIONALUNITS
-                            ? units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS)
-                            : null;
-                          const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-                          const hasMultipleUnits = editSelectedItemUnitConfig && (editSelectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit);
+                      {(() => {
+                        if (!item.unitConfig || !item.rateUOM) return '';
 
-                          return (
-                            <div style={{
-                              position: 'relative',
-                              background: 'white',
-                              borderRadius: '4px',
-                              border: editShowRateUOMDropdown ? '1px solid #3b82f6' : '1px solid #d1d5db',
-                              cursor: hasMultipleUnits ? 'pointer' : 'default',
-                              minWidth: '80px'
-                            }}
-                              onClick={() => {
-                                if (hasMultipleUnits) {
-                                  setEditShowRateUOMDropdown(!editShowRateUOMDropdown);
-                                }
-                              }}
-                            >
-                              <input
-                                type="text"
-                                value={(() => {
-                                  if (hasCompoundBaseUnit && baseUnitObj) {
-                                    if (editRateUOM === 'component-main') return baseUnitObj.BASEUNITS;
-                                    if (editRateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
-                                  }
-                                  if (hasCompoundAddlUnit && addlUnitObj) {
-                                    if (editRateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
-                                    if (editRateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
-                                  }
-                                  if (editRateUOM === 'base') return editSelectedItemUnitConfig?.BASEUNITS || '';
-                                  if (editRateUOM === 'additional') return editSelectedItemUnitConfig?.ADDITIONALUNITS || '';
-                                  return editSelectedItemUnitConfig?.BASEUNITS || '';
-                                })()}
-                                readOnly
-                                onBlur={() => setTimeout(() => setEditShowRateUOMDropdown(false), 200)}
-                                style={{
-                                  width: '100%',
-                                  padding: '4px 24px 4px 8px',
-                                  border: 'none',
-                                  borderRadius: '4px',
-                                  fontSize: '13px',
-                                  color: '#64748b',
-                                  outline: 'none',
-                                  background: 'transparent',
-                                  cursor: hasMultipleUnits ? 'pointer' : 'default',
-                                  pointerEvents: 'none',
-                                  textAlign: 'center'
-                                }}
-                              />
-                              {hasMultipleUnits && (
-                                <span className="material-icons" style={{
-                                  position: 'absolute',
-                                  right: '4px',
-                                  top: '50%',
-                                  transform: 'translateY(-50%)',
-                                  fontSize: '16px',
-                                  color: editShowRateUOMDropdown ? '#3b82f6' : '#64748b',
-                                  pointerEvents: 'none'
-                                }}>
-                                  {editShowRateUOMDropdown ? 'expand_less' : 'expand_more'}
-                                </span>
-                              )}
-                              {editShowRateUOMDropdown && hasMultipleUnits && (
-                                <div
-                                  style={{
-                                    position: 'absolute',
-                                    top: 'calc(100% + 4px)',
-                                    left: 0,
-                                    right: 0,
-                                    backgroundColor: 'white',
-                                    border: '1px solid #3b82f6',
-                                    borderRadius: '4px',
-                                    maxHeight: '150px',
-                                    overflowY: 'auto',
-                                    zIndex: 9999,
-                                    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
-                                  }}
-                                  onMouseDown={(e) => e.preventDefault()}
-                                >
-                                  {!hasCompoundBaseUnit && (
-                                    <div
-                                      onClick={() => {
-                                        setEditRateUOM('base');
-                                        setEditShowRateUOMDropdown(false);
-                                      }}
-                                      style={{
-                                        padding: '8px 12px',
-                                        cursor: 'pointer',
-                                        borderBottom: (editSelectedItemUnitConfig?.ADDITIONALUNITS || hasCompoundBaseUnit) ? '1px solid #f1f5f9' : 'none',
-                                        backgroundColor: editRateUOM === 'base' ? '#eff6ff' : 'white'
-                                      }}
-                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = editRateUOM === 'base' ? '#eff6ff' : 'white'}
-                                    >
-                                      <span style={{ fontSize: '12px', color: '#1e293b' }}>
-                                        {editSelectedItemUnitConfig?.BASEUNITS}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {hasCompoundBaseUnit && baseUnitObj && (
-                                    <>
-                                      <div
-                                        onClick={() => {
-                                          setEditRateUOM('component-main');
-                                          setEditShowRateUOMDropdown(false);
-                                        }}
-                                        style={{
-                                          padding: '8px 12px',
-                                          cursor: 'pointer',
-                                          borderBottom: '1px solid #f1f5f9',
-                                          backgroundColor: editRateUOM === 'component-main' ? '#eff6ff' : 'white'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = editRateUOM === 'component-main' ? '#eff6ff' : 'white'}
-                                      >
-                                        <span style={{ fontSize: '12px', color: '#1e293b' }}>
-                                          {baseUnitObj.BASEUNITS}
-                                        </span>
-                                      </div>
-                                      <div
-                                        onClick={() => {
-                                          setEditRateUOM('component-sub');
-                                          setEditShowRateUOMDropdown(false);
-                                        }}
-                                        style={{
-                                          padding: '8px 12px',
-                                          cursor: 'pointer',
-                                          borderBottom: (editSelectedItemUnitConfig?.ADDITIONALUNITS || hasCompoundAddlUnit) ? '1px solid #f1f5f9' : 'none',
-                                          backgroundColor: editRateUOM === 'component-sub' ? '#eff6ff' : 'white'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = editRateUOM === 'component-sub' ? '#eff6ff' : 'white'}
-                                      >
-                                        <span style={{ fontSize: '12px', color: '#1e293b' }}>
-                                          {baseUnitObj.ADDITIONALUNITS}
-                                        </span>
-                                      </div>
-                                    </>
-                                  )}
-                                  {editSelectedItemUnitConfig?.ADDITIONALUNITS && !hasCompoundAddlUnit && (
-                                    <div
-                                      onClick={() => {
-                                        setEditRateUOM('additional');
-                                        setEditShowRateUOMDropdown(false);
-                                      }}
-                                      style={{
-                                        padding: '8px 12px',
-                                        cursor: 'pointer',
-                                        backgroundColor: editRateUOM === 'additional' ? '#eff6ff' : 'white'
-                                      }}
-                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = editRateUOM === 'additional' ? '#eff6ff' : 'white'}
-                                    >
-                                      <span style={{ fontSize: '12px', color: '#1e293b' }}>
-                                        {editSelectedItemUnitConfig.ADDITIONALUNITS}
-                                      </span>
-                                    </div>
-                                  )}
-                                  {hasCompoundAddlUnit && addlUnitObj && (
-                                    <>
-                                      <div
-                                        onClick={() => {
-                                          setEditRateUOM('additional-component-main');
-                                          setEditShowRateUOMDropdown(false);
-                                        }}
-                                        style={{
-                                          padding: '8px 12px',
-                                          cursor: 'pointer',
-                                          borderBottom: '1px solid #f1f5f9',
-                                          backgroundColor: editRateUOM === 'additional-component-main' ? '#eff6ff' : 'white'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = editRateUOM === 'additional-component-main' ? '#eff6ff' : 'white'}
-                                      >
-                                        <span style={{ fontSize: '12px', color: '#1e293b' }}>
-                                          {addlUnitObj.BASEUNITS}
-                                        </span>
-                                      </div>
-                                      <div
-                                        onClick={() => {
-                                          setEditRateUOM('additional-component-sub');
-                                          setEditShowRateUOMDropdown(false);
-                                        }}
-                                        style={{
-                                          padding: '8px 12px',
-                                          cursor: 'pointer',
-                                          backgroundColor: editRateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = editRateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'}
-                                      >
-                                        <span style={{ fontSize: '12px', color: '#1e293b' }}>
-                                          {addlUnitObj.ADDITIONALUNITS}
-                                        </span>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()
-                      ) : (
-                        (() => {
-                          if (!item.unitConfig || !item.rateUOM) return '';
+                        const baseUnitObj = units && units.length > 0
+                          ? units.find(u => u.NAME === item.unitConfig.BASEUNITS)
+                          : null;
+                        const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
 
-                          const baseUnitObj = units && units.length > 0
-                            ? units.find(u => u.NAME === item.unitConfig.BASEUNITS)
-                            : null;
-                          const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
+                        if (hasCompoundBaseUnit && baseUnitObj) {
+                          if (item.rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
+                          if (item.rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
+                        }
 
-                          if (hasCompoundBaseUnit && baseUnitObj) {
-                            if (item.rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
-                            if (item.rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
-                          }
+                        const addlUnitObj = units && units.length > 0 && item.unitConfig.ADDITIONALUNITS
+                          ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
+                          : null;
+                        const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
 
-                          const addlUnitObj = units && units.length > 0 && item.unitConfig.ADDITIONALUNITS
-                            ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
-                            : null;
-                          const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+                        if (hasCompoundAddlUnit && addlUnitObj) {
+                          if (item.rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
+                          if (item.rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
+                        }
 
-                          if (hasCompoundAddlUnit && addlUnitObj) {
-                            if (item.rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
-                            if (item.rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
-                          }
+                        if (item.rateUOM === 'base') return item.unitConfig.BASEUNITS;
+                        if (item.rateUOM === 'additional') return item.unitConfig.ADDITIONALUNITS;
 
-                          if (item.rateUOM === 'base') return item.unitConfig.BASEUNITS;
-                          if (item.rateUOM === 'additional') return item.unitConfig.ADDITIONALUNITS;
-
-                          return item.unitConfig.BASEUNITS || '';
-                        })()
-                      )}
+                        return item.unitConfig.BASEUNITS || '';
+                      })()}
                     </div>
 
                   )}
@@ -12509,49 +12071,7 @@ function PlaceOrder() {
 
                     }}>
 
-                      {editingItemIndex === index && canEditDiscount ? (
-
-                        <input
-
-                          type="number"
-
-                          value={editDiscountPercent}
-
-                          onChange={(e) => setEditDiscountPercent(e.target.value)}
-
-                          style={{
-
-                            width: '60px',
-
-                            padding: '4px 8px',
-
-                            border: '1px solid #d1d5db',
-
-                            borderRadius: '4px',
-
-                            textAlign: 'center',
-
-                            fontSize: '14px',
-
-                            fontWeight: '600',
-
-                            color: '#0ea5e9'
-
-                          }}
-
-                          min="0"
-
-                          max="100"
-
-                          step="0.01"
-
-                        />
-
-                      ) : (
-
-                        `${item.discountPercent || 0}%`
-
-                      )}
+                      `${item.discountPercent || 0}%`
 
                     </div>
 
@@ -12589,11 +12109,7 @@ function PlaceOrder() {
 
                     }}>
 
-                      {editingItemIndex === index ? (
-                        `₹${editItemAmount.toFixed(2)}`
-                      ) : (
-                        `₹${item.amount.toFixed(2)}`
-                      )}
+                      `₹${item.amount.toFixed(2)}`
 
                     </div>
 
@@ -12602,194 +12118,99 @@ function PlaceOrder() {
                   <div style={{
                     textAlign: 'center',
                     display: 'flex',
-                    gap: '8px',
+                    gap: '6px',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    minWidth: '140px',
-                    flexShrink: 0
+                    width: '100%'
                   }}>
 
-                    {editingItemIndex === index ? (
+                    <>
 
-                      <>
+                      <button
 
-                        <button
+                        type="button"
 
-                          type="button"
+                        onClick={() => startEditItem(index)}
 
-                          onClick={saveEditItem}
+                        style={{
 
-                          style={{
+                          background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
 
-                            background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                          color: 'white',
 
-                            color: 'white',
+                          border: 'none',
 
-                            border: 'none',
+                          borderRadius: '6px',
 
-                            borderRadius: '8px',
+                          padding: '4px 6px',
 
-                            padding: '4px 8px',
+                          cursor: 'pointer',
 
-                            cursor: 'pointer',
+                          fontSize: '11px',
 
-                            fontSize: '12px',
+                          fontWeight: '600',
 
-                            fontWeight: '600',
+                          transition: 'all 0.2s ease',
 
-                            transition: 'all 0.2s ease',
+                          boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)'
 
-                            boxShadow: '0 2px 4px rgba(5, 150, 105, 0.2)'
+                        }}
 
-                          }}
+                        title="Edit item"
 
-                          title="Save changes"
+                      >
 
-                        >
+                        <span className="material-icons" style={{ fontSize: '16px' }}>
 
-                          <span className="material-icons" style={{ fontSize: '14px' }}>
+                          edit
 
-                            check
+                        </span>
 
-                          </span>
+                      </button>
 
-                        </button>
+                      <button
 
-                        <button
+                        type="button"
 
-                          type="button"
+                        onClick={() => removeOrderItem(item.id)}
 
-                          onClick={cancelEditItem}
+                        style={{
 
-                          style={{
+                          background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
 
-                            background: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
+                          color: 'white',
 
-                            color: 'white',
+                          border: 'none',
 
-                            border: 'none',
+                          borderRadius: '6px',
 
-                            borderRadius: '8px',
+                          padding: '4px 6px',
 
-                            padding: '4px 8px',
+                          cursor: 'pointer',
 
-                            cursor: 'pointer',
+                          fontSize: '11px',
 
-                            fontSize: '12px',
+                          fontWeight: '600',
 
-                            fontWeight: '600',
+                          transition: 'all 0.2s ease',
 
-                            transition: 'all 0.2s ease',
+                          boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)'
 
-                            boxShadow: '0 2px 4px rgba(107, 114, 128, 0.2)'
+                        }}
 
-                          }}
+                        title="Remove item"
 
-                          title="Cancel editing"
+                      >
 
-                        >
+                        <span className="material-icons" style={{ fontSize: '16px' }}>
 
-                          <span className="material-icons" style={{ fontSize: '14px' }}>
+                          delete_outline
 
-                            close
+                        </span>
 
-                          </span>
+                      </button>
 
-                        </button>
-
-                      </>
-
-                    ) : (
-
-                      <>
-
-                        <button
-
-                          type="button"
-
-                          onClick={() => startEditItem(index)}
-
-                          style={{
-
-                            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-
-                            color: 'white',
-
-                            border: 'none',
-
-                            borderRadius: '8px',
-
-                            padding: '4px 8px',
-
-                            cursor: 'pointer',
-
-                            fontSize: '12px',
-
-                            fontWeight: '600',
-
-                            transition: 'all 0.2s ease',
-
-                            boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)'
-
-                          }}
-
-                          title="Edit item"
-
-                        >
-
-                          <span className="material-icons" style={{ fontSize: '14px' }}>
-
-                            edit
-
-                          </span>
-
-                        </button>
-
-                        <button
-
-                          type="button"
-
-                          onClick={() => removeOrderItem(item.id)}
-
-                          style={{
-
-                            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-
-                            color: 'white',
-
-                            border: 'none',
-
-                            borderRadius: '8px',
-
-                            padding: '4px 8px',
-
-                            cursor: 'pointer',
-
-                            fontSize: '12px',
-
-                            fontWeight: '600',
-
-                            transition: 'all 0.2s ease',
-
-                            boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)'
-
-                          }}
-
-                          title="Remove item"
-
-                        >
-
-                          <span className="material-icons" style={{ fontSize: '14px' }}>
-
-                            delete_outline
-
-                          </span>
-
-                        </button>
-
-                      </>
-
-                    )}
+                    </>
 
                   </div>
 
@@ -12813,9 +12234,9 @@ function PlaceOrder() {
 
                     gridTemplateColumns: getGridTemplateColumns(),
 
-                    gap: isMobile ? '12px' : '24px',
+                    gap: isMobile ? '8px' : '12px',
 
-                    padding: isMobile ? '14px 12px 14px 16px' : '12px 12px 12px 25px',
+                    padding: isMobile ? '14px 12px 14px 16px' : '12px 8px 12px 16px',
 
                     background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
 

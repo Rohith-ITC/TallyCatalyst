@@ -83,7 +83,7 @@ export const openCheckout = async (orderData, callbacks = {}) => {
       key: key || process.env.REACT_APP_RAZORPAY_KEY_ID,
       amount: amount, // Amount in paise
       currency: currency,
-      name: 'DataLynk',
+      name: 'DataLynkr',
       description: 'Subscription Payment',
       order_id: orderId,
       handler: async (response) => {

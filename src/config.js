@@ -100,7 +100,7 @@ export const RAZORPAY_CONFIG = {
 
 // App Configuration
 export const APP_CONFIG = {
-  APP_NAME: 'DataLynk',
+  APP_NAME: 'DataLynkr',
   COMPANY_NAME: 'IT Catalyst Software India Pvt Ltd'
 };
 

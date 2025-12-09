@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { hybridCache } from '../utils/hybridCache';
 import { apiPost, apiGet } from '../utils/apiUtils';
-import { syncSalesData, syncCustomers, syncItems, cacheSyncManager, safeSessionStorageGet, getCustomersFromOPFS, getItemsFromOPFS } from '../utils/cacheSyncManager';
+import { syncSalesData, syncCustomers, syncItems, cacheSyncManager, safeSessionStorageGet, getCustomersFromOPFS, getItemsFromOPFS, checkInterruptedDownload, clearDownloadProgress } from '../utils/cacheSyncManager';
+import ResumeDownloadModal from './components/ResumeDownloadModal';
 import { useIsMobile } from './MobileViewConfig';
 
 // Helper to remove sessionStorage key and its chunks (for backward compatibility)
@@ -47,6 +48,8 @@ const CacheManagement = () => {
   const [timeRange, setTimeRange] = useState('all');
   const [selectedFinancialYear, setSelectedFinancialYear] = useState('');
   const [financialYearOptions, setFinancialYearOptions] = useState([]);
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [interruptedProgress, setInterruptedProgress] = useState(null);
 
   // Detect if running on mobile
   const isMobile = useIsMobile();
@@ -136,6 +139,25 @@ const CacheManagement = () => {
     };
     initProgress();
 
+    // Check for interrupted downloads on mount
+    const checkForInterrupted = async () => {
+      try {
+        if (selectedCompany) {
+          const interrupted = await checkInterruptedDownload(selectedCompany);
+          if (interrupted) {
+            setInterruptedProgress(interrupted);
+            setShowResumeModal(true);
+          }
+        }
+      } catch (error) {
+        console.warn('Error checking for interrupted download:', error);
+      }
+    };
+
+    // Check after a short delay to ensure company is loaded
+    const timer = setTimeout(checkForInterrupted, 1000);
+    return () => clearTimeout(timer);
+
     // Listen for company changes from header
     const handleCompanyChange = () => {
       console.log('🔄 CacheManagement: Company changed event received');
@@ -164,6 +186,23 @@ const CacheManagement = () => {
     if (selectedCompany) {
       loadCompanyProgress();
 
+      // Check for interrupted downloads when company changes
+      const checkForInterrupted = async () => {
+        try {
+          const interrupted = await checkInterruptedDownload(selectedCompany);
+          if (interrupted) {
+            setInterruptedProgress(interrupted);
+            setShowResumeModal(true);
+          } else {
+            setShowResumeModal(false);
+            setInterruptedProgress(null);
+          }
+        } catch (error) {
+          console.warn('Error checking for interrupted download:', error);
+        }
+      };
+      checkForInterrupted();
+
       // Set up periodic polling for progress updates (every 2 seconds)
       // This ensures we show progress even when sync is happening in background
       const progressInterval = setInterval(async () => {
@@ -178,6 +217,8 @@ const CacheManagement = () => {
       setDownloadingComplete(false);
       setDownloadStartTime(null);
       downloadStartTimeRef.current = null;
+      setShowResumeModal(false);
+      setInterruptedProgress(null);
     }
   }, [selectedCompany]);
 
@@ -813,8 +854,23 @@ const CacheManagement = () => {
     }
   }, [selectedCompany]);
 
+  // Resume modal handlers
+  const handleResumeContinue = async () => {
+    setShowResumeModal(false);
+    // Continue from where it left off - progress is already saved, sync will resume automatically
+    await downloadCompleteData(false, false);
+  };
+
+  const handleResumeStartFresh = async () => {
+    setShowResumeModal(false);
+    // Clear progress and start fresh
+    await clearDownloadProgress(selectedCompany);
+    await downloadCompleteData(false, true);
+    setInterruptedProgress(null);
+  };
+
   // Download complete sales data
-  const downloadCompleteData = async (isUpdate = false) => {
+  const downloadCompleteData = async (isUpdate = false, startFresh = false) => {
     console.log('='.repeat(60));
     console.log('🎯 DOWNLOAD COMPLETE DATA CALLED');
     console.log('='.repeat(60));
@@ -891,7 +947,7 @@ const CacheManagement = () => {
 
     try {
       // syncSalesData will now use cacheSyncManager internally
-      const result = await syncSalesData(selectedCompany);
+      const result = await syncSalesData(selectedCompany, () => {}, startFresh);
 
       setMessage({
         type: 'success',
@@ -2385,6 +2441,15 @@ const CacheManagement = () => {
           to { transform: rotate(360deg); }
         }
       `}</style>
+
+      {/* Resume Download Modal */}
+      <ResumeDownloadModal
+        isOpen={showResumeModal}
+        onContinue={handleResumeContinue}
+        onStartFresh={handleResumeStartFresh}
+        progress={interruptedProgress || { current: 0, total: 0 }}
+        companyName={interruptedProgress?.companyName || selectedCompany?.company || 'this company'}
+      />
     </div>
   );
 };
