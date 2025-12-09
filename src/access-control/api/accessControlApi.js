@@ -397,7 +397,7 @@ export const usersApi = {
             tallyloc_name: 'Main Office',
             conn_id: '192.168.1.100',
             conn_port: 9000,
-            co_name: 'DataLynk Demo',
+            co_name: 'DataLynkr Demo',
             co_guid: 'demo-guid-123',
             user_type: 'internal',
             access_active: true,

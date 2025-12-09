@@ -378,13 +378,75 @@ const getSyncProgressKey = (email, guid) => {
   return `sync_progress_${email}_${guid}`;
 };
 
+// Check if there's an interrupted download for a company
+export const checkInterruptedDownload = async (companyInfo) => {
+  if (!companyInfo) return null;
+
+  // Don't show resume modal if sync is currently active for this company
+  if (cacheSyncManager.isSyncInProgress() && cacheSyncManager.isSameCompany(companyInfo)) {
+    return null;
+  }
+
+  const email = getUserEmail();
+  if (!email) return null;
+
+  const progressKey = getSyncProgressKey(email, companyInfo.guid);
+  try {
+    const progress = await hybridCache.getDashboardState(progressKey);
+    if (progress && progress.status === 'in_progress') {
+      // Check if it's been more than 5 minutes since last update (likely interrupted)
+      const timeSinceUpdate = Date.now() - (progress.lastUpdated || 0);
+      const fiveMinutes = 5 * 60 * 1000;
+      
+      // Only show resume if:
+      // 1. More than 5 minutes since last update (likely interrupted), OR
+      // 2. Not all chunks completed (incomplete download)
+      if (timeSinceUpdate > fiveMinutes || (progress.chunksCompleted < progress.totalChunks && progress.totalChunks > 0)) {
+        return {
+          current: progress.chunksCompleted || 0,
+          total: progress.totalChunks || 0,
+          companyName: companyInfo.company,
+          companyGuid: companyInfo.guid
+        };
+      }
+    }
+    return null;
+  } catch (error) {
+    console.warn('Error checking interrupted download:', error);
+    return null;
+  }
+};
+
+// Clear progress for a company (when user chooses to start fresh)
+export const clearDownloadProgress = async (companyInfo) => {
+  if (!companyInfo) return;
+
+  const email = getUserEmail();
+  if (!email) return;
+
+  const progressKey = getSyncProgressKey(email, companyInfo.guid);
+  try {
+    // Check if deleteDashboardState exists, otherwise use IndexedDB directly
+    if (hybridCache.deleteDashboardState) {
+      await hybridCache.deleteDashboardState(progressKey);
+    } else {
+      // Fallback: try to delete via IndexedDB if method doesn't exist
+      await hybridCache.init();
+      await hybridCache.db.dashboardState.delete(progressKey);
+    }
+    console.log('✅ Cleared download progress for', companyInfo.company);
+  } catch (error) {
+    console.warn('Error clearing download progress:', error);
+  }
+};
+
 // Get email from sessionStorage
 const getUserEmail = () => {
   return sessionStorage.getItem('email');
 };
 
 // Internal sync function that does the actual work
-const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { }) => {
+const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { }, startFresh = false) => {
   if (!companyInfo) {
     throw new Error('No company selected');
   }
@@ -393,31 +455,46 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { })
     tallyloc_id: companyInfo.tallyloc_id,
     company: companyInfo.company,
     guid: companyInfo.guid,
-    email
+    email,
+    startFresh
   });
 
   const progressKey = getSyncProgressKey(email, companyInfo.guid);
   let savedProgress = null;
 
   try {
-    // Load saved progress if exists
-    try {
-      savedProgress = await hybridCache.getDashboardState(progressKey);
-    } catch (e) {
-      console.warn('Could not load saved progress:', e);
+    // Clear progress if starting fresh
+    if (startFresh) {
+      console.log('🔄 Starting fresh - clearing existing progress');
+      try {
+        await hybridCache.deleteDashboardState(progressKey);
+        console.log('✅ Cleared existing progress');
+      } catch (e) {
+        console.warn('Could not clear progress:', e);
+      }
+    } else {
+      // Load saved progress if exists (only if not starting fresh)
+      try {
+        savedProgress = await hybridCache.getDashboardState(progressKey);
+      } catch (e) {
+        console.warn('Could not load saved progress:', e);
+      }
     }
 
     // Update progress to in_progress
-    // DISABLED: Dashboard cache storage disabled
-    // await hybridCache.setDashboardState(progressKey, {
-    //   email,
-    //   companyGuid: companyInfo.guid,
-    //   tallylocId: companyInfo.tallyloc_id,
-    //   status: 'in_progress',
-    //   lastUpdated: Date.now(),
-    //   chunksCompleted: savedProgress?.chunksCompleted || 0,
-    //   totalChunks: savedProgress?.totalChunks || 0
-    // });
+    try {
+      await hybridCache.setDashboardState(progressKey, {
+        email,
+        companyGuid: companyInfo.guid,
+        tallylocId: companyInfo.tallyloc_id,
+        status: 'in_progress',
+        lastUpdated: Date.now(),
+        chunksCompleted: savedProgress?.chunksCompleted || 0,
+        totalChunks: savedProgress?.totalChunks || 0
+      });
+    } catch (e) {
+      console.warn('Could not save progress state:', e);
+    }
 
     const booksfrom = await fetchBooksFrom(companyInfo.guid);
 
@@ -612,16 +689,19 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { })
       });
 
       // Update total chunks in progress
-      // DISABLED: Dashboard cache storage disabled
-      // await hybridCache.setDashboardState(progressKey, {
-      //   email,
-      //   companyGuid: companyInfo.guid,
-      //   tallylocId: companyInfo.tallyloc_id,
-      //   status: 'in_progress',
-      //   lastUpdated: Date.now(),
-      //   chunksCompleted: startChunkIndex,
-      //   totalChunks: chunks.length
-      // });
+      try {
+        await hybridCache.setDashboardState(progressKey, {
+          email,
+          companyGuid: companyInfo.guid,
+          tallylocId: companyInfo.tallyloc_id,
+          status: 'in_progress',
+          lastUpdated: Date.now(),
+          chunksCompleted: startChunkIndex,
+          totalChunks: chunks.length
+        });
+      } catch (e) {
+        console.warn('Could not save progress state:', e);
+      }
 
       for (let i = startChunkIndex; i < chunks.length; i++) {
         const chunk = chunks[i];
@@ -661,18 +741,21 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { })
           }
 
           // Update progress after each chunk
-          // DISABLED: Dashboard cache storage disabled
-          // const chunkProgress = {
-          //   email,
-          //   companyGuid: companyInfo.guid,
-          //   tallylocId: companyInfo.tallyloc_id,
-          //   status: 'in_progress',
-          //   lastUpdated: Date.now(),
-          //   chunksCompleted: i + 1,
-          //   totalChunks: chunks.length
-          // };
-          // await hybridCache.setDashboardState(progressKey, chunkProgress);
-          console.log(`📊 Progress updated: ${i + 1}/${chunks.length} chunks for ${companyInfo.company}`);
+          try {
+            const chunkProgress = {
+              email,
+              companyGuid: companyInfo.guid,
+              tallylocId: companyInfo.tallyloc_id,
+              status: 'in_progress',
+              lastUpdated: Date.now(),
+              chunksCompleted: i + 1,
+              totalChunks: chunks.length
+            };
+            await hybridCache.setDashboardState(progressKey, chunkProgress);
+            console.log(`📊 Progress updated: ${i + 1}/${chunks.length} chunks for ${companyInfo.company}`);
+          } catch (e) {
+            console.warn('Could not save chunk progress:', e);
+          }
 
           // Notify subscribers if this is the currently active sync
           if (onProgress) {
@@ -1320,37 +1403,39 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { })
     }
 
     // Mark progress as completed
-    // DISABLED: Dashboard cache storage disabled
-    // await hybridCache.setDashboardState(progressKey, {
-    //   email,
-    //   companyGuid: companyInfo.guid,
-    //   tallylocId: companyInfo.tallyloc_id,
-    //   status: 'completed',
-    //   lastSyncedAlterId: maxAlterId,
-    //   lastSyncedDate: todayStr,
-    //   lastUpdated: Date.now(),
-    //   chunksCompleted: chunks ? chunks.length : 0,
-    //   totalChunks: chunks ? chunks.length : 0
-    // });
+    try {
+      await hybridCache.setDashboardState(progressKey, {
+        email,
+        companyGuid: companyInfo.guid,
+        tallylocId: companyInfo.tallyloc_id,
+        status: 'completed',
+        lastSyncedAlterId: maxAlterId,
+        lastSyncedDate: todayStr,
+        lastUpdated: Date.now(),
+        chunksCompleted: chunks ? chunks.length : 0,
+        totalChunks: chunks ? chunks.length : 0
+      });
+    } catch (e) {
+      console.warn('Could not mark progress as completed:', e);
+    }
 
     console.log(`✅ Successfully stored ${mergedData.vouchers.length} vouchers in cache`);
     return { success: true, count: mergedData.vouchers.length, lastAlterId: maxAlterId };
 
   } catch (error) {
     // Save error state
-    // DISABLED: Dashboard cache storage disabled
-    // try {
-    //   await hybridCache.setDashboardState(progressKey, {
-    //     email,
-    //     companyGuid: companyInfo.guid,
-    //     tallylocId: companyInfo.tallyloc_id,
-    //     status: 'failed',
-    //     lastUpdated: Date.now(),
-    //     error: error.message
-    //   });
-    // } catch (e) {
-    //   console.error('Failed to save error state:', e);
-    // }
+    try {
+      await hybridCache.setDashboardState(progressKey, {
+        email,
+        companyGuid: companyInfo.guid,
+        tallylocId: companyInfo.tallyloc_id,
+        status: 'failed',
+        lastUpdated: Date.now(),
+        error: error.message
+      });
+    } catch (e) {
+      console.error('Failed to save error state:', e);
+    }
     console.error('Error syncing sales data:', error);
     throw error;
   }
@@ -1764,7 +1849,7 @@ class CacheSyncManager {
 export const cacheSyncManager = new CacheSyncManager();
 
 // Export sync functions for backward compatibility
-export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
+export const syncSalesData = async (companyInfo, onProgress = () => { }, startFresh = false) => {
   if (!companyInfo) {
     throw new Error('No company selected');
   }
@@ -1779,7 +1864,7 @@ export const syncSalesData = async (companyInfo, onProgress = () => { }) => {
 
   try {
     const result = await cacheSyncManager.startSync(companyInfo, async (companyInfo, progressCallback) => {
-      return await syncSalesDataInternal(companyInfo, email, progressCallback);
+      return await syncSalesDataInternal(companyInfo, email, progressCallback, startFresh);
     });
     return result;
   } finally {

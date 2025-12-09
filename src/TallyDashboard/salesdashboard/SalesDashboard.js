@@ -22,7 +22,8 @@ import {
 import { getApiUrl } from '../../config';
 import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/companyConfigUtils';
 import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
-import { syncSalesData, cacheSyncManager } from '../../utils/cacheSyncManager';
+import { syncSalesData, cacheSyncManager, checkInterruptedDownload, clearDownloadProgress } from '../../utils/cacheSyncManager';
+import ResumeDownloadModal from '../components/ResumeDownloadModal';
 
 const SalesDashboard = ({ onNavigationAttempt }) => {
   // Mobile detection
@@ -147,6 +148,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [cacheDownloadStartTime, setCacheDownloadStartTime] = useState(null);
   const cacheDownloadStartTimeRef = useRef(null);
   const cacheDownloadAbortRef = useRef(false);
+  const [hasCacheData, setHasCacheData] = useState(false);
+  const [isInterrupted, setIsInterrupted] = useState(false);
+  const [showResumeModal, setShowResumeModal] = useState(false);
+  const [interruptedProgress, setInterruptedProgress] = useState(null);
 
   // Helper function to get auth token
   const getAuthToken = () => {
@@ -273,6 +278,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       clearInterval(progressInterval);
     };
   }, [isDownloadingCache]);
+
+  // Compute download status based on cache state
+  const downloadStatus = useMemo(() => {
+    // During download, button is disabled, but we still track status for UI display
+    if (isInterrupted && !isDownloadingCache) {
+      return 'interrupted';
+    }
+    if (hasCacheData) {
+      return 'completed';
+    }
+    return 'none';
+  }, [hasCacheData, isInterrupted, isDownloadingCache]);
 
   // Expose loading state to parent component
   useEffect(() => {
@@ -552,6 +569,22 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       } catch (err) {
         console.warn('Unable to check sales cache:', err);
       }
+      
+      // Update cache state
+      setHasCacheData(hasCachedSalesData);
+      
+      // Check for interrupted downloads
+      let hasInterruptedDownload = false;
+      try {
+        const companyProgress = await cacheSyncManager.getCompanyProgress(companyInfo);
+        if (companyProgress && companyProgress.total > 0 && companyProgress.current < companyProgress.total) {
+          hasInterruptedDownload = true;
+          console.log('⚠️ Interrupted download detected:', companyProgress);
+        }
+      } catch (err) {
+        console.warn('Unable to check for interrupted downloads:', err);
+      }
+      setIsInterrupted(hasInterruptedDownload);
 
       // Set default dates using booksfrom date
       const defaults = await getDefaultDateRange(companyInfo.guid);
@@ -951,6 +984,52 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     window.addEventListener('companyChanged', handleCompanyChange);
     return () => window.removeEventListener('companyChanged', handleCompanyChange);
   }, [initializeDashboard]);
+
+  // Check for interrupted downloads on mount and company change
+  useEffect(() => {
+    const checkForInterruptedDownload = async () => {
+      try {
+        const companyInfo = getCompanyInfo();
+        if (!companyInfo) return;
+
+        const interrupted = await checkInterruptedDownload(companyInfo);
+        if (interrupted) {
+          setInterruptedProgress(interrupted);
+          setShowResumeModal(true);
+        }
+      } catch (error) {
+        console.warn('Error checking for interrupted download:', error);
+      }
+    };
+
+    // Check after a short delay to ensure company info is loaded
+    const timer = setTimeout(checkForInterruptedDownload, 1000);
+    return () => clearTimeout(timer);
+  }, []); // Run on mount
+
+  // Also check when company changes
+  useEffect(() => {
+    const handleCompanyChange = async () => {
+      try {
+        const companyInfo = getCompanyInfo();
+        if (!companyInfo) return;
+
+        const interrupted = await checkInterruptedDownload(companyInfo);
+        if (interrupted) {
+          setInterruptedProgress(interrupted);
+          setShowResumeModal(true);
+        } else {
+          setShowResumeModal(false);
+          setInterruptedProgress(null);
+        }
+      } catch (error) {
+        console.warn('Error checking for interrupted download:', error);
+      }
+    };
+
+    window.addEventListener('companyChanged', handleCompanyChange);
+    return () => window.removeEventListener('companyChanged', handleCompanyChange);
+  }, []);
 
   // Auto-update removed - user must click refresh button to update cache
   // useEffect(() => {
@@ -1687,6 +1766,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setToDate(endDate);
       // Reset salespersons initialization when new data is loaded
       salespersonsInitializedRef.current = false;
+      
+      // Update cache state if data was loaded from cache
+      if (!invalidateCache) {
+        try {
+          const companyInfo = getCompanyInfo();
+          const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+          if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
+            setHasCacheData(true);
+            setIsInterrupted(false);
+          }
+        } catch (err) {
+          console.warn('Unable to update cache state after loading:', err);
+        }
+      }
 
       // Note: Dashboard state is not cached - only sales data is cached via hybridCache.setSalesData()
     } catch (error) {
@@ -1711,7 +1804,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     loadSales(fromDate, toDate, { invalidateCache: true });
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     if (!fromDate || !toDate) {
       console.warn('Cannot refresh: date range not set');
       return;
@@ -1721,20 +1814,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       // Get company info for cache update
       const companyInfo = getCompanyInfo();
       
-      // Start cache update - this will sync data from server and auto-reload after completion
-      console.log('🔄 Refresh button clicked - starting cache update...');
-      
       // Check if cache download is already in progress
       if (isDownloadingCache) {
         console.log('⚠️ Cache update already in progress, please wait...');
         return;
       }
       
+      // Determine if this is a new download, interrupted download, or update
+      let isUpdate = hasCacheData;
+      if (isInterrupted) {
+        console.log('🔄 Resuming interrupted download...');
+        isUpdate = true; // Resume is treated as update
+      } else if (!hasCacheData) {
+        console.log('📥 Starting new download...');
+        isUpdate = false;
+      } else {
+        console.log('🔄 Refresh button clicked - starting cache update...');
+        isUpdate = true;
+      }
+      
       // Update cache from server (runs in background and auto-reloads data after completion)
       // The startBackgroundCacheDownload function will:
       // 1. Sync cache data from server
       // 2. Automatically reload sales data after cache update completes
-      startBackgroundCacheDownload(companyInfo, true);
+      startBackgroundCacheDownload(companyInfo, isUpdate);
     } catch (error) {
       console.error('❌ Error during refresh:', error);
       // If we can't get company info or start cache update, fallback to reloading from existing cache
@@ -1744,8 +1847,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     }
   };
 
+  // Resume modal handlers
+  const handleResumeContinue = async () => {
+    setShowResumeModal(false);
+    const companyInfo = getCompanyInfo();
+    if (companyInfo) {
+      // Continue from where it left off - progress is already saved, sync will resume automatically
+      await startBackgroundCacheDownload(companyInfo, false);
+    }
+  };
+
+  const handleResumeStartFresh = async () => {
+    setShowResumeModal(false);
+    const companyInfo = getCompanyInfo();
+    if (companyInfo) {
+      // Clear progress and start fresh
+      await clearDownloadProgress(companyInfo);
+      // Pass startFresh flag to ensure we don't resume from saved progress
+      await startBackgroundCacheDownload(companyInfo, false, true);
+    }
+    setInterruptedProgress(null);
+  };
+
   // Background cache download function
-  const startBackgroundCacheDownload = async (companyInfo, isUpdate = false) => {
+  const startBackgroundCacheDownload = async (companyInfo, isUpdate = false, startFresh = false) => {
     if (isDownloadingCache || cacheDownloadAbortRef.current) return;
 
     setIsDownloadingCache(true);
@@ -1756,7 +1881,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     cacheDownloadAbortRef.current = false;
 
     try {
-      console.log(`🔄 Starting background cache ${isUpdate ? 'update' : 'download'}...`);
+      console.log(`🔄 Starting background cache ${isUpdate ? 'update' : 'download'}...${startFresh ? ' (starting fresh)' : ''}`);
       
       await syncSalesData(companyInfo, (progress) => {
         // Only update progress if not aborted
@@ -1765,7 +1890,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           console.log('📊 Progress update:', progress);
           setCacheDownloadProgress(progress);
         }
-      });
+      }, startFresh);
 
       // Check if download was aborted
       if (cacheDownloadAbortRef.current) {
@@ -1774,6 +1899,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       }
 
       console.log(`✅ Background cache ${isUpdate ? 'update' : 'download'} completed!`);
+      
+      // Update cache state after successful download
+      try {
+        const companyInfo = getCompanyInfo();
+        const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+        if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
+          setHasCacheData(true);
+          setIsInterrupted(false);
+        }
+      } catch (err) {
+        console.warn('Unable to update cache state after download:', err);
+      }
       
       // Auto-load data after successful cache download (only if it's first time download)
       if (!isUpdate) {
@@ -5053,7 +5190,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           }).join('') : ''}
           
           <div class="footer">
-            <p>Report generated by DataLynk Sales Dashboard</p>
+            <p>Report generated by DataLynkr Sales Dashboard</p>
             <p>Total Records: ${filteredSales.length}</p>
           </div>
         </body>
@@ -5501,7 +5638,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           }).join('') : ''}
           
           <div class="footer">
-            <p>Report generated by DataLynk Sales Dashboard</p>
+            <p>Report generated by DataLynkr Sales Dashboard</p>
             <p>Total Records: ${filteredSales.length}</p>
           </div>
         </body>
@@ -6276,153 +6413,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           background: 'transparent',
           position: 'relative'
           }}>
-            {/* Cache Update Progress Bar Indicator */}
-            {isDownloadingCache && (() => {
-              // Use current values directly to ensure real-time updates
-              const current = cacheDownloadProgress.current || 0;
-              const total = cacheDownloadProgress.total || 0;
-              const hasTotal = total > 0;
-              
-              const progressPercentage = hasTotal && total > 0
-                ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
-                : 0;
-              
-              // Calculate ETA
-              const calculateETA = () => {
-                const startTime = cacheDownloadStartTime || cacheDownloadStartTimeRef.current;
-                if (!hasTotal || !startTime || current === 0 || current >= total) {
-                  return null;
-                }
-                
-                const elapsed = Date.now() - startTime; // milliseconds
-                const elapsedSeconds = elapsed / 1000;
-                const rate = current / elapsedSeconds; // items per second
-                
-                if (rate === 0 || !isFinite(rate)) {
-                  return null;
-                }
-                
-                const remaining = total - current;
-                const remainingSeconds = remaining / rate;
-                
-                if (!isFinite(remainingSeconds) || remainingSeconds < 0) {
-                  return null;
-                }
-                
-                // Format ETA
-                if (remainingSeconds < 60) {
-                  return `${Math.round(remainingSeconds)}s`;
-                } else if (remainingSeconds < 3600) {
-                  const minutes = Math.floor(remainingSeconds / 60);
-                  const seconds = Math.round(remainingSeconds % 60);
-                  return `${minutes}m ${seconds}s`;
-                } else {
-                  const hours = Math.floor(remainingSeconds / 3600);
-                  const minutes = Math.round((remainingSeconds % 3600) / 60);
-                  return `${hours}h ${minutes}m`;
-                }
-              };
-              
-              const eta = calculateETA();
-              
-              // Show indeterminate progress when total is not yet known
-              const isIndeterminate = !hasTotal;
-              
-              // Ensure we always show at least some progress visually
-              // When progress is 0%, show 5% so user knows something is happening
-              // When progress > 0%, show actual progress (minimum 1% for visibility)
-              const displayProgress = hasTotal 
-                ? (progressPercentage === 0 ? 5 : Math.max(progressPercentage, 1))
-                : 0;
-              
-              const tooltipText = hasTotal
-                ? `${cacheDownloadProgress.message || 'Updating cache'}: ${progressPercentage}% (${current}/${total})${eta ? ` • ETA: ${eta}` : ''}`
-                : (cacheDownloadProgress.message || 'Updating cache...');
-
-              return (
-                <Tooltip
-                  title={tooltipText}
-                  arrow
-                  placement="left"
-                >
-              <div style={{
-                position: 'absolute',
-                top: '20px',
-                right: '20px',
-                zIndex: 1000,
-                display: 'flex',
-                alignItems: 'center',
-                    gap: '8px',
-                    cursor: 'pointer'
-                  }}>
-                    {/* ETA Display */}
-                    {eta && (
-                      <span style={{
-                        fontSize: '11px',
-                        color: '#64748b',
-                        fontWeight: 500,
-                        whiteSpace: 'nowrap'
-                      }}>
-                        ETA: {eta}
-                      </span>
-                    )}
-                  <div style={{
-                      width: '120px',
-                      height: '6px',
-                      backgroundColor: '#e2e8f0',
-                      borderRadius: '3px',
-                      overflow: 'hidden',
-                      position: 'relative',
-                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-                    }}>
-                      {isIndeterminate ? (
-                        // Indeterminate progress bar (animated sliding)
-                        <div
-                          style={{
-                            width: '30%',
-                            height: '100%',
-                            backgroundColor: '#10b981',
-                            borderRadius: '3px',
-                            animation: 'indeterminateProgress 1.5s ease-in-out infinite',
-                    position: 'absolute',
-                            left: 0,
-                            top: 0
-                          }}
-                        />
-                      ) : (
-                        // Determinate progress bar
-                        <div
-                          style={{
-                            width: `${displayProgress}%`,
-                            height: '100%',
-                            backgroundColor: '#10b981',
-                            borderRadius: '3px',
-                            transition: 'width 0.3s ease',
-                            position: 'relative',
-                            overflow: 'hidden',
-                            minWidth: progressPercentage > 0 ? '2px' : '0px'
-                          }}
-                        >
-                          {progressPercentage > 0 && progressPercentage < 100 && (
-                            <div
-                              style={{
-                    position: 'absolute',
-                                top: 0,
-                                left: 0,
-                                right: 0,
-                                bottom: 0,
-                                background: 'linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent)',
-                                animation: 'progressShimmer 1.5s infinite'
-                              }}
-                            />
-                          )}
-              </div>
-            )}
-                    </div>
-                  </div>
-                </Tooltip>
-              );
-            })()}
             {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
         {isMobile ? (
           <>
@@ -6604,62 +6594,162 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 background: '#f8fafc',
                 borderRadius: '8px',
                 border: '1px solid #e2e8f0',
-                boxSizing: 'border-box'
+                boxSizing: 'border-box',
+                position: 'relative',
+                overflow: 'hidden'
               }}>
+                {/* Progress Bar Background */}
+                {isDownloadingCache && (() => {
+                  const current = cacheDownloadProgress.current || 0;
+                  const total = cacheDownloadProgress.total || 0;
+                  const hasTotal = total > 0;
+                  const progressPercentage = hasTotal && total > 0
+                    ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
+                    : 0;
+                  const displayProgress = hasTotal 
+                    ? (progressPercentage === 0 ? 5 : Math.max(progressPercentage, 1))
+                    : 0;
+                  
+                  return (
+                    <div style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      bottom: 0,
+                      width: hasTotal ? `${displayProgress}%` : '30%',
+                      background: hasTotal 
+                        ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)'
+                        : 'linear-gradient(90deg, #10b981 0%, #059669 100%)',
+                      transition: hasTotal ? 'width 0.3s ease' : 'none',
+                      animation: !hasTotal ? 'indeterminateProgress 1.5s ease-in-out infinite' : 'none',
+                      zIndex: 0
+                    }} />
+                  );
+                })()}
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
                   flex: '1 1 0',
                   minWidth: 0,
-                  overflow: 'hidden'
+                  overflow: 'hidden',
+                  position: 'relative',
+                  zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '16px', color: '#64748b', flexShrink: 0 }}>schedule</span>
-                  <span style={{
-                    fontSize: '11px',
-                    color: '#64748b',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
+                  <span className="material-icons" style={{ fontSize: '16px', color: isDownloadingCache ? '#10b981' : '#64748b', flexShrink: 0 }}>schedule</span>
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
                     flex: '1 1 0',
-                    minWidth: 0
+                    minWidth: 0,
+                    overflow: 'hidden'
                   }}>
-                    {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
-                  </span>
+                    <span style={{
+                      fontSize: '11px',
+                      color: isDownloadingCache ? '#059669' : '#64748b',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      fontWeight: isDownloadingCache ? '600' : '400'
+                    }}>
+                      {isDownloadingCache ? (
+                        (() => {
+                          const current = cacheDownloadProgress.current || 0;
+                          const total = cacheDownloadProgress.total || 0;
+                          const hasTotal = total > 0;
+                          const progressPercentage = hasTotal && total > 0
+                            ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
+                            : 0;
+                          
+                          // Calculate ETA
+                          const startTime = cacheDownloadStartTime || cacheDownloadStartTimeRef.current;
+                          let eta = null;
+                          if (hasTotal && startTime && current > 0 && current < total) {
+                            const elapsed = Date.now() - startTime;
+                            const elapsedSeconds = elapsed / 1000;
+                            const rate = current / elapsedSeconds;
+                            if (rate > 0 && isFinite(rate)) {
+                              const remaining = total - current;
+                              const remainingSeconds = remaining / rate;
+                              if (isFinite(remainingSeconds) && remainingSeconds > 0) {
+                                if (remainingSeconds < 60) {
+                                  eta = `${Math.round(remainingSeconds)}s`;
+                                } else if (remainingSeconds < 3600) {
+                                  const minutes = Math.floor(remainingSeconds / 60);
+                                  const seconds = Math.round(remainingSeconds % 60);
+                                  eta = `${minutes}m ${seconds}s`;
+                                } else {
+                                  const hours = Math.floor(remainingSeconds / 3600);
+                                  const minutes = Math.round((remainingSeconds % 3600) / 60);
+                                  eta = `${hours}h ${minutes}m`;
+                                }
+                              }
+                            }
+                          }
+                          
+                          return hasTotal 
+                            ? `Downloading: ${progressPercentage}%${eta ? ` • ETA: ${eta}` : ''}`
+                            : 'Downloading...';
+                        })()
+                      ) : (
+                        lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'
+                      )}
+                    </span>
+                    {isDownloadingCache && (() => {
+                      const current = cacheDownloadProgress.current || 0;
+                      const total = cacheDownloadProgress.total || 0;
+                      const hasTotal = total > 0;
+                      if (hasTotal) {
+                        return (
+                          <span style={{
+                            fontSize: '9px',
+                            color: '#059669',
+                            opacity: 0.8
+                          }}>
+                            {current} / {total} chunks
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={handleRefresh}
-                  disabled={loading || !fromDate || !toDate}
+                  disabled={loading || !fromDate || !toDate || isDownloadingCache}
                   style={{
-                    background: loading || !fromDate || !toDate
+                    background: loading || !fromDate || !toDate || isDownloadingCache
                       ? '#e5e7eb'
                       : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                     border: 'none',
                     borderRadius: '6px',
                     padding: '6px 10px',
-                    cursor: loading || !fromDate || !toDate ? 'not-allowed' : 'pointer',
+                    cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '4px',
-                    color: loading || !fromDate || !toDate ? '#9ca3af' : '#fff',
+                    color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
                     fontSize: '11px',
                     fontWeight: '600',
                     transition: 'all 0.2s ease',
-                    boxShadow: loading || !fromDate || !toDate
+                    boxShadow: loading || !fromDate || !toDate || isDownloadingCache
                       ? 'none'
                       : '0 2px 4px rgba(59, 130, 246, 0.25)',
                     flexShrink: 0,
-                    whiteSpace: 'nowrap'
+                    whiteSpace: 'nowrap',
+                    position: 'relative',
+                    zIndex: 1
                   }}
                   onMouseEnter={(e) => {
-                    if (!loading && fromDate && toDate) {
+                    if (!loading && fromDate && toDate && !isDownloadingCache) {
                       e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
                       e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (!loading && fromDate && toDate) {
+                    if (!loading && fromDate && toDate && !isDownloadingCache) {
                       e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
                       e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
                     }
@@ -6667,9 +6757,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 >
                   <span className="material-icons" style={{
                     fontSize: '16px',
-                    animation: loading ? 'spin 1s linear infinite' : 'none'
-                  }}>refresh</span>
-                  <span>Refresh</span>
+                    animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
+                  }}>
+                    {downloadStatus === 'none' ? 'download' : downloadStatus === 'interrupted' ? 'play_arrow' : 'refresh'}
+                  </span>
+                  <span>
+                    {downloadStatus === 'none' ? 'Download' : downloadStatus === 'interrupted' ? 'Continue Download' : 'Refresh'}
+                  </span>
                 </button>
               </div>
 
@@ -7001,53 +7095,154 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 borderRadius: '8px',
                 border: '1px solid #e2e8f0',
                 whiteSpace: 'nowrap',
-                flexShrink: 0
+                flexShrink: 0,
+                position: 'relative',
+                overflow: 'hidden'
               }}>
+                {/* Progress Bar Background */}
+                {isDownloadingCache && (() => {
+                  const current = cacheDownloadProgress.current || 0;
+                  const total = cacheDownloadProgress.total || 0;
+                  const hasTotal = total > 0;
+                  const progressPercentage = hasTotal && total > 0
+                    ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
+                    : 0;
+                  const displayProgress = hasTotal 
+                    ? (progressPercentage === 0 ? 5 : Math.max(progressPercentage, 1))
+                    : 0;
+                  
+                  return (
+                    <div style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      bottom: 0,
+                      width: hasTotal ? `${displayProgress}%` : '30%',
+                      background: hasTotal 
+                        ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)'
+                        : 'linear-gradient(90deg, #10b981 0%, #059669 100%)',
+                      transition: hasTotal ? 'width 0.3s ease' : 'none',
+                      animation: !hasTotal ? 'indeterminateProgress 1.5s ease-in-out infinite' : 'none',
+                      zIndex: 0
+                    }} />
+                  );
+                })()}
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: '6px',
+                  position: 'relative',
+                  zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '14px', color: '#64748b' }}>schedule</span>
-                  <span style={{
-                    fontSize: '12px',
-                    color: '#64748b',
-                    whiteSpace: 'nowrap'
+                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#64748b' }}>schedule</span>
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '2px',
+                    minWidth: 0
                   }}>
-                    {lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'}
-                  </span>
+                    <span style={{
+                      fontSize: '12px',
+                      color: isDownloadingCache ? '#059669' : '#64748b',
+                      whiteSpace: 'nowrap',
+                      fontWeight: isDownloadingCache ? '600' : '400'
+                    }}>
+                      {isDownloadingCache ? (
+                        (() => {
+                          const current = cacheDownloadProgress.current || 0;
+                          const total = cacheDownloadProgress.total || 0;
+                          const hasTotal = total > 0;
+                          const progressPercentage = hasTotal && total > 0
+                            ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
+                            : 0;
+                          
+                          // Calculate ETA
+                          const startTime = cacheDownloadStartTime || cacheDownloadStartTimeRef.current;
+                          let eta = null;
+                          if (hasTotal && startTime && current > 0 && current < total) {
+                            const elapsed = Date.now() - startTime;
+                            const elapsedSeconds = elapsed / 1000;
+                            const rate = current / elapsedSeconds;
+                            if (rate > 0 && isFinite(rate)) {
+                              const remaining = total - current;
+                              const remainingSeconds = remaining / rate;
+                              if (isFinite(remainingSeconds) && remainingSeconds > 0) {
+                                if (remainingSeconds < 60) {
+                                  eta = `${Math.round(remainingSeconds)}s`;
+                                } else if (remainingSeconds < 3600) {
+                                  const minutes = Math.floor(remainingSeconds / 60);
+                                  const seconds = Math.round(remainingSeconds % 60);
+                                  eta = `${minutes}m ${seconds}s`;
+                                } else {
+                                  const hours = Math.floor(remainingSeconds / 3600);
+                                  const minutes = Math.round((remainingSeconds % 3600) / 60);
+                                  eta = `${hours}h ${minutes}m`;
+                                }
+                              }
+                            }
+                          }
+                          
+                          return hasTotal 
+                            ? `Downloading: ${progressPercentage}%${eta ? ` • ETA: ${eta}` : ''}`
+                            : 'Downloading...';
+                        })()
+                      ) : (
+                        lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'
+                      )}
+                    </span>
+                    {isDownloadingCache && (() => {
+                      const current = cacheDownloadProgress.current || 0;
+                      const total = cacheDownloadProgress.total || 0;
+                      const hasTotal = total > 0;
+                      if (hasTotal) {
+                        return (
+                          <span style={{
+                            fontSize: '10px',
+                            color: '#059669',
+                            opacity: 0.8,
+                            whiteSpace: 'nowrap'
+                          }}>
+                            {current} / {total} chunks
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
                 </div>
                 <button
                   type="button"
                   onClick={handleRefresh}
-                  disabled={loading || !fromDate || !toDate}
+                  disabled={loading || !fromDate || !toDate || isDownloadingCache}
                   style={{
-                    background: loading || !fromDate || !toDate
+                    background: loading || !fromDate || !toDate || isDownloadingCache
                       ? '#e5e7eb'
                       : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                     border: 'none',
                     borderRadius: '6px',
                     padding: '6px 12px',
-                    cursor: loading || !fromDate || !toDate ? 'not-allowed' : 'pointer',
+                    cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    color: loading || !fromDate || !toDate ? '#9ca3af' : '#fff',
+                    color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
                     fontSize: '12px',
                     fontWeight: '600',
                     transition: 'all 0.2s ease',
-                    boxShadow: loading || !fromDate || !toDate
+                    boxShadow: loading || !fromDate || !toDate || isDownloadingCache
                       ? 'none'
-                      : '0 2px 4px rgba(59, 130, 246, 0.25)'
+                      : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                    position: 'relative',
+                    zIndex: 1
                   }}
                   onMouseEnter={(e) => {
-                    if (!loading && fromDate && toDate) {
+                    if (!loading && fromDate && toDate && !isDownloadingCache) {
                       e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
                       e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (!loading && fromDate && toDate) {
+                    if (!loading && fromDate && toDate && !isDownloadingCache) {
                       e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
                       e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
                     }
@@ -7055,9 +7250,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 >
                   <span className="material-icons" style={{
                     fontSize: '16px',
-                    animation: loading ? 'spin 1s linear infinite' : 'none'
-                  }}>refresh</span>
-                  <span>Refresh</span>
+                    animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
+                  }}>
+                    {downloadStatus === 'none' ? 'download' : downloadStatus === 'interrupted' ? 'play_arrow' : 'refresh'}
+                  </span>
+                  <span>
+                    {downloadStatus === 'none' ? 'Download' : downloadStatus === 'interrupted' ? 'Continue Download' : 'Refresh'}
+                  </span>
                 </button>
               </div>
 
@@ -12984,6 +13183,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
       </div>
     )}
+
+    {/* Resume Download Modal */}
+    <ResumeDownloadModal
+      isOpen={showResumeModal}
+      onContinue={handleResumeContinue}
+      onStartFresh={handleResumeStartFresh}
+      progress={interruptedProgress || { current: 0, total: 0 }}
+      companyName={interruptedProgress?.companyName || 'this company'}
+    />
     </>
   );
 };
