@@ -340,6 +340,10 @@ class ApiService {
   }
 
   async getCompanyOrders(tallylocId, company, guid, includeCleared = false) {
+    // Add timeout handling - 90 seconds for company orders (larger query)
+    const abortController = new AbortController();
+    let timeoutId = setTimeout(() => abortController.abort(), 90000); // 90 second timeout
+
     try {
       const token = getToken();
       if (!token) {
@@ -398,12 +402,14 @@ class ApiService {
             <TYPE>Sales Orders</TYPE>
             <NATIVEMETHOD>*.*</NATIVEMETHOD>
 			<METHOD>DLOrdItemClosing : $ClosingBalance:StockItem:$Parent</METHOD>
+            <Compute>O_PreCloseDate	: $$GetOrderClosureDate:$$Name:$Parent:Yes:$OrderDueDate:$Date:$TrackLeger:$GodownName:$BatchName</Compute>
         </COLLECTION>
         <COLLECTION NAME="DL OrdCleared" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">
             <TYPE>Sales Orders</TYPE>
             <CLEARED>Yes</CLEARED>
             <NATIVEMETHOD>*.*</NATIVEMETHOD>
 			<METHOD>DLOrdItemClosing : $ClosingBalance:StockItem:$Parent</METHOD>
+            <Compute>O_PreCloseDate	: $$GetOrderClosureDate:$$Name:$Parent:Yes:$OrderDueDate:$Date:$TrackLeger:$GodownName:$BatchName</Compute>
         </COLLECTION>
         </TDLMESSAGE>
         </TDL>
@@ -419,18 +425,19 @@ class ApiService {
           $TrackLedger as Customer, 
           $OpeningBalance as 'Order Qty', 
           $ClosingBalance as 'Pending Qty',
+		  $OrderPreclosureQty as 'Pre-Closed Qty',
+          $O_PreCloseDate as 'Pre-Closed Date',
+          $OrderClosureReason as 'Pre-close reason',
           $$DueDateByDate:$OrderDueDate as 'Due Date',
           $$Number:$Rate as 'Rate',
           $Discount as 'Discount',
 		  $SOTotal:StockItem:$Parent as "Total Pending Orders",
 		  $DLOrdItemClosing as 'Available'
-        from ${includeCleared ? 'DLOrdAll' : 'DLOrdPending'}
+        from DLOrdAll
       </SQLREQUEST>
       <STATICVARIABLES>
         <SVCURRENTCOMPANY>${company}</SVCURRENTCOMPANY>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVFROMDATE>${currentDate}</SVFROMDATE>
-        <SVTODATE>${currentDate}</SVTODATE>
       </STATICVARIABLES>
     </DESC>
   </BODY>
@@ -446,7 +453,10 @@ class ApiService {
           'x-guid': guid,
         },
         body: xmlBody,
+        signal: abortController.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -545,6 +555,15 @@ class ApiService {
             case 'isbatcheson':
               order.IsBatchesOn = value;
               break;
+            case 'pre-closedqty':
+              order.PreClosedQty = value;
+              break;
+            case 'pre-closeddate':
+              order.PreClosedDate = normalizeDateValue(value);
+              break;
+            case 'pre-closereason':
+              order.PreCloseReason = value;
+              break;
             default:
               break;
           }
@@ -557,6 +576,11 @@ class ApiService {
 
       return orders;
     } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        console.error('Get company orders timeout:', error);
+        throw new Error('Request timeout. The server took too long to respond. Please try again.');
+      }
       console.error('Get company orders error:', error);
       throw error;
     }
@@ -603,6 +627,9 @@ class ApiService {
   }
 
   async getReceivablesData(tallylocId, company, guid, xmlBody) {
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), 60000); // 60 second timeout
+
     try {
       const token = getToken();
       if (!token) {
@@ -610,6 +637,19 @@ class ApiService {
       }
 
       const companyName = company;
+
+      // Log XML to server console (this will appear in the Node.js server terminal)
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('🚨 SHORT CLOSE XML BEING POSTED TO TALLY (SERVER LOG) 🚨');
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('Company:', companyName);
+      console.log('TallyLocId:', tallylocId);
+      console.log('XML Body Length:', xmlBody?.length || 0);
+      console.log('═══════════════════════════════════════════════════════');
+      console.log(xmlBody);
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('END OF XML');
+      console.log('═══════════════════════════════════════════════════════');
 
       const response = await fetch(getApiUrl('/api/tally/tallydata'), {
         method: 'POST',
@@ -621,7 +661,10 @@ class ApiService {
           'x-guid': guid,
         },
         body: xmlBody,
+        signal: abortController.signal,
       });
+
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         if (response.status === 401) {
@@ -634,6 +677,11 @@ class ApiService {
 
       return await response.text();
     } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.name === 'AbortError') {
+        console.error('Get receivables data timeout:', error);
+        throw new Error('Request timeout. The server took too long to respond. Please try again.');
+      }
       console.error('Get receivables data error:', error);
       throw error;
     }

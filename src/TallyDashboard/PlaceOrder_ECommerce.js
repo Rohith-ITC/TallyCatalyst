@@ -67,19 +67,61 @@ function PlaceOrder_ECommerce() {
   useEffect(() => {
     const updateUserModules = () => {
       const modules = getUserModules();
-      setUserModules(modules);
+      console.log('🔄 Refreshing user modules:', modules.length);
+      setUserModules(prevModules => {
+        // Only update if modules actually changed
+        if (JSON.stringify(prevModules) !== JSON.stringify(modules)) {
+          return modules;
+        }
+        return prevModules;
+      });
     };
 
     updateUserModules();
 
+    // Listen for permission updates
     window.addEventListener('userAccessUpdated', updateUserModules);
     window.addEventListener('companyChanged', updateUserModules);
+    
+    // Also listen for storage changes (in case permissions are updated via localStorage/sessionStorage)
+    const handleStorageChange = (e) => {
+      if (e.key === 'userModules' || e.key === 'userAccess' || e.key?.includes('permission')) {
+        console.log('🔄 Storage change detected, refreshing permissions');
+        updateUserModules();
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Poll for permission changes every 2 seconds (as a fallback)
+    const pollInterval = setInterval(() => {
+      updateUserModules();
+    }, 2000);
+    
+    // Also refresh when page becomes visible (user switches back to tab)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('🔄 Page visible, refreshing permissions');
+        updateUserModules();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    // Refresh on window focus
+    const handleFocus = () => {
+      console.log('🔄 Window focused, refreshing permissions');
+      updateUserModules();
+    };
+    window.addEventListener('focus', handleFocus);
 
     return () => {
       window.removeEventListener('userAccessUpdated', updateUserModules);
       window.removeEventListener('companyChanged', updateUserModules);
+      window.removeEventListener('storage', handleStorageChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(pollInterval);
     };
-  }, []);
+  }, []); // Empty dependency array - only run once on mount
 
 
   // Check if user has show_rateamt_Column permission
@@ -105,6 +147,66 @@ function PlaceOrder_ECommerce() {
 
   // Check if user has show_image permission
   const canShowImage = hasPermission('ecommerce_place_order', 'show_image', userModules);
+  
+  // Check if user has upload_image permission (for uploading/editing media)
+  // First, try to find any permission with "upload" in the key dynamically
+  const ecommerceModule = userModules.find(m => m.module_name === 'ecommerce_place_order');
+  const uploadPermissions = ecommerceModule?.permissions?.filter(p => {
+    if (!p.granted || !p.permission_key) return false;
+    const key = p.permission_key.toLowerCase();
+    // Match permissions that explicitly have "upload" in the key
+    // OR have both "item" and "image" (likely upload_item_image variants)
+    // BUT exclude "show_image" which is for viewing only
+    return (key.includes('upload') || 
+            (key.includes('item') && key.includes('image'))) &&
+           !key.includes('show_image'); // Explicitly exclude show_image
+  }) || [];
+  
+  // Try multiple possible permission keys for upload functionality
+  // NOTE: show_image is for VIEWING images only, NOT for uploading - do NOT use as fallback
+  const canUploadImage = hasPermission('ecommerce_place_order', 'upload_image', userModules) ||
+                         hasPermission('ecommerce_place_order', 'item_image_upload', userModules) ||
+                         hasPermission('ecommerce_place_order', 'upload_item_image', userModules) ||
+                         hasPermission('ecommerce_place_order', 'itemimageupload', userModules) ||
+                         hasPermission('ecommerce_place_order', 'uploaditemimage', userModules) ||
+                         uploadPermissions.length > 0; // If any upload permission is granted
+  
+  // Debug logging for permission check - log all available permissions
+  useEffect(() => {
+    const ecommerceModule = userModules.find(m => m.module_name === 'ecommerce_place_order');
+    const allPermissionKeys = ecommerceModule?.permissions?.map(p => p.permission_key || p.key) || [];
+    const grantedPermissions = ecommerceModule?.permissions?.filter(p => p.granted) || [];
+    const grantedKeys = grantedPermissions.map(p => p.permission_key || p.key);
+    
+    console.log('🔍 Media Upload Permission Check:', {
+      canUploadImage,
+      canShowImage,
+      upload_image: hasPermission('ecommerce_place_order', 'upload_image', userModules),
+      item_image_upload: hasPermission('ecommerce_place_order', 'item_image_upload', userModules),
+      upload_item_image: hasPermission('ecommerce_place_order', 'upload_item_image', userModules),
+      itemimageupload: hasPermission('ecommerce_place_order', 'itemimageupload', userModules),
+      uploaditemimage: hasPermission('ecommerce_place_order', 'uploaditemimage', userModules),
+      show_image: hasPermission('ecommerce_place_order', 'show_image', userModules),
+      uploadPermissionsCount: uploadPermissions.length,
+      note: 'show_image is for VIEWING only, NOT for uploading',
+      userModulesCount: userModules.length,
+      ecommerceModule: ecommerceModule,
+      allPermissionKeys: allPermissionKeys,
+      grantedKeys: grantedKeys,
+      allPermissions: ecommerceModule?.permissions || []
+    });
+    
+    // Also log permissions that contain "image" or "upload"
+    const imageRelatedPermissions = allPermissionKeys.filter(key => 
+      key && (key.toLowerCase().includes('image') || key.toLowerCase().includes('upload'))
+    );
+    if (imageRelatedPermissions.length > 0) {
+      console.log('📸 Image/Upload related permissions found:', imageRelatedPermissions);
+      console.log('📸 Granted image/upload permissions:', grantedKeys.filter(key => 
+        key && (key.toLowerCase().includes('image') || key.toLowerCase().includes('upload'))
+      ));
+    }
+  }, [userModules, canUploadImage, canShowImage]);
 
   // Get default quantity value from def_qty permission
   const defaultQuantity = getPermissionValue('ecommerce_place_order', 'def_qty', userModules);
@@ -153,6 +255,7 @@ function PlaceOrder_ECommerce() {
   const [imageUploadSuccess, setImageUploadSuccess] = useState(false);
   const [imageAddMethod, setImageAddMethod] = useState('link'); // 'link' or 'picker'
   const [isLoadingGooglePicker, setIsLoadingGooglePicker] = useState(false);
+  const [mediaType, setMediaType] = useState('image'); // 'image' or 'video'
 
   // Helper function to parse comma-separated image paths
   const parseImagePaths = (imagePath) => {
@@ -310,7 +413,7 @@ function PlaceOrder_ECommerce() {
 
   // Helper function to detect if a URL is a video
   const isVideoUrl = (url) => {
-    if (!url) return false;
+    if (!url || typeof url !== 'string') return false;
     const videoExtensions = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.m4v'];
     const lowerUrl = url.toLowerCase();
     return videoExtensions.some(ext => lowerUrl.includes(ext)) || 
@@ -470,7 +573,7 @@ function PlaceOrder_ECommerce() {
         const linkType = getLinkType(mediaPath);
         typeMap[mediaPath] = linkType === 'google_drive_video' || linkType === 'direct_video' || isVideoUrl(mediaPath) ? 'video' : 'image';
         console.log('🔍 Media type detected (initial sync):', {
-          path: mediaPath.substring(0, 50),
+          path: mediaPath ? mediaPath.substring(0, 50) : 'null',
           type: typeMap[mediaPath],
           linkType
         });
@@ -491,7 +594,7 @@ function PlaceOrder_ECommerce() {
             if (typeMap[mediaPath] !== detectedType) {
               typeMap[mediaPath] = detectedType;
               console.log('🔍 Media type updated (async with token):', {
-                path: mediaPath.substring(0, 50),
+                path: mediaPath ? mediaPath.substring(0, 50) : 'null',
                 oldType: typeMap[mediaPath] === 'video' ? 'image' : 'video',
                 newType: detectedType,
                 linkType,
@@ -501,7 +604,7 @@ function PlaceOrder_ECommerce() {
               setMediaTypeMap({ ...typeMap });
             } else {
               console.log('🔍 Media type confirmed (async with token):', {
-                path: mediaPath.substring(0, 50),
+                path: mediaPath ? mediaPath.substring(0, 50) : 'null',
                 type: detectedType,
                 linkType
               });
@@ -535,7 +638,7 @@ function PlaceOrder_ECommerce() {
 
       // Re-check MIME type for the currently selected media
       console.log('🔍 Re-checking MIME type for selected media', {
-        path: currentMediaPath.substring(0, 50),
+        path: currentMediaPath ? currentMediaPath.substring(0, 50) : 'null',
         index: selectedImageIndex
       });
       try {
@@ -549,7 +652,7 @@ function PlaceOrder_ECommerce() {
               return prev;
             }
             console.log('✅ Updating media type map:', {
-              path: currentMediaPath.substring(0, 50),
+              path: currentMediaPath ? currentMediaPath.substring(0, 50) : 'null',
               oldType: prev[currentMediaPath],
               newType: detectedType,
               mimeType
@@ -677,13 +780,21 @@ function PlaceOrder_ECommerce() {
       const customer = customerOptions.find(c => c.NAME === selectedCustomer);
       if (customer && customer.PRICELEVEL) {
         const pl = (item.PRICELEVELS || []).find(x => x.PLNAME === customer.PRICELEVEL);
-        if (pl) {
-          return enhancedDeobfuscateValue(pl.RATE) || 0;
+        if (pl && pl.RATE !== undefined && pl.RATE !== null) {
+          // Handle both obfuscated strings and already-deobfuscated numbers
+          const rate = typeof pl.RATE === 'string' ? enhancedDeobfuscateValue(pl.RATE) : pl.RATE;
+          const parsedRate = parseFloat(rate);
+          return isNaN(parsedRate) ? 0 : parsedRate;
         }
         return 0;
       }
-      // Fallback to STDPRICE (already deobfuscated in fetch)
-      return parseFloat(item.STDPRICE || 0) || 0;
+      // Fallback to STDPRICE (already deobfuscated in fetch or cache)
+      // Handle both string and number formats
+      const stdPrice = typeof item.STDPRICE === 'string' 
+        ? (enhancedDeobfuscateValue(item.STDPRICE) || item.STDPRICE)
+        : item.STDPRICE;
+      const parsedPrice = parseFloat(stdPrice);
+      return isNaN(parsedPrice) ? 0 : parsedPrice;
     };
   }, [customerOptions, selectedCustomer]);
 
@@ -894,9 +1005,51 @@ function PlaceOrder_ECommerce() {
           const { getItemsFromOPFS } = await import('../utils/cacheSyncManager');
           const items = await getItemsFromOPFS(cacheKey);
           if (items && Array.isArray(items) && items.length > 0) {
-            console.log('Using cached stock items data from OPFS');
-            setStockItems(items);
+            console.log(`✅ Loaded ${items.length} stock items from cache`);
+            // Log sample item to verify structure
+            if (items.length > 0) {
+              const sampleItem = items[0];
+              console.log('Sample cached item structure:', {
+                NAME: sampleItem.NAME,
+                hasSTDPRICE: !!sampleItem.STDPRICE,
+                STDPRICE: sampleItem.STDPRICE,
+                STDPRICE_type: typeof sampleItem.STDPRICE,
+                hasLASTPRICE: !!sampleItem.LASTPRICE,
+                hasPRICELEVELS: !!sampleItem.PRICELEVELS,
+                PRICELEVELS_count: sampleItem.PRICELEVELS?.length || 0,
+                hasIMAGEPATH: !!sampleItem.IMAGEPATH,
+                IMAGEPATH: sampleItem.IMAGEPATH ? (sampleItem.IMAGEPATH.length > 50 ? sampleItem.IMAGEPATH.substring(0, 50) + '...' : sampleItem.IMAGEPATH) : 'undefined',
+                IMAGEPATH_type: typeof sampleItem.IMAGEPATH,
+                // Check for alternative field names
+                hasImagePath: !!sampleItem.imagePath,
+                hasimagepath: !!sampleItem.imagepath,
+                allKeys: Object.keys(sampleItem).filter(k => k.toLowerCase().includes('image')),
+                hasPARTNO: !!sampleItem.PARTNO,
+                hasCLOSINGSTOCK: sampleItem.CLOSINGSTOCK !== undefined
+              });
+            }
+            // Items from cache are already deobfuscated (done in syncItems)
+            // Normalize items to ensure consistent field names (handle case variations)
+            const normalizedItems = items.map(item => {
+              if (!item || !item.NAME) return null;
+              // Ensure IMAGEPATH exists (check for case variations)
+              if (!item.IMAGEPATH) {
+                item.IMAGEPATH = item.imagePath || item.imagepath || item.IMAGE_PATH || item.ImagePath || null;
+              }
+              return item;
+            }).filter(item => item !== null);
+            
+            // Count items with images
+            const itemsWithImages = normalizedItems.filter(item => item.IMAGEPATH && item.IMAGEPATH.trim().length > 0).length;
+            
+            if (normalizedItems.length > 0) {
+              console.log(`✅ Normalized ${normalizedItems.length} items from cache (${items.length - normalizedItems.length} invalid items filtered, ${itemsWithImages} items have images)`);
+              setStockItems(normalizedItems);
+              setStockItemsLoading(false);
             return;
+            } else {
+              console.warn('Cached items found but none are valid after normalization, fetching fresh');
+            }
           }
         } catch (e) {
           console.warn('Error loading from OPFS, will fetch fresh:', e);
@@ -921,16 +1074,54 @@ function PlaceOrder_ECommerce() {
           // Deobfuscate sensitive pricing data
           const decryptedItems = deobfuscateStockItems(data.stockItems);
 
-          setStockItems(decryptedItems);
-          // Cache the deobfuscated result in OPFS (handles large data)
+          // Log sample item structure for debugging
+          if (decryptedItems.length > 0) {
+            const sampleItem = decryptedItems[0];
+            console.log('Sample fresh item structure after deobfuscation:', {
+              NAME: sampleItem.NAME,
+              hasSTDPRICE: !!sampleItem.STDPRICE,
+              STDPRICE: sampleItem.STDPRICE,
+              STDPRICE_type: typeof sampleItem.STDPRICE,
+              hasLASTPRICE: !!sampleItem.LASTPRICE,
+              hasPRICELEVELS: !!sampleItem.PRICELEVELS,
+              PRICELEVELS_count: sampleItem.PRICELEVELS?.length || 0,
+              hasIMAGEPATH: !!sampleItem.IMAGEPATH,
+              IMAGEPATH: sampleItem.IMAGEPATH ? (sampleItem.IMAGEPATH.length > 50 ? sampleItem.IMAGEPATH.substring(0, 50) + '...' : sampleItem.IMAGEPATH) : 'undefined',
+              IMAGEPATH_type: typeof sampleItem.IMAGEPATH,
+              // Check for alternative field names
+              hasImagePath: !!sampleItem.imagePath,
+              hasimagepath: !!sampleItem.imagepath,
+              allKeys: Object.keys(sampleItem).filter(k => k.toLowerCase().includes('image')),
+              hasPARTNO: !!sampleItem.PARTNO,
+              hasCLOSINGSTOCK: sampleItem.CLOSINGSTOCK !== undefined
+            });
+          }
+          
+          // Normalize items to ensure consistent field names
+          const normalizedItems = decryptedItems.map(item => {
+            if (!item || !item.NAME) return null;
+            // Ensure IMAGEPATH exists (check for case variations)
+            if (!item.IMAGEPATH) {
+              item.IMAGEPATH = item.imagePath || item.imagepath || item.IMAGE_PATH || item.ImagePath || null;
+            }
+            return item;
+          }).filter(item => item !== null);
+          
+          // Count items with images
+          const itemsWithImages = normalizedItems.filter(item => item.IMAGEPATH && item.IMAGEPATH.trim().length > 0).length;
+          
+          console.log(`✅ Normalized ${normalizedItems.length} fresh items (${decryptedItems.length - normalizedItems.length} invalid items filtered, ${itemsWithImages} items have images)`);
+
+          setStockItems(normalizedItems);
+          // Cache the normalized result in OPFS (handles large data)
           try {
             const { hybridCache } = await import('../utils/hybridCache');
-            await hybridCache.setSalesData(cacheKey, { stockItems: decryptedItems }, null);
-            console.log('✅ Cached stock items in OPFS');
+            await hybridCache.setSalesData(cacheKey, { stockItems: normalizedItems }, null);
+            console.log('✅ Cached normalized stock items in OPFS');
           } catch (cacheError) {
             console.warn('Failed to cache stock items in OPFS:', cacheError.message);
           }
-          console.log('Stock items fetched and deobfuscated:', decryptedItems);
+          console.log(`✅ Stock items fetched, deobfuscated, and normalized: ${normalizedItems.length} items`);
         }
       } catch (err) {
         console.error('Error fetching stock items:', err);
@@ -1155,7 +1346,7 @@ function PlaceOrder_ECommerce() {
   // Handle adding new image
   const handleAddImage = () => {
     if (!newImageLink.trim()) {
-      setImageUploadError('Please enter a Google Drive link');
+      setImageUploadError(`Please enter a Google Drive ${mediaType} link`);
       return;
     }
 
@@ -1168,16 +1359,98 @@ function PlaceOrder_ECommerce() {
       return;
     }
 
-    // Check if image already exists
-    if (imageList.includes(trimmedLink)) {
-      setImageUploadError('This image is already in the list');
+    // Extract file ID from various Google Drive URL formats
+    let fileId = null;
+    
+    if (trimmedLink.includes('drive.google.com')) {
+      const patterns = [
+        /\/file\/d\/([a-zA-Z0-9_-]+)/,  // /file/d/FILE_ID
+        /\/d\/([a-zA-Z0-9_-]+)/,        // /d/FILE_ID
+        /\/uc\?id=([a-zA-Z0-9_-]+)/,    // /uc?id=FILE_ID
+        /\/open\?id=([a-zA-Z0-9_-]+)/,   // /open?id=FILE_ID
+        /[?&]id=([a-zA-Z0-9_-]+)/,      // ?id=FILE_ID or &id=FILE_ID
+      ];
+      
+      for (const pattern of patterns) {
+        const match = trimmedLink.match(pattern);
+        if (match && match[1]) {
+          fileId = match[1];
+          break;
+        }
+      }
+    } else if (/^[a-zA-Z0-9_-]{15,}$/.test(trimmedLink)) {
+      // It's already a file ID
+      fileId = trimmedLink;
+    }
+
+    if (!fileId) {
+      setImageUploadError('Could not extract file ID from Google Drive link');
       return;
     }
 
-    // Add to list
-    setImageList([...imageList, trimmedLink]);
+    // For images: Convert to CDN URL (lh3 format)
+    // For videos: Convert to preview URL format
+    let processedUrl;
+    if (mediaType === 'image') {
+      processedUrl = `https://lh3.googleusercontent.com/d/${fileId}=w800`;
+    } else {
+      // For videos, use preview URL format for iframe loading
+      processedUrl = `https://drive.google.com/file/d/${fileId}/preview`;
+    }
+
+    // Check if media already exists (check processed URL, file ID, and original link)
+    const alreadyExists = imageList.some(path => {
+      // Validate path is a string
+      if (!path || typeof path !== 'string') {
+        return false;
+      }
+      
+      // Extract file ID from various formats for comparison
+      let existingFileId = null;
+      
+      if (path.includes('lh3.googleusercontent.com')) {
+        const match = path.match(/\/d\/([a-zA-Z0-9_-]+)=/);
+        existingFileId = match ? match[1] : null;
+      } else if (path.includes('drive.google.com')) {
+        const patterns = [
+          /\/file\/d\/([a-zA-Z0-9_-]+)/,
+          /\/d\/([a-zA-Z0-9_-]+)/,
+          /\/uc\?id=([a-zA-Z0-9_-]+)/,
+          /\/open\?id=([a-zA-Z0-9_-]+)/,
+          /[?&]id=([a-zA-Z0-9_-]+)/,
+        ];
+        for (const pattern of patterns) {
+          const match = path.match(pattern);
+          if (match && match[1]) {
+            existingFileId = match[1];
+            break;
+          }
+        }
+      } else if (/^[a-zA-Z0-9_-]{15,}$/.test(path.trim())) {
+        existingFileId = path.trim();
+      }
+      
+      return existingFileId === fileId || path === processedUrl || path === trimmedLink;
+    });
+    
+    if (alreadyExists) {
+      setImageUploadError(`This ${mediaType} is already in the list`);
+      return;
+    }
+
+    // Add processed URL to list
+    setImageList([...imageList, processedUrl]);
     setNewImageLink('');
     setImageUploadError('');
+    console.log(`✅ Converted Google Drive ${mediaType} link:`, {
+      original: trimmedLink,
+      fileId,
+      processedUrl,
+      type: mediaType,
+      'Note': mediaType === 'image' 
+        ? 'CDN URL stored for direct loading from backend'
+        : 'Preview URL stored for iframe loading'
+    });
   };
 
   // Handle deleting image
@@ -1187,7 +1460,7 @@ function PlaceOrder_ECommerce() {
     setImageUploadError('');
   };
 
-  // Authenticate with Google (similar to MasterForm.js)
+  // Authenticate with Google - ONLY use token from company configurations
   const authenticateGoogle = async () => {
     try {
       // Check if credentials are configured
@@ -1201,51 +1474,17 @@ function PlaceOrder_ECommerce() {
         throw new Error('Company information not found');
       }
 
-      // Try to get token from backend configs first
+      // ONLY use token from backend configs (company configuration)
+      // Do not fall back to user authentication
       const { tallyloc_id, guid } = currentCompany;
-      try {
         const storedToken = await getGoogleTokenFromConfigs(tallyloc_id, guid);
         if (storedToken) {
-          console.log('✅ Using Google token from backend configs');
+        console.log('✅ Using Google token from company configuration');
           return storedToken;
-        }
-      } catch (configError) {
-        console.warn('⚠️ Error fetching token from configs:', configError);
       }
 
-      // Check if Google Identity Services is loaded
-      if (!window.google || !window.google.accounts) {
-        throw new Error('Google Identity Services not loaded yet. Please wait and try again.');
-      }
-
-      // No stored token found, prompt user for authentication
-      return new Promise((resolve, reject) => {
-        const tokenClient = window.google.accounts.oauth2.initTokenClient({
-          client_id: GOOGLE_DRIVE_CONFIG.CLIENT_ID,
-          scope: GOOGLE_DRIVE_CONFIG.SCOPES,
-          callback: (response) => {
-            if (response.error) {
-              if (response.error === 'access_denied') {
-                reject(new Error('Google Drive access denied. Please grant permissions.'));
-              } else if (response.error === 'popup_closed_by_user') {
-                reject(new Error('Sign-in popup was closed. Please try again.'));
-              } else {
-                reject(new Error(response.error_description || 'Authentication failed'));
-              }
-              return;
-            }
-            
-            if (response.access_token) {
-              console.log('✅ Access token obtained from user authentication');
-              resolve(response.access_token);
-            } else {
-              reject(new Error('Failed to get access token'));
-            }
-          },
-        });
-
-        tokenClient.requestAccessToken();
-      });
+      // No token found in company configs - throw error
+      throw new Error('Google Drive token not configured for this company. Please configure it in company settings.');
     } catch (error) {
       console.error('Google authentication failed:', error);
       throw error;
@@ -1308,26 +1547,129 @@ function PlaceOrder_ECommerce() {
       }
 
       // Create and show picker with higher z-index
-      const picker = new window.google.picker.PickerBuilder()
-        .addView(window.google.picker.ViewId.DOCS_IMAGES) // Only show images
+      // Show images or videos based on mediaType
+      const pickerBuilder = new window.google.picker.PickerBuilder()
         .setOAuthToken(accessToken)
-        .setDeveloperKey(GOOGLE_DRIVE_CONFIG.API_KEY)
-        .setCallback((data) => {
+        .setDeveloperKey(GOOGLE_DRIVE_CONFIG.API_KEY);
+      
+      // Add appropriate view based on media type
+      if (mediaType === 'image') {
+        pickerBuilder.addView(window.google.picker.ViewId.DOCS_IMAGES); // Only show images
+      } else {
+        // For videos, try VIDEOS view first, fallback to DOCS if it doesn't exist
+        // Note: ViewId.VIDEOS might not be available in all Picker API versions
+        if (window.google.picker.ViewId.VIDEOS) {
+          pickerBuilder.addView(window.google.picker.ViewId.VIDEOS);
+        } else if (window.google.picker.ViewId.DOCS_VIDEOS) {
+          pickerBuilder.addView(window.google.picker.ViewId.DOCS_VIDEOS);
+        } else {
+          // Fallback to DOCS view and filter for videos manually
+          console.warn('⚠️ VIDEOS view not available, using DOCS view');
+          pickerBuilder.addView(window.google.picker.ViewId.DOCS);
+        }
+      }
+      
+      const picker = pickerBuilder.setCallback((data) => {
           setIsLoadingGooglePicker(false);
           
+          if (!data) {
+            console.error('❌ Google Drive Picker: No data received');
+            setImageUploadError('No data received from Google Drive picker');
+            return;
+          }
+          
           if (data[window.google.picker.Response.ACTION] === window.google.picker.Action.PICKED) {
-            const file = data[window.google.picker.Response.DOCUMENTS][0];
-            const fileId = file.id;
+            // Check if DOCUMENTS array exists and has items
+            const documents = data[window.google.picker.Response.DOCUMENTS];
+            if (!documents || !Array.isArray(documents) || documents.length === 0) {
+              console.error('❌ Google Drive Picker: No documents in response', data);
+              setImageUploadError('No file selected from Google Drive');
+              return;
+            }
             
-            // Convert file ID to CDN lh3 URL immediately
-            // This ensures the CDN URL is stored in backend and loaded directly next time
-            const cdnUrl = `https://lh3.googleusercontent.com/d/${fileId}=w800`;
+            const file = documents[0];
+            if (!file) {
+              console.error('❌ Google Drive Picker: File object is undefined', documents);
+              setImageUploadError('Invalid file data from Google Drive');
+              return;
+            }
+            
+            // Log file structure for debugging
+            console.log('📁 Google Drive Picker: File object structure:', {
+              file,
+              keys: Object.keys(file),
+              hasId: 'id' in file,
+              hasIdProperty: file.id !== undefined,
+              idValue: file.id,
+              idType: typeof file.id,
+              fullFile: JSON.stringify(file, null, 2)
+            });
+            
+            // Try multiple ways to get file ID (different Picker API versions might use different properties)
+            let fileId = file.id || file[window.google.picker.Document.ID] || file[window.google.picker.Document.URL]?.match(/\/d\/([a-zA-Z0-9_-]+)/)?.[1];
+            
+            // If still no fileId, try to extract from URL
+            if (!fileId && file.url) {
+              const urlMatch = file.url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+              if (urlMatch && urlMatch[1]) {
+                fileId = urlMatch[1];
+              }
+            }
+            
+            if (!fileId) {
+              console.error('❌ Google Drive Picker: File ID is missing', {
+                file,
+                availableKeys: Object.keys(file),
+                fileString: JSON.stringify(file)
+              });
+              setImageUploadError('Could not get file ID from selected file. Please try again.');
+              return;
+            }
+            
+            // Ensure fileId is a string and handle toString safely
+            let fileIdString;
+            try {
+              if (fileId && typeof fileId.toString === 'function') {
+                fileIdString = fileId.toString();
+              } else if (fileId != null) {
+                fileIdString = String(fileId);
+              } else {
+                throw new Error('File ID is null or undefined');
+              }
+              
+              if (!fileIdString || fileIdString.trim().length === 0) {
+                throw new Error('File ID string is empty');
+              }
+            } catch (error) {
+              console.error('❌ Google Drive Picker: Error converting file ID to string', {
+                error,
+                fileId,
+                fileIdType: typeof fileId,
+                file
+              });
+              setImageUploadError('Error processing file ID. Please try again.');
+              return;
+            }
+            
+            // Process based on media type
+            let processedUrl;
+            if (mediaType === 'image') {
+              // Convert file ID to CDN lh3 URL immediately for images
+              processedUrl = `https://lh3.googleusercontent.com/d/${fileIdString}=w800`;
+            } else {
+              // Convert file ID to preview URL for videos (for iframe loading)
+              processedUrl = `https://drive.google.com/file/d/${fileIdString}/preview`;
+            }
             
             // Also create other formats for duplicate checking
-            const driveLink = `https://drive.google.com/file/d/${fileId}/view`;
+            const driveLink = `https://drive.google.com/file/d/${fileIdString}/view`;
             
-            // Check if image already exists (check CDN URL, file ID, and Drive URL format)
+            // Check if media already exists (check processed URL, file ID, and Drive URL format)
             const alreadyExists = imageList.some(path => {
+              if (!path || typeof path !== 'string') {
+                return false;
+              }
+              
               // Extract file ID from various formats for comparison
               let existingFileId = null;
               
@@ -1336,34 +1678,44 @@ function PlaceOrder_ECommerce() {
                 const match = path.match(/\/d\/([a-zA-Z0-9_-]+)=/);
                 existingFileId = match ? match[1] : null;
               } else if (path.includes('drive.google.com')) {
-                // Extract from Drive URL: https://drive.google.com/file/d/FILE_ID/view
+                // Extract from Drive URL: https://drive.google.com/file/d/FILE_ID/view or /preview
                 const match = path.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
                 existingFileId = match ? match[1] : null;
-              } else if (/^[a-zA-Z0-9_-]{15,}$/.test(path.trim())) {
+              } else if (typeof path === 'string' && /^[a-zA-Z0-9_-]{15,}$/.test(path.trim())) {
                 // It's a file ID
                 existingFileId = path.trim();
               }
               
-              return existingFileId === fileId || path === cdnUrl || path === driveLink;
+              return existingFileId === fileIdString || path === processedUrl || path === driveLink;
             });
             
             if (alreadyExists) {
-              setImageUploadError('This image is already in the list');
+              setImageUploadError(`This ${mediaType} is already in the list`);
               return;
             }
 
-            // Add CDN URL to list (will be stored in backend and loaded directly next time)
-            setImageList([...imageList, cdnUrl]);
+            // Add processed URL to list
+            setImageList([...imageList, processedUrl]);
             setImageUploadError('');
-            console.log('Image selected from Google Drive:', {
+            console.log(`${mediaType === 'image' ? 'Image' : 'Video'} selected from Google Drive:`, {
               file,
-              fileId,
-              cdnUrl,
-              'Note': 'CDN URL stored for direct loading from backend'
+              fileId: fileIdString,
+              processedUrl,
+              type: mediaType,
+              'Note': mediaType === 'image' 
+                ? 'CDN URL stored for direct loading from backend'
+                : 'Preview URL stored for iframe loading'
             });
           } else if (data[window.google.picker.Response.ACTION] === window.google.picker.Action.CANCEL) {
             console.log('Google Drive Picker cancelled');
             setIsLoadingGooglePicker(false);
+          } else {
+            // Handle other actions or errors
+            const error = data[window.google.picker.Response.ERROR];
+            if (error) {
+              console.error('❌ Google Drive Picker error:', error);
+              setImageUploadError(`Google Drive error: ${error}`);
+            }
           }
         })
         .build();
@@ -1428,14 +1780,72 @@ function PlaceOrder_ECommerce() {
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
 
       // Ensure imagepaths is always an array (can be empty)
-      const imagepathsArray = Array.isArray(imageList) ? imageList : [];
+      let imagepathsArray = Array.isArray(imageList) ? imageList : [];
+
+      // Convert image paths to CDN URLs before saving (but keep video preview URLs as-is)
+      // Images: Convert to CDN URLs for direct loading
+      // Videos: Keep preview URLs for iframe loading
+      imagepathsArray = imagepathsArray.map(path => {
+        // Validate path is a string
+        if (!path || typeof path !== 'string') {
+          console.warn('⚠️ Invalid path in imagepathsArray:', path);
+          return path; // Return as-is if invalid
+        }
+
+        // If already a CDN URL, use as-is
+        if (path.includes('lh3.googleusercontent.com')) {
+          return path;
+        }
+
+        // If it's a video preview URL, keep as-is (for iframe loading)
+        if (path.includes('drive.google.com/file/d/') && path.includes('/preview')) {
+          return path;
+        }
+
+        // If it's a direct HTTP link (not Google Drive), use as-is
+        if (path.startsWith('http') && !path.includes('drive.google.com')) {
+          return path;
+        }
+
+        // Extract file ID and convert to CDN URL for Google Drive image links
+        let fileId = null;
+        
+        if (path.includes('drive.google.com')) {
+          const patterns = [
+            /\/file\/d\/([a-zA-Z0-9_-]+)/,
+            /\/d\/([a-zA-Z0-9_-]+)/,
+            /\/uc\?id=([a-zA-Z0-9_-]+)/,
+            /\/open\?id=([a-zA-Z0-9_-]+)/,
+            /[?&]id=([a-zA-Z0-9_-]+)/,
+          ];
+          
+          for (const pattern of patterns) {
+            const match = path.match(pattern);
+            if (match && match[1]) {
+              fileId = match[1];
+              break;
+            }
+          }
+        } else if (/^[a-zA-Z0-9_-]{15,}$/.test(path.trim())) {
+          fileId = path.trim();
+        }
+
+        if (fileId) {
+          // Convert to CDN URL for images
+          return `https://lh3.googleusercontent.com/d/${fileId}=w800`;
+        }
+
+        // If can't convert, return as-is (shouldn't happen, but handle gracefully)
+        console.warn('⚠️ Could not convert image path to CDN URL:', path);
+        return path;
+      });
 
       const payload = {
         tallyloc_id,
         company: companyVal,
         guid: guid, // Use company guid (stock items don't have guid)
         name: selectedProductForImage.NAME,
-        imagepaths: imagepathsArray // Array of image paths (can be empty)
+        imagepaths: imagepathsArray // Array of CDN URLs (can be empty)
       };
 
       console.log('📤 Sending image upload payload:', {
@@ -1558,6 +1968,7 @@ function PlaceOrder_ECommerce() {
       setImageUploadError('');
       setImageUploadSuccess(false);
       setImageAddMethod('link'); // Reset to link method when modal opens
+      setMediaType('image'); // Reset to image when modal opens
     }
   }, [showImageUploadModal, selectedProductForImage]);
 
@@ -1775,58 +2186,64 @@ function PlaceOrder_ECommerce() {
           hasValidToken
         });
 
-        // For Google Drive images, always try CDN first (no token needed for public/shared files)
-        // CDN works for both public and shared files, and is much faster
+        // For Google Drive images, ALWAYS convert to CDN LT3 links (no token needed)
+        // This ensures all Google Drive images are loaded through CDN LT3
         if (isGoogleDrive) {
-          // Check cache first (use 'no-token' key for CDN URLs)
-          const cdnCacheKey = `${actualImagePath}_cdn`;
-          if (imageUrlCacheRef.current.has(cdnCacheKey)) {
-            const cachedUrl = imageUrlCacheRef.current.get(cdnCacheKey);
-            console.log('✅ ProductImage: Using cached CDN URL');
-          setImageUrl(cachedUrl);
-            setThumbnailUrl(cachedUrl);
-          setImageLoading(false);
-          setThumbnailLoading(false);
-            lastLoadedRef.current = {
-              path: currentPath,
-              token: currentToken,
-              hasImage: true
-            };
-          return;
-        }
-
-          // Try lh3 CDN first (fastest, no token needed for public/shared files)
-          const cdnThumbnailUrl = getGoogleDriveCDNUrl(actualImagePath, 'w400'); // w400 for thumbnails
-          const cdnFullUrl = getGoogleDriveCDNUrl(actualImagePath, 'w800'); // w800 for full images
+          // Extract file ID from Google Drive link
+          let fileId = null;
+          if (actualImagePath.includes('drive.google.com')) {
+            const patterns = [
+              /\/file\/d\/([a-zA-Z0-9_-]+)/,
+              /\/d\/([a-zA-Z0-9_-]+)/,
+              /\/uc\?id=([a-zA-Z0-9_-]+)/,
+              /\/open\?id=([a-zA-Z0-9_-]+)/,
+              /[?&]id=([a-zA-Z0-9_-]+)/,
+            ];
+            for (const pattern of patterns) {
+              const match = actualImagePath.match(pattern);
+              if (match && match[1]) {
+                fileId = match[1];
+                break;
+              }
+            }
+          } else if (/^[a-zA-Z0-9_-]{15,}$/.test(actualImagePath.trim())) {
+            fileId = actualImagePath.trim();
+          }
           
-          if (cdnThumbnailUrl && cdnFullUrl) {
-            console.log('✅ ProductImage: Using lh3 CDN URLs (no token required)', {
+          // If we have a file ID, convert to CDN LT3 links
+          if (fileId) {
+            const cdnThumbnailUrl = `https://lh3.googleusercontent.com/d/${fileId}=w400`; // w400 for thumbnails
+            const cdnFullUrl = `https://lh3.googleusercontent.com/d/${fileId}=w800`; // w800 for full images
+            
+            console.log('✅ ProductImage: Converting Google Drive link to CDN LT3 URLs', {
+              original: actualImagePath?.substring(0, 50),
+              fileId: fileId.substring(0, 20),
               thumbnail: cdnThumbnailUrl,
-              full: cdnFullUrl,
-              imagePath: actualImagePath?.substring(0, 50)
+              full: cdnFullUrl
             });
-            // Set CDN URLs immediately - they're fast for public/shared files
+            
+            // Set CDN URLs immediately
             setThumbnailUrl(cdnThumbnailUrl);
             setImageUrl(cdnFullUrl);
             setThumbnailLoading(false);
             setImageLoading(false);
+            setImageError(false);
+            
             // Cache the URLs with CDN key
+            const cdnCacheKey = `${actualImagePath}_cdn`;
             imageUrlCacheRef.current.set(cdnCacheKey, cdnFullUrl);
+            
             // Update tracking ref
             lastLoadedRef.current = {
               path: currentPath,
               token: currentToken,
               hasImage: true
             };
-            // Return early - CDN is set, onError handler will handle if it fails
+            
+            // Return early - CDN is set
             return;
           } else {
-            console.log('⚠️ ProductImage: CDN URLs not generated, will try API fallback', {
-              hasThumbnail: !!cdnThumbnailUrl,
-              hasFull: !!cdnFullUrl,
-              imagePath: actualImagePath?.substring(0, 50),
-              isGoogleDrive
-            });
+            console.warn('⚠️ ProductImage: Could not extract file ID from Google Drive link, will try API fallback');
           }
         }
 
@@ -2270,19 +2687,56 @@ function PlaceOrder_ECommerce() {
           videoPath: videoPath?.substring(0, 50)
         });
 
-        // For thumbnails, try CDN first for Google Drive videos (no token needed)
-        if (isThumbnail && isGoogleDrive) {
-          // Try to get video thumbnail from CDN
-          const cdnThumbnailUrl = getGoogleDriveCDNUrl(videoPath, 'w400');
-          if (cdnThumbnailUrl) {
-            console.log('✅ ProductVideo: Using CDN for video thumbnail');
-            setThumbnailUrl(cdnThumbnailUrl);
-            setVideoLoading(false);
-            // Don't return early - continue to try loading video URL for main display if needed
-            // But for thumbnails, we're done
-            if (isThumbnail) {
-              return;
+        // Auto-fetch token from company configurations if not available and it's a Google Drive video
+        let currentToken = googleToken;
+        if ((isGoogleDrive || isGoogleDriveId) && !currentToken) {
+          try {
+            const currentCompany = companies.find(c => c.guid === company);
+            if (currentCompany) {
+              const { tallyloc_id, guid } = currentCompany;
+              console.log('🔄 ProductVideo: Auto-fetching Google token from company configs');
+              const fetchedToken = await getGoogleTokenFromConfigs(tallyloc_id, guid);
+              if (fetchedToken) {
+                currentToken = fetchedToken;
+                console.log('✅ ProductVideo: Token auto-fetched from company configs');
+              }
             }
+          } catch (error) {
+            console.warn('⚠️ ProductVideo: Could not auto-fetch token:', error);
+          }
+        }
+
+        // For thumbnails, try CDN first for Google Drive videos (no token needed)
+        // Also try to get thumbnail via API if token is available (better quality)
+        if (isThumbnail && isGoogleDrive) {
+          // Try to get video thumbnail from CDN first (fast, no token needed)
+          const cdnThumbnailUrl = getGoogleDriveCDNUrl(videoPath, 'w400');
+          let finalThumbnailUrl = cdnThumbnailUrl;
+          
+          if (cdnThumbnailUrl) {
+            console.log('✅ ProductVideo: Using CDN for video thumbnail (fast)');
+            setThumbnailUrl(cdnThumbnailUrl);
+          }
+          
+          // Try to get thumbnail via API if token is available (better quality, uses company config token)
+          if (currentToken) {
+            try {
+              console.log('🖼️ ProductVideo: Attempting to fetch video thumbnail via API (using company config token)');
+              const apiThumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
+              if (apiThumbUrl) {
+                console.log('✅ ProductVideo: Got better quality thumbnail via API');
+                finalThumbnailUrl = apiThumbUrl;
+                setThumbnailUrl(apiThumbUrl); // Override CDN with API thumbnail if available
+              }
+            } catch (e) {
+              console.warn('⚠️ ProductVideo: Could not load video thumbnail via API, using CDN fallback:', e);
+            }
+          }
+          
+          // For thumbnails, we can return early if we have a thumbnail
+          if (finalThumbnailUrl) {
+            setVideoLoading(false);
+              return;
           }
         }
 
@@ -2307,31 +2761,47 @@ function PlaceOrder_ECommerce() {
           }
         }
 
-        // For main video, try to get CDN thumbnail as placeholder even without token
+        // For main video, try to get thumbnail as placeholder
+        // Try CDN first (fast, no token), then API if token available (better quality)
         if (!isThumbnail && isGoogleDrive) {
+          // Try CDN first
           const cdnThumbnailUrl = getGoogleDriveCDNUrl(videoPath, 'w800');
           if (cdnThumbnailUrl) {
             console.log('✅ ProductVideo: Using CDN for video thumbnail placeholder');
             setThumbnailUrl(cdnThumbnailUrl);
           }
+          
+          // Try API thumbnail if token is available (better quality, uses company config token)
+          if (currentToken && !thumbnailUrl) {
+            try {
+              console.log('🖼️ ProductVideo: Attempting to fetch video thumbnail via API for main display');
+              const apiThumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
+              if (apiThumbUrl) {
+                console.log('✅ ProductVideo: Got better quality thumbnail via API for main display');
+                setThumbnailUrl(apiThumbUrl);
+              }
+            } catch (e) {
+              console.warn('⚠️ ProductVideo: Could not load video thumbnail via API for main display:', e);
+            }
+          }
         }
 
         // For thumbnails, if no token and CDN didn't work, just stop loading
-        if (isGoogleDriveId && !googleToken && isThumbnail) {
+        if (isGoogleDriveId && !currentToken && isThumbnail) {
           setVideoLoading(false);
           return;
         }
 
         // Check cache first
-        const cacheKey = `${videoPath}_${googleToken || 'no-token'}`;
+        const cacheKey = `${videoPath}_${currentToken || 'no-token'}`;
         if (videoUrlCacheRef.current.has(cacheKey)) {
           const cachedUrl = videoUrlCacheRef.current.get(cacheKey);
           setVideoUrl(cachedUrl);
           setVideoLoading(false);
           // For thumbnails, try to get video thumbnail via API if CDN didn't work
-          if (isThumbnail && !thumbnailUrl && googleToken) {
+          if (isThumbnail && !thumbnailUrl && currentToken) {
             try {
-              const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, googleToken);
+              const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
               if (thumbUrl) setThumbnailUrl(thumbUrl);
             } catch (e) {
               console.warn('Could not load video thumbnail via API');
@@ -2343,8 +2813,8 @@ function PlaceOrder_ECommerce() {
         try {
           console.log('🎥 ProductVideo: Attempting to load video URL', {
             videoPath: videoPath?.substring(0, 100),
-            hasToken: !!googleToken,
-            tokenLength: googleToken?.length,
+            hasToken: !!currentToken,
+            tokenLength: currentToken?.length,
             isThumbnail,
             cacheKey,
             isGoogleDrive: isGoogleDrive
@@ -2364,7 +2834,7 @@ function PlaceOrder_ECommerce() {
             console.log('✅ ProductVideo: Using direct video URL');
           } else {
             // Try the async method for other cases (though it now just returns preview URL)
-            url = await getGoogleDriveVideoUrl(videoPath, googleToken);
+            url = await getGoogleDriveVideoUrl(videoPath, currentToken);
           }
           
           console.log('🎥 ProductVideo: Video URL result', {
@@ -2384,9 +2854,9 @@ function PlaceOrder_ECommerce() {
               setIsPlaying(true);
             }
             // For thumbnails, try to get video thumbnail via API if CDN didn't work
-            if (isThumbnail && !thumbnailUrl && googleToken) {
+            if (isThumbnail && !thumbnailUrl && currentToken) {
               try {
-                const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, googleToken);
+                const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
                 if (thumbUrl) setThumbnailUrl(thumbUrl);
               } catch (e) {
                 console.warn('⚠️ ProductVideo: Could not load video thumbnail via API', e);
@@ -2405,7 +2875,7 @@ function PlaceOrder_ECommerce() {
       };
 
       loadVideoUrl();
-    }, [videoPath, googleToken, itemName, isThumbnail]);
+    }, [videoPath, googleToken, itemName, isThumbnail, company, companies]);
 
     if (!canShowImage || !videoPath || videoError) {
       return (
@@ -2879,24 +3349,50 @@ function PlaceOrder_ECommerce() {
   const getGoogleDriveVideoThumbnail = async (videoPath, accessToken) => {
     if (!videoPath || !accessToken) return null;
 
-    let fileId = videoPath;
+    let fileId = null;
     
-    // Extract file ID if it's a URL
-    if (videoPath.includes('drive.google.com')) {
-      const idMatch = videoPath.match(/[?&]id=([a-zA-Z0-9_-]+)/) || videoPath.match(/\/file\/d\/([a-zA-Z0-9_-]+)/) || videoPath.match(/\/d\/([a-zA-Z0-9_-]+)/);
-      if (idMatch && idMatch[1]) {
-        fileId = idMatch[1];
+    // Extract file ID from various Google Drive URL formats
+    if (videoPath && typeof videoPath === 'string' && videoPath.includes('drive.google.com')) {
+      // Handle preview URLs: https://drive.google.com/file/d/FILE_ID/preview
+      const previewMatch = videoPath.match(/\/file\/d\/([a-zA-Z0-9_-]+)\/preview/);
+      if (previewMatch && previewMatch[1]) {
+        fileId = previewMatch[1];
+      } else {
+        // Try other patterns
+        const patterns = [
+          /\/file\/d\/([a-zA-Z0-9_-]+)/,
+          /\/d\/([a-zA-Z0-9_-]+)/,
+          /[?&]id=([a-zA-Z0-9_-]+)/
+        ];
+        for (const pattern of patterns) {
+          const match = videoPath.match(pattern);
+          if (match && match[1]) {
+            fileId = match[1];
+            break;
+          }
+        }
       }
+    } else if (/^[a-zA-Z0-9_-]{15,}$/.test(videoPath.trim())) {
+      // It's already a file ID
+      fileId = videoPath.trim();
     }
 
-    // If it's not a file ID, return null
-    if (!/^[a-zA-Z0-9_-]{15,}$/.test(fileId)) {
+    // If we couldn't extract file ID, return null
+    if (!fileId || !/^[a-zA-Z0-9_-]{15,}$/.test(fileId)) {
+      console.warn('⚠️ Could not extract file ID from video path:', videoPath);
       return null;
     }
 
     try {
-      // Get video thumbnail from Google Drive
+      // Get video thumbnail from Google Drive API using token from company configs
       const thumbnailUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/thumbnail?alt=media`;
+      console.log('🖼️ Fetching video thumbnail from Google Drive API:', {
+        fileId,
+        thumbnailUrl,
+        hasToken: !!accessToken,
+        tokenLength: accessToken?.length
+      });
+      
       const response = await fetch(thumbnailUrl, {
         headers: {
           'Authorization': `Bearer ${accessToken}`
@@ -2905,10 +3401,14 @@ function PlaceOrder_ECommerce() {
 
       if (response.ok) {
         const blob = await response.blob();
-        return URL.createObjectURL(blob);
+        const objectUrl = URL.createObjectURL(blob);
+        console.log('✅ Video thumbnail fetched successfully');
+        return objectUrl;
+      } else {
+        console.warn('⚠️ Failed to fetch video thumbnail:', response.status, response.statusText);
       }
     } catch (error) {
-      console.warn('Could not fetch video thumbnail:', error);
+      console.warn('⚠️ Could not fetch video thumbnail:', error);
     }
 
     return null;
@@ -3761,6 +4261,7 @@ function PlaceOrder_ECommerce() {
                         }}>
                           {item.NAME}
                         </h3>
+                        {canUploadImage && (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -3791,11 +4292,12 @@ function PlaceOrder_ECommerce() {
                             e.currentTarget.style.backgroundColor = 'transparent';
                             e.currentTarget.style.color = '#3b82f6';
                           }}
-                          title="Add Image"
+                            title="Add Media"
                         >
                           <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px', marginRight: '4px' }}>image</span>
-                          {!isMobile && 'Image'}
+                            {!isMobile && 'Media'}
                         </button>
+                        )}
                       </div>
 
                       {/* Part Number and Stock */}
@@ -4623,9 +5125,17 @@ function PlaceOrder_ECommerce() {
                 let isCurrentVideo = detectedType === 'video';
                 
                 // Always do synchronous check first for immediate rendering
-                if (!isCurrentVideo) {
+                // Check if it's a preview URL (videos stored as preview URLs)
+                if (!isCurrentVideo && currentMediaPath) {
                   const syncType = getLinkType(currentMediaPath);
-                  isCurrentVideo = syncType === 'google_drive_video' || syncType === 'direct_video' || isVideoUrl(currentMediaPath);
+                  const isPreviewUrl = currentMediaPath && typeof currentMediaPath === 'string' && 
+                                       currentMediaPath.includes('drive.google.com/file/d/') && 
+                                       currentMediaPath.includes('/preview');
+                  isCurrentVideo = syncType === 'google_drive_video' || syncType === 'direct_video' || isVideoUrl(currentMediaPath) || isPreviewUrl;
+                  if (isPreviewUrl && !isCurrentVideo) {
+                    console.log('✅ Modal: Detected preview URL as video:', currentMediaPath?.substring(0, 50));
+                    isCurrentVideo = true;
+                  }
                 }
                 
                 // If still not detected as video and it's a Google Drive link with token, 
@@ -4765,8 +5275,15 @@ function PlaceOrder_ECommerce() {
                           let isVideo = detectedType === 'video';
                           
                           // If not detected as video, do additional checks
-                          if (!isVideo) {
-                            if (isGoogleDriveLink(mediaPath)) {
+                          // Check if it's a preview URL (videos stored as preview URLs)
+                          if (!isVideo && mediaPath) {
+                            const isPreviewUrl = mediaPath && typeof mediaPath === 'string' && 
+                                                 mediaPath.includes('drive.google.com/file/d/') && 
+                                                 mediaPath.includes('/preview');
+                            if (isPreviewUrl) {
+                              isVideo = true;
+                              console.log('✅ Thumbnail: Detected preview URL as video:', mediaPath?.substring(0, 50));
+                            } else if (isGoogleDriveLink(mediaPath)) {
                               // For Google Drive, check sync detection
                               const syncType = getLinkType(mediaPath);
                               isVideo = syncType === 'google_drive_video' || syncType === 'direct_video' || isVideoUrl(mediaPath);
@@ -4778,7 +5295,7 @@ function PlaceOrder_ECommerce() {
                           
                           console.log('🎬 Thumbnail detection:', {
                             index,
-                            path: mediaPath.substring(0, 30),
+                            path: mediaPath ? mediaPath.substring(0, 30) : 'null',
                             detectedType,
                             isVideo,
                             isGoogleDrive: isGoogleDriveLink(mediaPath)
@@ -5273,31 +5790,51 @@ function PlaceOrder_ECommerce() {
         >
           <div style={{
             backgroundColor: 'white',
-            borderRadius: '12px',
-            padding: isMobile ? '16px' : '24px',
-            maxWidth: isMobile ? '95%' : '600px',
+            borderRadius: '16px',
+            padding: isMobile ? '20px' : '28px',
+            maxWidth: isMobile ? '95%' : '700px',
             width: isMobile ? '95%' : '90%',
-            maxHeight: '80vh',
+            maxHeight: '85vh',
             overflow: 'auto',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+            position: 'relative'
           }}>
             {/* Header */}
             <div style={{
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              marginBottom: isMobile ? '16px' : '20px',
-              paddingBottom: isMobile ? '12px' : '16px',
-              borderBottom: '1px solid #e5e7eb'
+              marginBottom: isMobile ? '20px' : '24px',
+              paddingBottom: isMobile ? '16px' : '20px',
+              borderBottom: '2px solid #e5e7eb'
             }}>
-              <h3 style={{
-                margin: 0,
-                fontSize: isMobile ? '16px' : '18px',
-                fontWeight: '600',
-                color: '#1f2937'
-              }}>
-                Add Image - {selectedProductForImage?.NAME || 'Product'} ({imageList.length} {imageList.length === 1 ? 'image' : 'images'})
-              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                <span className="material-icons" style={{ 
+                  fontSize: isMobile ? '24px' : '28px', 
+                  color: '#3b82f6' 
+                }}>
+                  collections
+                </span>
+                <div>
+                  <h3 style={{
+                    margin: 0,
+                    fontSize: isMobile ? '16px' : '20px',
+                    fontWeight: '700',
+                    color: '#1f2937',
+                    lineHeight: '1.2'
+                  }}>
+                    Add Media for the Product
+                  </h3>
+                  <p style={{
+                    margin: '4px 0 0 0',
+                    fontSize: isMobile ? '12px' : '14px',
+                    color: '#6b7280',
+                    fontWeight: '500'
+                  }}>
+                    {selectedProductForImage?.NAME || 'Product Name'}
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={() => {
                   if (!imageUploadLoading) {
@@ -5311,19 +5848,34 @@ function PlaceOrder_ECommerce() {
                 }}
                 disabled={imageUploadLoading}
                 style={{
-                  background: 'none',
+                  background: 'transparent',
                   border: 'none',
-                  fontSize: isMobile ? '20px' : '24px',
+                  fontSize: isMobile ? '22px' : '26px',
                   cursor: imageUploadLoading ? 'not-allowed' : 'pointer',
                   color: imageUploadLoading ? '#d1d5db' : '#6b7280',
-                  padding: '4px',
-                  minWidth: isMobile ? '32px' : 'auto',
-                  minHeight: isMobile ? '32px' : 'auto',
+                  padding: '6px',
+                  minWidth: isMobile ? '36px' : '40px',
+                  minHeight: isMobile ? '36px' : '40px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  opacity: imageUploadLoading ? 0.5 : 1
+                  opacity: imageUploadLoading ? 0.5 : 1,
+                  borderRadius: '8px',
+                  transition: 'all 0.2s ease'
                 }}
+                onMouseEnter={(e) => {
+                  if (!imageUploadLoading) {
+                    e.currentTarget.style.backgroundColor = '#f3f4f6';
+                    e.currentTarget.style.color = '#374151';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!imageUploadLoading) {
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                    e.currentTarget.style.color = '#6b7280';
+                  }
+                }}
+                title="Close"
               >
                 ×
               </button>
@@ -5348,7 +5900,7 @@ function PlaceOrder_ECommerce() {
                   gap: '8px'
                 }}>
                   <span className="material-icons" style={{ fontSize: '18px' }}>check_circle</span>
-                  Images saved successfully!
+                  Media saved successfully!
                 </div>
               )}
 
@@ -5371,28 +5923,66 @@ function PlaceOrder_ECommerce() {
                 </div>
               )}
 
-              {/* Existing Images Section */}
-              <div style={{ marginBottom: isMobile ? '20px' : '24px' }}>
-                <h4 style={{
-                  margin: '0 0 12px 0',
-                  fontSize: isMobile ? '14px' : '16px',
-                  fontWeight: '600',
-                  color: '#1f2937'
+              {/* Existing Media Section */}
+              <div style={{ marginBottom: isMobile ? '24px' : '28px' }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  marginBottom: '16px'
                 }}>
-                  Existing Images ({imageList.length})
-                </h4>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="material-icons" style={{ 
+                      fontSize: '20px', 
+                      color: '#3b82f6' 
+                    }}>
+                      photo_library
+                    </span>
+                    <h4 style={{
+                      margin: 0,
+                      fontSize: isMobile ? '15px' : '17px',
+                      fontWeight: '600',
+                      color: '#1f2937'
+                    }}>
+                      Existing Media
+                    </h4>
+                  </div>
+                  {imageList.length > 0 && (
+                    <span style={{
+                      padding: '4px 12px',
+                      backgroundColor: '#e0f2fe',
+                      color: '#0369a1',
+                      borderRadius: '12px',
+                      fontSize: isMobile ? '11px' : '12px',
+                      fontWeight: '600'
+                    }}>
+                      {imageList.length} {imageList.length === 1 ? 'item' : 'items'}
+                    </span>
+                  )}
+                </div>
                 
                 {imageList.length === 0 ? (
                   <div style={{
-                    padding: '24px',
+                    padding: isMobile ? '32px 24px' : '40px 32px',
                     textAlign: 'center',
                     color: '#6b7280',
                     fontSize: isMobile ? '13px' : '14px',
                     backgroundColor: '#f9fafb',
-                    borderRadius: '8px',
-                    border: '1px dashed #d1d5db'
+                    borderRadius: '12px',
+                    border: '2px dashed #d1d5db'
                   }}>
-                    No images added yet
+                    <span className="material-icons" style={{ 
+                      fontSize: '48px', 
+                      color: '#cbd5e1',
+                      display: 'block',
+                      marginBottom: '12px'
+                    }}>
+                      image_not_supported
+                    </span>
+                    <p style={{ margin: 0, fontWeight: '500' }}>No media added yet</p>
+                    <p style={{ margin: '4px 0 0 0', fontSize: isMobile ? '12px' : '13px', color: '#9ca3af' }}>
+                      Add images or videos using the options below
+                    </p>
                   </div>
                 ) : (
                   <div style={{
@@ -5456,18 +6046,30 @@ function PlaceOrder_ECommerce() {
                               e.currentTarget.style.background = 'rgba(239, 68, 68, 0.9)';
                               e.currentTarget.style.transform = 'scale(1)';
                             }}
-                            title="Delete image"
+                            title={`Delete ${imagePath && (imagePath.includes('/preview') || imagePath.includes('video')) ? 'video' : 'image'}`}
                           >
                             ×
                           </button>
 
-                          {/* Image - Using ProductImage component like product details modal */}
+                          {/* Media - Using ProductImage or ProductVideo component based on type */}
                           <div style={{
                             width: '100%',
                             height: '100%',
                             position: 'relative',
                             overflow: 'hidden'
                           }}>
+                            {imagePath && (imagePath.includes('/preview') || imagePath.includes('video')) ? (
+                              // Video preview URL - use ProductVideo component
+                              <ProductVideo
+                                videoPath={imagePath}
+                                itemName={selectedProductForImage?.NAME || 'Product'}
+                                googleToken={googleToken}
+                                videoUrlCacheRef={videoUrlCache}
+                                canShowImage={canShowImage}
+                                isThumbnail={false}
+                              />
+                            ) : (
+                              // Image - use ProductImage component
                             <ProductImage
                               imagePath={imagePath}
                               itemName={selectedProductForImage?.NAME || 'Product'}
@@ -5476,6 +6078,7 @@ function PlaceOrder_ECommerce() {
                               canShowImage={canShowImage}
                               useFirstImageAsThumbnail={false}
                             />
+                            )}
                           </div>
                         </div>
                       );
@@ -5484,22 +6087,92 @@ function PlaceOrder_ECommerce() {
                 )}
               </div>
 
-              {/* Add Image Section */}
+              {/* Add Media Section */}
               <div style={{
-                padding: isMobile ? '16px' : '20px',
-                backgroundColor: '#f9fafb',
-                borderRadius: '8px',
-                border: '1px solid #e5e7eb',
-                marginBottom: isMobile ? '20px' : '24px'
+                padding: isMobile ? '20px' : '24px',
+                backgroundColor: '#f8fafc',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                marginBottom: isMobile ? '24px' : '28px',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
               }}>
-                <h4 style={{
-                  margin: '0 0 12px 0',
-                  fontSize: isMobile ? '14px' : '16px',
-                  fontWeight: '600',
-                  color: '#1f2937'
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  marginBottom: '16px'
                 }}>
-                  Add New Image
-                </h4>
+                  <span className="material-icons" style={{ 
+                    fontSize: '20px', 
+                    color: '#3b82f6' 
+                  }}>
+                    add_photo_alternate
+                  </span>
+                  <h4 style={{
+                    margin: 0,
+                    fontSize: isMobile ? '15px' : '17px',
+                    fontWeight: '600',
+                    color: '#1f2937'
+                  }}>
+                    Add New {mediaType === 'image' ? 'Image' : 'Video'}
+                  </h4>
+                </div>
+
+                {/* Media Type Toggle (Image/Video) */}
+                <div style={{
+                  display: 'flex',
+                  gap: '8px',
+                  marginBottom: '12px',
+                  backgroundColor: '#ffffff',
+                  padding: '4px',
+                  borderRadius: '8px',
+                  border: '1px solid #e5e7eb'
+                }}>
+                  <button
+                    onClick={() => setMediaType('image')}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      background: mediaType === 'image' ? '#3b82f6' : 'transparent',
+                      color: mediaType === 'image' ? 'white' : '#6b7280',
+                      border: 'none',
+                      borderRadius: '6px',
+                      fontSize: isMobile ? '12px' : '13px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>image</span>
+                    Image
+                  </button>
+                  <button
+                    onClick={() => setMediaType('video')}
+                    style={{
+                      flex: 1,
+                      padding: '8px 12px',
+                      background: mediaType === 'video' ? '#3b82f6' : 'transparent',
+                      color: mediaType === 'video' ? 'white' : '#6b7280',
+                      border: 'none',
+                      borderRadius: '6px',
+                      fontSize: isMobile ? '12px' : '13px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>videocam</span>
+                    Video
+                  </button>
+                </div>
 
                 {/* Method Toggle */}
                 <div style={{
@@ -5566,7 +6239,7 @@ function PlaceOrder_ECommerce() {
                           handleAddImage();
                         }
                       }}
-                      placeholder="Enter Google Drive link..."
+                      placeholder={`Enter Google Drive ${mediaType} link...`}
                       style={{
                         flex: 1,
                         padding: isMobile ? '10px 12px' : '12px 16px',

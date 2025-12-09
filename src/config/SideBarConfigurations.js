@@ -29,6 +29,14 @@ export const MODULE_SEQUENCE = [
       permissions     : {}
     },
     {
+      key             : 'vendor_expenses',
+      id              : 'vendor_expenses',
+      label           : 'Vendor/Expenses',
+      icon            : 'people',
+      alwaysVisible   : true,
+      permissions     : {}
+    },
+    {
       key             : 'receipt_find_party',
       id              : 'receipt_find_party',
       label           : 'Receipt Find Party',
@@ -110,6 +118,23 @@ export const MODULE_SEQUENCE = [
       }
     },
     {
+      key               : 'transaction',
+      id                : 'transaction',
+      label             : 'Transaction',
+      icon              : 'swap_horiz',
+      hasSubModules     : true,
+      subModules: [
+        {
+          key           : 'sales_order',
+          id            : 'sales_order',
+          label         : 'Sales Order',
+          icon          : 'receipt',
+          permissions   : {}
+        }
+      ],
+      permissions       : {}
+    },
+    {
       key               : 'ledger_book',
       id                : 'ledger',
       label             : 'Ledger Book',
@@ -147,7 +172,25 @@ export const MODULE_SEQUENCE = [
       id                : 'reports',
       label             : 'Reports',
       icon              : 'description',
+      hasSubModules     : true,
+      useRightSideDropdown : true,
       alwaysVisible     : true,
+      subModules: [
+        {
+          key           : 'sales_order_report',
+          id            : 'sales_order_report',
+          label         : 'Sales Order Report',
+          icon          : 'receipt',
+          permissions   : {}
+        },
+        {
+          key           : 'payment_voucher_report',
+          id            : 'payment_voucher_report',
+          label         : 'Payment Voucher Report',
+          icon          : 'payment',
+          permissions   : {}
+        }
+      ],
       permissions       : {}
     },
     {
