@@ -1,0 +1,14 @@
+DANGEROUSLY_DISABLE_HOST_CHECK=true
+
+REACT_APP_DEV_API_URL=
+REACT_APP_STAGING_API_URL=http://localhost:3001
+REACT_APP_PRODUCTION_API_URL=http://localhost:3001
+
+REACT_APP_DEV_API_URL_ser=https://itcatalystindia.com/Development/CustomerPortal_API
+REACT_APP_STAGING_API_URL_ser=https://itcatalystindia.com/Development/CustomerPortal_API
+REACT_APP_PRODUCTION_API_URL_ser=https://itcatalystindia.com/Development/CustomerPortal_API
+
+REACT_APP_HOMEPAGE_ser=/Development/CustomerPortal
+
+REACT_APP_ENCRYPTION_KEY=TYGpnfpnVrGSBfv7yEdIzRO4ug7Q6YoT
+
