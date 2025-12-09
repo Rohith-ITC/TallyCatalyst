@@ -2,7 +2,7 @@ import React from 'react';
 import { formatCurrency } from '../utils/helpers';
 import { useIsMobile } from '../../TallyDashboard/MobileViewConfig';
 
-const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
+const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActions }) => {
   const isMobile = useIsMobile();
   const parseAmount = (amount) => {
     if (amount === null || amount === undefined || amount === '') return 0;
@@ -342,28 +342,31 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose }) => {
               Ledger: {partyLedgerName}
               </div>
           </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              cursor: 'pointer',
-              color: '#fff',
-              width: 32,
-              height: 32,
-              borderRadius: '4px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'background 0.2s',
-              fontSize: '20px',
-              fontWeight: 'bold'
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-          >
-            ×
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {headerActions}
+            <button
+              onClick={onClose}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                color: '#fff',
+                width: 32,
+                height: 32,
+                borderRadius: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background 0.2s',
+                fontSize: '20px',
+                fontWeight: 'bold'
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         {/* Main Content */}

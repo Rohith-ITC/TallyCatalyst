@@ -8,7 +8,7 @@ import PlaceOrder from './PlaceOrder';
 import PlaceOrder_ECommerce from './PlaceOrder_ECommerce';
 import SalesDashboard from './salesdashboard';
 import ReceivablesDashboard from '../RecvDashboard';
-import VoucherAuthorization from '../vchauth/vchauth';
+import VoucherAuthorization from './vchauth';
 import ReceiptListScreenWrapper from './ReceiptListScreenWrapper';
 import CompanyOrdersScreenWrapper from './CompanyOrdersScreenWrapper';
 import TallyConfig from '../admindashboard/tallyconfig';
@@ -79,6 +79,17 @@ function TallyDashboard() {
   // Mobile menu state
   const isMobile = useIsMobile();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  
+  // Window width state for responsive header
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setWindowWidth(window.innerWidth);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   
   // Check if user is admin
   const isAdmin = () => {
@@ -1606,17 +1617,17 @@ function TallyDashboard() {
         alignItems: 'center',
         zIndex: 4001,
         boxShadow: '0 4px 20px 0 rgba(30, 58, 138, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
-        padding: '0 16px',
+        padding: windowWidth < 1000 ? '0 8px' : '0 16px',
         justifyContent: 'space-between',
         backdropFilter: 'blur(10px)',
-        gap: 12,
+        gap: windowWidth < 1000 ? 6 : 12,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-          <img src={TallyLogo} alt="Tally Logo" style={{ height: 40, width: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: windowWidth < 1000 ? 8 : 12, flexShrink: 0 }}>
+          <img src={TallyLogo} alt="Tally Logo" style={{ height: windowWidth < 1000 ? 32 : 40, width: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
           <span style={{ 
             color: '#fff', 
             fontWeight: 700, 
-            fontSize: 24, 
+            fontSize: windowWidth < 1000 ? (windowWidth < 900 ? 18 : 20) : 24, 
             letterSpacing: 0.5, 
             textShadow: '0 2px 8px rgba(0,0,0,0.15)',
             background: 'linear-gradient(180deg, #ffffff 0%, #e0e7ff 100%)',
@@ -1624,6 +1635,7 @@ function TallyDashboard() {
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text',
             whiteSpace: 'nowrap',
+            display: windowWidth < 800 ? 'none' : 'inline',
           }}>DataLynkr</span>
         </div>
         
@@ -1634,19 +1646,20 @@ function TallyDashboard() {
           position: 'relative', 
           flex: '1 1 auto', 
           minWidth: 0, 
-          marginLeft: '20px', 
-          marginRight: '20px',
-          maxWidth: '800px',
+          marginLeft: windowWidth < 1200 ? '12px' : '20px', 
+          marginRight: windowWidth < 1200 ? '12px' : '20px',
+          maxWidth: windowWidth < 1200 ? '500px' : '800px',
         }}>
           {/* Company Title */}
           <span style={{ 
             color: 'rgba(255, 255, 255, 0.95)', 
-            fontSize: '13px', 
+            fontSize: windowWidth < 1000 ? '12px' : '13px', 
             fontWeight: '600', 
-            marginRight: '12px',
+            marginRight: windowWidth < 1000 ? '8px' : '12px',
             whiteSpace: 'nowrap',
             textShadow: '0 1px 2px rgba(0,0,0,0.1)',
             flexShrink: 0,
+            display: windowWidth < 900 ? 'none' : 'inline',
           }}>
             Company:
           </span>
@@ -1656,7 +1669,7 @@ function TallyDashboard() {
             borderRadius: '10px',
             border: topBarCompanyDropdownOpen ? '2px solid rgba(255, 255, 255, 0.6)' : '2px solid rgba(255, 255, 255, 0.25)',
             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            minWidth: '400px',
+            minWidth: windowWidth < 1000 ? (windowWidth < 900 ? '200px' : '250px') : '400px',
             maxWidth: '100%',
             width: '100%',
             flex: '1 1 auto',
@@ -1841,17 +1854,17 @@ function TallyDashboard() {
         <div style={{ 
           display: 'flex', 
           alignItems: 'center', 
-          gap: 12, 
+          gap: windowWidth < 1000 ? 6 : 12, 
           flexShrink: 0,
-          paddingLeft: '16px',
-          paddingRight: '20px',
+          paddingLeft: windowWidth < 1000 ? '8px' : '16px',
+          paddingRight: windowWidth < 1000 ? '12px' : '20px',
         }}>
           {/* Icon Buttons Group */}
           <div style={{ 
             display: 'flex', 
             alignItems: 'center', 
-            gap: 8,
-            paddingRight: '16px',
+            gap: windowWidth < 1000 ? 6 : 8,
+            paddingRight: windowWidth < 1000 ? '8px' : '16px',
             borderRight: '1px solid rgba(255, 255, 255, 0.2)',
           }}>
             {/* Control Panel Button */}
@@ -1874,7 +1887,7 @@ function TallyDashboard() {
                 background: showControlPanel ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.12)',
                 border: showControlPanel ? '2px solid rgba(255, 255, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.25)',
                 borderRadius: '10px',
-                padding: '10px 14px',
+                padding: windowWidth < 1000 ? '8px 10px' : '10px 14px',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -1884,8 +1897,8 @@ function TallyDashboard() {
                 zIndex: 10,
                 position: 'relative',
                 boxShadow: showControlPanel ? '0 4px 12px rgba(0,0,0,0.15)' : '0 2px 6px rgba(0,0,0,0.1)',
-                minWidth: '44px',
-                height: '44px',
+                minWidth: windowWidth < 1000 ? '38px' : '44px',
+                height: windowWidth < 1000 ? '38px' : '44px',
               }}
               title="Control Panel"
               onMouseEnter={(e) => {
@@ -1901,7 +1914,7 @@ function TallyDashboard() {
                 e.currentTarget.style.boxShadow = showControlPanel ? '0 4px 12px rgba(0,0,0,0.15)' : '0 2px 6px rgba(0,0,0,0.1)';
               }}
             >
-              <span className="material-icons" style={{ fontSize: '22px', pointerEvents: 'none' }}>
+              <span className="material-icons" style={{ fontSize: windowWidth < 1000 ? '20px' : '22px', pointerEvents: 'none' }}>
                 admin_panel_settings
               </span>
             </button>
@@ -1923,7 +1936,7 @@ function TallyDashboard() {
                 background: 'rgba(255, 255, 255, 0.12)',
                 border: '1px solid rgba(255, 255, 255, 0.25)',
                 borderRadius: '10px',
-                padding: '10px 14px',
+                padding: windowWidth < 1000 ? '8px 10px' : '10px 14px',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -1933,8 +1946,8 @@ function TallyDashboard() {
                 zIndex: 10,
                 position: 'relative',
                 boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                minWidth: '44px',
-                height: '44px',
+                minWidth: windowWidth < 1000 ? '38px' : '44px',
+                height: windowWidth < 1000 ? '38px' : '44px',
               }}
               title="Refresh all data (ledgers & stock items)"
               onMouseEnter={(e) => {
@@ -1951,7 +1964,7 @@ function TallyDashboard() {
                 e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.1)';
               }}
             >
-              <span className="material-icons" style={{ fontSize: '22px', pointerEvents: 'none' }}>
+              <span className="material-icons" style={{ fontSize: windowWidth < 1000 ? '20px' : '22px', pointerEvents: 'none' }}>
                 refresh
               </span>
             </button>
@@ -1969,9 +1982,9 @@ function TallyDashboard() {
               style={{ 
                 display: 'flex', 
                 alignItems: 'center', 
-                gap: 10, 
+                gap: windowWidth < 1000 ? 6 : 10, 
                 cursor: 'pointer',
-                padding: '8px 14px',
+                padding: windowWidth < 1000 ? '6px 10px' : '8px 14px',
                 borderRadius: '10px',
                 background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
                 transition: 'all 0.3s ease',
@@ -1995,7 +2008,7 @@ function TallyDashboard() {
                 className="material-icons profile-icon" 
                 style={{ 
                   color: '#fff', 
-                  fontSize: '26px', 
+                  fontSize: windowWidth < 1000 ? '22px' : '26px', 
                   filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' 
                 }}
               >
@@ -2007,24 +2020,29 @@ function TallyDashboard() {
                   style={{ 
                     color: '#fff', 
                     fontWeight: 600, 
-                    fontSize: '14px', 
+                    fontSize: windowWidth < 1000 ? '13px' : '14px', 
                     textShadow: '0 1px 2px rgba(0,0,0,0.1)', 
                     whiteSpace: 'nowrap',
                     lineHeight: '1.2',
+                    maxWidth: windowWidth < 1000 ? '120px' : 'none',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                   }}
                 >
                   {name || 'User'}
                 </span>
-                <span 
-                  style={{ 
-                    color: 'rgba(255, 255, 255, 0.8)', 
-                    fontSize: '12px', 
-                    fontWeight: 400,
-                    lineHeight: '1.2',
-                  }}
-                >
-                  {email || ''}
-                </span>
+                {windowWidth >= 1000 && (
+                  <span 
+                    style={{ 
+                      color: 'rgba(255, 255, 255, 0.8)', 
+                      fontSize: '12px', 
+                      fontWeight: 400,
+                      lineHeight: '1.2',
+                    }}
+                  >
+                    {email || ''}
+                  </span>
+                )}
               </div>
               <span 
                 className="material-icons" 
@@ -2048,9 +2066,9 @@ function TallyDashboard() {
                 background: 'rgba(220, 38, 38, 0.15)', 
                 color: '#fff', 
                 border: '1px solid rgba(220, 38, 38, 0.3)', 
-                minWidth: '100px',
+                minWidth: windowWidth < 1000 ? '44px' : '100px',
                 height: '44px',
-                padding: '10px 20px 10px 16px',
+                padding: windowWidth < 1000 ? '10px' : '10px 20px 10px 16px',
                 borderRadius: '10px',
                 fontWeight: 600,
                 fontSize: '14px',
@@ -2079,7 +2097,7 @@ function TallyDashboard() {
               }}
             >
               <span className="material-icons" style={{ fontSize: 18 }}>logout</span>
-              <span>Logout</span>
+              {windowWidth >= 1000 && <span>Logout</span>}
             </button>
           {profileDropdownOpen && (
             <div className="profile-dropdown" style={{ 

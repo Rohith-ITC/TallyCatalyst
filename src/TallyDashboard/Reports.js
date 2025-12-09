@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiPost } from '../utils/apiUtils';
-import VoucherDetailsModal from '../RecvDashboard/components/VoucherDetailsModal';
+import VoucherDetailsModal from './components/VoucherDetailsModal';
 import { formatDateFromYYYYMMDD } from '../RecvDashboard/utils/helpers';
 
 function Reports() {
@@ -30,9 +30,7 @@ function Reports() {
 
   // Voucher details modal state
   const [showVoucherDetails, setShowVoucherDetails] = useState(false);
-  const [voucherDetailsData, setVoucherDetailsData] = useState(null);
-  const [voucherDetailsLoading, setVoucherDetailsLoading] = useState(false);
-  const [voucherDetailsError, setVoucherDetailsError] = useState(null);
+  const [selectedMasterId, setSelectedMasterId] = useState(null);
 
   // Convert date from YYYY-MM-DD to YYYYMMDD format for API
   const formatDateToYYYYMMDD = (dateStr) => {
@@ -65,8 +63,19 @@ function Reports() {
       const response = await apiPost('/api/reports/salesorder', payload);
 
       if (response && response.success) {
-        setOrders(response.orders || []);
-        setTotal(response.total || 0);
+        // Normalize order data to handle different field name variations
+        const normalizedOrders = (response.orders || []).map(order => ({
+          ...order,
+          vouchernumber: order.vouchernumber || order.voucher_number || order.voucherNumber || order.VOUCHERNUMBER || '-',
+          date: order.date || order.DATE || order.Date || '',
+          partyledgername: order.partyledgername || order.party_ledger_name || order.PARTYLEDGERNAME || order.partyLedgerName || '-',
+          status: order.status || order.STATUS || order.Status || 'Pending for Accept',
+          orderno: order.orderno || order.order_no || order.ORDERNO || order.orderNo || order.OrdNo || '-',
+          generated_by_name: order.generated_by_name || order.generated_by || order.generatedBy || order.GENERATED_BY || '-',
+          masterid: order.masterid || order.master_id || order.MASTERID || order.masterId || null
+        }));
+        setOrders(normalizedOrders);
+        setTotal(response.total || normalizedOrders.length);
         setError('');
       } else {
         setError(response?.message || 'Failed to fetch sales orders');
@@ -84,122 +93,6 @@ function Reports() {
     }
   };
 
-  // Fetch voucher details for drill-down
-  const fetchVoucherDetails = async (masterid) => {
-    if (!tallyloc_id || !company || !guid || !masterid) {
-      setVoucherDetailsError('Missing required information to fetch voucher details');
-      return;
-    }
-
-    setShowVoucherDetails(true);
-    setVoucherDetailsLoading(true);
-    setVoucherDetailsError(null);
-    setVoucherDetailsData(null);
-
-    try {
-      const payload = {
-        tallyloc_id,
-        company,
-        guid,
-        masterid: String(masterid)
-      };
-
-      const response = await apiPost('/api/tally/voucherdata/getvoucherdata', payload);
-
-      if (response && response.vouchers && response.vouchers.length > 0) {
-        // Transform API response to match VoucherDetailsModal format
-        const voucher = response.vouchers[0];
-        
-        // Transform the voucher data structure
-        const transformedVoucher = {
-          VOUCHERS: {
-            // Map all fields from API response to expected format
-            masterid: voucher.masterid,
-            alterid: voucher.alterid,
-            VOUCHERTYPE: voucher.vouchertypename || voucher.vouchertypeidentify || voucher.reservedname,
-            VOUCHERNUMBER: voucher.vouchernumber,
-            DATE: voucher.date,
-            PARTYLEDGERNAME: voucher.partyledgername,
-            PARTYLEDGERNAMEID: voucher.partyledgernameid,
-            STATE: voucher.state,
-            COUNTRY: voucher.country,
-            PARTYGSTIN: voucher.partygstin,
-            PINCODE: voucher.pincode,
-            ADDRESS: voucher.address,
-            CONSIGNEESTATENAME: voucher.consigneestatename,
-            CONSIGNEECOUNTRYNAME: voucher.consigneecountryname,
-            BASICBUYERADDRESS: voucher.basicbuyeraddress,
-            AMOUNT: voucher.amount,
-            ISOPTIONAL: voucher.isoptional,
-            ISCANCELLED: voucher.iscancelled,
-            SALESPERSON: voucher.salesperson,
-            
-            // Transform ledger entries
-            ALLLEDGERENTRIES: (voucher.ledgerentries || []).map(entry => ({
-              LEDGERNAME: entry.ledgername,
-              LEDGERNAMEID: entry.ledgernameid,
-              AMOUNT: entry.amount,
-              ISDEEMEDPOSITIVE: entry.isdeemedpositive,
-              ISPARTYLEDGER: entry.ispartyledger,
-              GROUP: entry.group,
-              GROUPOFGROUP: entry.groupofgroup,
-              GROUPLIST: entry.grouplist,
-              LEDGERGROUPIDENTIFY: entry.ledgergroupidentify,
-              BILLALLOCATIONS: (entry.billallocations || []).map(bill => ({
-                BILLNAME: bill.billname,
-                AMOUNT: bill.amount,
-                BILLCREDITPERIOD: bill.billcreditperiod
-              }))
-            })),
-            
-            // Transform inventory entries
-            ALLINVENTORYENTRIES: (voucher.allinventoryentries || []).map(item => ({
-              STOCKITEMNAME: item.stockitemname,
-              STOCKITEMNAMEID: item.stockitemnameid,
-              UOM: item.uom,
-              ACTUALQTY: item.actualqty,
-              BILLEDQTY: item.billedqty,
-              AMOUNT: item.amount,
-              ISDEEMEDPOSITIVE: item.isdeemedpositive,
-              STOCKITEMGROUP: item.stockitemgroup,
-              STOCKITEMGROUPOFGROUP: item.stockitemgroupofgroup,
-              STOCKITEMGROUPLIST: item.stockitemgrouplist,
-              GROSSCOST: item.grosscost,
-              GROSSEXPENSE: item.grossexpense,
-              PROFIT: item.profit,
-              BATCHALLOCATION: (item.batchallocation || []).map(batch => ({
-                GODOWNNAME: batch.godownname,
-                BATCHNAME: batch.batchname,
-                MFGDATE: batch.mfgdate,
-                EXPIRYDATE: batch.expirydate,
-                ORDERNO: batch.orderno,
-                ORDERDUEDATE: batch.orderduedate,
-                TRACKINGNUMBER: batch.trackingnumber,
-                ACTUALQTY: batch.actualqty,
-                BILLEDQTY: batch.billedqty,
-                AMOUNT: batch.amount
-              })),
-              ACCOUNTINGALLOCATION: item.accountingallocation || []
-            }))
-          }
-        };
-
-        setVoucherDetailsData(transformedVoucher);
-        setVoucherDetailsError(null);
-      } else {
-        setVoucherDetailsError('Voucher details not found');
-        setVoucherDetailsData(null);
-      }
-    } catch (err) {
-      console.error('Error fetching voucher details:', err);
-      const errorMessage = err.message || 'Failed to fetch voucher details. Please try again.';
-      setVoucherDetailsError(errorMessage);
-      setVoucherDetailsData(null);
-    } finally {
-      setVoucherDetailsLoading(false);
-    }
-  };
-
   // Handle form submission
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -209,7 +102,8 @@ function Reports() {
   // Handle row click to show voucher details
   const handleRowClick = (order) => {
     if (order.masterid) {
-      fetchVoucherDetails(order.masterid);
+      setSelectedMasterId(order.masterid);
+      setShowVoucherDetails(true);
     }
   };
 
@@ -262,10 +156,13 @@ function Reports() {
   });
 
   return (
-    <div style={{
+    <div className="reports-container" style={{
       width: '100%',
+      maxWidth: '100%',
       minHeight: 'calc(100vh - 120px)',
-      padding: '24px',
+      padding: '20px',
+      margin: '0',
+      boxSizing: 'border-box',
     }}>
       <style>
         {`
@@ -273,20 +170,52 @@ function Reports() {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
           }
+          
+          @media (max-width: 1200px) {
+            .reports-container {
+              padding: 16px !important;
+            }
+            .reports-form {
+              padding: 16px !important;
+            }
+            .reports-table-wrapper {
+              min-width: 600px !important;
+            }
+          }
+          
+          @media (max-width: 768px) {
+            .reports-container {
+              padding: 12px !important;
+            }
+            .reports-form {
+              padding: 12px !important;
+            }
+            .reports-date-inputs {
+              flex-direction: column !important;
+              align-items: stretch !important;
+            }
+            .reports-date-inputs > div {
+              width: 100% !important;
+            }
+            .reports-table-wrapper {
+              min-width: 500px !important;
+            }
+          }
         `}
       </style>
       <div style={{
         background: '#fff',
-        margin: '0 auto',
+        margin: '0',
         width: '100%',
         maxWidth: '100%',
-        borderRadius: '16px',
-        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-        overflow: 'visible',
+        borderRadius: '12px',
+        boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)',
+        overflow: 'hidden',
         border: '1px solid #e5e7eb',
+        boxSizing: 'border-box',
       }}>
         {/* Form */}
-        <form onSubmit={handleSubmit} style={{ padding: '24px', width: '100%' }}>
+        <form className="reports-form" onSubmit={handleSubmit} style={{ padding: '24px', width: '100%', boxSizing: 'border-box' }}>
           {/* Header */}
           <div style={{ marginBottom: '24px' }}>
             <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#1e293b' }}>
@@ -298,12 +227,14 @@ function Reports() {
           </div>
 
           {/* Date Range Inputs */}
-          <div style={{
+          <div className="reports-date-inputs" style={{
             display: 'flex',
             gap: '16px',
             marginBottom: '24px',
             alignItems: 'flex-end',
             flexWrap: 'wrap',
+            width: '100%',
+            boxSizing: 'border-box',
           }}>
             {/* From Date */}
             <div style={{ ...dateInputWrapperStyle, width: '160px', flex: '0 0 auto' }}>
@@ -413,7 +344,7 @@ function Reports() {
 
         {/* Results */}
         {orders.length > 0 && (
-          <div style={{ padding: '0 24px 24px 24px' }}>
+          <div style={{ padding: '0 24px 24px 24px', width: '100%', boxSizing: 'border-box' }}>
             <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontSize: '16px', fontWeight: 600, color: '#1e293b' }}>
                 Total Orders: {total}
@@ -421,31 +352,34 @@ function Reports() {
             </div>
 
             {/* Table */}
-            <div style={{
+            <div className="reports-table-wrapper" style={{
               border: '1px solid #e5e7eb',
               borderRadius: 8,
-              overflow: 'hidden',
+              overflowX: 'auto',
+              overflowY: 'visible',
               background: '#fff',
+              width: '100%',
+              boxSizing: 'border-box',
             }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'auto', minWidth: '800px' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b' }}>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b', whiteSpace: 'nowrap' }}>
                       Voucher No.
                     </th>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b' }}>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b', whiteSpace: 'nowrap' }}>
                       Date
                     </th>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b' }}>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b', minWidth: '200px' }}>
                       Party Ledger Name
                     </th>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b' }}>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b', whiteSpace: 'nowrap' }}>
                       Status
                     </th>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b' }}>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b', minWidth: '150px' }}>
                       Order No.
                     </th>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b' }}>
+                    <th style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 600, fontSize: '14px', color: '#1e293b', minWidth: '120px' }}>
                       Generated By
                     </th>
                   </tr>
@@ -467,10 +401,10 @@ function Reports() {
                         e.currentTarget.style.background = '#fff';
                       }}
                     >
-                      <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1e293b' }}>
+                      <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1e293b', whiteSpace: 'nowrap' }}>
                         {order.vouchernumber || '-'}
                       </td>
-                      <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1e293b' }}>
+                      <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1e293b', whiteSpace: 'nowrap' }}>
                         {formatDateDisplay(order.date)}
                       </td>
                       <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1e293b' }}>
@@ -482,10 +416,12 @@ function Reports() {
                           borderRadius: '12px',
                           fontSize: '12px',
                           fontWeight: 600,
-                          background: order.status === 'Accepted' ? '#d1fae5' : '#fef3c7',
-                          color: order.status === 'Accepted' ? '#065f46' : '#92400e',
+                          background: (order.status === 'Accepted' || order.status === 'ACCEPTED' || order.status === 'accepted') ? '#d1fae5' : '#fef3c7',
+                          color: (order.status === 'Accepted' || order.status === 'ACCEPTED' || order.status === 'accepted') ? '#065f46' : '#92400e',
+                          display: 'inline-block',
+                          whiteSpace: 'nowrap',
                         }}>
-                          {order.status || '-'}
+                          {order.status || 'Pending for Accept'}
                         </span>
                       </td>
                       <td style={{ padding: '12px 16px', fontSize: '14px', color: '#1e293b' }}>
@@ -519,13 +455,10 @@ function Reports() {
       {/* Voucher Details Modal */}
       {showVoucherDetails && (
         <VoucherDetailsModal
-          voucherData={voucherDetailsData}
-          loading={voucherDetailsLoading}
-          error={voucherDetailsError}
+          masterId={selectedMasterId}
           onClose={() => {
             setShowVoucherDetails(false);
-            setVoucherDetailsData(null);
-            setVoucherDetailsError(null);
+            setSelectedMasterId(null);
           }}
         />
       )}
