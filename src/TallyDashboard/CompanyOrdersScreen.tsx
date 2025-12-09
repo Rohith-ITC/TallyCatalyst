@@ -5157,7 +5157,8 @@ ${inventoryEntriesStr}
                                     </div>
                                   </td>
                                 </tr>
-                                {isSelected && selectedGroupOrders.length > 0 && (
+                              )}
+                              {isSelected && selectedGroupOrders.length > 0 && (
                                   <tr>
                                     <td colSpan={9} style={{ padding: 0, borderTop: 'none' }}>
                                       <div className="delivery-orders-expanded">
