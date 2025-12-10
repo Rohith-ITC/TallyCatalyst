@@ -11,12 +11,7 @@ import ReceivablesDashboard from '../RecvDashboard';
 import VoucherAuthorization from './vchauth';
 import ReceiptListScreenWrapper from './ReceiptListScreenWrapper';
 import CompanyOrdersScreenWrapper from './CompanyOrdersScreenWrapper';
-import TallyConfig from '../admindashboard/tallyconfig';
 import AccessControl from '../access-control/AccessControl';
-import ModulesManagement from '../access-control/ModulesManagement';
-import RolesManagement from '../access-control/RolesManagement';
-import CreateAccess from '../admindashboard/CreateAccess';
-import ShareAccess from '../TallyDashboard/ShareAccess';
 import MasterForm from './MasterForm';
 import MasterAuthorization from './MasterAuthorization';
 import MasterList from './MasterList';
@@ -110,9 +105,6 @@ function TallyDashboard() {
   // Track active sidebar item - will be set based on user permissions
   const [activeSidebar, setActiveSidebar] = useState('main');
   const [sidebarLoading, setSidebarLoading] = useState(false);
-  const [showControlPanel, setShowControlPanel] = useState(false);
-  const [controlPanelView, setControlPanelView] = useState(null); // 'tally-config', 'modules', 'roles', 'create-access', 'share-access'
-  const [controlPanelOpen, setControlPanelOpen] = useState(false);
   const [pendingSidebarNavigation, setPendingSidebarNavigation] = useState(null);
   const [accessControlDropdownOpen, setAccessControlDropdownOpen] = useState(false);
   const [masterManagementDropdownOpen, setMasterManagementDropdownOpen] = useState(false);
@@ -123,11 +115,8 @@ function TallyDashboard() {
   const reportsDropdownRef = useRef(null);
   const [reportsDropdownPosition, setReportsDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const reportsButtonRef = useRef(null);
-  const controlPanelButtonRef = useRef(null);
   const accessControlButtonRef = useRef(null);
-  const [controlPanelDropdownPosition, setControlPanelDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const [accessControlDropdownPosition, setAccessControlDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
-  const [previousView, setPreviousView] = useState(null); // Track previous view before opening control panel
   const desiredActiveSidebarRef = useRef(null);
   const initialPermissionsRequestedRef = useRef(false);
 
@@ -215,49 +204,6 @@ function TallyDashboard() {
     desiredActiveSidebarRef.current = null;
   }, [activeSidebar, getFirstAccessibleModuleId, isModuleAccessibleById]);
   
-  // Auto-open control panel when control panel view is set
-  useEffect(() => {
-    if (controlPanelView && !showControlPanel) {
-      setShowControlPanel(true);
-      setControlPanelOpen(true);
-      if (!previousView) {
-        setPreviousView(activeSidebar);
-      }
-    }
-  }, [controlPanelView]);
-  
-  // Auto-open Access Control dropdown when an Access Control view is active
-  useEffect(() => {
-    if (['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) {
-      setAccessControlDropdownOpen(true);
-    }
-  }, [controlPanelView]);
-  
-  // Update control panel dropdown position when it opens
-  useEffect(() => {
-    const updateControlPanelDropdownPosition = () => {
-      if (controlPanelOpen && controlPanelButtonRef.current) {
-        const rect = controlPanelButtonRef.current.getBoundingClientRect();
-        setControlPanelDropdownPosition({
-          top: rect.top,
-          left: rect.left + rect.width,
-          width: rect.width
-        });
-      }
-    };
-    
-    if (controlPanelOpen) {
-      updateControlPanelDropdownPosition();
-      const handleResize = () => updateControlPanelDropdownPosition();
-      const handleScroll = () => updateControlPanelDropdownPosition();
-      window.addEventListener('resize', handleResize);
-      window.addEventListener('scroll', handleScroll, true);
-      return () => {
-        window.removeEventListener('resize', handleResize);
-        window.removeEventListener('scroll', handleScroll, true);
-      };
-    }
-  }, [controlPanelOpen]);
   
   // Update access control dropdown position when it opens
   useEffect(() => {
@@ -285,10 +231,9 @@ function TallyDashboard() {
     }
   }, [accessControlDropdownOpen]);
   
-  // Close control panel dropdown when sidebar closes
+  // Close access control dropdown when sidebar closes
   useEffect(() => {
     if (!sidebarOpen) {
-      setControlPanelOpen(false);
       setAccessControlDropdownOpen(false);
     }
   }, [sidebarOpen]);
@@ -376,7 +321,6 @@ function TallyDashboard() {
     console.log('📌 activeSidebar changed to:', activeSidebar);
   }, [activeSidebar]);
 
-  const controlPanelDropdownRef = useRef(null);
   const accessControlDropdownRef = useRef(null);
 
   useEffect(() => {
@@ -387,10 +331,6 @@ function TallyDashboard() {
       if (masterManagementDropdownRef.current && !masterManagementDropdownRef.current.contains(event.target)) {
         setMasterManagementDropdownOpen(false);
       }
-      if (controlPanelDropdownRef.current && !controlPanelDropdownRef.current.contains(event.target) && 
-          controlPanelButtonRef.current && !controlPanelButtonRef.current.contains(event.target)) {
-        setControlPanelOpen(false);
-      }
       if (accessControlDropdownRef.current && !accessControlDropdownRef.current.contains(event.target) && 
           accessControlButtonRef.current && !accessControlButtonRef.current.contains(event.target)) {
         setAccessControlDropdownOpen(false);
@@ -400,7 +340,7 @@ function TallyDashboard() {
         setReportsDropdownOpen(false);
       }
     }
-    if (profileDropdownOpen || masterManagementDropdownOpen || controlPanelOpen || accessControlDropdownOpen || reportsDropdownOpen) {
+    if (profileDropdownOpen || masterManagementDropdownOpen || accessControlDropdownOpen || reportsDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     } else {
       document.removeEventListener('mousedown', handleClickOutside);
@@ -408,7 +348,7 @@ function TallyDashboard() {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [profileDropdownOpen, masterManagementDropdownOpen, controlPanelOpen, accessControlDropdownOpen, reportsDropdownOpen]);
+  }, [profileDropdownOpen, masterManagementDropdownOpen, accessControlDropdownOpen, reportsDropdownOpen]);
 
   // Filter companies based on search term for top bar
   useEffect(() => {
@@ -515,11 +455,156 @@ function TallyDashboard() {
     }
   }, [selectedCompanyGuid, allConnections, resolveActiveSidebar]);
 
+  // Reusable function to download customers and items in the background
+  const downloadCustomersAndItems = React.useCallback(async (companyConnection) => {
+    if (!companyConnection || !companyConnection.guid) {
+      console.warn('⚠️ Cannot download: invalid company connection');
+      return;
+    }
+
+    try {
+      console.log('🔄 Starting automatic background download of customers and items for:', companyConnection.company);
+      
+      // Set downloading state in sessionStorage for CacheManagement to read
+      const progressKey = `download_progress_${companyConnection.guid}`;
+      sessionStorage.setItem(progressKey, JSON.stringify({
+        customers: { status: 'downloading', progress: 0 },
+        items: { status: 'downloading', progress: 0 }
+      }));
+      
+      // Dispatch event to notify CacheManagement
+      window.dispatchEvent(new CustomEvent('ledgerDownloadStarted', { detail: { company: companyConnection } }));
+      
+      // Download customers
+      try {
+        console.log('🔄 Starting customers download...');
+        const customersResult = await syncCustomers(companyConnection);
+        console.log('✅ Customers downloaded:', customersResult);
+        
+        // Update progress
+        const currentProgress = JSON.parse(sessionStorage.getItem(progressKey) || '{}');
+        currentProgress.customers = { status: 'completed', progress: 100, count: customersResult.count };
+        sessionStorage.setItem(progressKey, JSON.stringify(currentProgress));
+        window.dispatchEvent(new CustomEvent('ledgerDownloadProgress', { 
+          detail: { company: companyConnection, type: 'customers', status: 'completed', count: customersResult.count }
+        }));
+        
+        // Trigger cache stats reload in CacheManagement
+        window.dispatchEvent(new CustomEvent('ledgerCacheUpdated', { detail: { type: 'customers', company: companyConnection } }));
+      } catch (error) {
+        console.error('❌ Failed to download customers:', error);
+        const currentProgress = JSON.parse(sessionStorage.getItem(progressKey) || '{}');
+        currentProgress.customers = { status: 'error', progress: 0, error: error.message };
+        sessionStorage.setItem(progressKey, JSON.stringify(currentProgress));
+        window.dispatchEvent(new CustomEvent('ledgerDownloadProgress', { 
+          detail: { company: companyConnection, type: 'customers', status: 'error', error: error.message }
+        }));
+      }
+      
+      // Download items
+      try {
+        console.log('🔄 Starting items download...');
+        const itemsResult = await syncItems(companyConnection);
+        console.log('✅ Items downloaded:', itemsResult);
+        
+        // Update progress
+        const currentProgress = JSON.parse(sessionStorage.getItem(progressKey) || '{}');
+        currentProgress.items = { status: 'completed', progress: 100, count: itemsResult.count };
+        sessionStorage.setItem(progressKey, JSON.stringify(currentProgress));
+        window.dispatchEvent(new CustomEvent('ledgerDownloadProgress', { 
+          detail: { company: companyConnection, type: 'items', status: 'completed', count: itemsResult.count }
+        }));
+        
+        // Trigger cache stats reload in CacheManagement
+        window.dispatchEvent(new CustomEvent('ledgerCacheUpdated', { detail: { type: 'items', company: companyConnection } }));
+      } catch (error) {
+        console.error('❌ Failed to download items:', error);
+        const currentProgress = JSON.parse(sessionStorage.getItem(progressKey) || '{}');
+        currentProgress.items = { status: 'error', progress: 0, error: error.message };
+        sessionStorage.setItem(progressKey, JSON.stringify(currentProgress));
+        window.dispatchEvent(new CustomEvent('ledgerDownloadProgress', { 
+          detail: { company: companyConnection, type: 'items', status: 'error', error: error.message }
+        }));
+      }
+    } catch (error) {
+      console.error('❌ Error in background download:', error);
+    }
+  }, []);
+
   // Update active sidebar when user access permissions are loaded
   useEffect(() => {
     const userModules = getUserModules();
     resolveActiveSidebar(userModules);
   }, [selectedCompanyGuid, resolveActiveSidebar]);
+
+  // Auto-download customers and items when company is selected (initial load or change)
+  useEffect(() => {
+    if (!selectedCompanyGuid) {
+      return;
+    }
+
+    // Find the company connection
+    const companyConnection = allConnections.find(c => c.guid === selectedCompanyGuid);
+    if (!companyConnection) {
+      // Try to construct from sessionStorage if not in allConnections yet
+      const storedTallyloc = sessionStorage.getItem('tallyloc_id');
+      const storedCompany = sessionStorage.getItem('company');
+      const storedGuid = sessionStorage.getItem('guid');
+      if (storedGuid === selectedCompanyGuid && storedTallyloc && storedCompany) {
+        const companyFromStorage = {
+          tallyloc_id: storedTallyloc,
+          company: storedCompany,
+          guid: storedGuid,
+          conn_name: sessionStorage.getItem('conn_name') || '',
+          shared_email: sessionStorage.getItem('shared_email') || '',
+          status: sessionStorage.getItem('status') || '',
+          access_type: sessionStorage.getItem('access_type') || ''
+        };
+        console.log('🔄 Auto-downloading customers and items for company from sessionStorage:', companyFromStorage.company);
+        downloadCustomersAndItems(companyFromStorage);
+      }
+      return;
+    }
+
+    // Check if download is already in progress for this company
+    const progressKey = `download_progress_${companyConnection.guid}`;
+    const existingProgress = sessionStorage.getItem(progressKey);
+    if (existingProgress) {
+      try {
+        const progress = JSON.parse(existingProgress);
+        // If both are already completed or downloading, don't start again
+        if ((progress.customers?.status === 'completed' || progress.customers?.status === 'downloading') &&
+            (progress.items?.status === 'completed' || progress.items?.status === 'downloading')) {
+          console.log('🔄 Download already in progress or completed for:', companyConnection.company);
+          return;
+        }
+      } catch (e) {
+        // If we can't parse, proceed with download
+      }
+    }
+
+    console.log('🔄 Auto-downloading customers and items for company:', companyConnection.company);
+    downloadCustomersAndItems(companyConnection);
+  }, [selectedCompanyGuid, allConnections, downloadCustomersAndItems]);
+
+  // Also listen for companyChanged event to trigger download
+  useEffect(() => {
+    const handleCompanyChanged = (event) => {
+      const companyConnection = event.detail;
+      if (companyConnection && companyConnection.guid) {
+        console.log('🔄 companyChanged event received, triggering download for:', companyConnection.company);
+        // Small delay to ensure sessionStorage is updated
+        setTimeout(() => {
+          downloadCustomersAndItems(companyConnection);
+        }, 500);
+      }
+    };
+
+    window.addEventListener('companyChanged', handleCompanyChanged);
+    return () => {
+      window.removeEventListener('companyChanged', handleCompanyChanged);
+    };
+  }, [downloadCustomersAndItems]);
 
   // Update active sidebar when user access permissions change (company change)
   useEffect(() => {
@@ -637,6 +722,9 @@ function TallyDashboard() {
     
     // Trigger refresh of child components by dispatching an event
     window.dispatchEvent(new CustomEvent('companyChanged', { detail: companyConnection }));
+    
+    // Automatically download customers and items in the background
+    downloadCustomersAndItems(companyConnection);
   };
 
   // Global refresh function for all pages
@@ -886,35 +974,6 @@ function TallyDashboard() {
     }).filter(Boolean);
   };
 
-  // Handler for closing control panel
-  const handleCloseControlPanel = async () => {
-    setShowControlPanel(false);
-    setControlPanelOpen(false);
-    if (previousView) {
-      setActiveSidebar(previousView);
-    }
-    setPreviousView(null);
-    setControlPanelView(null);
-    
-    // Fetch updated modules and permissions after closing control panel
-    const tallylocId = sessionStorage.getItem('tallyloc_id');
-    const guid = sessionStorage.getItem('guid');
-    
-    if (tallylocId && guid) {
-      try {
-        console.log('🔄 Fetching updated user access after closing control panel...');
-        const companyConnection = {
-          tallyloc_id: tallylocId,
-          guid: guid,
-          company: sessionStorage.getItem('company') || ''
-        };
-        await fetchUserAccessPermissions(companyConnection);
-        console.log('✅ Updated user access permissions loaded');
-      } catch (error) {
-        console.error('❌ Error fetching updated user access:', error);
-      }
-    }
-  };
 
   // Render regular sidebar item
   const renderSidebarItem = (moduleKey, module) => {
@@ -926,11 +985,7 @@ function TallyDashboard() {
           if (moduleKey === 'main_menu') {
             navigate('/admin-dashboard');
           } else {
-            const canNavigate = handleSafeNavigation(module.id); 
-            // Close control panel when sidebar item is clicked
-            if (canNavigate && showControlPanel) {
-              handleCloseControlPanel();
-            }
+            handleSafeNavigation(module.id);
           }
         }}
         style={{
@@ -1315,11 +1370,8 @@ function TallyDashboard() {
                     e.preventDefault();
                     e.stopPropagation();
                     console.log('🖱️ Master dropdown item clicked:', subModule.key, subModule.id);
-                    const canNavigate = handleSafeNavigation(subModule.id);
+                    handleSafeNavigation(subModule.id);
                     setMasterManagementDropdownOpen(false);
-                    if (canNavigate && showControlPanel) {
-                      handleCloseControlPanel();
-                    }
                   }}
                   style={{
                     color: isSubActive ? '#ff9800' : '#fff',
@@ -1603,11 +1655,8 @@ function TallyDashboard() {
                     e.preventDefault();
                     e.stopPropagation();
                     console.log('🖱️ Reports dropdown item clicked:', subModule.key, subModule.id);
-                    const canNavigate = handleSafeNavigation(subModule.id);
+                    handleSafeNavigation(subModule.id);
                     setReportsDropdownOpen(false);
-                    if (canNavigate && showControlPanel) {
-                      handleCloseControlPanel();
-                    }
                   }}
                   style={{
                     color: isSubActive ? '#ff9800' : '#fff',
@@ -2202,20 +2251,11 @@ function TallyDashboard() {
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                if (!showControlPanel) {
-                  // Store current view before opening control panel
-                  setPreviousView(activeSidebar);
-                  setShowControlPanel(true);
-                  setControlPanelOpen(true);
-                  setControlPanelView('tally-config'); // Default to Tally Connections
-                } else {
-                  // Close control panel and return to previous view
-                  handleCloseControlPanel();
-                }
+                navigate('/admin-dashboard?view=dashboard');
               }}
               style={{
-                background: showControlPanel ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.12)',
-                border: showControlPanel ? '2px solid rgba(255, 255, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.25)',
+                background: 'rgba(255, 255, 255, 0.12)',
+                border: '1px solid rgba(255, 255, 255, 0.25)',
                 borderRadius: '10px',
                 padding: windowWidth < 1000 ? '8px 10px' : '10px 14px',
                 cursor: 'pointer',
@@ -2226,7 +2266,7 @@ function TallyDashboard() {
                 color: '#fff',
                 zIndex: 10,
                 position: 'relative',
-                boxShadow: showControlPanel ? '0 4px 12px rgba(0,0,0,0.15)' : '0 2px 6px rgba(0,0,0,0.1)',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
                 minWidth: windowWidth < 1000 ? '38px' : '44px',
                 height: windowWidth < 1000 ? '38px' : '44px',
               }}
@@ -2238,10 +2278,10 @@ function TallyDashboard() {
                 e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = showControlPanel ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.12)';
-                e.currentTarget.style.borderColor = showControlPanel ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.25)';
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.25)';
                 e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = showControlPanel ? '0 4px 12px rgba(0,0,0,0.15)' : '0 2px 6px rgba(0,0,0,0.1)';
+                e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.1)';
               }}
             >
               <span className="material-icons" style={{ fontSize: windowWidth < 1000 ? '20px' : '22px', pointerEvents: 'none' }}>
@@ -2812,401 +2852,7 @@ function TallyDashboard() {
             </div>
           ) : (
             <>
-              {!showControlPanel && renderSidebarItems()}
-              
-              {/* Control Panel Section - Show when control panel is open */}
-              {showControlPanel && (
-                <div style={{ position: 'relative' }}>
-                  {/* Close Button */}
-                  <a
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      handleCloseControlPanel();
-                    }}
-                    style={{
-                      color: '#fff',
-                      background: 'rgba(220, 38, 38, 0.15)',
-                      textDecoration: 'none',
-                      padding: '12px 16px',
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      borderRadius: '12px',
-                      fontWeight: 500,
-                      margin: '0 0 12px 0',
-                      border: '1px solid rgba(220, 38, 38, 0.3)',
-                      cursor: 'pointer',
-                      justifyContent: sidebarOpen ? 'flex-start' : 'center',
-                      position: 'relative',
-                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                      fontSize: '14px',
-                      flexWrap: 'nowrap',
-                    }}
-                    title="Close Control Panel"
-                    onMouseEnter={e => {
-                      e.target.style.background = 'rgba(220, 38, 38, 0.2)';
-                      e.target.style.borderColor = 'rgba(220, 38, 38, 0.4)';
-                      if (!sidebarOpen) {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setSidebarTooltip({ show: true, text: 'Close Control Panel', top: rect.top + window.scrollY });
-                        if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
-                        sidebarTooltipTimeout = setTimeout(() => {
-                          setSidebarTooltip({ show: false, text: '', top: 0 });
-                        }, 1500);
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = 'rgba(220, 38, 38, 0.1)';
-                      e.target.style.borderColor = 'rgba(220, 38, 38, 0.2)';
-                      if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
-                      setSidebarTooltip({ show: false, text: '', top: 0 });
-                    }}
-                  >
-                    <span 
-                      className="material-icons" 
-                      style={{ 
-                        fontSize: 22,
-                        color: 'rgba(255, 255, 255, 0.9)',
-                        flexShrink: 0,
-                        marginTop: '2px',
-                      }}
-                    >
-                      close
-                    </span>
-                    {sidebarOpen && (
-                      <span 
-                        className="sidebar-link-label" 
-                        style={{
-                          fontSize: '14px',
-                          letterSpacing: '0.3px',
-                          whiteSpace: 'normal',
-                          wordWrap: 'break-word',
-                          lineHeight: '1.4',
-                          flex: 1,
-                        }}
-                      >
-                        Close
-                      </span>
-                    )}
-                  </a>
-                  
-                  <a
-                    ref={controlPanelButtonRef}
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      if (sidebarOpen) {
-                        setControlPanelOpen(!controlPanelOpen);
-                      }
-                    }}
-                    style={{
-                      color: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? '#ff9800' : '#fff',
-                      background: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) 
-                        ? 'rgba(255, 152, 0, 0.08)' 
-                        : 'transparent',
-                      textDecoration: 'none',
-                      padding: '12px 16px',
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 14,
-                      borderRadius: '12px',
-                      fontWeight: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? 700 : 500,
-                      margin: '0 0 8px 0',
-                      border: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) 
-                        ? '1px solid rgba(255, 255, 255, 0.2)' 
-                        : '1px solid transparent',
-                      cursor: 'pointer',
-                      justifyContent: sidebarOpen ? 'flex-start' : 'center',
-                      position: 'relative',
-                      fontSize: '14px',
-                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                      boxShadow: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView))
-                        ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)' 
-                        : 'none',
-                      flexWrap: 'nowrap',
-                    }}
-                    title="Control Panel"
-                    onMouseEnter={e => {
-                      if (sidebarOpen) {
-                        setControlPanelOpen(true);
-                      }
-                      if (!sidebarOpen) {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setSidebarTooltip({ show: true, text: 'Control Panel', top: rect.top + window.scrollY });
-                        if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
-                        sidebarTooltipTimeout = setTimeout(() => {
-                          setSidebarTooltip({ show: false, text: '', top: 0 });
-                        }, 1500);
-                      }
-                    }}
-                    onMouseLeave={() => {
-                      if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
-                      setSidebarTooltip({ show: false, text: '', top: 0 });
-                    }}
-                  >
-                    <span 
-                      className="material-icons" 
-                      style={{ 
-                        fontSize: 22,
-                        color: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) 
-                          ? '#ff9800' 
-                          : 'rgba(255, 255, 255, 0.9)',
-                        transition: 'color 0.2s',
-                        flexShrink: 0,
-                        marginTop: '2px',
-                      }}
-                    >
-                      admin_panel_settings
-                    </span>
-                    {sidebarOpen && (
-                      <span 
-                        className="sidebar-link-label" 
-                        style={{
-                          fontSize: '14px',
-                          letterSpacing: '0.3px',
-                          whiteSpace: 'normal',
-                          wordWrap: 'break-word',
-                          lineHeight: '1.4',
-                          flex: 1,
-                        }}
-                      >
-                        Control Panel
-                      </span>
-                    )}
-                    {sidebarOpen && (
-                      <span 
-                        className="material-icons" 
-                        style={{ 
-                          fontSize: 16, 
-                          marginLeft: 'auto', 
-                          transform: controlPanelOpen ? 'rotate(180deg)' : 'rotate(0deg)', 
-                          transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        }}
-                      >
-                        expand_more
-                      </span>
-                    )}
-                  </a>
-                  
-                  {/* Control Panel Sub-menu - Right-side dropdown */}
-                  {sidebarOpen && controlPanelOpen && (
-                    <div 
-                      ref={controlPanelDropdownRef}
-                      style={{
-                        position: 'fixed',
-                        top: `${controlPanelDropdownPosition.top}px`,
-                        left: `${controlPanelDropdownPosition.left + 8}px`,
-                        backgroundColor: '#1e3a8a',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        borderRadius: '12px',
-                        padding: '8px 0',
-                        minWidth: '220px',
-                        boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
-                        zIndex: 10000,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 2,
-                      }}
-                      onMouseEnter={() => {
-                        setControlPanelOpen(true);
-                        if (controlPanelButtonRef.current) {
-                          const rect = controlPanelButtonRef.current.getBoundingClientRect();
-                          setControlPanelDropdownPosition({
-                            top: rect.top,
-                            left: rect.left + rect.width,
-                            width: rect.width
-                          });
-                        }
-                      }}
-                      onMouseLeave={() => setControlPanelOpen(false)}
-                    >
-                      {/* Tally Connections */}
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setControlPanelView('tally-config');
-                          setControlPanelOpen(false);
-                          if (window.innerWidth <= 900) {
-                            setSidebarOpen(false);
-                          }
-                        }}
-                        style={{
-                          color: controlPanelView === 'tally-config' ? '#ff9800' : '#fff',
-                          background: controlPanelView === 'tally-config' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
-                          padding: '12px 18px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 12,
-                          borderRadius: '8px',
-                          fontWeight: controlPanelView === 'tally-config' ? 700 : 500,
-                          margin: '0 8px',
-                          border: 'none',
-                          cursor: 'pointer',
-                          justifyContent: 'flex-start',
-                          fontSize: '14px',
-                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                          textAlign: 'left',
-                        }}
-                        onMouseEnter={e => {
-                          if (controlPanelView !== 'tally-config') {
-                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                          }
-                        }}
-                        onMouseLeave={e => {
-                          if (controlPanelView !== 'tally-config') {
-                            e.currentTarget.style.background = 'transparent';
-                          }
-                        }}
-                      >
-                        <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>settings</span>
-                        <span>Tally Connections</span>
-                      </button>
-                      
-                      {/* Access Control */}
-                      <div style={{ position: 'relative' }}>
-                        <button
-                          ref={accessControlButtonRef}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setAccessControlDropdownOpen(!accessControlDropdownOpen);
-                          }}
-                          style={{
-                            color: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? '#ff9800' : '#fff',
-                            background: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) 
-                              ? 'rgba(255, 152, 0, 0.15)' 
-                              : 'transparent',
-                            padding: '12px 18px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            borderRadius: '8px',
-                            fontWeight: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? 700 : 500,
-                            margin: '0 8px',
-                            border: 'none',
-                            cursor: 'pointer',
-                            justifyContent: 'flex-start',
-                            fontSize: '14px',
-                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                            textAlign: 'left',
-                            width: 'calc(100% - 16px)',
-                          }}
-                          onMouseEnter={(e) => {
-                            if (sidebarOpen) {
-                              setAccessControlDropdownOpen(true);
-                            }
-                            if (!['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) {
-                              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) {
-                              e.currentTarget.style.background = 'transparent';
-                            }
-                          }}
-                        >
-                          <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>security</span>
-                          <span style={{ flex: 1 }}>Access Control</span>
-                          <span 
-                            className="material-icons" 
-                            style={{ 
-                              fontSize: 18, 
-                              marginLeft: 'auto',
-                              transform: accessControlDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)', 
-                              transition: 'transform 0.2s',
-                              color: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
-                            }}
-                          >
-                            arrow_drop_down
-                          </span>
-                        </button>
-                        
-                        {/* Access Control Sub-menu - Right-side dropdown */}
-                        {sidebarOpen && accessControlDropdownOpen && (
-                          <div 
-                            ref={accessControlDropdownRef}
-                            style={{
-                              position: 'fixed',
-                              top: `${accessControlDropdownPosition.top}px`,
-                              left: `${accessControlDropdownPosition.left + 8}px`,
-                              backgroundColor: '#1e3a8a',
-                              border: '1px solid rgba(255, 255, 255, 0.2)',
-                              borderRadius: '12px',
-                              padding: '8px 0',
-                              minWidth: '220px',
-                              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
-                              zIndex: 10001,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 2,
-                            }}
-                            onMouseEnter={() => {
-                              setAccessControlDropdownOpen(true);
-                              if (accessControlButtonRef.current) {
-                                const rect = accessControlButtonRef.current.getBoundingClientRect();
-                                setAccessControlDropdownPosition({
-                                  top: rect.top,
-                                  left: rect.left + rect.width,
-                                  width: rect.width
-                                });
-                              }
-                            }}
-                            onMouseLeave={() => setAccessControlDropdownOpen(false)}
-                          >
-                            {ACCESS_CONTROL_ITEMS.map(item => (
-                              <button
-                                key={item.key}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setControlPanelView(item.key);
-                                  setAccessControlDropdownOpen(false);
-                                  if (window.innerWidth <= 900) {
-                                    setSidebarOpen(false);
-                                  }
-                                }}
-                                style={{
-                                  color: controlPanelView === item.key ? '#ff9800' : '#fff',
-                                  background: controlPanelView === item.key ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
-                                  padding: '12px 18px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 12,
-                                  borderRadius: '8px',
-                                  fontWeight: controlPanelView === item.key ? 700 : 500,
-                                  margin: '0 8px',
-                                  border: 'none',
-                                  cursor: 'pointer',
-                                  justifyContent: 'flex-start',
-                                  fontSize: '14px',
-                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                  textAlign: 'left',
-                                }}
-                                onMouseEnter={e => {
-                                  if (controlPanelView !== item.key) {
-                                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                                  }
-                                }}
-                                onMouseLeave={e => {
-                                  if (controlPanelView !== item.key) {
-                                    e.currentTarget.style.background = 'transparent';
-                                  }
-                                }}
-                              >
-                                <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>{item.icon}</span>
-                                <span>{item.label}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+              {renderSidebarItems()}
             </>
           )}
         </nav>
@@ -3285,20 +2931,7 @@ function TallyDashboard() {
         }}
       >
         <div style={{ marginTop: 50 }}>
-          {showControlPanel ? (
-            controlPanelView === 'tally-config' ? (
-              <TallyConfig />
-            ) : controlPanelView === 'modules' ? (
-              <ModulesManagement />
-            ) : controlPanelView === 'roles' ? (
-              <RolesManagement />
-            ) : controlPanelView === 'create-access' ? (
-              <CreateAccess />
-            ) : controlPanelView === 'share-access' ? (
-              <ShareAccess />
-            ) : null
-          ) : (
-            <>
+          <>
           {activeSidebar === 'ledger' && <Ledgerbook />}
           {activeSidebar === 'ledgerwise' && <Ledgerbook />}
           {activeSidebar === 'billwise' && <Ledgerbook />}
@@ -3344,8 +2977,7 @@ function TallyDashboard() {
           {activeSidebar === 'master_form' && <MasterForm key="master-form" />}
           {activeSidebar === 'master_authorization' && <MasterAuthorization />}
           {activeSidebar === 'master_list' && <MasterList />}
-            </>
-          )}
+          </>
         </div>
       </main>
 
