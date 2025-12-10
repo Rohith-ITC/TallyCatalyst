@@ -50,6 +50,8 @@ const CacheManagement = () => {
   const [financialYearOptions, setFinancialYearOptions] = useState([]);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [interruptedProgress, setInterruptedProgress] = useState(null);
+  // Track dismissed interruptions to prevent showing modal again after user closes it
+  const dismissedInterruptionsRef = useRef(new Set());
 
   // Detect if running on mobile
   const isMobile = useIsMobile();
@@ -62,6 +64,11 @@ const CacheManagement = () => {
   const [refreshingSession, setRefreshingSession] = useState({
     customers: false,
     items: false
+  });
+  // Download progress for customers and items
+  const [ledgerDownloadProgress, setLedgerDownloadProgress] = useState({
+    customers: { status: 'idle', progress: 0, count: 0, error: null },
+    items: { status: 'idle', progress: 0, count: 0, error: null }
   });
 
   // Load progress for selected company
@@ -108,6 +115,41 @@ const CacheManagement = () => {
     }
   };
 
+  // Load ledger download progress (customers and items) from sessionStorage
+  const loadLedgerDownloadProgress = () => {
+    if (!selectedCompany) {
+      setLedgerDownloadProgress({
+        customers: { status: 'idle', progress: 0, count: 0, error: null },
+        items: { status: 'idle', progress: 0, count: 0, error: null }
+      });
+      return;
+    }
+
+    try {
+      const progressKey = `download_progress_${selectedCompany.guid}`;
+      const progressStr = sessionStorage.getItem(progressKey);
+      if (progressStr) {
+        const progress = JSON.parse(progressStr);
+        setLedgerDownloadProgress({
+          customers: progress.customers || { status: 'idle', progress: 0, count: 0, error: null },
+          items: progress.items || { status: 'idle', progress: 0, count: 0, error: null }
+        });
+        console.log('📊 Loaded ledger download progress:', progress);
+      } else {
+        setLedgerDownloadProgress({
+          customers: { status: 'idle', progress: 0, count: 0, error: null },
+          items: { status: 'idle', progress: 0, count: 0, error: null }
+        });
+      }
+    } catch (error) {
+      console.error('Error loading ledger download progress:', error);
+      setLedgerDownloadProgress({
+        customers: { status: 'idle', progress: 0, count: 0, error: null },
+        items: { status: 'idle', progress: 0, count: 0, error: null }
+      });
+    }
+  };
+
   useEffect(() => {
     loadCacheStats();
     loadCurrentCompany();
@@ -145,8 +187,14 @@ const CacheManagement = () => {
         if (selectedCompany) {
           const interrupted = await checkInterruptedDownload(selectedCompany);
           if (interrupted) {
-            setInterruptedProgress(interrupted);
-            setShowResumeModal(true);
+            // Create a unique key for this interruption
+            const interruptionKey = `${interrupted.companyGuid}_${interrupted.current}_${interrupted.total}`;
+            
+            // Only show modal if this specific interruption hasn't been dismissed
+            if (!dismissedInterruptionsRef.current.has(interruptionKey)) {
+              setInterruptedProgress(interrupted);
+              setShowResumeModal(true);
+            }
           }
         }
       } catch (error) {
@@ -188,10 +236,59 @@ const CacheManagement = () => {
 
     window.addEventListener('companyChanged', handleCompanyChange);
 
+    // Listen for ledger download events (customers and items)
+    const handleLedgerDownloadStarted = (event) => {
+      const company = event.detail?.company;
+      const currentSelectedCompany = selectedCompanyRef.current;
+      if (company && currentSelectedCompany && company.guid === currentSelectedCompany.guid) {
+        console.log('📥 Ledger download started for company:', company.company);
+        loadLedgerDownloadProgress();
+      }
+    };
+
+    const handleLedgerDownloadProgress = (event) => {
+      const { company, type, status, count, error } = event.detail || {};
+      const currentSelectedCompany = selectedCompanyRef.current;
+      if (company && currentSelectedCompany && company.guid === currentSelectedCompany.guid) {
+        console.log('📊 Ledger download progress:', { type, status, count, error });
+        setLedgerDownloadProgress(prev => ({
+          ...prev,
+          [type]: {
+            status,
+            progress: status === 'completed' ? 100 : status === 'downloading' ? 50 : 0,
+            count: count || prev[type].count,
+            error: error || null
+          }
+        }));
+      }
+    };
+
+    // Listen for cache updates to reload stats
+    const handleLedgerCacheUpdated = (event) => {
+      const { company, type } = event.detail || {};
+      const currentSelectedCompany = selectedCompanyRef.current;
+      if (company && currentSelectedCompany && company.guid === currentSelectedCompany.guid) {
+        console.log('🔄 Ledger cache updated, reloading stats:', type);
+        // Delay to ensure OPFS write is complete
+        setTimeout(() => {
+          loadSessionCacheStats().catch(err => {
+            console.error('Error reloading cache stats after update:', err);
+          });
+        }, 1000);
+      }
+    };
+
+    window.addEventListener('ledgerDownloadStarted', handleLedgerDownloadStarted);
+    window.addEventListener('ledgerDownloadProgress', handleLedgerDownloadProgress);
+    window.addEventListener('ledgerCacheUpdated', handleLedgerCacheUpdated);
+
     return () => {
       clearTimeout(timer);
       unsubscribe();
       window.removeEventListener('companyChanged', handleCompanyChange);
+      window.removeEventListener('ledgerDownloadStarted', handleLedgerDownloadStarted);
+      window.removeEventListener('ledgerDownloadProgress', handleLedgerDownloadProgress);
+      window.removeEventListener('ledgerCacheUpdated', handleLedgerCacheUpdated);
     };
   }, []);
 
@@ -199,14 +296,25 @@ const CacheManagement = () => {
   useEffect(() => {
     if (selectedCompany) {
       loadCompanyProgress();
+      loadLedgerDownloadProgress();
 
       // Check for interrupted downloads when company changes
       const checkForInterrupted = async () => {
         try {
           const interrupted = await checkInterruptedDownload(selectedCompany);
           if (interrupted) {
-            setInterruptedProgress(interrupted);
-            setShowResumeModal(true);
+            // Create a unique key for this interruption
+            const interruptionKey = `${interrupted.companyGuid}_${interrupted.current}_${interrupted.total}`;
+            
+            // Only show modal if this specific interruption hasn't been dismissed
+            if (!dismissedInterruptionsRef.current.has(interruptionKey)) {
+              setInterruptedProgress(interrupted);
+              setShowResumeModal(true);
+            } else {
+              // This interruption was already dismissed, don't show modal
+              setShowResumeModal(false);
+              setInterruptedProgress(null);
+            }
           } else {
             setShowResumeModal(false);
             setInterruptedProgress(null);
@@ -221,6 +329,7 @@ const CacheManagement = () => {
       // This ensures we show progress even when sync is happening in background
       const progressInterval = setInterval(async () => {
         await loadCompanyProgress();
+        loadLedgerDownloadProgress();
       }, 2000);
 
       return () => {
@@ -233,6 +342,10 @@ const CacheManagement = () => {
       downloadStartTimeRef.current = null;
       setShowResumeModal(false);
       setInterruptedProgress(null);
+      setLedgerDownloadProgress({
+        customers: { status: 'idle', progress: 0, count: 0, error: null },
+        items: { status: 'idle', progress: 0, count: 0, error: null }
+      });
     }
   }, [selectedCompany]);
 
@@ -371,7 +484,7 @@ const CacheManagement = () => {
         await loadSessionCacheStats().catch(err => {
           console.error('Error reloading cache stats after refresh:', err);
         });
-      }, 1500); // Increased delay to allow OPFS encryption/write to complete
+      }, 2000); // Increased delay to allow OPFS encryption/write to complete
     } catch (error) {
       console.error(`Error refreshing ${type}:`, error);
       setMessage({ type: 'error', text: `Failed to refresh ${type}: ${error.message}` });
@@ -454,10 +567,6 @@ const CacheManagement = () => {
   };
 
   const clearAllCache = async () => {
-    if (!window.confirm('Are you sure you want to clear ALL cache? This will remove all cached sales data and dashboard cache for all companies.')) {
-      return;
-    }
-
     setLoading(true);
     setMessage({ type: '', text: '' });
 
@@ -500,7 +609,7 @@ const CacheManagement = () => {
         console.warn('Failed to clear metadata:', err);
       }
 
-      // Clear session storage for items and customers
+      // Clear session storage for items and customers (including count keys)
       const keysToRemove = [];
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i);
@@ -508,7 +617,22 @@ const CacheManagement = () => {
           keysToRemove.push(key);
         }
       }
-      keysToRemove.forEach(key => sessionStorage.removeItem(key));
+      keysToRemove.forEach(key => {
+        sessionStorage.removeItem(key);
+        // Also remove count keys
+        sessionStorage.removeItem(`${key}_count`);
+      });
+      
+      // Also clear download progress keys
+      const progressKeysToRemove = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && key.startsWith('download_progress_')) {
+          progressKeysToRemove.push(key);
+        }
+      }
+      progressKeysToRemove.forEach(key => sessionStorage.removeItem(key));
+      
       setSessionCacheStats({ customers: 0, items: 0 });
 
       // Note: We keep the keys directory as it contains user encryption keys
@@ -525,6 +649,11 @@ const CacheManagement = () => {
       }
 
       await loadCacheStats();
+      
+      // Reload session cache stats to update the UI
+      if (selectedCompany) {
+        await loadSessionCacheStats();
+      }
     } catch (error) {
       console.error('Error clearing all cache:', error);
       setMessage({ type: 'error', text: 'Failed to clear cache: ' + error.message });
@@ -552,11 +681,26 @@ const CacheManagement = () => {
       // Clear session storage for this company (backward compatibility with old sessionStorage data)
       if (selectedCompany) {
         const { tallyloc_id, company } = selectedCompany;
+        const customerKey = `ledgerlist-w-addrs_${tallyloc_id}_${company}`;
+        const itemKey = `stockitems_${tallyloc_id}_${company}`;
+        
         try {
-          removeSessionStorageKey(`stockitems_${tallyloc_id}_${company}`);
-          removeSessionStorageKey(`ledgerlist-w-addrs_${tallyloc_id}_${company}`);
+          // Delete from OPFS/IndexedDB
+          await hybridCache.deleteCacheKey(customerKey);
+          await hybridCache.deleteCacheKey(itemKey);
+          
+          // Remove from sessionStorage
+          removeSessionStorageKey(customerKey);
+          removeSessionStorageKey(itemKey);
+          
+          // Also remove count keys
+          sessionStorage.removeItem(`${customerKey}_count`);
+          sessionStorage.removeItem(`${itemKey}_count`);
+          
+          // Clear download progress for this company
+          sessionStorage.removeItem(`download_progress_${selectedCompany.guid}`);
         } catch (e) {
-          // Ignore
+          console.warn('Error clearing company cache keys:', e);
         }
 
         setSessionCacheStats({ customers: 0, items: 0 });
@@ -573,6 +717,11 @@ const CacheManagement = () => {
       }
 
       await loadCacheStats();
+      
+      // Reload session cache stats to update the UI
+      if (selectedCompany) {
+        await loadSessionCacheStats();
+      }
     } catch (error) {
       console.error('Error clearing company cache:', error);
       setMessage({ type: 'error', text: 'Failed to clear company cache: ' + error.message });
@@ -584,10 +733,6 @@ const CacheManagement = () => {
   const clearSalesCache = async () => {
     if (!selectedCompany) {
       setMessage({ type: 'error', text: 'No company selected' });
-      return;
-    }
-
-    if (!window.confirm(`Are you sure you want to clear sales cache for "${selectedCompany.company}"? This will remove all cached sales data for this company.`)) {
       return;
     }
 
@@ -1554,112 +1699,250 @@ const CacheManagement = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {/* Customers */}
             <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
               padding: '12px',
               background: '#f8fafc',
               borderRadius: '8px',
               border: '1px solid #e2e8f0'
             }}>
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>Customers</div>
-                <div style={{ fontSize: '12px', color: '#64748b' }}>
-                  {sessionCacheStats.customers} cached
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: ledgerDownloadProgress.customers.status === 'downloading' ? '8px' : '0'
+              }}>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>Customers</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>
+                    {ledgerDownloadProgress.customers.status === 'completed' && ledgerDownloadProgress.customers.count > 0
+                      ? `${ledgerDownloadProgress.customers.count} cached`
+                      : `${sessionCacheStats.customers} cached`}
+                  </div>
                 </div>
+                <button
+                  onClick={() => handleRefreshSessionCache('customers')}
+                  disabled={refreshingSession.customers || !selectedCompany || ledgerDownloadProgress.customers.status === 'downloading'}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    cursor: (refreshingSession.customers || !selectedCompany || ledgerDownloadProgress.customers.status === 'downloading') ? 'not-allowed' : 'pointer',
+                    color: '#475569',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!refreshingSession.customers && selectedCompany && ledgerDownloadProgress.customers.status !== 'downloading') {
+                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.borderColor = '#94a3b8';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!refreshingSession.customers && selectedCompany && ledgerDownloadProgress.customers.status !== 'downloading') {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = '#cbd5e1';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{
+                    fontSize: '16px',
+                    animation: (refreshingSession.customers || ledgerDownloadProgress.customers.status === 'downloading') ? 'spin 1s linear infinite' : 'none'
+                  }}>
+                    refresh
+                  </span>
+                  Refresh
+                </button>
               </div>
-              <button
-                onClick={() => handleRefreshSessionCache('customers')}
-                disabled={refreshingSession.customers || !selectedCompany}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #cbd5e1',
+              {/* Download Progress */}
+              {ledgerDownloadProgress.customers.status === 'downloading' && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#f0f9ff',
+                  border: '1px solid #bae6fd',
+                  borderRadius: '6px'
+                }}>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#0369a1',
+                    marginBottom: '4px',
+                    fontWeight: 500
+                  }}>
+                    Downloading customers...
+                  </div>
+                  <div style={{
+                    width: '100%',
+                    height: '6px',
+                    background: '#e0f2fe',
+                    borderRadius: '3px',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${ledgerDownloadProgress.customers.progress}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                </div>
+              )}
+              {ledgerDownloadProgress.customers.status === 'error' && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
                   borderRadius: '6px',
-                  padding: '6px 12px',
-                  cursor: (refreshingSession.customers || !selectedCompany) ? 'not-allowed' : 'pointer',
-                  color: '#475569',
-                  fontSize: '13px',
+                  fontSize: '12px',
+                  color: '#dc2626'
+                }}>
+                  ⚠️ Download failed: {ledgerDownloadProgress.customers.error || 'Unknown error'}
+                </div>
+              )}
+              {ledgerDownloadProgress.customers.status === 'completed' && ledgerDownloadProgress.customers.count > 0 && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  color: '#16a34a',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (!refreshingSession.customers && selectedCompany) {
-                    e.currentTarget.style.background = '#f1f5f9';
-                    e.currentTarget.style.borderColor = '#94a3b8';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!refreshingSession.customers && selectedCompany) {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.borderColor = '#cbd5e1';
-                  }
-                }}
-              >
-                <span className="material-icons" style={{
-                  fontSize: '16px',
-                  animation: refreshingSession.customers ? 'spin 1s linear infinite' : 'none'
+                  gap: '6px'
                 }}>
-                  refresh
-                </span>
-                Refresh
-              </button>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>check_circle</span>
+                  Successfully downloaded {ledgerDownloadProgress.customers.count} customers
+                </div>
+              )}
             </div>
 
             {/* Items */}
             <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
               padding: '12px',
               background: '#f8fafc',
               borderRadius: '8px',
               border: '1px solid #e2e8f0'
             }}>
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>Items</div>
-                <div style={{ fontSize: '12px', color: '#64748b' }}>
-                  {sessionCacheStats.items} cached
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: ledgerDownloadProgress.items.status === 'downloading' ? '8px' : '0'
+              }}>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>Items</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>
+                    {ledgerDownloadProgress.items.status === 'completed' && ledgerDownloadProgress.items.count > 0
+                      ? `${ledgerDownloadProgress.items.count} cached`
+                      : `${sessionCacheStats.items} cached`}
+                  </div>
                 </div>
+                <button
+                  onClick={() => handleRefreshSessionCache('items')}
+                  disabled={refreshingSession.items || !selectedCompany || ledgerDownloadProgress.items.status === 'downloading'}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    cursor: (refreshingSession.items || !selectedCompany || ledgerDownloadProgress.items.status === 'downloading') ? 'not-allowed' : 'pointer',
+                    color: '#475569',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!refreshingSession.items && selectedCompany && ledgerDownloadProgress.items.status !== 'downloading') {
+                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.borderColor = '#94a3b8';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!refreshingSession.items && selectedCompany && ledgerDownloadProgress.items.status !== 'downloading') {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = '#cbd5e1';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{
+                    fontSize: '16px',
+                    animation: (refreshingSession.items || ledgerDownloadProgress.items.status === 'downloading') ? 'spin 1s linear infinite' : 'none'
+                  }}>
+                    refresh
+                  </span>
+                  Refresh
+                </button>
               </div>
-              <button
-                onClick={() => handleRefreshSessionCache('items')}
-                disabled={refreshingSession.items || !selectedCompany}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #cbd5e1',
+              {/* Download Progress */}
+              {ledgerDownloadProgress.items.status === 'downloading' && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#f0f9ff',
+                  border: '1px solid #bae6fd',
+                  borderRadius: '6px'
+                }}>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#0369a1',
+                    marginBottom: '4px',
+                    fontWeight: 500
+                  }}>
+                    Downloading items...
+                  </div>
+                  <div style={{
+                    width: '100%',
+                    height: '6px',
+                    background: '#e0f2fe',
+                    borderRadius: '3px',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${ledgerDownloadProgress.items.progress}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                </div>
+              )}
+              {ledgerDownloadProgress.items.status === 'error' && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
                   borderRadius: '6px',
-                  padding: '6px 12px',
-                  cursor: (refreshingSession.items || !selectedCompany) ? 'not-allowed' : 'pointer',
-                  color: '#475569',
-                  fontSize: '13px',
+                  fontSize: '12px',
+                  color: '#dc2626'
+                }}>
+                  ⚠️ Download failed: {ledgerDownloadProgress.items.error || 'Unknown error'}
+                </div>
+              )}
+              {ledgerDownloadProgress.items.status === 'completed' && ledgerDownloadProgress.items.count > 0 && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  color: '#16a34a',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (!refreshingSession.items && selectedCompany) {
-                    e.currentTarget.style.background = '#f1f5f9';
-                    e.currentTarget.style.borderColor = '#94a3b8';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!refreshingSession.items && selectedCompany) {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.borderColor = '#cbd5e1';
-                  }
-                }}
-              >
-                <span className="material-icons" style={{
-                  fontSize: '16px',
-                  animation: refreshingSession.items ? 'spin 1s linear infinite' : 'none'
+                  gap: '6px'
                 }}>
-                  refresh
-                </span>
-                Refresh
-              </button>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>check_circle</span>
+                  Successfully downloaded {ledgerDownloadProgress.items.count} items
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -2481,7 +2764,14 @@ const CacheManagement = () => {
         isOpen={showResumeModal}
         onContinue={handleResumeContinue}
         onStartFresh={handleResumeStartFresh}
-        onClose={() => setShowResumeModal(false)}
+        onClose={() => {
+          // Mark this interruption as dismissed so it won't show again
+          if (interruptedProgress) {
+            const interruptionKey = `${interruptedProgress.companyGuid}_${interruptedProgress.current}_${interruptedProgress.total}`;
+            dismissedInterruptionsRef.current.add(interruptionKey);
+          }
+          setShowResumeModal(false);
+        }}
         progress={interruptedProgress || { current: 0, total: 0 }}
         companyName={interruptedProgress?.companyName || selectedCompany?.company || 'this company'}
       />

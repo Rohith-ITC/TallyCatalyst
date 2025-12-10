@@ -304,8 +304,18 @@ const removeVouchersByMasterId = async (companyInfo, deletedMasterIds, email) =>
     const originalCount = cachedData.data.vouchers.length;
     console.log(`📋 Cache contains ${originalCount} vouchers before cleanup`);
 
-    // Convert deleted IDs to a Set for fast lookup (all as strings)
-    const deletedIdsSet = new Set(deletedMasterIds.map(id => String(id)));
+    // Convert deleted IDs to a Set for fast lookup (all as strings, trim whitespace)
+    const deletedIdsSet = new Set(deletedMasterIds.map(id => String(id).trim()));
+    
+    // Also create a set with numeric comparisons for edge cases
+    const deletedIdsNumericSet = new Set(
+      deletedMasterIds
+        .map(id => {
+          const num = parseInt(String(id).trim(), 10);
+          return isNaN(num) ? null : num;
+        })
+        .filter(id => id !== null)
+    );
 
     // Filter out vouchers with matching master IDs
     // Check all possible master ID field variations
@@ -313,16 +323,57 @@ const removeVouchersByMasterId = async (companyInfo, deletedMasterIds, email) =>
       // Get master ID from any possible field
       const mstid = voucher.mstid || voucher.MSTID || voucher.masterid || voucher.MASTERID;
       
-      // If voucher has no master ID, keep it (can't match deleted IDs)
+      // If voucher has no master ID, check if it should be removed for other reasons
       if (mstid === null || mstid === undefined || mstid === '') {
-        return true;
+        // Also remove vouchers with empty ledgerentries and allinventoryentries
+        const hasEmptyEntries = (
+          (!voucher.ledgerentries || !Array.isArray(voucher.ledgerentries) || voucher.ledgerentries.length === 0) &&
+          (!voucher.allinventoryentries || !Array.isArray(voucher.allinventoryentries) || voucher.allinventoryentries.length === 0)
+        );
+        
+        if (hasEmptyEntries) {
+          console.log(`🗑️ Removing voucher with no master ID and empty entries:`, {
+            alterid: voucher.alterid || voucher.ALTERID,
+            vouchertypename: voucher.vouchertypename || voucher.VOUCHERTYPENAME
+          });
+          return false; // Remove it
+        }
+        
+        return true; // Keep vouchers without master ID that have entries
       }
 
-      // Convert to string for comparison
-      const mstidStr = String(mstid);
+      // Convert to string for comparison (trim whitespace)
+      const mstidStr = String(mstid).trim();
       
-      // Remove if master ID matches any deleted ID
-      return !deletedIdsSet.has(mstidStr);
+      // Check string match
+      if (deletedIdsSet.has(mstidStr)) {
+        console.log(`🗑️ Removing voucher with master ID: ${mstidStr}`);
+        return false; // Remove it
+      }
+      
+      // Also check numeric match (in case of type mismatches)
+      const mstidNum = parseInt(mstidStr, 10);
+      if (!isNaN(mstidNum) && deletedIdsNumericSet.has(mstidNum)) {
+        console.log(`🗑️ Removing voucher with master ID (numeric match): ${mstidNum}`);
+        return false; // Remove it
+      }
+      
+      // Also remove vouchers with empty ledgerentries and allinventoryentries (even if not in deleted list)
+      const hasEmptyEntries = (
+        (!voucher.ledgerentries || !Array.isArray(voucher.ledgerentries) || voucher.ledgerentries.length === 0) &&
+        (!voucher.allinventoryentries || !Array.isArray(voucher.allinventoryentries) || voucher.allinventoryentries.length === 0)
+      );
+      
+      if (hasEmptyEntries) {
+        console.log(`🗑️ Removing voucher with empty entries (master ID: ${mstidStr}):`, {
+          masterid: mstidStr,
+          alterid: voucher.alterid || voucher.ALTERID,
+          vouchertypename: voucher.vouchertypename || voucher.VOUCHERTYPENAME
+        });
+        return false; // Remove it
+      }
+      
+      return true; // Keep the voucher
     });
 
     const removedCount = originalCount - filteredVouchers.length;
