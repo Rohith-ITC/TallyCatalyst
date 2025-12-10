@@ -29,27 +29,11 @@ export const MODULE_SEQUENCE = [
       permissions     : {}
     },
     {
-      key             : 'vendor_expenses',
-      id              : 'vendor_expenses',
-      label           : 'Vendor/Expenses',
-      icon            : 'people',
-      alwaysVisible   : true,
-      permissions     : {}
-    },
-    {
       key             : 'receipt_find_party',
       id              : 'receipt_find_party',
       label           : 'Receipt Find Party',
       icon            : 'search',
-      alwaysVisible   : true,
-      permissions     : {}
-    },
-    {
-      key             : 'company_orders',
-      id              : 'company_orders',
-      label           : 'Company Orders',
-      icon            : 'shopping_bag',
-      alwaysVisible   : true,
+      //alwaysVisible   : true,
       permissions     : {}
     },
     {
@@ -85,7 +69,7 @@ export const MODULE_SEQUENCE = [
     {
       key           : 'ecommerce_place_order',
       id            : 'ecommerce',
-      label         : 'E-Commerce Place Order',
+      label         : 'B-Commerce Place Order',
       icon          : 'storefront',
       permissions   : {
         save_optional         : 'save_optional',
@@ -116,6 +100,14 @@ export const MODULE_SEQUENCE = [
         //show_closing_stock  : 'show_ClsStck_Column',
         //show_available_stock: 'show_ClsStck'
       }
+    },
+    {
+      key             : 'vendor_expenses',
+      id              : 'vendor_expenses',
+      label           : 'Vendor/Expenses',
+      icon            : 'people',
+      //alwaysVisible   : true,
+      permissions     : {}
     },
     {
       key               : 'transaction',
@@ -174,24 +166,33 @@ export const MODULE_SEQUENCE = [
       icon              : 'description',
       hasSubModules     : true,
       useRightSideDropdown : true,
-      alwaysVisible     : true,
       subModules: [
         {
           key           : 'sales_order_report',
           id            : 'sales_order_report',
           label         : 'Sales Order Report',
-          icon          : 'receipt',
-          permissions   : {}
+          icon          : 'assessment',
+          permissions   : {},
+          requiredModules: ['place_order', 'ecommerce_place_order'] // Show if user has access to place_order OR ecommerce_place_order
         },
         {
           key           : 'payment_voucher_report',
           id            : 'payment_voucher_report',
-          label         : 'Payment Voucher Report',
-          icon          : 'payment',
-          permissions   : {}
+          label         : 'Voucher/Expense Report',
+          icon          : 'account_balance_wallet',
+          permissions   : {},
+          requiredModules: ['vendor_expenses'] // Show if user has access to vendor_expenses
         }
       ],
       permissions       : {}
+    },
+    {
+      key             : 'company_orders',
+      id              : 'company_orders',
+      label           : 'Company Orders',
+      icon            : 'shopping_bag',
+      //alwaysVisible   : true,
+      permissions     : {}
     },
     {
       key               : 'voucher_authorization',
@@ -205,24 +206,15 @@ export const MODULE_SEQUENCE = [
 
     },
     {
-      key               : 'cache_management',
-      id                : 'cache_management',
-      label             : 'Cache Management',
-      icon              : 'storage',
-      alwaysVisible     : true,
-      permissions       : {}
-    },
-    {
       key               : 'master_management',
       id                : 'master_management',
       label             : 'Master Management',
       icon              : 'business_center',
       hasSubModules     : true,
       useRightSideDropdown : true,
-      alwaysVisible     : true,
       subModules: [
         {
-          key           : 'master_form',
+          key           : 'master_creation',
           id            : 'master_form',
           label         : 'Master Creation',
           icon          : 'person_add',
@@ -236,7 +228,7 @@ export const MODULE_SEQUENCE = [
           permissions   : {}
         },
         {
-          key           : 'master_list',
+          key           : 'master_creation',
           id            : 'master_list',
           label         : 'Master List',
           icon          : 'list',
@@ -244,6 +236,14 @@ export const MODULE_SEQUENCE = [
         }
       ],
       permissions: {}
+    },
+    {
+      key               : 'cache_management',
+      id                : 'cache_management',
+      label             : 'Cache Management',
+      icon              : 'storage',
+      alwaysVisible     : true,
+      permissions       : {}
     }
     
   ];
@@ -264,6 +264,28 @@ export const hasModuleAccess = (moduleKey, userModules) => {
   
   export const hasSubModuleAccess = (subModuleKey, userModules) => {
     return userModules.some(userModule => userModule.module_name === subModuleKey);
+  };
+
+  // Check if submodule should be visible based on required modules
+  export const hasRequiredModuleAccess = (subModule, userModules) => {
+    // If submodule has requiredModules, check if user has access to any of them
+    if (subModule.requiredModules && Array.isArray(subModule.requiredModules)) {
+      return subModule.requiredModules.some(moduleKey => 
+        hasModuleAccess(moduleKey, userModules)
+      );
+    }
+    // If no requiredModules specified, fall back to checking submodule access
+    return hasSubModuleAccess(subModule.key, userModules);
+  };
+
+  // Check if any submodule of a module is accessible (considering required modules)
+  export const hasAnyAccessibleSubModule = (moduleKey, userModules) => {
+    const module = MODULE_SEQUENCE.find(m => m.key === moduleKey);
+    if (!module || !module.hasSubModules) return false;
+    
+    return module.subModules.some(subModule => 
+      hasRequiredModuleAccess(subModule, userModules)
+    );
   };
   
   export const hasPermission = (moduleKey, permissionKey, userModules) => {

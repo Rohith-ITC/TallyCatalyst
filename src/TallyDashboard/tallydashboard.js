@@ -27,8 +27,10 @@ import VendorExpenses from './VendorExpenses';
 import { 
   MODULE_SEQUENCE, 
   hasModuleAccess, 
-  hasAnySubModuleAccess, 
-  hasSubModuleAccess, 
+  hasAnySubModuleAccess,
+  hasAnyAccessibleSubModule,
+  hasSubModuleAccess,
+  hasRequiredModuleAccess,
   getUserModules,
   getDropdownFilterOptions,
   shouldUseDropdownFilter,
@@ -150,8 +152,8 @@ function TallyDashboard() {
         if (isAlwaysVisible(parent.key)) {
           return true;
         }
-        // Otherwise check submodule access
-        return hasSubModuleAccess(subModule.key, userModules);
+        // Otherwise check submodule access using required modules logic
+        return hasRequiredModuleAccess(subModule, userModules);
       }
     }
     return false;
@@ -831,21 +833,26 @@ function TallyDashboard() {
         }
         // Check if this module should use right-side dropdown (Master Management or Reports)
         if (shouldUseRightSideDropdown(module.key)) {
-          // For master management and reports, always show if alwaysVisible or has access
-          if (isAlwaysVisible(module.key) || hasAnySubModuleAccess(module.key, userModules)) {
-            if (module.key === 'master_management') {
-              console.log('✅ Rendering master management with dropdown:', module.key);
-              return renderMasterManagementWithDropdown(module, userModules);
-            } else if (module.key === 'reports') {
+          // For reports, check if any submodule is accessible using required modules logic
+          if (module.key === 'reports') {
+            if (hasAnyAccessibleSubModule(module.key, userModules)) {
               console.log('✅ Rendering reports with dropdown:', module.key);
               return renderReportsWithDropdown(module, userModules);
+            } else {
+              console.log('❌ Reports module not showing - no accessible submodules');
+              return null;
             }
-          } else {
-            if (module.key === 'reports') {
-              console.log('❌ Reports module not showing - condition failed:', {
-                isAlwaysVisible: isAlwaysVisible(module.key),
-                hasAnySubModuleAccess: hasAnySubModuleAccess(module.key, userModules)
-              });
+          }
+          // For master management, show if user has access to master_creation OR master_authorization
+          if (module.key === 'master_management') {
+            const hasMasterCreation = hasModuleAccess('master_creation', userModules);
+            const hasMasterAuthorization = hasModuleAccess('master_authorization', userModules);
+            if (hasMasterCreation || hasMasterAuthorization) {
+              console.log('✅ Rendering master management with dropdown:', module.key);
+              return renderMasterManagementWithDropdown(module, userModules);
+            } else {
+              console.log('❌ Master management not showing - no access to master_creation or master_authorization');
+              return null;
             }
           }
           return null;
@@ -1078,12 +1085,15 @@ function TallyDashboard() {
 
   // Render master management with right-side dropdown
   const renderMasterManagementWithDropdown = (module, userModules) => {
-    // If parent module is alwaysVisible, show all submodules; otherwise filter by access
-    const accessibleSubModules = isAlwaysVisible(module.key) 
-      ? module.subModules 
-      : module.subModules.filter(subModule => 
-          isAlwaysVisible(subModule.key) || hasSubModuleAccess(subModule.key, userModules)
-        );
+    // Filter submodules based on access
+    const accessibleSubModules = module.subModules.filter(subModule => 
+      isAlwaysVisible(subModule.key) || hasSubModuleAccess(subModule.key, userModules)
+    );
+    
+    // Don't render if no submodules are accessible
+    if (accessibleSubModules.length === 0) {
+      return null;
+    }
     const isParentActive = activeSidebar === module.id || accessibleSubModules.some(sub => sub.id === activeSidebar);
     
     const updateButtonPosition = () => {
@@ -1362,12 +1372,16 @@ function TallyDashboard() {
   };
 
   const renderReportsWithDropdown = (module, userModules) => {
-    // If parent module is alwaysVisible, show all submodules; otherwise filter by access
-    const accessibleSubModules = isAlwaysVisible(module.key) 
-      ? module.subModules 
-      : module.subModules.filter(subModule => 
-          isAlwaysVisible(subModule.key) || hasSubModuleAccess(subModule.key, userModules)
-        );
+    // Filter submodules based on required modules or submodule access
+    const accessibleSubModules = module.subModules.filter(subModule => 
+      isAlwaysVisible(subModule.key) || hasRequiredModuleAccess(subModule, userModules)
+    );
+    
+    // Don't render if no submodules are accessible
+    if (accessibleSubModules.length === 0) {
+      return null;
+    }
+    
     const isParentActive = activeSidebar === module.id || accessibleSubModules.some(sub => sub.id === activeSidebar);
     
     const updateButtonPosition = () => {

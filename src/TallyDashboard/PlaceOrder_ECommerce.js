@@ -3543,11 +3543,11 @@ function PlaceOrder_ECommerce() {
                 fontWeight: '600',
                 color: '#1f2937'
               }}>
-                E-Commerce Place Order
+                B-Commerce Place Order
               </h3>
             </div>
 
-            {/* Optional text centered between E-Commerce Place Order and customer count */}
+            {/* Optional text centered between B-Commerce Place Order and customer count */}
             {canSaveOptional && !isMobile && (
               <div style={{
                 position: 'absolute',
