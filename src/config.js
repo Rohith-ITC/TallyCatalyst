@@ -5,12 +5,12 @@ const getBaseUrl = () => {
 
   // Use .env value for development mode
   if (process.env.NODE_ENV === 'development') {
-    // Check if we're running from a local network IP (like 192.168.x.x)
-    // In this case, use relative paths to go through the proxy to avoid CORS issues
+    // Check if we're running from localhost or local network IP
+    // In this case, use relative paths to go through the proxy (avoids CORS issues)
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
-      // If accessing from local network IP, use proxy (return empty string for relative paths)
-      if (hostname === '192.168.29.72' || hostname.startsWith('192.168.') || hostname === 'localhost' || hostname === '127.0.0.1') {
+      // If accessing from local network IP or localhost, use proxy (return empty string for relative paths)
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
         return ''; // Empty string means use relative path, which will go through proxy
       }
     }
@@ -22,9 +22,8 @@ const getBaseUrl = () => {
       return devUrl;
     }
 
-    // For other development scenarios, use proxy (relative paths)
-    // This ensures CORS is handled by the proxy middleware
-    return '';
+    // Fallback to production API URL if not running locally
+    return DEFAULT_API_URL;
   }
 
   // For non-development environments, use .env values with fallback
