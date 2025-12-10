@@ -832,9 +832,144 @@ function VoucherAuthorization() {
               transform: translateY(0);
             }
           }
+
+          /* Mobile Responsive Styles */
+          @media (max-width: 768px) {
+            .voucher-auth-container {
+              width: 100vw !important;
+              padding: 8px !important;
+              paddingTop: 16px !important;
+            }
+            
+            .voucher-auth-card {
+              border-radius: 8px !important;
+            }
+            
+            .voucher-auth-header {
+              flex-direction: column !important;
+              align-items: flex-start !important;
+              gap: 12px !important;
+              padding: 16px !important;
+            }
+            
+            .voucher-auth-header > div > h1 {
+              font-size: 18px !important;
+            }
+            
+            .voucher-auth-header > div > p {
+              font-size: 12px !important;
+            }
+            
+            .voucher-auth-form {
+              padding: 16px !important;
+            }
+            
+            .voucher-auth-form-grid {
+              grid-template-columns: 1fr !important;
+              gap: 12px !important;
+            }
+            
+            .voucher-auth-tabs {
+              padding: 0 16px !important;
+              overflow-x: auto !important;
+              -webkit-overflow-scrolling: touch;
+            }
+            
+            .voucher-auth-tabs > div {
+              gap: 4px !important;
+              min-width: max-content !important;
+            }
+            
+            .voucher-auth-tab-button {
+              padding: 10px 16px !important;
+              font-size: 12px !important;
+              white-space: nowrap !important;
+            }
+            
+            .voucher-auth-tab-button .material-icons {
+              font-size: 16px !important;
+            }
+            
+            .voucher-auth-content {
+              padding: 16px !important;
+            }
+            
+            .voucher-auth-table {
+              overflow-x: auto !important;
+              -webkit-overflow-scrolling: touch;
+            }
+            
+            .voucher-auth-table-header {
+              min-width: 1200px !important;
+            }
+            
+            .voucher-auth-table-row {
+              min-width: 1200px !important;
+            }
+            
+            .voucher-auth-table-row > div {
+              font-size: 12px !important;
+              padding: 8px 12px !important;
+            }
+            
+            .voucher-auth-actions-button {
+              padding: 8px 12px !important;
+              font-size: 11px !important;
+              gap: 4px !important;
+            }
+            
+            .voucher-auth-actions-button .material-icons {
+              font-size: 14px !important;
+            }
+            
+            .voucher-auth-modal {
+              width: 95% !important;
+              max-width: 95% !important;
+              margin: 10px !important;
+            }
+            
+            .voucher-auth-modal-header {
+              padding: 16px !important;
+            }
+            
+            .voucher-auth-modal-content {
+              padding: 16px !important;
+            }
+            
+            .voucher-auth-modal-actions {
+              flex-direction: column !important;
+              gap: 8px !important;
+            }
+            
+            .voucher-auth-modal-actions button {
+              width: 100% !important;
+            }
+          }
+          
+          @media (max-width: 480px) {
+            .voucher-auth-header > div > h1 {
+              font-size: 16px !important;
+            }
+            
+            .voucher-auth-tab-button {
+              padding: 8px 12px !important;
+              font-size: 11px !important;
+            }
+            
+            .voucher-auth-tab-button span:last-child {
+              padding: 1px 6px !important;
+              font-size: 10px !important;
+            }
+            
+            .voucher-auth-table-row > div {
+              font-size: 11px !important;
+              padding: 6px 8px !important;
+            }
+          }
         `}
       </style>
       <div
+        className="voucher-auth-container"
         style={{
           background: 'linear-gradient(135deg, #e0e7ff 0%, #f8fafc 100%)',
           minHeight: '100vh',
@@ -847,6 +982,7 @@ function VoucherAuthorization() {
         }}
       >
         <div
+          className="voucher-auth-card"
           style={{
             width: '100%',
             margin: 0,
@@ -859,7 +995,7 @@ function VoucherAuthorization() {
           }}
         >
           {/* Header */}
-          <div style={{
+          <div className="voucher-auth-header" style={{
             display: 'flex',
             alignItems: 'center', 
             justifyContent: 'space-between',
@@ -922,9 +1058,9 @@ function VoucherAuthorization() {
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit} style={{ padding: '24px', width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
+          <form onSubmit={handleSubmit} className="voucher-auth-form" style={{ padding: '24px', width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
             {/* Single Line: Start Date, End Date, Submit Button, Authorize Button, Reject Button */}
-            <div style={{
+            <div className="voucher-auth-form-grid" style={{
               display: 'grid',
               gridTemplateColumns: '250px 250px 160px 180px 180px',
               gap: '20px',
@@ -1209,9 +1345,10 @@ function VoucherAuthorization() {
           )}
 
           {/* Tabs for Pending/Authorized/Rejected */}
-          <div style={{ padding: '0 24px', borderBottom: '1px solid #e5e7eb' }}>
+          <div className="voucher-auth-tabs" style={{ padding: '0 24px', borderBottom: '1px solid #e5e7eb' }}>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button
+                className="voucher-auth-tab-button"
                 onClick={() => {
                   setActiveTab('pending');
                   setSelectedVouchers([]);
@@ -1246,6 +1383,7 @@ function VoucherAuthorization() {
                 </span>
               </button>
               <button
+                className="voucher-auth-tab-button"
                 onClick={() => {
                   setActiveTab('authorized');
                   setSelectedVouchers([]);
@@ -1280,6 +1418,7 @@ function VoucherAuthorization() {
                 </span>
               </button>
               <button
+                className="voucher-auth-tab-button"
                 onClick={() => {
                   setActiveTab('rejected');
                   setSelectedVouchers([]);
@@ -1317,9 +1456,9 @@ function VoucherAuthorization() {
           </div>
 
           {/* Dashboard Content */}
-          <div style={{ padding: '24px' }}>
+          <div className="voucher-auth-content" style={{ padding: '24px' }}>
             {/* Vouchers Table */}
-            <div style={{
+            <div className="voucher-auth-table" style={{
               background: 'white',
               borderRadius: '8px',
               border: '1px solid #e5e7eb',
@@ -1359,7 +1498,7 @@ function VoucherAuthorization() {
               ) : (
                 <div>
                   {/* Table Header */}
-                  <div style={{
+                  <div className="voucher-auth-table-header" style={{
                     display: 'grid',
                     gridTemplateColumns: '40px 140px 1fr 120px 100px 140px 140px 200px 120px',
                     gap: 16,
@@ -1385,6 +1524,7 @@ function VoucherAuthorization() {
                   {filteredVouchers.map((voucher) => (
                     <div
                       key={voucher.id}
+                      className="voucher-auth-table-row"
                       style={{
                         display: 'grid',
                         gridTemplateColumns: '40px 140px 1fr 120px 100px 140px 140px 200px 120px',
@@ -1460,6 +1600,7 @@ function VoucherAuthorization() {
                       </div>
                       <div style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                         <button
+                          className="voucher-auth-actions-button"
                           onClick={() => handleViewVoucherActivity(voucher)}
                           style={{
                             padding: '6px 12px',
@@ -1546,6 +1687,7 @@ function VoucherAuthorization() {
           }}
         >
           <div
+            className="voucher-auth-modal"
             style={{
               background: 'white',
               borderRadius: '16px',
@@ -1559,7 +1701,7 @@ function VoucherAuthorization() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header with Icon */}
-            <div style={{
+            <div className="voucher-auth-modal-header" style={{
               background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
               padding: '24px 28px',
               display: 'flex',
@@ -1603,7 +1745,7 @@ function VoucherAuthorization() {
             </div>
 
             {/* Content */}
-            <div style={{ padding: '28px' }}>
+            <div className="voucher-auth-modal-content" style={{ padding: '28px' }}>
               <div style={{ marginBottom: '24px' }}>
                 <label style={{
                   display: 'flex',
@@ -1671,7 +1813,7 @@ function VoucherAuthorization() {
               </div>
 
               {/* Action Buttons */}
-              <div style={{
+              <div className="voucher-auth-modal-actions" style={{
                 display: 'flex',
                 gap: '12px',
                 justifyContent: 'flex-end',
@@ -1791,6 +1933,7 @@ function VoucherAuthorization() {
           }}
         >
           <div
+            className="voucher-auth-modal"
             style={{
               background: 'white',
               borderRadius: '16px',
@@ -1806,7 +1949,7 @@ function VoucherAuthorization() {
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div style={{
+            <div className="voucher-auth-modal-header" style={{
               background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
               padding: '24px 28px',
               display: 'flex',
@@ -1877,7 +2020,7 @@ function VoucherAuthorization() {
             </div>
 
             {/* Content */}
-            <div style={{ 
+            <div className="voucher-auth-modal-content" style={{ 
               padding: '28px', 
               overflowY: 'auto',
               flex: 1
