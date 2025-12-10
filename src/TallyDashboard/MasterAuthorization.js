@@ -44,9 +44,12 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { getApiUrl, API_CONFIG } from '../config';
 import { apiGet, apiPost, apiPut, apiDelete } from '../utils/apiUtils';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
+import { useIsMobile } from './MobileViewConfig';
 
 function MasterAuthorization({ onMasterSelect }) {
   console.log('🎯 MasterAuthorization component loading...');
+  
+  const isMobile = useIsMobile();
   
   // Get all companies from sessionStorage
   const companies = useMemo(() => {
@@ -796,11 +799,11 @@ function MasterAuthorization({ onMasterSelect }) {
           align-self: stretch !important;
           display: flex !important;
           flex-direction: column !important;
-          background: #f5f5f5 !important;
+          background: transparent !important;
           min-height: 100vh !important;
         }
         .master-authorization-container {
-          padding: 20px !important;
+          padding: ${isMobile ? '12px' : '20px'} !important;
           width: 100% !important;
           height: 100vh !important;
           overflow: hidden !important;
@@ -822,41 +825,45 @@ function MasterAuthorization({ onMasterSelect }) {
         }
         .master-authorization-main {
           display: flex !important;
-          gap: 16px !important;
-          height: calc(100% - 120px) !important;
+          flex-direction: ${isMobile ? 'column' : 'row'} !important;
+          gap: ${isMobile ? '12px' : '16px'} !important;
+          height: calc(100% - ${isMobile ? '180px' : '120px'}) !important;
           width: 100% !important;
           margin: 0 !important;
-          padding: 20px !important;
+          padding: ${isMobile ? '12px' : '20px'} !important;
           flex: 1 !important;
         }
         .master-authorization-card {
           background: white !important;
-          border-radius: 12px !important;
+          border-radius: ${isMobile ? '8px' : '12px'} !important;
           box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
           width: 100% !important;
-          max-width: 95% !important;
+          max-width: ${isMobile ? '100%' : '95%'} !important;
           margin: 0 auto !important;
-          padding: 40px 24px 24px 40px !important;
+          padding: ${isMobile ? '16px' : '40px 24px 24px 40px'} !important;
           display: flex !important;
           flex-direction: column !important;
-          gap: 20px !important;
-          height: calc(100vh - 40px) !important;
-          transform: translateX(20px) !important;
+          gap: ${isMobile ? '12px' : '20px'} !important;
+          height: ${isMobile ? 'auto' : 'calc(100vh - 40px)'} !important;
+          transform: ${isMobile ? 'translateX(0)' : 'translateX(20px)'} !important;
         }
         .master-authorization-header {
           display: flex !important;
+          flex-direction: ${isMobile ? 'column' : 'row'} !important;
           justify-content: space-between !important;
-          align-items: center !important;
+          align-items: ${isMobile ? 'flex-start' : 'center'} !important;
           margin-bottom: 0 !important;
-          padding: 20px 30px 0 30px !important;
+          padding: ${isMobile ? '12px 16px 0 16px' : '20px 30px 0 30px'} !important;
           height: auto !important;
           min-height: 50px !important;
           width: 100% !important;
           flex-shrink: 0 !important;
+          gap: ${isMobile ? '12px' : '0'} !important;
         }
         .master-authorization-master-list {
-          flex: 1 1 50% !important;
-          min-width: 200px !important;
+          flex: ${isMobile ? '0 0 auto' : '1 1 50%'} !important;
+          min-width: ${isMobile ? '100%' : '200px'} !important;
+          max-height: ${isMobile ? '400px' : 'none'} !important;
           background: #f8fafc !important;
           border-radius: 8px !important;
           border: 1px solid #e2e8f0 !important;
@@ -866,8 +873,8 @@ function MasterAuthorization({ onMasterSelect }) {
           padding: 0 !important;
         }
         .master-authorization-master-details {
-          flex: 1 1 50% !important;
-          min-width: 200px !important;
+          flex: ${isMobile ? '1 1 auto' : '1 1 50%'} !important;
+          min-width: ${isMobile ? '100%' : '200px'} !important;
           background: #f8fafc !important;
           border-radius: 8px !important;
           border: 1px solid #e2e8f0 !important;
@@ -875,6 +882,7 @@ function MasterAuthorization({ onMasterSelect }) {
           overflow-y: auto !important;
           box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
           margin: 0 !important;
+          max-height: ${isMobile ? 'calc(100vh - 500px)' : 'none'} !important;
         }
         .master-authorization-search-bar {
           padding: 12px !important;
@@ -1023,7 +1031,7 @@ function MasterAuthorization({ onMasterSelect }) {
                 <span className="material-icons" style={{ color: 'white', fontSize: '20px' }}>verified_user</span>
               </div>
               <h1 style={{
-                fontSize: '28px',
+                fontSize: isMobile ? '20px' : '28px',
                 fontWeight: '700',
                 color: '#1f2937',
                 margin: 0
@@ -1032,7 +1040,7 @@ function MasterAuthorization({ onMasterSelect }) {
               </h1>
             </div>
             <p style={{
-              fontSize: '16px',
+              fontSize: isMobile ? '13px' : '16px',
               color: '#6b7280',
               margin: 0,
               fontWeight: '500'
@@ -1043,8 +1051,10 @@ function MasterAuthorization({ onMasterSelect }) {
           
           <div style={{
             display: 'flex',
-            gap: '16px',
-            alignItems: 'center'
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? '8px' : '16px',
+            alignItems: isMobile ? 'stretch' : 'center',
+            width: isMobile ? '100%' : 'auto'
           }}>
             <div style={{
               display: 'flex',
@@ -1063,19 +1073,21 @@ function MasterAuthorization({ onMasterSelect }) {
             <button
               onClick={loadMasters}
               style={{
-                padding: '12px 20px',
+                padding: isMobile ? '10px 16px' : '12px 20px',
                 background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
                 color: 'white',
                 border: 'none',
                 borderRadius: '8px',
                 cursor: 'pointer',
-                fontSize: '14px',
+                fontSize: isMobile ? '13px' : '14px',
                 fontWeight: '600',
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'center',
                 gap: '8px',
                 transition: 'all 0.2s ease',
-                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
+                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)',
+                width: isMobile ? '100%' : 'auto'
               }}
               onMouseEnter={(e) => {
                 e.target.style.transform = 'translateY(-1px)';
@@ -1377,7 +1389,7 @@ function MasterAuthorization({ onMasterSelect }) {
                 </h3>
               </div>
               <div style={{ display: 'grid', gap: '16px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '16px' }}>
                   <div>
                     <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Master Name</label>
                     <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500' }}>{selectedMaster.basicInfo?.name || selectedMaster.name || 'N/A'}</div>
@@ -1488,7 +1500,7 @@ function MasterAuthorization({ onMasterSelect }) {
                             <div style={{ fontSize: '14px', color: '#1f2937', fontWeight: '500', whiteSpace: 'pre-wrap' }}>{addr.address}</div>
                           </div>
                         )}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '12px' }}>
                           {addr.country && (
                             <div>
                               <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Country</label>
@@ -1509,7 +1521,7 @@ function MasterAuthorization({ onMasterSelect }) {
                           )}
                         </div>
                         {(addr.priorStateName || addr.placeOfSupply || addr.gstRegistrationType) && (
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '12px' }}>
                             {addr.priorStateName && (
                               <div>
                                 <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Prior State</label>
@@ -1531,7 +1543,7 @@ function MasterAuthorization({ onMasterSelect }) {
                           </div>
                         )}
                         {(addr.phoneNumber || addr.mobileNumber || addr.contactPerson) && (
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '12px' }}>
                             {addr.phoneNumber && (
                               <div>
                                 <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Phone</label>
@@ -1676,7 +1688,7 @@ function MasterAuthorization({ onMasterSelect }) {
                     Statutory Information
                   </h3>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px' }}>
                   {selectedMaster.statutory.gstNumber && (
                     <div>
                       <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>GST Number</label>
@@ -1790,7 +1802,7 @@ function MasterAuthorization({ onMasterSelect }) {
                         Bank Details {index + 1} {bank.setAsDefault && <span style={{ fontSize: '12px', color: '#10b981', fontWeight: '500' }}>(Default)</span>}
                       </h4>
                       <div style={{ display: 'grid', gap: '12px' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
                           {bank.accountNumber && (
                             <div>
                               <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Account Number</label>
@@ -1819,7 +1831,7 @@ function MasterAuthorization({ onMasterSelect }) {
                           )}
                         </div>
                         {(bank.swiftCode || bank.paymentFavouring || bank.defaultTransactionType) && (
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '12px' }}>
                             {bank.swiftCode && (
                               <div>
                                 <label style={{ fontSize: '12px', fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px', display: 'block' }}>Swift Code</label>

@@ -189,7 +189,7 @@ const CacheManagement = () => {
           if (interrupted) {
             // Create a unique key for this interruption
             const interruptionKey = `${interrupted.companyGuid}_${interrupted.current}_${interrupted.total}`;
-            
+
             // Only show modal if this specific interruption hasn't been dismissed
             if (!dismissedInterruptionsRef.current.has(interruptionKey)) {
               setInterruptedProgress(interrupted);
@@ -208,7 +208,7 @@ const CacheManagement = () => {
     // Listen for company changes from header
     const handleCompanyChange = (event) => {
       console.log('🔄 CacheManagement: Company changed event received', event.detail);
-      
+
       // Use company data from event detail if available, otherwise fall back to sessionStorage
       if (event.detail && event.detail.guid) {
         const companyConnection = event.detail;
@@ -222,7 +222,7 @@ const CacheManagement = () => {
         // Fallback to loading from sessionStorage
         loadCurrentCompany();
       }
-      
+
       loadCacheStats();
       // Reload progress for new company
       setTimeout(() => {
@@ -305,7 +305,7 @@ const CacheManagement = () => {
           if (interrupted) {
             // Create a unique key for this interruption
             const interruptionKey = `${interrupted.companyGuid}_${interrupted.current}_${interrupted.total}`;
-            
+
             // Only show modal if this specific interruption hasn't been dismissed
             if (!dismissedInterruptionsRef.current.has(interruptionKey)) {
               setInterruptedProgress(interrupted);
@@ -622,7 +622,7 @@ const CacheManagement = () => {
         // Also remove count keys
         sessionStorage.removeItem(`${key}_count`);
       });
-      
+
       // Also clear download progress keys
       const progressKeysToRemove = [];
       for (let i = 0; i < sessionStorage.length; i++) {
@@ -632,7 +632,7 @@ const CacheManagement = () => {
         }
       }
       progressKeysToRemove.forEach(key => sessionStorage.removeItem(key));
-      
+
       setSessionCacheStats({ customers: 0, items: 0 });
 
       // Note: We keep the keys directory as it contains user encryption keys
@@ -649,7 +649,7 @@ const CacheManagement = () => {
       }
 
       await loadCacheStats();
-      
+
       // Reload session cache stats to update the UI
       if (selectedCompany) {
         await loadSessionCacheStats();
@@ -683,20 +683,20 @@ const CacheManagement = () => {
         const { tallyloc_id, company } = selectedCompany;
         const customerKey = `ledgerlist-w-addrs_${tallyloc_id}_${company}`;
         const itemKey = `stockitems_${tallyloc_id}_${company}`;
-        
+
         try {
           // Delete from OPFS/IndexedDB
           await hybridCache.deleteCacheKey(customerKey);
           await hybridCache.deleteCacheKey(itemKey);
-          
+
           // Remove from sessionStorage
           removeSessionStorageKey(customerKey);
           removeSessionStorageKey(itemKey);
-          
+
           // Also remove count keys
           sessionStorage.removeItem(`${customerKey}_count`);
           sessionStorage.removeItem(`${itemKey}_count`);
-          
+
           // Clear download progress for this company
           sessionStorage.removeItem(`download_progress_${selectedCompany.guid}`);
         } catch (e) {
@@ -717,7 +717,7 @@ const CacheManagement = () => {
       }
 
       await loadCacheStats();
-      
+
       // Reload session cache stats to update the UI
       if (selectedCompany) {
         await loadSessionCacheStats();
@@ -1106,7 +1106,7 @@ const CacheManagement = () => {
 
     try {
       // syncSalesData will now use cacheSyncManager internally
-      const result = await syncSalesData(selectedCompany, () => {}, startFresh);
+      const result = await syncSalesData(selectedCompany, () => { }, startFresh);
 
       setMessage({
         type: 'success',
@@ -1124,13 +1124,13 @@ const CacheManagement = () => {
       let errorMsg = error.message || 'Unknown error occurred';
 
       // Check for 500 errors or CORS errors - show retry message
-      const is500Error = error.message.includes('HTTP 500') || 
-                        error.message.includes('500') ||
-                        error.message.includes('Internal Server Error');
-      
-      const isCorsError = error.message.includes('CORS') || 
-                         error.message.includes('cors') ||
-                         error.message.includes('Access-Control');
+      const is500Error = error.message.includes('HTTP 500') ||
+        error.message.includes('500') ||
+        error.message.includes('Internal Server Error');
+
+      const isCorsError = error.message.includes('CORS') ||
+        error.message.includes('cors') ||
+        error.message.includes('Access-Control');
 
       if (is500Error || isCorsError) {
         errorMsg = 'Download stopped due to server error. Please retry the download.';
@@ -1154,7 +1154,7 @@ const CacheManagement = () => {
       }
 
       setMessage({ type: 'error', text: 'Failed to download data: ' + errorMsg });
-      
+
       // Reset download state so user can retry
       setDownloadingComplete(false);
       setDownloadProgress({ current: 0, total: 0, message: '' });
@@ -1177,8 +1177,8 @@ const CacheManagement = () => {
       // Check if file was auto-deleted due to corruption
       if (error.message && error.message.includes('automatically deleted')) {
         // Show as info message, not error - the system handled it correctly
-        setMessage({ 
-          type: 'info', 
+        setMessage({
+          type: 'info',
           text: `✅ Corrupted cache file automatically deleted.\n\n` +
             `The cache file was corrupted (likely from an old write method) and has been automatically removed.\n\n` +
             `Please re-sync/download the data to create a new cache file. The new file will use the improved storage method.`
@@ -1202,12 +1202,17 @@ const CacheManagement = () => {
   };
 
   return (
-    <div style={{
-      padding: isMobile ? '16px 12px' : '24px',
-      maxWidth: '1200px',
-      margin: '0 auto',
-      fontFamily: 'Segoe UI, Roboto, Arial, sans-serif'
-    }}>
+    <div
+      className="cache-management-wrapper"
+      style={{
+        padding: isMobile ? '16px 12px' : '24px',
+        maxWidth: '1200px',
+        margin: '0 auto',
+        fontFamily: 'Segoe UI, Roboto, Arial, sans-serif',
+        boxSizing: 'border-box',
+        overflowX: 'hidden',
+        width: '100%'
+      }}>
       <div style={{
         marginBottom: '32px',
         borderBottom: '2px solid #e5e7eb',
@@ -1248,7 +1253,9 @@ const CacheManagement = () => {
           marginBottom: '16px',
           display: 'flex',
           alignItems: 'flex-start',
-          gap: '10px'
+          gap: '10px',
+          boxSizing: 'border-box',
+          maxWidth: '100%'
         }}>
           <span className="material-icons" style={{
             fontSize: '20px',
@@ -1293,7 +1300,9 @@ const CacheManagement = () => {
           marginBottom: isMobile ? '16px' : '24px',
           display: 'flex',
           alignItems: 'center',
-          gap: isMobile ? '10px' : '12px'
+          gap: isMobile ? '10px' : '12px',
+          boxSizing: 'border-box',
+          maxWidth: '100%'
         }}>
           <span className="material-icons" style={{
             fontSize: isMobile ? '20px' : '24px',
@@ -1321,7 +1330,9 @@ const CacheManagement = () => {
           border: '1px solid #bae6fd',
           borderRadius: '12px',
           padding: isMobile ? '16px' : '20px',
-          marginBottom: isMobile ? '16px' : '24px'
+          marginBottom: isMobile ? '16px' : '24px',
+          boxSizing: 'border-box',
+          maxWidth: '100%'
         }}>
           <h3 style={{
             fontSize: isMobile ? '14px' : '16px',
@@ -1348,7 +1359,9 @@ const CacheManagement = () => {
         display: 'grid',
         gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(400px, 1fr))',
         gap: isMobile ? '16px' : '24px',
-        marginBottom: isMobile ? '16px' : '24px'
+        marginBottom: isMobile ? '16px' : '24px',
+        boxSizing: 'border-box',
+        maxWidth: '100%'
       }}>
         {/* Download Complete Sales Data */}
         <div style={{
@@ -1956,14 +1969,17 @@ const CacheManagement = () => {
         border: '1px solid #e2e8f0',
         borderRadius: '12px',
         padding: isMobile ? '16px' : '24px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+        boxSizing: 'border-box',
+        maxWidth: '100%',
+        overflowX: 'hidden'
       }}>
         <div style={{
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
+          alignItems: isMobile ? 'flex-start' : 'center',
+          justifyContent: isMobile ? 'flex-start' : 'space-between',
           marginBottom: isMobile ? '16px' : '20px',
-          flexWrap: isMobile ? 'wrap' : 'nowrap',
+          flexDirection: isMobile ? 'column' : 'row',
           gap: isMobile ? '12px' : '0'
         }}>
           <h3 style={{
@@ -1974,7 +1990,8 @@ const CacheManagement = () => {
             display: 'flex',
             alignItems: 'center',
             gap: isMobile ? '8px' : '12px',
-            flex: isMobile ? '1 1 100%' : 'auto'
+            width: isMobile ? '100%' : 'auto',
+            flexShrink: 0
           }}>
             <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>
               folder_open
@@ -1999,7 +2016,8 @@ const CacheManagement = () => {
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px',
-              transition: 'all 0.2s'
+              transition: 'all 0.2s',
+              flexShrink: 0
             }}
             onMouseEnter={(e) => {
               if (!loadingEntries) {
@@ -2033,7 +2051,12 @@ const CacheManagement = () => {
         </div>
 
         {cacheEntries && showCacheViewer && (
-          <div>
+          <div style={{
+            width: '100%',
+            maxWidth: '100%',
+            boxSizing: 'border-box',
+            overflowX: 'hidden'
+          }}>
             {/* Summary */}
             <div style={{
               display: 'grid',
@@ -2087,26 +2110,149 @@ const CacheManagement = () => {
               </div>
             </div>
 
-            {/* Cache Entries Table */}
+            {/* Cache Entries - Card layout for mobile, Table for desktop */}
             {cacheEntries.entries.length > 0 ? (
-              <div style={{
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                overflow: 'hidden',
-                maxHeight: isMobile ? '400px' : '600px',
-                overflowY: 'auto',
-                overflowX: isMobile ? 'auto' : 'hidden',
-                WebkitOverflowScrolling: 'touch'
-              }}>
+              isMobile ? (
+                /* Mobile Card Layout */
                 <div style={{
-                  overflowX: 'auto',
-                  width: '100%'
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  maxHeight: '500px',
+                  overflowY: 'auto',
+                  WebkitOverflowScrolling: 'touch',
+                  padding: '4px'
+                }}>
+                  {cacheEntries.entries.map((entry, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        background: '#fff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '10px',
+                        padding: '14px',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
+                      }}
+                    >
+                      {/* Header Row - Type and Actions */}
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '12px'
+                      }}>
+                        <span style={{
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          background: entry.type === 'sales' ? '#dbeafe' : '#dcfce7',
+                          color: entry.type === 'sales' ? '#1e40af' : '#166534'
+                        }}>
+                          {entry.type === 'sales' ? 'Sales' : 'Dashboard'}
+                        </span>
+                        <button
+                          onClick={() => viewCacheAsJson(entry.cacheKey)}
+                          style={{
+                            padding: '6px 12px',
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: '14px' }}>code</span>
+                          JSON
+                        </button>
+                      </div>
+
+                      {/* Cache Key */}
+                      <div style={{
+                        fontSize: '11px',
+                        fontFamily: 'monospace',
+                        color: '#475569',
+                        wordBreak: 'break-all',
+                        background: '#f8fafc',
+                        padding: '8px',
+                        borderRadius: '6px',
+                        marginBottom: '10px',
+                        lineHeight: '1.4'
+                      }}>
+                        {entry.cacheKey}
+                      </div>
+
+                      {/* Info Grid */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '10px',
+                        fontSize: '12px'
+                      }}>
+                        {/* Size */}
+                        <div>
+                          <div style={{ color: '#94a3b8', fontSize: '10px', marginBottom: '2px' }}>Size</div>
+                          <div style={{ color: '#1e293b', fontWeight: 600 }}>
+                            {entry.sizeMB} MB
+                            <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: '4px' }}>
+                              ({entry.sizeKB} KB)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Age */}
+                        <div>
+                          <div style={{ color: '#94a3b8', fontSize: '10px', marginBottom: '2px' }}>Age</div>
+                          <div style={{ fontWeight: 500 }}>
+                            {entry.ageDays === 0 ? (
+                              <span style={{ color: '#10b981' }}>Today</span>
+                            ) : entry.ageDays === 1 ? (
+                              <span style={{ color: '#3b82f6' }}>1 day ago</span>
+                            ) : (
+                              <span style={{ color: '#64748b' }}>{entry.ageDays} days ago</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Date Range */}
+                        <div>
+                          <div style={{ color: '#94a3b8', fontSize: '10px', marginBottom: '2px' }}>Date Range</div>
+                          <div style={{ color: '#64748b' }}>
+                            {entry.startDate && entry.endDate ? (
+                              <span>{formatDateForDisplay(entry.startDate)} - {formatDateForDisplay(entry.endDate)}</span>
+                            ) : (
+                              <span style={{ color: '#cbd5e1' }}>—</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Cached Date */}
+                        <div>
+                          <div style={{ color: '#94a3b8', fontSize: '10px', marginBottom: '2px' }}>Cached</div>
+                          <div style={{ color: '#64748b' }}>{entry.date}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* Desktop Table Layout */
+                <div style={{
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                  maxHeight: '600px',
+                  overflowY: 'auto'
                 }}>
                   <table style={{
                     width: '100%',
                     borderCollapse: 'collapse',
-                    fontSize: isMobile ? '12px' : '14px',
-                    minWidth: isMobile ? '600px' : 'auto'
+                    fontSize: '14px'
                   }}>
                     <thead style={{
                       background: '#f8fafc',
@@ -2116,60 +2262,53 @@ const CacheManagement = () => {
                     }}>
                       <tr>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Type</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Cache Key</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Date Range</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Size</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Age</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Cached Date</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Actions</th>
                       </tr>
                     </thead>
@@ -2182,11 +2321,11 @@ const CacheManagement = () => {
                             background: index % 2 === 0 ? '#fff' : '#f8fafc'
                           }}
                         >
-                          <td style={{ padding: isMobile ? '8px' : '12px' }}>
+                          <td style={{ padding: '12px' }}>
                             <span style={{
-                              padding: isMobile ? '3px 6px' : '4px 8px',
+                              padding: '4px 8px',
                               borderRadius: '4px',
-                              fontSize: isMobile ? '10px' : '12px',
+                              fontSize: '12px',
                               fontWeight: 600,
                               background: entry.type === 'sales' ? '#dbeafe' : '#dcfce7',
                               color: entry.type === 'sales' ? '#1e40af' : '#166534'
@@ -2195,16 +2334,16 @@ const CacheManagement = () => {
                             </span>
                           </td>
                           <td style={{
-                            padding: isMobile ? '8px' : '12px',
+                            padding: '12px',
                             fontFamily: 'monospace',
-                            fontSize: isMobile ? '10px' : '12px',
+                            fontSize: '12px',
                             color: '#475569',
                             wordBreak: 'break-all',
-                            maxWidth: isMobile ? '200px' : '400px'
+                            maxWidth: '400px'
                           }}>
                             {entry.cacheKey}
                           </td>
-                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '13px' }}>
+                          <td style={{ padding: '12px', color: '#64748b', fontSize: '13px' }}>
                             {entry.startDate && entry.endDate ? (
                               <div>
                                 <div>{formatDateForDisplay(entry.startDate)}</div>
@@ -2215,13 +2354,13 @@ const CacheManagement = () => {
                               <span style={{ color: '#cbd5e1' }}>—</span>
                             )}
                           </td>
-                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#1e293b', fontWeight: 500, fontSize: isMobile ? '11px' : '14px' }}>
+                          <td style={{ padding: '12px', color: '#1e293b', fontWeight: 500 }}>
                             {entry.sizeMB} MB
-                            <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#94a3b8' }}>
+                            <div style={{ fontSize: '12px', color: '#94a3b8' }}>
                               ({entry.sizeKB} KB)
                             </div>
                           </td>
-                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '14px' }}>
+                          <td style={{ padding: '12px', color: '#64748b' }}>
                             {entry.ageDays === 0 ? (
                               <span style={{ color: '#10b981', fontWeight: 600 }}>Today</span>
                             ) : entry.ageDays === 1 ? (
@@ -2230,19 +2369,19 @@ const CacheManagement = () => {
                               <span>{entry.ageDays} days ago</span>
                             )}
                           </td>
-                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '13px' }}>
+                          <td style={{ padding: '12px', color: '#64748b', fontSize: '13px' }}>
                             {entry.date}
                           </td>
-                          <td style={{ padding: isMobile ? '8px' : '12px' }}>
+                          <td style={{ padding: '12px' }}>
                             <button
                               onClick={() => viewCacheAsJson(entry.cacheKey)}
                               style={{
-                                padding: isMobile ? '5px 8px' : '6px 12px',
+                                padding: '6px 12px',
                                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                                 color: '#fff',
                                 border: 'none',
                                 borderRadius: '6px',
-                                fontSize: isMobile ? '11px' : '12px',
+                                fontSize: '12px',
                                 fontWeight: 600,
                                 cursor: 'pointer',
                                 display: 'flex',
@@ -2251,8 +2390,8 @@ const CacheManagement = () => {
                                 whiteSpace: 'nowrap'
                               }}
                             >
-                              <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>code</span>
-                              {isMobile ? 'JSON' : 'View JSON'}
+                              <span className="material-icons" style={{ fontSize: '16px' }}>code</span>
+                              View JSON
                             </button>
                           </td>
                         </tr>
@@ -2260,7 +2399,7 @@ const CacheManagement = () => {
                     </tbody>
                   </table>
                 </div>
-              </div>
+              )
             ) : (
               <div style={{
                 padding: '40px',
@@ -2756,6 +2895,19 @@ const CacheManagement = () => {
         @keyframes spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
+        }
+        /* Prevent horizontal overflow on mobile cache management */
+        .cache-management-wrapper {
+          width: 100%;
+          max-width: 100%;
+          overflow-x: hidden;
+          box-sizing: border-box;
+        }
+        @media (max-width: 768px) {
+          .cache-management-wrapper * {
+            max-width: 100%;
+            box-sizing: border-box;
+          }
         }
       `}</style>
 

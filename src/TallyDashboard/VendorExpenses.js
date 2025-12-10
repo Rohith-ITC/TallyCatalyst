@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { getApiUrl } from '../config';
 import { apiGet, apiPost } from '../utils/apiUtils';
 import { getCustomersFromOPFS } from '../utils/cacheSyncManager';
+import { useIsMobile } from './MobileViewConfig';
 
 function VendorExpenses() {
+  const isMobile = useIsMobile();
   // State for form fields
   const [voucherType, setVoucherType] = useState('');
   const [isExpenses, setIsExpenses] = useState(true); // Toggle: true for Expenses, false for Vendors
@@ -584,10 +586,10 @@ function VendorExpenses() {
 
   return (
     <div style={{ 
-      padding: '20px',
-      minHeight: '100vh',
-      width: '1000px',
-      backgroundColor: '#f5f5f5'
+      padding: isMobile ? '16px 12px' : '24px',
+      maxWidth: '1200px',
+      margin: '0 auto',
+      fontFamily: 'Segoe UI, Roboto, Arial, sans-serif'
     }}>
       <style>
         {`
@@ -598,76 +600,121 @@ function VendorExpenses() {
         `}
       </style>
       <div style={{
-        marginBottom: '24px'
+        marginBottom: '32px',
+        borderBottom: '2px solid #e5e7eb',
+        paddingBottom: '24px'
       }}>
         <h1 style={{
-          fontSize: '28px',
+          fontSize: isMobile ? '22px' : '28px',
           fontWeight: 700,
-          color: '#111827',
-          marginBottom: '8px',
-          letterSpacing: '-0.5px'
+          color: '#1e293b',
+          margin: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: isMobile ? '8px' : '12px',
+          flexWrap: isMobile ? 'wrap' : 'nowrap'
         }}>
+          <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '32px', color: '#3b82f6' }}>
+            payment
+          </span>
           Vendor/Expenses
         </h1>
         <p style={{
-          fontSize: '15px',
-          color: '#6b7280',
-          margin: 0
+          fontSize: isMobile ? '14px' : '16px',
+          color: '#64748b',
+          marginTop: '8px',
+          marginLeft: isMobile ? '0' : '44px'
         }}>
           Create and manage payment vouchers for expenses and vendors
         </p>
       </div>
 
-        {error && (
+      {/* Message Display */}
+      {error && (
+        <div style={{
+          background: '#fee2e2',
+          border: '1px solid #fca5a5',
+          borderRadius: '12px',
+          padding: isMobile ? '12px 16px' : '16px 20px',
+          marginBottom: isMobile ? '16px' : '24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: isMobile ? '10px' : '12px'
+        }}>
+          <span className="material-icons" style={{
+            fontSize: isMobile ? '20px' : '24px',
+            color: '#dc2626',
+            flexShrink: 0
+          }}>
+            error
+          </span>
           <div style={{
-            padding: '12px',
-            backgroundColor: '#fee',
-            color: '#c33',
-            borderRadius: '4px',
-            marginBottom: '20px'
+            fontSize: isMobile ? '13px' : '15px',
+            fontWeight: 500,
+            color: '#991b1b',
+            flex: 1,
+            wordBreak: 'break-word'
           }}>
             {error}
           </div>
-        )}
+        </div>
+      )}
 
-        {successMessage && (
+      {successMessage && (
+        <div style={{
+          background: '#d1fae5',
+          border: '1px solid #6ee7b7',
+          borderRadius: '12px',
+          padding: isMobile ? '12px 16px' : '16px 20px',
+          marginBottom: isMobile ? '16px' : '24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: isMobile ? '10px' : '12px'
+        }}>
+          <span className="material-icons" style={{
+            fontSize: isMobile ? '20px' : '24px',
+            color: '#059669',
+            flexShrink: 0
+          }}>
+            check_circle
+          </span>
           <div style={{
-            padding: '12px',
-            backgroundColor: '#efe',
-            color: '#3c3',
-            borderRadius: '4px',
-            marginBottom: '20px'
+            fontSize: isMobile ? '13px' : '15px',
+            fontWeight: 500,
+            color: '#065f46',
+            flex: 1,
+            wordBreak: 'break-word'
           }}>
             {successMessage}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Form Container with Card Style */}
-        <div style={{
-          background: '#fff',
-          borderRadius: '12px',
-          padding: '32px',
-          boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
-          border: '1px solid #e5e7eb'
-        }}>
+      {/* Form Container with Card Style */}
+      <div style={{
+        background: '#fff',
+        border: '1px solid #e2e8f0',
+        borderRadius: '12px',
+        padding: isMobile ? '16px' : '24px',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+      }}>
           <form onSubmit={handleSubmit}>
             {/* Top row: Voucher Type, Toggle, Ledger Dropdown */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '1fr auto 1fr',
-              gap: '24px',
-              marginBottom: '24px',
+              gridTemplateColumns: isMobile ? '1fr' : '1fr auto 1fr',
+              gap: isMobile ? '16px' : '24px',
+              marginBottom: isMobile ? '16px' : '24px',
               alignItems: 'end'
             }}>
               {/* Voucher Type Dropdown */}
               <div>
                 <label style={{
                   display: 'block',
-                  marginBottom: '10px',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  color: '#374151',
-                  letterSpacing: '0.3px'
+                  marginBottom: '6px',
+                  fontWeight: 500,
+                  fontSize: isMobile ? '13px' : '14px',
+                  color: '#475569'
                 }}>
                   Voucher Type
                 </label>
@@ -678,19 +725,20 @@ function VendorExpenses() {
                     disabled={loadingVoucherTypes}
                     style={{
                       width: '100%',
-                      padding: '12px 16px',
-                      border: '1px solid #d1d5db',
+                      padding: isMobile ? '12px' : '10px',
+                      border: '1px solid #cbd5e1',
                       borderRadius: '8px',
-                      fontSize: '15px',
-                      backgroundColor: '#fff',
-                      color: '#111827',
+                      fontSize: isMobile ? '15px' : '14px',
+                      backgroundColor: '#f8fafc',
+                      color: '#1e293b',
                       cursor: loadingVoucherTypes ? 'not-allowed' : 'pointer',
                       transition: 'all 0.2s',
                       appearance: 'none',
                       backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 12 12\'%3E%3Cpath fill=\'%236b7280\' d=\'M6 9L1 4h10z\'/%3E%3C/svg%3E")',
                       backgroundRepeat: 'no-repeat',
                       backgroundPosition: 'right 12px center',
-                      paddingRight: '40px'
+                      paddingRight: '40px',
+                      outline: 'none'
                     }}
                     onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
                     onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
@@ -719,11 +767,10 @@ function VendorExpenses() {
               <div>
                 <label style={{
                   display: 'block',
-                  marginBottom: '10px',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  color: '#374151',
-                  letterSpacing: '0.3px'
+                  marginBottom: '6px',
+                  fontWeight: 500,
+                  fontSize: isMobile ? '13px' : '14px',
+                  color: '#475569'
                 }}>
                   Type
                 </label>
@@ -791,11 +838,10 @@ function VendorExpenses() {
               <div>
                 <label style={{
                   display: 'block',
-                  marginBottom: '10px',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  color: '#374151',
-                  letterSpacing: '0.3px'
+                  marginBottom: '6px',
+                  fontWeight: 500,
+                  fontSize: isMobile ? '13px' : '14px',
+                  color: '#475569'
                 }}>
                   {ledgerLabel}
                 </label>
@@ -1034,20 +1080,19 @@ function VendorExpenses() {
             {/* Second row: Cash/Bank Account (under Voucher Type) and Amount (under Toggle) */}
             <div style={{
               display: 'grid',
-              gridTemplateColumns: '1fr auto 1fr',
-              gap: '24px',
-              marginBottom: '24px',
+              gridTemplateColumns: isMobile ? '1fr' : '1fr auto 1fr',
+              gap: isMobile ? '16px' : '24px',
+              marginBottom: isMobile ? '16px' : '24px',
               alignItems: 'end'
             }}>
               {/* Cash/Bank Account - aligned under Voucher Type */}
               <div>
                 <label style={{
                   display: 'block',
-                  marginBottom: '10px',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  color: '#374151',
-                  letterSpacing: '0.3px'
+                  marginBottom: '6px',
+                  fontWeight: 500,
+                  fontSize: isMobile ? '13px' : '14px',
+                  color: '#475569'
                 }}>
                   Cash/Bank Account
                 </label>
@@ -1307,14 +1352,13 @@ function VendorExpenses() {
               </div>
 
               {/* Amount - aligned under Toggle */}
-              <div style={{ width: '200px' }}>
+              <div style={{ width: isMobile ? '100%' : '200px' }}>
                 <label style={{
                   display: 'block',
-                  marginBottom: '10px',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  color: '#374151',
-                  letterSpacing: '0.3px'
+                  marginBottom: '6px',
+                  fontWeight: 500,
+                  fontSize: isMobile ? '13px' : '14px',
+                  color: '#475569'
                 }}>
                   Amount
                 </label>
@@ -1337,17 +1381,18 @@ function VendorExpenses() {
                     min="0"
                     style={{
                       width: '100%',
-                      padding: '12px 16px 12px 36px',
-                      border: '1px solid #d1d5db',
+                      padding: isMobile ? '12px 12px 12px 36px' : '12px 16px 12px 36px',
+                      border: '1px solid #cbd5e1',
                       borderRadius: '8px',
-                      fontSize: '15px',
-                      backgroundColor: '#fff',
-                      color: '#111827',
+                      fontSize: isMobile ? '15px' : '14px',
+                      backgroundColor: '#f8fafc',
+                      color: '#1e293b',
                       transition: 'all 0.2s',
-                      boxSizing: 'border-box'
+                      boxSizing: 'border-box',
+                      outline: 'none'
                     }}
                     onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                    onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+                    onBlur={(e) => e.target.style.borderColor = '#cbd5e1'}
                     required
                   />
                 </div>
@@ -1358,14 +1403,13 @@ function VendorExpenses() {
             </div>
 
             {/* Narration */}
-            <div style={{ marginBottom: '28px' }}>
+            <div style={{ marginBottom: isMobile ? '20px' : '28px' }}>
               <label style={{
                 display: 'block',
-                marginBottom: '10px',
-                fontWeight: 600,
-                fontSize: '14px',
-                color: '#374151',
-                letterSpacing: '0.3px'
+                marginBottom: '6px',
+                fontWeight: 500,
+                fontSize: isMobile ? '13px' : '14px',
+                color: '#475569'
               }}>
                 Narration
               </label>
@@ -1376,70 +1420,72 @@ function VendorExpenses() {
                 rows="4"
                 style={{
                   width: '100%',
-                  maxWidth: '500px',
-                  padding: '12px 16px',
-                  border: '1px solid #d1d5db',
+                  maxWidth: isMobile ? '100%' : '500px',
+                  padding: isMobile ? '12px' : '12px 16px',
+                  border: '1px solid #cbd5e1',
                   borderRadius: '8px',
-                  fontSize: '15px',
+                  fontSize: isMobile ? '15px' : '15px',
                   fontFamily: 'inherit',
                   resize: 'vertical',
-                  backgroundColor: '#fff',
-                  color: '#111827',
+                  backgroundColor: '#f8fafc',
+                  color: '#1e293b',
                   transition: 'all 0.2s',
-                  lineHeight: '1.5'
+                  lineHeight: '1.5',
+                  outline: 'none'
                 }}
                 onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
-                onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+                onBlur={(e) => e.target.style.borderColor = '#cbd5e1'}
                 required
               />
             </div>
 
             {/* Submit Button */}
-            <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-start', width: '100%' }}>
               <button
                 type="submit"
                 disabled={submitting}
                 style={{
-                  padding: '14px 32px',
-                  backgroundColor: submitting ? '#9ca3af' : '#2563eb',
+                  padding: isMobile ? '14px 16px' : '14px 32px',
+                  background: submitting ? '#94a3b8' : 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)',
                   color: '#fff',
                   border: 'none',
                   borderRadius: '8px',
-                  fontSize: '16px',
+                  fontSize: isMobile ? '15px' : '16px',
                   fontWeight: 600,
                   cursor: submitting ? 'not-allowed' : 'pointer',
                   transition: 'all 0.2s',
-                  boxShadow: submitting ? 'none' : '0 4px 6px -1px rgba(37, 99, 235, 0.3), 0 2px 4px -1px rgba(37, 99, 235, 0.2)',
+                  boxShadow: submitting ? 'none' : '0 2px 8px rgba(37, 99, 235, 0.25)',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px'
+                  justifyContent: 'center',
+                  gap: '8px',
+                  width: isMobile ? '100%' : 'auto',
+                  minWidth: isMobile ? '100%' : '200px'
                 }}
                 onMouseEnter={(e) => {
                   if (!submitting) {
-                    e.currentTarget.style.backgroundColor = '#1d4ed8';
                     e.currentTarget.style.transform = 'translateY(-1px)';
-                    e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(37, 99, 235, 0.3), 0 4px 6px -2px rgba(37, 99, 235, 0.2)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px rgba(37, 99, 235, 0.35)';
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (!submitting) {
-                    e.currentTarget.style.backgroundColor = '#2563eb';
                     e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(37, 99, 235, 0.3), 0 2px 4px -1px rgba(37, 99, 235, 0.2)';
+                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(37, 99, 235, 0.25)';
                   }
                 }}
               >
                 {submitting ? (
                   <>
-                    <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite' }}>
-                      hourglass_empty
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '18px', animation: 'spin 1s linear infinite', flexShrink: 0 }}>
+                      refresh
                     </span>
-                    Creating...
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Creating...</span>
                   </>
                 ) : (
                   <>
-                    <span className="material-icons" style={{ fontSize: '18px' }}>add_circle</span>
-                    Create Payment Voucher
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '18px', flexShrink: 0 }}>add_circle</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>Create Payment Voucher</span>
                   </>
                 )}
               </button>

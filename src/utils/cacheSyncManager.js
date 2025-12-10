@@ -2684,33 +2684,92 @@ export const safeSessionStorageGet = (key) => {
 
 // Helper to get customers from OPFS/IndexedDB (with sessionStorage fallback)
 export const getCustomersFromOPFS = async (cacheKey) => {
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  
   try {
     // Try OPFS/IndexedDB first (new storage)
+    if (isMobile) {
+      console.log(`📱 [Mobile] Attempting to load customers from cache: ${cacheKey}`);
+    }
+    
+    // Check which backend is being used
+    const cacheStats = await hybridCache.getCacheStats();
+    if (isMobile) {
+      console.log(`📱 [Mobile] Cache backend: ${cacheStats.backend}, supportsOPFS: ${cacheStats.supportsOPFS}`);
+    }
+    
     const data = await hybridCache.getSalesData(cacheKey);
+    
+    if (isMobile) {
+      console.log(`📱 [Mobile] getSalesData returned:`, {
+        hasData: !!data,
+        dataType: data ? typeof data : 'null',
+        dataKeys: data ? Object.keys(data) : [],
+        hasLedgers: !!(data && data.ledgers),
+        ledgersLength: data && data.ledgers ? data.ledgers.length : 0
+      });
+    }
+    
     if (data && data.ledgers && Array.isArray(data.ledgers)) {
+      if (isMobile) {
+        console.log(`✅ [Mobile] Successfully loaded ${data.ledgers.length} customers from cache`);
+      }
       return data.ledgers;
+    }
+    
+    if (isMobile && data) {
+      console.warn(`⚠️ [Mobile] Cache data exists but ledgers property is missing or invalid:`, {
+        hasData: !!data,
+        hasLedgers: !!(data && data.ledgers),
+        isArray: !!(data && data.ledgers && Array.isArray(data.ledgers)),
+        dataKeys: data ? Object.keys(data) : []
+      });
     }
 
     // Fallback to sessionStorage (old storage or chunked)
+    if (isMobile) {
+      console.log(`📱 [Mobile] Falling back to sessionStorage for: ${cacheKey}`);
+    }
+    
     const cached = safeSessionStorageGet(cacheKey);
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
-        return Array.isArray(parsed) ? parsed : (parsed.ledgers || null);
+        const result = Array.isArray(parsed) ? parsed : (parsed.ledgers || null);
+        if (result && isMobile) {
+          console.log(`✅ [Mobile] Loaded ${result.length} customers from sessionStorage fallback`);
+        }
+        return result;
       } catch (e) {
         console.warn('Error parsing cached customers:', e);
       }
     }
 
+    if (isMobile) {
+      console.warn(`⚠️ [Mobile] No customer data found in cache or sessionStorage for: ${cacheKey}`);
+    }
+    
     return null;
   } catch (error) {
     console.error('Error getting customers from OPFS:', error);
+    if (isMobile) {
+      console.error(`❌ [Mobile] Error details:`, {
+        message: error.message,
+        name: error.name,
+        stack: error.stack?.substring(0, 200)
+      });
+    }
+    
     // Try sessionStorage as last resort
     try {
       const cached = safeSessionStorageGet(cacheKey);
       if (cached) {
         const parsed = JSON.parse(cached);
-        return Array.isArray(parsed) ? parsed : (parsed.ledgers || null);
+        const result = Array.isArray(parsed) ? parsed : (parsed.ledgers || null);
+        if (result && isMobile) {
+          console.log(`✅ [Mobile] Loaded ${result.length} customers from sessionStorage (error fallback)`);
+        }
+        return result;
       }
     } catch (e) {
       // Ignore

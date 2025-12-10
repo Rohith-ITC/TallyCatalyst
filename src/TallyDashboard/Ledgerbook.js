@@ -1101,7 +1101,7 @@ function Ledgerbook() {
 
 
   return (
-    <div style={{
+    <div className="ledgerbook-container" style={{
       width: '100%',
       minHeight: 'calc(100vh - 120px)',
       padding: '16px',
@@ -1129,6 +1129,218 @@ function Ledgerbook() {
           .dropdown-animation {
             animation: dropdownFadeIn 0.2s ease-out;
           }
+
+          /* Mobile Responsive Styles */
+          @media (max-width: 768px) {
+            /* Main container */
+            .ledgerbook-container {
+              padding: 8px !important;
+            }
+
+            /* Form container */
+            .ledgerbook-form-container {
+              padding: 8px !important;
+            }
+
+            /* Header section */
+            .ledgerbook-header {
+              flex-direction: column !important;
+              align-items: flex-start !important;
+              gap: 12px !important;
+              padding-bottom: 12px !important;
+            }
+
+            .ledgerbook-header-left {
+              width: 100% !important;
+            }
+
+            .ledgerbook-header-right {
+              width: 100% !important;
+              justify-content: flex-start !important;
+            }
+
+            .ledgerbook-title {
+              font-size: 18px !important;
+            }
+
+            .ledgerbook-icon {
+              width: 32px !important;
+              height: 32px !important;
+            }
+
+            .ledgerbook-icon .material-icons {
+              font-size: 16px !important;
+            }
+
+            /* Ledger count display */
+            .ledger-count-display {
+              max-width: 100% !important;
+              font-size: 12px !important;
+              padding: 6px 12px !important;
+            }
+
+            /* Form grid - stack on mobile */
+            .ledgerbook-form-grid {
+              grid-template-columns: 1fr !important;
+              gap: 12px !important;
+              margin-bottom: 16px !important;
+            }
+
+            /* Form inputs */
+            .ledgerbook-input-wrapper {
+              width: 100% !important;
+            }
+
+            .ledgerbook-input {
+              padding: 14px 16px !important;
+              font-size: 14px !important;
+            }
+
+            .ledgerbook-input-label {
+              font-size: 10px !important;
+            }
+
+            /* Submit button */
+            .ledgerbook-submit-button {
+              width: 100% !important;
+              min-width: auto !important;
+              padding: 14px 24px !important;
+            }
+
+            /* Table area */
+            .ledgerbook-table-area {
+              padding: 12px !important;
+            }
+
+            /* Export buttons */
+            .ledgerbook-export-buttons {
+              flex-wrap: wrap !important;
+              gap: 6px !important;
+              margin-bottom: 12px !important;
+            }
+
+            .ledgerbook-export-button {
+              flex: 1 1 auto !important;
+              min-width: 80px !important;
+              padding: 8px 12px !important;
+              font-size: 12px !important;
+            }
+
+            .ledgerbook-export-button .material-icons {
+              font-size: 14px !important;
+            }
+
+            /* Table header info */
+            .ledgerbook-table-header {
+              flex-direction: column !important;
+              align-items: flex-start !important;
+              gap: 8px !important;
+            }
+
+            .ledgerbook-table-header h3 {
+              font-size: 16px !important;
+            }
+
+            .ledgerbook-table-header .period {
+              font-size: 12px !important;
+            }
+
+            /* Table wrapper - horizontal scroll */
+            .ledgerbook-table-wrapper {
+              overflow-x: auto !important;
+              -webkit-overflow-scrolling: touch !important;
+            }
+
+            .ledgerbook-table {
+              min-width: 800px !important;
+            }
+
+            .ledgerbook-table th,
+            .ledgerbook-table td {
+              padding: 12px 14px !important;
+              font-size: 13px !important;
+            }
+
+            /* Config button */
+            .ledgerbook-config-button {
+              padding: 8px 12px !important;
+              font-size: 12px !important;
+            }
+
+            /* Voucher details modal */
+            .ledgerbook-voucher-modal {
+              width: 95vw !important;
+              max-width: 95vw !important;
+              height: 90vh !important;
+              margin: 5vh auto !important;
+            }
+
+            .ledgerbook-voucher-modal-content {
+              padding: 16px !important;
+            }
+
+            .ledgerbook-voucher-modal-header h2 {
+              font-size: 18px !important;
+            }
+
+            .ledgerbook-voucher-summary {
+              padding: 16px !important;
+            }
+
+            .ledgerbook-voucher-summary-grid {
+              grid-template-columns: 1fr !important;
+              gap: 12px !important;
+            }
+
+            .ledgerbook-voucher-table-wrapper {
+              overflow-x: auto !important;
+              -webkit-overflow-scrolling: touch !important;
+            }
+
+            .ledgerbook-voucher-table {
+              min-width: 600px !important;
+            }
+
+            .ledgerbook-voucher-table th,
+            .ledgerbook-voucher-table td {
+              padding: 10px 12px !important;
+              font-size: 12px !important;
+            }
+
+            .ledgerbook-voucher-summary-grid {
+              grid-template-columns: 1fr !important;
+            }
+          }
+
+          @media (max-width: 480px) {
+            .ledgerbook-container {
+              padding: 4px !important;
+            }
+
+            .ledgerbook-form-container {
+              padding: 6px !important;
+            }
+
+            .ledgerbook-title {
+              font-size: 16px !important;
+            }
+
+            .ledger-count-display {
+              font-size: 11px !important;
+              padding: 5px 10px !important;
+            }
+
+            .ledgerbook-export-button {
+              font-size: 11px !important;
+              padding: 7px 10px !important;
+            }
+
+            .ledgerbook-table th,
+            .ledgerbook-table td {
+              padding: 10px 12px !important;
+              font-size: 12px !important;
+            }
+          }
         `}
       </style>
       {/* Feedback/Error */}
@@ -1150,9 +1362,9 @@ function Ledgerbook() {
         boxSizing: 'border-box'
       }}>
         {/* Form */}
-        <form onSubmit={handleSubmit} style={{ padding: '12px', width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
+        <form className="ledgerbook-form-container" onSubmit={handleSubmit} style={{ padding: '12px', width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
           {/* Header */}
-          <div style={{
+          <div className="ledgerbook-header" style={{
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -1161,12 +1373,12 @@ function Ledgerbook() {
             borderBottom: '1px solid #f3f4f6',
             position: 'relative'
           }}>
-            <div style={{
+            <div className="ledgerbook-header-left" style={{
               display: 'flex',
               alignItems: 'center',
               gap: '12px'
             }}>
-              <div style={{
+              <div className="ledgerbook-icon" style={{
                 width: '40px',
                 height: '40px',
                 borderRadius: '50%',
@@ -1180,7 +1392,7 @@ function Ledgerbook() {
                   business
                 </span>
               </div>
-              <h3 style={{
+              <h3 className="ledgerbook-title" style={{
                 margin: 0,
                 fontSize: '20px',
                 fontWeight: '600',
@@ -1191,13 +1403,13 @@ function Ledgerbook() {
             </div>
 
             {/* Ledger Count Display */}
-            <div style={{
+            <div className="ledgerbook-header-right" style={{
               display: 'flex',
               alignItems: 'center',
               gap: '12px'
             }}>
               {/* Ledger Count Display */}
-              <div style={{
+              <div className="ledger-count-display" style={{
                 fontSize: '14px',
                 color: '#64748b',
                 fontWeight: '500',
@@ -1224,7 +1436,7 @@ function Ledgerbook() {
           </div>
 
           {/* Single Line: Ledger Name, Report Name, From Date, To Date, Submit Button */}
-          <div style={{
+          <div className="ledgerbook-form-grid" style={{
             display: 'grid',
             gridTemplateColumns: '480px 300px 180px 180px 120px',
             gap: '16px',
@@ -1234,7 +1446,7 @@ function Ledgerbook() {
             marginBottom: '20px'
           }}>
             {/* Ledger Name */}
-            <div style={{
+            <div className="ledgerbook-input-wrapper" style={{
               position: 'relative'
             }} data-ledger-dropdown>
               <div style={{
@@ -1282,6 +1494,7 @@ function Ledgerbook() {
                   }}
                   required
                   disabled={ledgerLoading || ledgerError}
+                  className="ledgerbook-input"
                   style={{
                     width: '100%',
                     padding: '16px 20px',
@@ -1350,7 +1563,7 @@ function Ledgerbook() {
                   </button>
                 )}
 
-                <label style={{
+                <label className="ledgerbook-input-label" style={{
                   position: 'absolute',
                   left: '16px',
                   top: dropdown3Focused || !!dropdown3 ? '-8px' : '50%',
@@ -1506,7 +1719,7 @@ function Ledgerbook() {
             </div>
 
             {/* Report Name */}
-            <div style={{
+            <div className="ledgerbook-input-wrapper" style={{
               position: 'relative',
               zIndex: 10
             }}>
@@ -1525,6 +1738,7 @@ function Ledgerbook() {
                   onFocus={() => setTableFocused(true)}
                   onBlur={() => setTableFocused(false)}
                   required
+                  className="ledgerbook-input"
                   style={{
                     width: '100%',
                     padding: '16px 20px',
@@ -1545,7 +1759,7 @@ function Ledgerbook() {
                     tableOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)
                   )}
                 </select>
-                <label style={{
+                <label className="ledgerbook-input-label" style={{
                   position: 'absolute',
                   left: '16px',
                   top: tableFocused || table ? '-8px' : '50%',
@@ -1565,7 +1779,7 @@ function Ledgerbook() {
             </div>
 
             {/* From Date */}
-            <div style={{
+            <div className="ledgerbook-input-wrapper" style={{
               position: 'relative'
             }}>
               <div style={{
@@ -1583,6 +1797,7 @@ function Ledgerbook() {
                   onFocus={() => setFromDateFocused(true)}
                   onBlur={() => setFromDateFocused(false)}
                   required
+                  className="ledgerbook-input"
                   style={{
                     width: '100%',
                     padding: '16px 20px',
@@ -1595,7 +1810,7 @@ function Ledgerbook() {
                     cursor: 'text'
                   }}
                 />
-                <label style={{
+                <label className="ledgerbook-input-label" style={{
                   position: 'absolute',
                   left: '16px',
                   top: fromDateFocused || fromDate ? '-8px' : '50%',
@@ -1615,7 +1830,7 @@ function Ledgerbook() {
             </div>
 
             {/* To Date */}
-            <div style={{
+            <div className="ledgerbook-input-wrapper" style={{
               position: 'relative'
             }}>
               <div style={{
@@ -1633,6 +1848,7 @@ function Ledgerbook() {
                   onFocus={() => setToDateFocused(true)}
                   onBlur={() => setToDateFocused(false)}
                   required
+                  className="ledgerbook-input"
                   style={{
                     width: '100%',
                     padding: '16px 20px',
@@ -1645,7 +1861,7 @@ function Ledgerbook() {
                     cursor: 'text'
                   }}
                 />
-                <label style={{
+                <label className="ledgerbook-input-label" style={{
                   position: 'absolute',
                   left: '16px',
                   top: toDateFocused || toDate ? '-8px' : '50%',
@@ -1672,6 +1888,7 @@ function Ledgerbook() {
             }}>
               <button
                 type="submit"
+                className="ledgerbook-submit-button"
                 disabled={!company || !dropdown3}
                 style={{
                   background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
@@ -1701,7 +1918,7 @@ function Ledgerbook() {
 
         </form>
         {/* Table Area */}
-        <div style={{
+        <div className="ledgerbook-table-area" style={{
           width: '100%',
           background: '#f9fafb',
           borderTop: '1px solid #e5e7eb',
@@ -1737,12 +1954,13 @@ function Ledgerbook() {
                 <div style={{ maxWidth: '100%' }}>
                   <div style={{ background: '#f8fafc', padding: '16px' }}>
                     {/* First Line: Export and Print Icons */}
-                    <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div className="ledgerbook-export-buttons" style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', justifyContent: 'space-between' }}>
                       {/* Export buttons on the left */}
-                      <div style={{ display: 'flex', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <button
                           onClick={() => handleExport('pdf')}
                           title="Export to PDF"
+                          className="ledgerbook-export-button"
                           style={{
                             background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
                             border: 'none',
@@ -1767,6 +1985,7 @@ function Ledgerbook() {
                         <button
                           onClick={() => handleExport('excel')}
                           title="Export to Excel"
+                          className="ledgerbook-export-button"
                           style={{
                             background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
                             border: 'none',
@@ -1791,6 +2010,7 @@ function Ledgerbook() {
                         <button
                           onClick={handlePrint}
                           title="Print Report"
+                          className="ledgerbook-export-button"
                           style={{
                             background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
                             border: 'none',
@@ -1826,6 +2046,7 @@ function Ledgerbook() {
                               }
                             }}
                             title="Configuration Options"
+                            className="ledgerbook-config-button"
                             style={{
                               background: showConfigOptions ? 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)' : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
                               border: 'none',
@@ -1917,6 +2138,7 @@ function Ledgerbook() {
                               }
                             }}
                             title="Configuration Options"
+                            className="ledgerbook-config-button"
                             style={{
                               background: showConfigOptions ? 'linear-gradient(135deg, #4f46e5 0%, #3730a3 100%)' : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
                               border: 'none',
@@ -1999,11 +2221,11 @@ function Ledgerbook() {
                     </div>
 
                     {/* Second Line: Ledger Name and Period */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="ledgerbook-table-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <h3 style={{ margin: 0, color: '#1e293b', fontSize: 18, fontWeight: 600 }}>
                         Ledger: {tableData.ledgername}
                       </h3>
-                      <div style={{ fontSize: 14, color: '#64748b', fontWeight: 500 }}>
+                      <div className="period" style={{ fontSize: 14, color: '#64748b', fontWeight: 500 }}>
                         Period: {(() => {
                           const fromDateStr = tableData.fromdate.toString();
                           const toDateStr = tableData.todate.toString();
@@ -2019,8 +2241,8 @@ function Ledgerbook() {
                     </div>
                   </div>
 
-                  <div>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <div className="ledgerbook-table-wrapper">
+                    <table className="ledgerbook-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
                       <thead>
                         <tr style={{
                           background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
@@ -2746,6 +2968,7 @@ function Ledgerbook() {
         </div>
         {showVoucherDetails && viewingVoucher && (
           <div
+            className="ledgerbook-voucher-modal"
             style={{
               position: 'fixed',
               top: 0,
@@ -2768,6 +2991,7 @@ function Ledgerbook() {
             }}
           >
             <div
+              className="ledgerbook-voucher-modal-content"
               style={{
                 background: '#fff',
                 borderRadius: '18px',
@@ -2784,6 +3008,7 @@ function Ledgerbook() {
             >
               {/* Header */}
               <div
+                className="ledgerbook-voucher-modal-header"
                 style={{
                   padding: '24px 28px',
                   borderBottom: '1px solid #e2e8f0',
@@ -2830,9 +3055,10 @@ function Ledgerbook() {
                 </button>
               </div>
 
-              <div style={{ flex: 1, overflow: 'auto', padding: '28px' }}>
+              <div className="ledgerbook-voucher-modal-content" style={{ flex: 1, overflow: 'auto', padding: '28px' }}>
                 {/* Voucher Summary */}
                 <div
+                  className="ledgerbook-voucher-summary"
                   style={{
                     background: '#f8fafc',
                     borderRadius: '14px',
@@ -2841,7 +3067,7 @@ function Ledgerbook() {
                     marginBottom: '24px'
                   }}
                 >
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+                  <div className="ledgerbook-voucher-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 4 }}>Voucher Type</div>
                       <div style={{ fontSize: 18, fontWeight: 700, color: '#1e293b' }}>{viewingVoucher?.VOUCHERTYPE || viewingVoucher?.VCHTYPE || '-'}</div>
@@ -2925,7 +3151,8 @@ function Ledgerbook() {
                         <span className="material-icons" style={{ fontSize: 20 }}>account_balance</span>
                         Ledger Entries
                       </h3>
-                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                      <div className="ledgerbook-voucher-table-wrapper">
+                        <div className="ledgerbook-voucher-table" style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', padding: '14px 18px', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', fontWeight: 700, color: '#1e293b' }}>
                           <div>Ledger Name</div>
                           <div style={{ textAlign: 'right' }}>Debit Amount</div>
@@ -2987,6 +3214,7 @@ function Ledgerbook() {
                             </div>
                           );
                         })}
+                        </div>
                       </div>
                     </div>
                   );
@@ -3002,7 +3230,8 @@ function Ledgerbook() {
                         <span className="material-icons" style={{ fontSize: 20 }}>inventory_2</span>
                         All Inventory Entries
                       </h3>
-                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+                      <div className="ledgerbook-voucher-table-wrapper">
+                        <div className="ledgerbook-voucher-table" style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', padding: '14px 18px', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', fontWeight: 700, color: '#1e293b' }}>
                           <div>Item Name</div>
                           <div style={{ textAlign: 'right' }}>Quantity</div>
@@ -3019,6 +3248,7 @@ function Ledgerbook() {
                             <div style={{ textAlign: 'right', fontSize: 14, color: '#1e293b', fontWeight: 600 }}>{formatCurrency(entry.AMOUNT || entry.VALUE)}</div>
                           </div>
                         ))}
+                        </div>
                       </div>
                     </div>
                   );
