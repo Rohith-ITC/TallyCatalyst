@@ -747,10 +747,66 @@ class OPFSBackend {
       await this.init();
 
       // Check metadata first
-      const salesMap = this.metadataCache.get('sales') || new Map();
-      const metadata = salesMap.get(cacheKey);
+      let salesMap = this.metadataCache.get('sales') || new Map();
+      let metadata = salesMap.get(cacheKey);
+      
+      // If metadata doesn't exist, try reloading metadata first (mobile fallback)
+      // This handles cases where metadata cache wasn't loaded yet
+      if (!metadata && salesMap.size === 0) {
+        console.log(`🔄 Metadata cache is empty, reloading metadata...`);
+        try {
+          await this.loadMetadata();
+          salesMap = this.metadataCache.get('sales') || new Map();
+          metadata = salesMap.get(cacheKey);
+        } catch (reloadError) {
+          console.warn('⚠️ Could not reload metadata:', reloadError.message);
+        }
+      }
+      
+      // If metadata still doesn't exist, try to check if file exists directly (mobile fallback)
+      // This handles cases where metadata file is missing but data file exists
       if (!metadata) {
-        return null;
+        try {
+          const filePath = this.getSalesFilePath(cacheKey);
+          const pathParts = filePath.split('/');
+          const fileName = pathParts.pop();
+          const dirPath = pathParts.join('/');
+
+          let dir = this.root;
+          if (dirPath) {
+            for (const part of dirPath.split('/')) {
+              if (part) {
+                dir = await dir.getDirectoryHandle(part);
+              }
+            }
+          }
+
+          // Try to access the file - if it exists, restore metadata
+          const fileHandle = await dir.getFileHandle(fileName);
+          const file = await fileHandle.getFile();
+          
+          if (file && file.size > 0) {
+            console.log(`📋 Found cache file without metadata, restoring metadata for: ${cacheKey}`);
+            // Restore metadata from file
+            metadata = {
+              cacheKey,
+              timestamp: file.lastModified || Date.now(),
+              baseKey: this.extractBaseKey(cacheKey)
+            };
+            salesMap.set(cacheKey, metadata);
+            this.metadataCache.set('sales', salesMap);
+            // Save metadata asynchronously (don't block)
+            this.saveMetadata().catch(err => console.warn('Could not save restored metadata:', err));
+          } else {
+            return null;
+          }
+        } catch (fileError) {
+          // File doesn't exist or can't be accessed
+          if (fileError.name !== 'NotFoundError') {
+            console.warn(`⚠️ Error checking for cache file ${cacheKey}:`, fileError.message);
+          }
+          return null;
+        }
       }
 
       // Check expiry only if maxAgeDays is set (not null/never)
@@ -1872,9 +1928,42 @@ class IndexedDBBackend {
       await this.init();
 
       // Get entry from IndexedDB
-      const entry = await this.db.salesData.get(cacheKey);
+      let entry = await this.db.salesData.get(cacheKey);
+      
+      // If exact match not found, try to find a matching key (handles variations in cache key format)
       if (!entry) {
-        return null;
+        try {
+          // Extract base key pattern (ledgerlist-w-addrs_tallyloc_id_company)
+          const basePattern = cacheKey.split('_').slice(0, 3).join('_'); // First 3 parts: ledgerlist-w-addrs_tallyloc_id_company
+          const allEntries = await this.db.salesData
+            .where('cacheKey')
+            .startsWith(basePattern)
+            .toArray();
+          
+          if (allEntries.length > 0) {
+            // Find the most recent entry that matches the pattern
+            const sortedEntries = allEntries.sort((a, b) => b.timestamp - a.timestamp);
+            entry = sortedEntries[0];
+            console.log(`🔄 [IndexedDB] Exact key not found, using matching key: ${entry.cacheKey} (requested: ${cacheKey})`);
+          } else {
+            // Log for debugging - check if any entries exist with similar keys
+            const allCustomerEntries = await this.db.salesData
+              .where('cacheKey')
+              .startsWith('ledgerlist-w-addrs')
+              .toArray();
+            const matchingKeys = allCustomerEntries.map(e => e.cacheKey);
+            if (matchingKeys.length > 0) {
+              console.log(`⚠️ [IndexedDB] Cache key not found: ${cacheKey}`);
+              console.log(`📋 [IndexedDB] Available customer cache keys:`, matchingKeys);
+            }
+          }
+        } catch (debugError) {
+          console.warn('⚠️ [IndexedDB] Error searching for matching cache key:', debugError.message);
+        }
+        
+        if (!entry) {
+          return null;
+        }
       }
 
       // Check expiry only if maxAgeDays is set (not null/never)
