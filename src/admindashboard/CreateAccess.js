@@ -3,6 +3,7 @@ import { apiGet, apiPost, apiPut } from '../utils/apiUtils';
 import { checkUserLimit, checkSubscriptionStatus } from '../utils/subscriptionUtils';
 import { useNavigate } from 'react-router-dom';
 import PurchaseUsersModal from './components/PurchaseUsersModal';
+import { fetchExternalUserCacheEnabled, clearExternalUserCacheSettingCache } from '../utils/cacheUtils';
 
 function CreateAccess() {
   const navigate = useNavigate();
@@ -56,6 +57,10 @@ function CreateAccess() {
   const [subscriptionInfo, setSubscriptionInfo] = useState({ total_user_limit: 0 });
   const [userCountInfo, setUserCountInfo] = useState({ count: 0 });
   const token = sessionStorage.getItem('token');
+  
+  // Per-user external cache settings (email -> enabled)
+  const [userCacheSettings, setUserCacheSettings] = useState({});
+  const [userCacheSettingsLoading, setUserCacheSettingsLoading] = useState({});
   
   // Routes state
   const [routes, setRoutes] = useState([]);
@@ -637,6 +642,72 @@ function CreateAccess() {
       setUserCountInfo(prev => ({ count: internalUsers.length || prev?.count || 0 }));
     }
   }, [internalUsers.length]);
+
+  // Load per-user cache settings for all external users
+  useEffect(() => {
+    const loadUserCacheSettings = async () => {
+      try {
+        const externalUsers = internalUsers.filter(user => {
+          // Check if user is external based on their company settings
+          return (user.companies || []).some(company => company.isExternalUser);
+        });
+        
+        if (externalUsers.length === 0) return;
+        
+        const settings = {};
+        const loading = {};
+        
+        for (const user of externalUsers) {
+          loading[user.email] = true;
+          try {
+            const cacheBuster = Date.now();
+            const response = await apiGet(`/api/tally/external-user-cache-enabled?email=${encodeURIComponent(user.email)}&ts=${cacheBuster}`);
+            settings[user.email] = response?.enabled || false;
+          } catch (error) {
+            console.error(`Error loading cache setting for ${user.email}:`, error);
+            settings[user.email] = false;
+          } finally {
+            loading[user.email] = false;
+          }
+        }
+        
+        setUserCacheSettings(settings);
+        setUserCacheSettingsLoading(loading);
+      } catch (error) {
+        console.error('Error loading user cache settings:', error);
+      }
+    };
+    
+    if (internalUsers.length > 0) {
+      loadUserCacheSettings();
+    }
+  }, [internalUsers]);
+
+  // Save per-user external cache setting
+  const handleSaveUserCacheSetting = async (userEmail, enabled) => {
+    setUserCacheSettingsLoading(prev => ({ ...prev, [userEmail]: true }));
+    try {
+      const cacheBuster = Date.now();
+      const response = await apiPost(`/api/tally/external-user-cache-enabled?ts=${cacheBuster}`, {
+        email: userEmail,
+        enabled
+      });
+      
+      if (response && response.success !== false) {
+        setUserCacheSettings(prev => ({ ...prev, [userEmail]: enabled }));
+        clearExternalUserCacheSettingCache(userEmail); // Clear cache for this specific user
+        console.log(`Cache setting saved for ${userEmail}:`, enabled);
+      } else {
+        console.error('Failed to save user cache setting');
+        alert('Failed to save setting. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error saving user cache setting:', error);
+      alert('Error saving setting. Please try again.');
+    } finally {
+      setUserCacheSettingsLoading(prev => ({ ...prev, [userEmail]: false }));
+    }
+  };
 
   // Handle form input
   const handleInput = e => {
@@ -3300,6 +3371,17 @@ function CreateAccess() {
                     letterSpacing: '0.8px',
                     borderBottom: 'none',
                     boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                  }}>Cache</th>
+                  <th style={{ 
+                    padding: '16px 20px', 
+                    textAlign: 'left', 
+                    fontWeight: 700, 
+                    color: '#fff',
+                    fontSize: 13,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.8px',
+                    borderBottom: 'none',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
                   }}>Status</th>
                   <th style={{ 
                     padding: '16px 20px', 
@@ -3473,6 +3555,86 @@ function CreateAccess() {
                             }}>
                               {userTypeInfo.display}
                             </span>
+                          );
+                        })()}
+                      </div>
+                    </td>
+                    <td style={{ padding: '20px', verticalAlign: 'top' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
+                        {(() => {
+                          // Check if user is external
+                          const isExternal = (user.companies || []).some(c => c.isExternalUser);
+                          if (!isExternal) {
+                            return (
+                              <span style={{
+                                padding: '4px 12px',
+                                background: '#f1f5f9',
+                                color: '#64748b',
+                                borderRadius: 12,
+                                fontSize: 12,
+                                fontWeight: 500,
+                                border: '1px solid #e2e8f0',
+                                width: 'fit-content'
+                              }}>
+                                N/A
+                              </span>
+                            );
+                          }
+                          
+                          // Show cache toggle for external users
+                          if (userCacheSettingsLoading[user.email]) {
+                            return (
+                              <span style={{ fontSize: 12, color: '#64748b' }}>Loading...</span>
+                            );
+                          }
+                          
+                          return (
+                            <label 
+                              style={{
+                                position: 'relative',
+                                display: 'inline-block',
+                                width: 44,
+                                height: 24,
+                                cursor: 'pointer'
+                              }}
+                              title={userCacheSettings[user.email] ? 'Cache enabled' : 'Cache disabled'}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={userCacheSettings[user.email] || false}
+                                onChange={(e) => {
+                                  handleSaveUserCacheSetting(user.email, e.target.checked);
+                                }}
+                                style={{
+                                  opacity: 0,
+                                  width: 0,
+                                  height: 0
+                                }}
+                              />
+                              <span style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                backgroundColor: userCacheSettings[user.email] ? '#10b981' : '#9ca3af',
+                                borderRadius: 12,
+                                transition: 'all 0.3s ease',
+                                boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                              }}>
+                                <span style={{
+                                  position: 'absolute',
+                                  top: 2,
+                                  left: userCacheSettings[user.email] ? 22 : 2,
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: '50%',
+                                  backgroundColor: '#fff',
+                                  transition: 'all 0.3s ease',
+                                  boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                }} />
+                              </span>
+                            </label>
                           );
                         })()}
                       </div>
@@ -4273,6 +4435,7 @@ function CreateAccess() {
                   <div style={{ flex: 1 }}>Company</div>
                   <div style={{ minWidth: 220 }}>Role *</div>
                   <div style={{ minWidth: 100 }}>User Type</div>
+                  <div style={{ minWidth: 100 }}>Cache</div>
                 </div>
                 
                 <div style={{
@@ -4438,6 +4601,68 @@ function CreateAccess() {
                                     settings
                                   </span>
                                 </button>
+                              </div>
+                            ) : (
+                              <div style={{ height: '32px' }}></div>
+                            )}
+                          </div>
+                          
+                          {/* Cache Toggle - Only for External Users */}
+                          <div style={{ minWidth: 100 }}>
+                            {isSelected && settings.isExternalUser && editingUser ? (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                {userCacheSettingsLoading[editingUser.email] ? (
+                                  <span style={{ fontSize: 12, color: '#64748b' }}>Loading...</span>
+                                ) : (
+                                  <label 
+                                    onClick={(e) => e.stopPropagation()}
+                                    style={{
+                                      position: 'relative',
+                                      display: 'inline-block',
+                                      width: 44,
+                                      height: 24,
+                                      cursor: 'pointer'
+                                    }}
+                                    title={userCacheSettings[editingUser.email] ? 'Cache enabled for this user' : 'Cache disabled for this user'}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={userCacheSettings[editingUser.email] || false}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        handleSaveUserCacheSetting(editingUser.email, e.target.checked);
+                                      }}
+                                      style={{
+                                        opacity: 0,
+                                        width: 0,
+                                        height: 0
+                                      }}
+                                    />
+                                    <span style={{
+                                      position: 'absolute',
+                                      top: 0,
+                                      left: 0,
+                                      right: 0,
+                                      bottom: 0,
+                                      backgroundColor: userCacheSettings[editingUser.email] ? '#10b981' : '#9ca3af',
+                                      borderRadius: 12,
+                                      transition: 'all 0.3s ease',
+                                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
+                                    }}>
+                                      <span style={{
+                                        position: 'absolute',
+                                        top: 2,
+                                        left: userCacheSettings[editingUser.email] ? 22 : 2,
+                                        width: 20,
+                                        height: 20,
+                                        borderRadius: '50%',
+                                        backgroundColor: '#fff',
+                                        transition: 'all 0.3s ease',
+                                        boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                      }} />
+                                    </span>
+                                  </label>
+                                )}
                               </div>
                             ) : (
                               <div style={{ height: '32px' }}></div>

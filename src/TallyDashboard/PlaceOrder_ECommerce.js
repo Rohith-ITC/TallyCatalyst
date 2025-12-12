@@ -113,6 +113,7 @@ function PlaceOrder_ECommerce() {
   // Customer refresh state
   const [refreshCustomers, setRefreshCustomers] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshingCustomers, setRefreshingCustomers] = useState(false);
 
   // User permissions state
   const [userModules, setUserModules] = useState([]);
@@ -1060,6 +1061,31 @@ function PlaceOrder_ECommerce() {
 
     fetchCustomers();
   }, [company, refreshCustomers, companies]); // Added 'companies' back to dependencies to check cache properly
+
+  // Handler to refresh customers cache
+  const handleRefreshCustomers = async () => {
+    if (!company || refreshingCustomers) return;
+    
+    const currentCompany = companies.find(c => c.guid === company);
+    if (!currentCompany) {
+      console.warn('No company selected for refresh');
+      return;
+    }
+
+    setRefreshingCustomers(true);
+    try {
+      console.log('🔄 Refreshing customers cache...');
+      const { syncCustomers } = await import('../utils/cacheSyncManager');
+      await syncCustomers(currentCompany);
+      console.log('✅ Customers cache refreshed');
+      // Trigger refresh by incrementing refreshCustomers
+      setRefreshCustomers(prev => prev + 1);
+    } catch (error) {
+      console.error('❌ Failed to refresh customers cache:', error);
+    } finally {
+      setRefreshingCustomers(false);
+    }
+  };
 
   // Fetch stock items when company changes
   useEffect(() => {
@@ -4001,31 +4027,78 @@ function PlaceOrder_ECommerce() {
               </div>
             )}
 
-            {/* Customer Count Display */}
+            {/* Customer Count Display with Refresh Button */}
             <div style={{
-              fontSize: isMobile ? '11px' : '14px',
-              color: '#64748b',
-              fontWeight: '500',
-              padding: isMobile ? '5px 10px' : '8px 16px',
-              backgroundColor: '#f8fafc',
-              borderRadius: '20px',
-              border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: isMobile ? '5px' : '8px',
-              position: 'relative',
-              zIndex: 1,
-              maxWidth: isMobile ? '100%' : '200px',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              flexShrink: 1,
-              minWidth: 0
+              gap: '8px'
             }}>
-              <span style={{ fontSize: isMobile ? '14px' : '16px', flexShrink: 0 }}>👥</span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {customerLoading ? 'Loading...' : `${customerOptions.length.toLocaleString()} customers available`}
+              <div style={{
+                fontSize: isMobile ? '11px' : '14px',
+                color: '#64748b',
+                fontWeight: '500',
+                padding: isMobile ? '5px 10px' : '8px 16px',
+                backgroundColor: '#f8fafc',
+                borderRadius: '20px',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: isMobile ? '5px' : '8px',
+                position: 'relative',
+                zIndex: 1,
+                maxWidth: isMobile ? '100%' : '200px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                flexShrink: 1,
+                minWidth: 0
+              }}>
+                <span style={{ fontSize: isMobile ? '14px' : '16px', flexShrink: 0 }}>👥</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {customerLoading ? 'Loading...' : `${customerOptions.length.toLocaleString()} customers available`}
+                </span>
+              </div>
+              <button
+              onClick={handleRefreshCustomers}
+              disabled={refreshingCustomers || !company}
+              title="Refresh customers cache"
+              style={{
+                background: refreshingCustomers ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: isMobile ? '6px' : '8px',
+                cursor: (refreshingCustomers || !company) ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: isMobile ? '32px' : '36px',
+                height: isMobile ? '32px' : '36px',
+                transition: 'all 0.2s',
+                boxShadow: (refreshingCustomers || !company) ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
+                opacity: (refreshingCustomers || !company) ? 0.6 : 1
+              }}
+              onMouseEnter={(e) => {
+                if (!refreshingCustomers && company) {
+                  e.currentTarget.style.transform = 'scale(1.05)';
+                  e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'scale(1)';
+                e.currentTarget.style.boxShadow = (refreshingCustomers || !company) ? 'none' : '0 2px 4px rgba(0,0,0,0.1)';
+              }}
+            >
+              <span
+                className="material-icons"
+                style={{
+                  fontSize: isMobile ? '16px' : '18px',
+                  color: '#fff',
+                  animation: refreshingCustomers ? 'spin 1s linear infinite' : 'none'
+                }}
+              >
+                refresh
               </span>
+            </button>
             </div>
           </div>
 
