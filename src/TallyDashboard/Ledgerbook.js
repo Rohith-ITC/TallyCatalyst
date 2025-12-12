@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { apiPost } from '../utils/apiUtils';
 import { getDropdownFilterOptions, getUserModules } from '../config/SideBarConfigurations';
+import { getCustomersFromOPFS, syncCustomers } from '../utils/cacheSyncManager';
+import { hybridCache } from '../utils/hybridCache';
 
 function Ledgerbook() {
   // Get all companies from sessionStorage (memoized)
@@ -89,6 +91,7 @@ function Ledgerbook() {
   const [ledgerError, setLedgerError] = useState('');
   // Add a refresh trigger for ledgers
   const [refreshLedgers, setRefreshLedgers] = useState(0);
+  const [refreshingLedgers, setRefreshingLedgers] = useState(false);
 
   // Ledger search and dropdown state
   const [ledgerSearchTerm, setLedgerSearchTerm] = useState('');
@@ -415,62 +418,41 @@ function Ledgerbook() {
       }
       const { tallyloc_id, company: companyVal, guid } = currentCompanyObj;
       const cacheKey = `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`;
-      if (!refreshLedgers) {
-        const cached = sessionStorage.getItem(cacheKey);
-        if (cached) {
-          try {
-            const ledgers = JSON.parse(cached);
-            setLedgerOptions(ledgers);
-            if (ledgers.length === 1) setDropdown3(ledgers[0].NAME);
-            else setDropdown3('');
-            setLedgerError('');
-            return;
-          } catch { }
+      
+      // On refresh, clear cache
+      if (refreshLedgers) {
+        try {
+          await hybridCache.deleteCacheKey(cacheKey);
+          sessionStorage.removeItem(cacheKey);
+          sessionStorage.removeItem(`${cacheKey}_count`);
+        } catch (clearError) {
+          console.warn('Could not clear cache:', clearError.message);
         }
-      } else {
-        // On refresh, clear cache
-        sessionStorage.removeItem(cacheKey);
       }
+      
       setLedgerLoading(true);
       setLedgerError('');
+      
       try {
-        const data = await apiPost('/api/tally/ledgerlist-w-addrs', {
-          tallyloc_id,
-          company: companyVal,
-          guid
-        });
-
-        if (data && data.ledgers && Array.isArray(data.ledgers)) {
-          console.log(`Successfully fetched ${data.ledgers.length} ledgers`);
-          setLedgerOptions(data.ledgers);
-          if (data.ledgers.length === 1) setDropdown3(data.ledgers[0].NAME);
+        // Get customers from cache instead of making API call
+        const ledgers = await getCustomersFromOPFS(cacheKey);
+        
+        if (ledgers && Array.isArray(ledgers) && ledgers.length > 0) {
+          console.log(`Successfully loaded ${ledgers.length} ledgers from cache`);
+          setLedgerOptions(ledgers);
+          if (ledgers.length === 1) setDropdown3(ledgers[0].NAME);
           else setDropdown3('');
           setLedgerError('');
-
-          // Cache the result with graceful fallback if storage is full
-          try {
-            const cacheString = JSON.stringify(data.ledgers);
-            sessionStorage.setItem(cacheKey, cacheString);
-          } catch (cacheError) {
-            console.warn('Failed to cache ledgers in sessionStorage:', cacheError.message);
-            // Don't fail the entire operation if caching fails
-          }
-        } else if (data && data.error) {
-          setLedgerOptions([]);
-          setDropdown3('');
-          setLedgerError(data.error);
         } else {
-          console.error('Unexpected API response format:', data);
+          // No data in cache
           setLedgerOptions([]);
           setDropdown3('');
-          setLedgerError('Unknown error: Invalid response format');
+          setLedgerError('No customer data found in cache. Please sync customers first from Cache Management.');
         }
       } catch (err) {
-        console.error('Error fetching ledgers:', err);
-        const errorMessage = err.message || 'Failed to fetch ledgers';
-        setLedgerError(errorMessage.includes('parse') || errorMessage.includes('JSON')
-          ? `Failed to process large response. Please contact support.`
-          : errorMessage);
+        console.error('Error loading ledgers from cache:', err);
+        const errorMessage = err.message || 'Failed to load ledgers from cache';
+        setLedgerError(errorMessage);
         setLedgerOptions([]);
         setDropdown3('');
       } finally {
@@ -480,6 +462,25 @@ function Ledgerbook() {
 
     fetchLedgers();
   }, [company, refreshLedgers, currentCompanyObj]);
+
+  // Handler to refresh ledgers cache
+  const handleRefreshLedgers = async () => {
+    if (!company || refreshingLedgers || !currentCompanyObj) return;
+
+    setRefreshingLedgers(true);
+    try {
+      console.log('🔄 Refreshing ledgers cache...');
+      await syncCustomers(currentCompanyObj);
+      console.log('✅ Ledgers cache refreshed');
+      // Trigger refresh by incrementing refreshLedgers
+      setRefreshLedgers(prev => prev + 1);
+    } catch (error) {
+      console.error('❌ Failed to refresh ledgers cache:', error);
+      setLedgerError('Failed to refresh ledgers cache. Please try again.');
+    } finally {
+      setRefreshingLedgers(false);
+    }
+  };
 
   // Handle clicks outside configuration dropdown and escape key
   useEffect(() => {
@@ -1408,29 +1409,76 @@ function Ledgerbook() {
               alignItems: 'center',
               gap: '12px'
             }}>
-              {/* Ledger Count Display */}
-              <div className="ledger-count-display" style={{
-                fontSize: '14px',
-                color: '#64748b',
-                fontWeight: '500',
-                padding: '8px 16px',
-                backgroundColor: '#f8fafc',
-                borderRadius: '20px',
-                border: '1px solid #e2e8f0',
+              {/* Ledger Count Display with Refresh Button */}
+              <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                position: 'relative',
-                zIndex: 1,
-                maxWidth: '200px',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap'
+                gap: '8px'
               }}>
-                <span style={{ fontSize: '16px', flexShrink: 0 }}>📊</span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {ledgerLoading ? 'Loading...' : ledgerError ? 'Error' : `${ledgerOptions.length.toLocaleString()} ledgers available`}
-                </span>
+                <div className="ledger-count-display" style={{
+                  fontSize: '14px',
+                  color: '#64748b',
+                  fontWeight: '500',
+                  padding: '8px 16px',
+                  backgroundColor: '#f8fafc',
+                  borderRadius: '20px',
+                  border: '1px solid #e2e8f0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  position: 'relative',
+                  zIndex: 1,
+                  maxWidth: '200px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  <span style={{ fontSize: '16px', flexShrink: 0 }}>📊</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {ledgerLoading ? 'Loading...' : ledgerError ? 'Error' : `${ledgerOptions.length.toLocaleString()} ledgers available`}
+                  </span>
+                </div>
+                <button
+                  onClick={handleRefreshLedgers}
+                  disabled={refreshingLedgers || !company || !currentCompanyObj}
+                  title="Refresh ledgers cache"
+                  style={{
+                    background: refreshingLedgers ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '8px',
+                    cursor: (refreshingLedgers || !company || !currentCompanyObj) ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minWidth: '36px',
+                    height: '36px',
+                    transition: 'all 0.2s',
+                    boxShadow: (refreshingLedgers || !company || !currentCompanyObj) ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
+                    opacity: (refreshingLedgers || !company || !currentCompanyObj) ? 0.6 : 1
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!refreshingLedgers && company && currentCompanyObj) {
+                      e.currentTarget.style.transform = 'scale(1.05)';
+                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'scale(1)';
+                    e.currentTarget.style.boxShadow = (refreshingLedgers || !company || !currentCompanyObj) ? 'none' : '0 2px 4px rgba(0,0,0,0.1)';
+                  }}
+                >
+                  <span
+                    className="material-icons"
+                    style={{
+                      fontSize: '18px',
+                      color: '#fff',
+                      animation: refreshingLedgers ? 'spin 1s linear infinite' : 'none'
+                    }}
+                  >
+                    refresh
+                  </span>
+                </button>
               </div>
             </div>
           </div>
@@ -1672,7 +1720,7 @@ function Ledgerbook() {
                           color: '#64748b',
                           marginTop: '2px'
                         }}>
-                          {ledger.GSTNO && `GST No: ${ledger.GSTNO} | `}Address: {ledger.ADDRESS || 'N/A'}
+                          {ledger.MAILINGNAME && `Mailing Name: ${ledger.MAILINGNAME}`}
                         </div>
                       </div>
                     ))}

@@ -25,6 +25,8 @@
     "babel-loader": "^8.4.1",
     "date-fns": "^4.1.0",
     "dexie": "^4.2.1",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.4",
     "plotly.js": "^3.3.0",
     "razorpay": "^2.9.6",
     "react": "^19.2.1",
