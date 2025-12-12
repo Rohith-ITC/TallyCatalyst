@@ -1,9 +1,10 @@
 // Centralized API utility with automatic logout on token expiration
 import { getApiUrl } from '../config';
 import { addCacheBuster } from './cacheSyncManager';
+import { isExternalUser, clearAllCacheForExternalUser } from './cacheUtils';
 
 // Global logout function
-const handleLogout = () => {
+const handleLogout = async () => {
   console.error('🚨🚨🚨 LOGOUT TRIGGERED 🚨🚨🚨');
   console.error('🚨 Stack trace:');
   console.trace();
@@ -16,6 +17,19 @@ const handleLogout = () => {
   };
   
   console.error('🚨 SessionStorage BEFORE clear:', sessionBefore);
+  
+  // Clear cache for external users before clearing sessionStorage
+  try {
+    const accessType = sessionStorage.getItem('access_type') || '';
+    if (accessType.toLowerCase() === 'external' || isExternalUser()) {
+      console.log('🧹 Clearing cache for external user on logout...');
+      await clearAllCacheForExternalUser();
+    }
+  } catch (error) {
+    console.error('Error clearing cache on logout:', error);
+    // Continue with logout even if cache clearing fails
+  }
+  
   console.error('🚨 Redirecting to:', process.env.REACT_APP_HOMEPAGE || '/');
   
   sessionStorage.clear();
