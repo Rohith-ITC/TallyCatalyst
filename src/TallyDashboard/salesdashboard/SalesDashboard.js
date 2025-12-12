@@ -24,6 +24,7 @@ import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/comp
 import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
 import { syncSalesData, cacheSyncManager, checkInterruptedDownload, clearDownloadProgress } from '../../utils/cacheSyncManager';
 import ResumeDownloadModal from '../components/ResumeDownloadModal';
+import { isFullAccessOrInternal, isExternalUser, fetchExternalUserCacheEnabled, getCacheAccessPermission } from '../../utils/cacheUtils';
 
 const SalesDashboard = ({ onNavigationAttempt }) => {
   // Mobile detection
@@ -153,6 +154,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Track dismissed interruptions to prevent showing modal again after user closes it
   const dismissedInterruptionsRef = useRef(new Set());
 
+  // Cache access control state
+  const [canCacheData, setCanCacheData] = useState(true);
+  const [checkingCacheAccess, setCheckingCacheAccess] = useState(true);
+
   // Helper function to get auth token
   const getAuthToken = () => {
     const token = sessionStorage.getItem('token');
@@ -205,6 +210,38 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       window.removeEventListener('companyChanged', handleAccessUpdate);
     };
   }, [computeShowProfitPermission]);
+
+  // Check cache access permission
+  useEffect(() => {
+    const checkCacheAccess = async () => {
+      setCheckingCacheAccess(true);
+      try {
+        // Full access and internal users always have access
+        if (isFullAccessOrInternal()) {
+          setCanCacheData(true);
+          setCheckingCacheAccess(false);
+          return;
+        }
+
+        // External users need to check admin setting
+        if (isExternalUser()) {
+          const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+          const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+          setCanCacheData(hasAccess);
+        } else {
+          // Unknown access type - deny by default
+          setCanCacheData(false);
+        }
+      } catch (error) {
+        console.error('Error checking cache access:', error);
+        // On error, deny access for safety
+        setCanCacheData(false);
+      } finally {
+        setCheckingCacheAccess(false);
+      }
+    };
+    checkCacheAccess();
+  }, []);
 
   // Subscribe to cacheSyncManager for real-time progress updates (like CacheManagement)
   useEffect(() => {
@@ -1902,6 +1939,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       return;
     }
 
+    // Check if user has cache access
+    if (!canCacheData) {
+      console.warn('⚠️ Cache download not allowed for external users when cache is disabled');
+      alert('Cache download is not available for your user type. Please contact your administrator if you need this feature enabled.');
+      return;
+    }
+
     try {
       // Get company info for cache update
       const companyInfo = getCompanyInfo();
@@ -1941,6 +1985,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Resume modal handlers
   const handleResumeContinue = async () => {
+    if (!canCacheData) {
+      console.warn('⚠️ Cache download not allowed for external users when cache is disabled');
+      setShowResumeModal(false);
+      return;
+    }
     setShowResumeModal(false);
     const companyInfo = getCompanyInfo();
     if (companyInfo) {
@@ -1950,6 +1999,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   };
 
   const handleResumeStartFresh = async () => {
+    if (!canCacheData) {
+      console.warn('⚠️ Cache download not allowed for external users when cache is disabled');
+      setShowResumeModal(false);
+      return;
+    }
     setShowResumeModal(false);
     const companyInfo = getCompanyInfo();
     if (companyInfo) {
@@ -1963,6 +2017,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Background cache download function
   const startBackgroundCacheDownload = async (companyInfo, isUpdate = false, startFresh = false) => {
+    // Check if user has cache access
+    if (!canCacheData) {
+      console.warn('⚠️ Cache download not allowed for external users when cache is disabled');
+      return;
+    }
+
     if (isDownloadingCache || cacheDownloadAbortRef.current) return;
 
     setIsDownloadingCache(true);
@@ -6193,10 +6253,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
          minHeight: '100vh',
          padding: isMobile ? '12px' : '24px',
          paddingTop: isMobile ? '12px' : '40px',
-         width: isMobile ? '100vw' : '80vw',
+         width: isMobile ? '100%' : '80vw',
+         maxWidth: '100%',
          margin: 0,
          display: 'block',
          overflowX: 'hidden',
+         boxSizing: 'border-box',
        }}
      >
        <div
@@ -6213,12 +6275,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
          }}
        >
         {/* Header */}
-        <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
+        <form onSubmit={handleSubmit} style={{ width: '100%', maxWidth: '100%', overflow: 'hidden', position: 'relative', boxSizing: 'border-box' }}>
         <div style={{
             padding: isMobile ? '12px 16px' : '18px 24px',
           borderBottom: '1px solid #f1f5f9',
           background: 'transparent',
-          position: 'relative'
+          position: 'relative',
+          width: '100%',
+          maxWidth: '100%',
+          boxSizing: 'border-box',
+          overflow: 'hidden'
           }}>
             {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
         {isMobile ? (
@@ -6229,7 +6295,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               alignItems: 'center',
               gap: '8px',
               width: '100%',
-              marginBottom: '12px'
+              maxWidth: '100%',
+              marginBottom: '12px',
+              boxSizing: 'border-box',
+              overflow: 'hidden'
             }}>
               <div style={{
                 width: '36px',
@@ -6525,23 +6594,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <button
                   type="button"
                   onClick={handleRefresh}
-                  disabled={loading || !fromDate || !toDate || isDownloadingCache}
+                  disabled={loading || !fromDate || !toDate || isDownloadingCache || !canCacheData}
+                  title={!canCacheData ? 'Cache download is not available for your user type' : ''}
                   style={{
-                    background: loading || !fromDate || !toDate || isDownloadingCache
+                    background: loading || !fromDate || !toDate || isDownloadingCache || !canCacheData
                       ? '#e5e7eb'
                       : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                     border: 'none',
                     borderRadius: '6px',
                     padding: '6px 10px',
-                    cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
+                    cursor: loading || !fromDate || !toDate || isDownloadingCache || !canCacheData ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '4px',
-                    color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
+                    color: loading || !fromDate || !toDate || isDownloadingCache || !canCacheData ? '#9ca3af' : '#fff',
                     fontSize: '11px',
                     fontWeight: '600',
                     transition: 'all 0.2s ease',
-                    boxShadow: loading || !fromDate || !toDate || isDownloadingCache
+                    boxShadow: loading || !fromDate || !toDate || isDownloadingCache || !canCacheData
                       ? 'none'
                       : '0 2px 4px rgba(59, 130, 246, 0.25)',
                     flexShrink: 0,
@@ -6696,8 +6766,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             gap: '16px',
             flexWrap: 'wrap',
             width: '100%',
+            maxWidth: '100%',
             position: 'relative',
-            overflow: 'visible'
+            overflow: 'hidden',
+            boxSizing: 'border-box'
           }}>
             {/* Desktop: Icon + Title Section */}
             <div style={{
@@ -6706,8 +6778,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               gap: '12px',
               flex: '0 1 auto',
               minWidth: '200px',
-              maxWidth: '400px',
-              overflow: 'hidden'
+              maxWidth: '100%',
+              overflow: 'hidden',
+              boxSizing: 'border-box'
             }}>
               <div style={{
                 width: '44px',

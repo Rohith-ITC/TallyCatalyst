@@ -107,7 +107,21 @@ function AccessControl() {
     }, 100);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Clear cache for external users before clearing sessionStorage
+    try {
+      const accessType = sessionStorage.getItem('access_type') || '';
+      // Import dynamically to avoid circular dependencies
+      const { isExternalUser, clearAllCacheForExternalUser } = await import('../utils/cacheUtils');
+      if (accessType.toLowerCase() === 'external' || isExternalUser()) {
+        console.log('🧹 Clearing cache for external user on logout...');
+        await clearAllCacheForExternalUser();
+      }
+    } catch (error) {
+      console.error('Error clearing cache on logout:', error);
+      // Continue with logout even if cache clearing fails
+    }
+    
     sessionStorage.clear();
     navigate('/');
   };

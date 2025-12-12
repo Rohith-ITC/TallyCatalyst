@@ -4,6 +4,7 @@ import { apiGet } from '../utils/apiUtils';
 import { syncSalesData, syncCustomers, syncItems, cacheSyncManager, safeSessionStorageGet, getCustomersFromOPFS, getItemsFromOPFS, checkInterruptedDownload, clearDownloadProgress } from '../utils/cacheSyncManager';
 import ResumeDownloadModal from './components/ResumeDownloadModal';
 import { useIsMobile } from './MobileViewConfig';
+import { isFullAccessOrInternal, isExternalUser, fetchExternalUserCacheEnabled, getCacheAccessPermission } from '../utils/cacheUtils';
 
 // Helper to remove sessionStorage key and its chunks (for backward compatibility)
 const removeSessionStorageKey = (key) => {
@@ -70,6 +71,10 @@ const CacheManagement = () => {
     customers: { status: 'idle', progress: 0, count: 0, error: null },
     items: { status: 'idle', progress: 0, count: 0, error: null }
   });
+
+  // Access control state
+  const [hasCacheAccess, setHasCacheAccess] = useState(true);
+  const [checkingAccess, setCheckingAccess] = useState(true);
 
   // Load progress for selected company
   const loadCompanyProgress = async () => {
@@ -150,7 +155,44 @@ const CacheManagement = () => {
     }
   };
 
+  // Check cache access permission
   useEffect(() => {
+    const checkAccess = async () => {
+      setCheckingAccess(true);
+      try {
+        // Full access and internal users always have access
+        if (isFullAccessOrInternal()) {
+          setHasCacheAccess(true);
+          setCheckingAccess(false);
+          return;
+        }
+
+        // External users need to check admin setting
+        if (isExternalUser()) {
+          const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+          const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+          setHasCacheAccess(hasAccess);
+        } else {
+          // Unknown access type - deny by default
+          setHasCacheAccess(false);
+        }
+      } catch (error) {
+        console.error('Error checking cache access:', error);
+        // On error, deny access for safety
+        setHasCacheAccess(false);
+      } finally {
+        setCheckingAccess(false);
+      }
+    };
+    checkAccess();
+  }, []);
+
+  useEffect(() => {
+    // Don't load data if user doesn't have access
+    if (!hasCacheAccess) {
+      return;
+    }
+    
     loadCacheStats();
     loadCurrentCompany();
     loadCacheExpiry();
@@ -1200,6 +1242,83 @@ const CacheManagement = () => {
       setViewingJsonCache(null);
     }
   };
+
+  // Show access denied message if user doesn't have permission
+  if (checkingAccess) {
+    return (
+      <div
+        className="cache-management-wrapper"
+        style={{
+          padding: isMobile ? '16px 12px' : '24px',
+          maxWidth: '1200px',
+          margin: '0 auto',
+          fontFamily: 'Segoe UI, Roboto, Arial, sans-serif',
+          boxSizing: 'border-box',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '400px'
+        }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏳</div>
+          <p style={{ color: '#64748b', fontSize: '16px' }}>Checking access permissions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasCacheAccess) {
+    return (
+      <div
+        className="cache-management-wrapper"
+        style={{
+          padding: isMobile ? '16px 12px' : '24px',
+          maxWidth: '1200px',
+          margin: '0 auto',
+          fontFamily: 'Segoe UI, Roboto, Arial, sans-serif',
+          boxSizing: 'border-box'
+        }}>
+        <div style={{
+          background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+          border: '2px solid #fca5a5',
+          borderRadius: '16px',
+          padding: '32px',
+          textAlign: 'center',
+          marginTop: '40px'
+        }}>
+          <span className="material-icons" style={{ fontSize: '64px', color: '#dc2626', marginBottom: '16px', display: 'block' }}>
+            block
+          </span>
+          <h2 style={{
+            fontSize: '24px',
+            fontWeight: 700,
+            color: '#991b1b',
+            margin: '0 0 12px 0'
+          }}>
+            Access Denied
+          </h2>
+          <p style={{
+            fontSize: '16px',
+            color: '#7f1d1d',
+            margin: '0 0 8px 0',
+            lineHeight: 1.6
+          }}>
+            Cache management is not available for your user type.
+          </p>
+          <p style={{
+            fontSize: '14px',
+            color: '#991b1b',
+            margin: '8px 0 0 0',
+            lineHeight: 1.5
+          }}>
+            {isExternalUser() 
+              ? 'External users do not have permission to manage cache. Please contact your administrator if you need this feature enabled.'
+              : 'Please contact your administrator for access to cache management features.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
