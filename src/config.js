@@ -5,7 +5,7 @@ const getBaseUrl = () => {
 
   // Use .env value for development mode
   if (process.env.NODE_ENV === 'development') {
-    // Check if we're running from localhost - use proxy to avoid CORS issues
+    // Check if we're running from localhost or local network IP - use proxy to avoid CORS issues
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
       const port = window.location.port;
@@ -18,16 +18,12 @@ const getBaseUrl = () => {
         willCheckProxy: true
       });
       
-      // If accessing from localhost, use proxy (return empty string for relative paths)
+      // If accessing from localhost or local network IP, use proxy (return empty string for relative paths)
       // This avoids CORS issues with custom headers like x-company, x-tallyloc-id, x-guid
-      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
-        console.log('🔧 [Config] Using proxy for localhost to avoid CORS issues');
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || 
+          hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+        console.log('🔧 [Config] Using proxy for localhost/local network IP to avoid CORS issues');
         return ''; // Empty string means use relative path, which will go through proxy
-      }
-      // For local network IPs, also use proxy
-      if (hostname === '192.168.29.72' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
-        console.log('🔧 [Config] Using proxy for local network IP to avoid CORS issues');
-        return '';
       }
       
       console.warn('⚠️ [Config] Not localhost or local IP - may use production URL which could cause CORS issues');
@@ -59,8 +55,9 @@ const getBaseUrl = () => {
     // If we're on localhost, we should have returned empty string above, but double-check
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
-      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]') {
-        console.warn('⚠️ [Config] Fallback: Forcing proxy usage for localhost to avoid CORS');
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' ||
+          hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
+        console.warn('⚠️ [Config] Fallback: Forcing proxy usage for localhost/local network IP to avoid CORS');
         return ''; // Force proxy even in fallback
       }
     }

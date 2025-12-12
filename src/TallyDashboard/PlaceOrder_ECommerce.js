@@ -11,19 +11,73 @@ function PlaceOrder_ECommerce() {
   // Detect mobile view
   const isMobile = useIsMobile();
 
-  // Get all companies from sessionStorage - moved outside to prevent recreation
+  // Track connections version to make companies reactive
+  const [connectionsVersion, setConnectionsVersion] = useState(0);
+
+  // Get all companies from sessionStorage - make it reactive to updates
   const companies = useMemo(() => {
     try {
       return JSON.parse(sessionStorage.getItem('allConnections') || '[]');
     } catch (e) {
       return [];
     }
+  }, [connectionsVersion]);
+
+  // Listen for connections updates
+  useEffect(() => {
+    const handleConnectionsUpdated = () => {
+      console.log('🔄 connectionsUpdated event received in PlaceOrder_ECommerce');
+      setConnectionsVersion((prev) => prev + 1);
+    };
+
+    window.addEventListener('connectionsUpdated', handleConnectionsUpdated);
+    // Also listen for storage events (cross-tab sync)
+    const handleStorageChange = (e) => {
+      if (e.key === 'allConnections') {
+        console.log('🔄 allConnections updated in sessionStorage');
+        setConnectionsVersion((prev) => prev + 1);
+      }
+    };
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('connectionsUpdated', handleConnectionsUpdated);
+      window.removeEventListener('storage', handleStorageChange);
+    };
   }, []);
 
   // Get company from sessionStorage (controlled by top bar) - make it reactive
   const [company, setCompany] = useState(() => {
     return sessionStorage.getItem('selectedCompanyGuid') || '';
   });
+
+  // Listen for selectedCompanyGuid changes in sessionStorage
+  useEffect(() => {
+    const handleStorageChange = (e) => {
+      if (e.key === 'selectedCompanyGuid') {
+        const newCompany = e.newValue || '';
+        console.log('🔄 selectedCompanyGuid changed in sessionStorage:', newCompany);
+        setCompany(newCompany);
+      }
+    };
+
+    // Listen for storage events (cross-tab sync)
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also poll for changes in the same tab (since storage event only fires for cross-tab)
+    const pollInterval = setInterval(() => {
+      const currentCompany = sessionStorage.getItem('selectedCompanyGuid') || '';
+      if (currentCompany !== company) {
+        console.log('🔄 selectedCompanyGuid changed (polled):', currentCompany);
+        setCompany(currentCompany);
+      }
+    }, 5000); // Poll every 5 seconds - reduced frequency to prevent excessive re-renders
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(pollInterval);
+    };
+  }, [company]);
 
   // Company-related state (kept for JSX compatibility but not used)
   const [companyFocused, setCompanyFocused] = useState(false);
@@ -92,10 +146,10 @@ function PlaceOrder_ECommerce() {
     };
     window.addEventListener('storage', handleStorageChange);
     
-    // Poll for permission changes every 2 seconds (as a fallback)
+    // Poll for permission changes every 10 seconds (as a fallback) - reduced frequency to prevent excessive re-renders
     const pollInterval = setInterval(() => {
       updateUserModules();
-    }, 2000);
+    }, 10000);
     
     // Also refresh when page becomes visible (user switches back to tab)
     const handleVisibilityChange = () => {
@@ -106,10 +160,14 @@ function PlaceOrder_ECommerce() {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
-    // Refresh on window focus
+    // Refresh on window focus (debounced to avoid excessive calls on every click)
+    let focusTimeout;
     const handleFocus = () => {
-      console.log('🔄 Window focused, refreshing permissions');
-      updateUserModules();
+      clearTimeout(focusTimeout);
+      focusTimeout = setTimeout(() => {
+        console.log('🔄 Window focused, refreshing permissions');
+        updateUserModules();
+      }, 5000); // Only refresh after 5 seconds of focus
     };
     window.addEventListener('focus', handleFocus);
 
@@ -490,6 +548,13 @@ function PlaceOrder_ECommerce() {
   const [googleToken, setGoogleToken] = useState(null);
   const imageUrlCache = useRef(new Map()); // Cache for image URLs (useRef to avoid re-renders)
   const videoUrlCache = useRef(new Map()); // Cache for video URLs (useRef to avoid re-renders)
+  
+  // Rate limit tracking - track recent CDN failures to detect 429 errors
+  const rateLimitTracker = useRef({
+    recentFailures: [],
+    isRateLimited: false,
+    cooldownUntil: null
+  });
 
   // Fetch Google token when company changes
   useEffect(() => {
@@ -523,15 +588,20 @@ function PlaceOrder_ECommerce() {
       }
 
       const { tallyloc_id, guid } = currentCompany;
-      console.log('🔄 Fetching Google token for company:', { tallyloc_id, guid, companyName: currentCompany.company });
+      console.log('🔄 Fetching Google token for company:', { 
+        tallyloc_id, 
+        guid, 
+        companyName: currentCompany.company,
+        hasTallylocId: !!tallyloc_id,
+        hasGuid: !!guid
+      });
       try {
         const token = await getGoogleTokenFromConfigs(tallyloc_id, guid);
-        if (token) {
+        if (token && typeof token === 'string' && token.trim().length > 0) {
           console.log('✅ Google token fetched successfully in PlaceOrder_ECommerce:', {
             tokenLength: token.length,
             tokenPreview: `${token.substring(0, 50)}...`,
             tokenEnd: `...${token.substring(Math.max(0, token.length - 50))}`,
-            fullToken: token, // Full token for verification
             isString: typeof token === 'string',
             isEmpty: token.trim().length === 0,
             startsWith: token.substring(0, 30),
@@ -539,11 +609,22 @@ function PlaceOrder_ECommerce() {
           });
           setGoogleToken(token);
         } else {
-          console.warn('⚠️ Google token fetch returned null/undefined. Token may not be configured in company settings.');
+          console.warn('⚠️ Google token fetch returned null/undefined/empty. Token may not be configured in company settings.', {
+            token: token,
+            tokenType: typeof token,
+            tokenLength: token?.length,
+            tallyloc_id,
+            guid
+          });
           setGoogleToken(null);
         }
       } catch (error) {
-        console.error('❌ Error fetching Google token:', error);
+        console.error('❌ Error fetching Google token:', error, {
+          errorMessage: error?.message,
+          errorStack: error?.stack,
+          tallyloc_id,
+          guid
+        });
         setGoogleToken(null);
       }
     };
@@ -1138,21 +1219,81 @@ function PlaceOrder_ECommerce() {
     fetchStockItems();
   }, [company, refreshStockItems, companies]); // Added 'companies' back to dependencies to check cache properly
 
-  // Convert Google Drive links to image URLs
+  // Convert Google Drive links when products load from backend
+  // Direct links → keep as-is
+  // Google Drive images → convert to CDN lt3
+  // Google Drive videos → keep as-is (for iframe preview)
   useEffect(() => {
-    const convertImagePaths = async () => {
+    const convertImagePaths = () => {
       const newImageUrlMap = {};
 
       for (const item of stockItems) {
-        if (item.IMAGEPATH && isGoogleDriveLink(item.IMAGEPATH)) {
-          try {
-            const fileType = await detectGoogleDriveFileType(item.IMAGEPATH);
-            const imageUrl = convertGoogleDriveToImageUrl(item.IMAGEPATH, fileType);
-            newImageUrlMap[item.NAME] = imageUrl;
-          } catch (error) {
-            console.warn(`Failed to convert Google Drive URL for ${item.NAME}:`, error);
-            newImageUrlMap[item.NAME] = item.IMAGEPATH; // Fallback to original
+        if (!item.IMAGEPATH) continue;
+
+        // Parse comma-separated paths
+        const paths = parseImagePaths(item.IMAGEPATH);
+        if (paths.length === 0) continue;
+
+        // Process each path
+        const processedPaths = paths.map(path => {
+          // Direct HTTP links (not Google Drive) → keep as-is
+          if (path.startsWith('http') && !path.includes('drive.google.com')) {
+            return path;
           }
+
+          // Already CDN URL → keep as-is
+          if (path.includes('lh3.googleusercontent.com')) {
+            return path;
+          }
+
+          // Video preview URL → keep as-is (for iframe)
+          if (path.includes('drive.google.com/file/d/') && path.includes('/preview')) {
+            return path;
+          }
+
+          // Google Drive link → check if it's a video or image
+          // Check more comprehensively for Google Drive links
+          const isGoogleDrive = isGoogleDriveLink(path) || 
+                               path.includes('drive.google.com') ||
+                               (!path.startsWith('http') && /^[a-zA-Z0-9_-]{15,}$/.test(path.trim()));
+          
+          if (isGoogleDrive) {
+            // If it's a video preview URL, keep as-is
+            if (path.includes('/preview')) {
+              return path;
+            }
+
+            // Try to detect if it's a video by checking URL patterns
+            // Videos are typically stored as preview URLs, but if we have a regular Drive link,
+            // we need to check if it's already been identified as video elsewhere
+            // For now, assume it's an image and convert to CDN
+            // Videos should already be in preview format when saved
+            // Use smaller size (w400) to reduce CDN load and avoid 429 rate limit errors
+            const cdnUrl = getGoogleDriveCDNUrl(path, 'w400');
+            if (cdnUrl) {
+              console.log('✅ convertImagePaths: Converted Google Drive link to CDN', {
+                original: path.substring(0, 80),
+                cdnUrl: cdnUrl.substring(0, 80)
+              });
+              return cdnUrl;
+            } else {
+              console.warn('⚠️ convertImagePaths: Could not convert Google Drive link to CDN', {
+                path: path.substring(0, 100),
+                isGoogleDrive
+              });
+            }
+          }
+
+          // If can't process, return as-is
+          return path;
+        });
+
+        // Store first path for thumbnail display (ProductImage component)
+        // If all paths are processed, use first one
+        if (processedPaths.length > 0) {
+          // For display purposes, use first path
+          // ProductImage will handle CDN URLs, ProductVideo will handle preview URLs
+          newImageUrlMap[item.NAME] = processedPaths[0];
         }
       }
 
@@ -1343,23 +1484,30 @@ function PlaceOrder_ECommerce() {
     }
   };
 
-  // Handle adding new image
+  // Handle adding new image/video
+  // Accepts both direct image links and Google Drive links
   const handleAddImage = () => {
     if (!newImageLink.trim()) {
-      setImageUploadError(`Please enter a Google Drive ${mediaType} link`);
+      setImageUploadError(`Please enter a ${mediaType} link (direct link or Google Drive)`);
       return;
     }
 
-    // Validate Google Drive link format
     const trimmedLink = newImageLink.trim();
+    
+    // Check if it's a direct HTTP/HTTPS link (not Google Drive)
+    const isDirectLink = /^https?:\/\//.test(trimmedLink) && !trimmedLink.includes('drive.google.com');
+    
+    // Check if it's a Google Drive link
     const isGoogleDrive = isGoogleDriveLink(trimmedLink);
     
-    if (!isGoogleDrive) {
-      setImageUploadError('Please enter a valid Google Drive link');
-      return;
-    }
-
-    // Extract file ID from various Google Drive URL formats
+    let processedUrl;
+    
+    if (isDirectLink) {
+      // Direct image/video link → use as-is (no conversion needed)
+      processedUrl = trimmedLink;
+      console.log(`✅ Using direct ${mediaType} link:`, trimmedLink);
+    } else if (isGoogleDrive) {
+      // Google Drive link → extract file ID and convert
     let fileId = null;
     
     if (trimmedLink.includes('drive.google.com')) {
@@ -1388,14 +1536,18 @@ function PlaceOrder_ECommerce() {
       return;
     }
 
-    // For images: Convert to CDN URL (lh3 format)
+      // For images: Convert to CDN URL (lh3 format) - use smaller size to avoid 429 errors
     // For videos: Convert to preview URL format
-    let processedUrl;
     if (mediaType === 'image') {
-      processedUrl = `https://lh3.googleusercontent.com/d/${fileId}=w800`;
+        processedUrl = `https://lh3.googleusercontent.com/d/${fileId}=w400`;
     } else {
       // For videos, use preview URL format for iframe loading
       processedUrl = `https://drive.google.com/file/d/${fileId}/preview`;
+      }
+    } else {
+      // Invalid link format
+      setImageUploadError('Please enter a valid image/video link (HTTP/HTTPS URL or Google Drive link)');
+      return;
     }
 
     // Check if media already exists (check processed URL, file ID, and original link)
@@ -1405,7 +1557,13 @@ function PlaceOrder_ECommerce() {
         return false;
       }
       
-      // Extract file ID from various formats for comparison
+      // Direct comparison first (fastest)
+      if (path === processedUrl || path === trimmedLink) {
+        return true;
+      }
+      
+      // For Google Drive links, also check by file ID
+      if (isGoogleDrive) {
       let existingFileId = null;
       
       if (path.includes('lh3.googleusercontent.com')) {
@@ -1430,7 +1588,33 @@ function PlaceOrder_ECommerce() {
         existingFileId = path.trim();
       }
       
-      return existingFileId === fileId || path === processedUrl || path === trimmedLink;
+        // Extract file ID from trimmedLink for comparison
+        let linkFileId = null;
+        if (trimmedLink.includes('drive.google.com')) {
+          const patterns = [
+            /\/file\/d\/([a-zA-Z0-9_-]+)/,
+            /\/d\/([a-zA-Z0-9_-]+)/,
+            /\/uc\?id=([a-zA-Z0-9_-]+)/,
+            /\/open\?id=([a-zA-Z0-9_-]+)/,
+            /[?&]id=([a-zA-Z0-9_-]+)/,
+          ];
+          for (const pattern of patterns) {
+            const match = trimmedLink.match(pattern);
+            if (match && match[1]) {
+              linkFileId = match[1];
+              break;
+            }
+          }
+        } else if (/^[a-zA-Z0-9_-]{15,}$/.test(trimmedLink)) {
+          linkFileId = trimmedLink;
+        }
+        
+        if (existingFileId && linkFileId && existingFileId === linkFileId) {
+          return true;
+        }
+      }
+      
+      return false;
     });
     
     if (alreadyExists) {
@@ -1442,14 +1626,27 @@ function PlaceOrder_ECommerce() {
     setImageList([...imageList, processedUrl]);
     setNewImageLink('');
     setImageUploadError('');
-    console.log(`✅ Converted Google Drive ${mediaType} link:`, {
+    
+    // Immediately update imageUrlMap for Google Drive images to show CDN thumbnail instantly
+    // This ensures the thumbnail appears immediately in the "Existing Media" section
+    if (isGoogleDrive && mediaType === 'image' && selectedProductForImage) {
+      setImageUrlMap(prev => ({
+        ...prev,
+        [selectedProductForImage.NAME]: processedUrl
+      }));
+      console.log('✅ Updated imageUrlMap immediately for instant CDN thumbnail display');
+    }
+    
+    console.log(`✅ Added ${mediaType} link:`, {
       original: trimmedLink,
-      fileId,
       processedUrl,
       type: mediaType,
-      'Note': mediaType === 'image' 
+      linkType: isDirectLink ? 'direct' : 'google_drive',
+      'Note': isDirectLink 
+        ? 'Direct link used as-is'
+        : (mediaType === 'image' 
         ? 'CDN URL stored for direct loading from backend'
-        : 'Preview URL stored for iframe loading'
+          : 'Preview URL stored for iframe loading')
     });
   };
 
@@ -1655,7 +1852,7 @@ function PlaceOrder_ECommerce() {
             let processedUrl;
             if (mediaType === 'image') {
               // Convert file ID to CDN lh3 URL immediately for images
-              processedUrl = `https://lh3.googleusercontent.com/d/${fileIdString}=w800`;
+              processedUrl = `https://lh3.googleusercontent.com/d/${fileIdString}=w400`;
             } else {
               // Convert file ID to preview URL for videos (for iframe loading)
               processedUrl = `https://drive.google.com/file/d/${fileIdString}/preview`;
@@ -1782,9 +1979,10 @@ function PlaceOrder_ECommerce() {
       // Ensure imagepaths is always an array (can be empty)
       let imagepathsArray = Array.isArray(imageList) ? imageList : [];
 
-      // Convert image paths to CDN URLs before saving (but keep video preview URLs as-is)
-      // Images: Convert to CDN URLs for direct loading
-      // Videos: Keep preview URLs for iframe loading
+      // Convert paths before saving to backend:
+      // 1. Direct links → keep as-is
+      // 2. Google Drive images → convert to CDN lt3
+      // 3. Google Drive videos → keep as preview URL (for iframe)
       imagepathsArray = imagepathsArray.map(path => {
         // Validate path is a string
         if (!path || typeof path !== 'string') {
@@ -1792,51 +1990,105 @@ function PlaceOrder_ECommerce() {
           return path; // Return as-is if invalid
         }
 
-        // If already a CDN URL, use as-is
-        if (path.includes('lh3.googleusercontent.com')) {
-          return path;
-        }
-
-        // If it's a video preview URL, keep as-is (for iframe loading)
-        if (path.includes('drive.google.com/file/d/') && path.includes('/preview')) {
-          return path;
-        }
-
-        // If it's a direct HTTP link (not Google Drive), use as-is
+        // 1. Direct HTTP links (not Google Drive) → keep as-is
         if (path.startsWith('http') && !path.includes('drive.google.com')) {
           return path;
         }
 
-        // Extract file ID and convert to CDN URL for Google Drive image links
-        let fileId = null;
-        
-        if (path.includes('drive.google.com')) {
-          const patterns = [
-            /\/file\/d\/([a-zA-Z0-9_-]+)/,
-            /\/d\/([a-zA-Z0-9_-]+)/,
-            /\/uc\?id=([a-zA-Z0-9_-]+)/,
-            /\/open\?id=([a-zA-Z0-9_-]+)/,
-            /[?&]id=([a-zA-Z0-9_-]+)/,
-          ];
-          
-          for (const pattern of patterns) {
-            const match = path.match(pattern);
-            if (match && match[1]) {
-              fileId = match[1];
-              break;
-            }
-          }
-        } else if (/^[a-zA-Z0-9_-]{15,}$/.test(path.trim())) {
-          fileId = path.trim();
+        // 2. Already CDN URL → keep as-is
+        if (path.includes('lh3.googleusercontent.com')) {
+          return path;
         }
 
-        if (fileId) {
-          // Convert to CDN URL for images
-          return `https://lh3.googleusercontent.com/d/${fileId}=w800`;
+        // 3. Video preview URL → keep as-is (for iframe loading)
+        if (path.includes('drive.google.com/file/d/') && path.includes('/preview')) {
+          return path;
+        }
+
+        // 4. Google Drive link → convert to CDN for images, keep preview for videos
+        // Check for Google Drive links more comprehensively
+        const isGoogleDrive = isGoogleDriveLink(path) || 
+                             path.includes('drive.google.com') ||
+                             (!path.startsWith('http') && /^[a-zA-Z0-9_-]{15,}$/.test(path.trim()));
+        
+        if (isGoogleDrive) {
+          // If it's already a preview URL (video), keep as-is
+          if (path.includes('/preview')) {
+            return path;
+          }
+
+          // Extract file ID using comprehensive patterns
+          // First try the helper function, then fallback to manual extraction
+          let fileId = extractGoogleDriveFileId(path);
+          
+          if (!fileId && path.includes('drive.google.com')) {
+            // Fallback: try comprehensive patterns
+            const patterns = [
+              /\/file\/d\/([a-zA-Z0-9_-]+)/,  // /file/d/FILE_ID
+              /\/d\/([a-zA-Z0-9_-]+)/,        // /d/FILE_ID
+              /\/uc\?id=([a-zA-Z0-9_-]+)/,    // /uc?id=FILE_ID
+              /\/open\?id=([a-zA-Z0-9_-]+)/,  // /open?id=FILE_ID
+              /[?&]id=([a-zA-Z0-9_-]+)/,      // ?id=FILE_ID or &id=FILE_ID
+              /id=([a-zA-Z0-9_-]+)/,          // id=FILE_ID (without ? or &)
+            ];
+            
+            for (const pattern of patterns) {
+              const match = path.match(pattern);
+              if (match && match[1]) {
+                fileId = match[1];
+                console.log('✅ handleSaveImages: Extracted file ID from Google Drive link (fallback)', {
+                  path: path.substring(0, 80),
+                  fileId: fileId.substring(0, 30),
+                  pattern: pattern.toString()
+                });
+                break;
+              }
+            }
+          } else if (!fileId && /^[a-zA-Z0-9_-]{15,}$/.test(path.trim())) {
+            // It's already a file ID
+            fileId = path.trim();
+            console.log('✅ handleSaveImages: Path is already a file ID', { fileId: fileId.substring(0, 30) });
+          } else if (fileId) {
+            console.log('✅ handleSaveImages: Extracted file ID using helper function', {
+              path: path.substring(0, 80),
+              fileId: fileId.substring(0, 30)
+            });
+          }
+
+          if (fileId) {
+            // Check if this path is already identified as video in mediaTypeMap
+            // Also check if the path itself indicates it's a video (preview URL)
+            const isVideo = path.includes('/preview') || 
+                           path.includes('/view') ||
+                           mediaTypeMap[path] === 'video' || 
+                           mediaTypeMap[`https://drive.google.com/file/d/${fileId}/preview`] === 'video';
+            
+            if (isVideo) {
+              // Convert to preview URL format for videos (iframe)
+              const previewUrl = `https://drive.google.com/file/d/${fileId}/preview`;
+              console.log('✅ handleSaveImages: Converting to video preview URL', { previewUrl });
+              return previewUrl;
+            } else {
+              // Convert to CDN URL for images (use w400 to avoid 429 errors)
+              const cdnUrl = `https://lh3.googleusercontent.com/d/${fileId}=w400`;
+              console.log('✅ handleSaveImages: Converting to CDN URL', { 
+                original: path.substring(0, 80),
+                cdnUrl,
+                fileId: fileId.substring(0, 30)
+              });
+              return cdnUrl;
+            }
+          } else {
+            console.warn('⚠️ handleSaveImages: Could not extract file ID from Google Drive link', {
+              path: path.substring(0, 100),
+              isGoogleDrive,
+              includesDrive: path.includes('drive.google.com')
+            });
+          }
         }
 
         // If can't convert, return as-is (shouldn't happen, but handle gracefully)
-        console.warn('⚠️ Could not convert image path to CDN URL:', path);
+        console.warn('⚠️ Could not convert image path:', path);
         return path;
       });
 
@@ -2136,9 +2388,11 @@ function PlaceOrder_ECommerce() {
           const cdnMatch = actualImagePath.match(/\/d\/([a-zA-Z0-9_-]+)=/);
           if (cdnMatch && cdnMatch[1]) {
             const fileId = cdnMatch[1];
-            // Generate w400 for thumbnail and w800 for full image
-            const thumbnailCDN = `https://lh3.googleusercontent.com/d/${fileId}=w400`;
-            const fullCDN = `https://lh3.googleusercontent.com/d/${fileId}=w800`;
+            // Use smaller sizes first to reduce CDN load and avoid 429 errors
+            // Start with w200 for thumbnail (faster, less bandwidth)
+            // Use w400 for full image initially (can upgrade to w800 if needed)
+            const thumbnailCDN = `https://lh3.googleusercontent.com/d/${fileId}=w200`;
+            const fullCDN = `https://lh3.googleusercontent.com/d/${fileId}=w400`;
             
             setThumbnailUrl(thumbnailCDN);
             setImageUrl(fullCDN);
@@ -2188,6 +2442,7 @@ function PlaceOrder_ECommerce() {
 
         // For Google Drive images, ALWAYS convert to CDN LT3 links (no token needed)
         // This ensures all Google Drive images are loaded through CDN LT3
+          // Use smaller sizes to reduce CDN load and avoid 429 rate limit errors
         if (isGoogleDrive) {
           // Extract file ID from Google Drive link
           let fileId = null;
@@ -2210,12 +2465,12 @@ function PlaceOrder_ECommerce() {
             fileId = actualImagePath.trim();
           }
           
-          // If we have a file ID, convert to CDN LT3 links
+            // If we have a file ID, convert to CDN LT3 links (use smaller sizes to avoid 429)
           if (fileId) {
-            const cdnThumbnailUrl = `https://lh3.googleusercontent.com/d/${fileId}=w400`; // w400 for thumbnails
-            const cdnFullUrl = `https://lh3.googleusercontent.com/d/${fileId}=w800`; // w800 for full images
+              const cdnThumbnailUrl = `https://lh3.googleusercontent.com/d/${fileId}=w200`; // w200 for thumbnails (smaller to reduce load)
+              const cdnFullUrl = `https://lh3.googleusercontent.com/d/${fileId}=w400`; // w400 for full images (smaller to avoid rate limits)
             
-            console.log('✅ ProductImage: Converting Google Drive link to CDN LT3 URLs', {
+              console.log('✅ ProductImage: Converting Google Drive link to CDN LT3 URLs (smaller sizes to avoid 429)', {
               original: actualImagePath?.substring(0, 50),
               fileId: fileId.substring(0, 20),
               thumbnail: cdnThumbnailUrl,
@@ -2266,21 +2521,23 @@ function PlaceOrder_ECommerce() {
           }
           
         // If useFirstImageAsThumbnail, use the first image directly as thumbnail
+        // ALWAYS use CDN lt3 for Google Drive images (no API calls)
         if (useFirstImageAsThumbnail && actualImagePath) {
-          // If we have a token, use API directly (file is likely private)
-          // Otherwise, try CDN first
-          if (hasValidToken) {
-            try {
-              console.log('🖼️ ProductImage: Token available, using API for first image (private file)');
-            const thumbUrl = await getGoogleDriveImageUrl(actualImagePath, googleToken);
-            if (thumbUrl) {
-                console.log('✅ ProductImage: First image loaded as thumbnail via API');
-              setThumbnailUrl(thumbUrl);
+          // Check if it's already a CDN URL first
+          if (actualImagePath.includes('lh3.googleusercontent.com')) {
+            // Already a CDN URL - extract file ID and use appropriate sizes
+            const cdnMatch = actualImagePath.match(/\/d\/([a-zA-Z0-9_-]+)=/);
+            if (cdnMatch && cdnMatch[1]) {
+              const fileId = cdnMatch[1];
+              // Use smaller sizes first to reduce CDN load and avoid 429 errors
+              const thumbnailCDN = `https://lh3.googleusercontent.com/d/${fileId}=w200`;
+              const fullCDN = `https://lh3.googleusercontent.com/d/${fileId}=w400`;
+              console.log('✅ ProductImage: Using existing CDN URL with proper sizing (smaller sizes to avoid rate limits)');
+              setThumbnailUrl(thumbnailCDN);
+              setImageUrl(fullCDN);
               setThumbnailLoading(false);
-              setImageUrl(thumbUrl);
               setImageLoading(false);
-              imageUrlCacheRef.current.set(cacheKey, thumbUrl);
-                // Update tracking ref
+              imageUrlCacheRef.current.set(cacheKey, fullCDN);
                 lastLoadedRef.current = {
                   path: currentPath,
                   token: currentToken,
@@ -2288,19 +2545,34 @@ function PlaceOrder_ECommerce() {
                 };
               return;
             }
-          } catch (error) {
-            console.warn('⚠️ ProductImage: Error loading first image as thumbnail:', error);
           }
-            } else {
-            // No token, try CDN
-            const cdnUrl = getGoogleDriveCDNUrl(actualImagePath, 'w800');
+          
+          // For Google Drive images, always use CDN lt3 (use smaller size first to avoid 429)
+          if (isGoogleDrive) {
+            const cdnUrl = getGoogleDriveCDNUrl(actualImagePath, 'w400'); // Use w400 instead of w800 to reduce load
             if (cdnUrl) {
-              console.log('✅ ProductImage: Using first image via lh3 CDN (no token, public file)');
+              console.log('✅ ProductImage: Using first image via lh3 CDN (w400 to avoid rate limits)');
               setThumbnailUrl(cdnUrl);
               setImageUrl(cdnUrl);
               setThumbnailLoading(false);
               setImageLoading(false);
               imageUrlCacheRef.current.set(cacheKey, cdnUrl);
+              lastLoadedRef.current = {
+                path: currentPath,
+                token: currentToken,
+                hasImage: true
+              };
+              return;
+            }
+          } else {
+            // For non-Google Drive images (direct HTTP links), use as-is
+            if (actualImagePath.startsWith('http')) {
+              console.log('✅ ProductImage: Using direct HTTP link as-is');
+              setThumbnailUrl(actualImagePath);
+              setImageUrl(actualImagePath);
+              setThumbnailLoading(false);
+              setImageLoading(false);
+              imageUrlCacheRef.current.set(cacheKey, actualImagePath);
               lastLoadedRef.current = {
                 path: currentPath,
                 token: currentToken,
@@ -2321,15 +2593,14 @@ function PlaceOrder_ECommerce() {
         }
 
         // Load full image in background (only if not already loaded)
-        // For Google Drive images, CDN should already be set above, so this is mainly for direct images
-        // or as fallback if CDN failed
+        // For Google Drive images, ALWAYS use CDN lt3 only (no API calls)
         if (!imageUrl) {
           try {
-            // For Google Drive images, try CDN first (already done above, but try again if it failed)
+            // For Google Drive images, ALWAYS use CDN lt3 (no API fallback)
             if (isGoogleDrive) {
             const cdnFullUrl = getGoogleDriveCDNUrl(actualImagePath, 'w1200'); // Larger size for full image
             if (cdnFullUrl) {
-                console.log('✅ ProductImage: Using lh3 CDN for full image (fallback)');
+                console.log('✅ ProductImage: Using lh3 CDN for full image');
               setImageUrl(cdnFullUrl);
               setImageLoading(false);
                 const cdnCacheKey = `${actualImagePath}_cdn`;
@@ -2340,59 +2611,24 @@ function PlaceOrder_ECommerce() {
                   hasImage: true
                 };
                 return;
-              }
-              
-              // If CDN failed and we have a token, try API as fallback (for private files)
-              if (hasValidToken) {
-                console.log('🖼️ ProductImage: CDN failed, trying API fallback (private file):', {
-              imagePath: actualImagePath?.substring(0, 100),
-              tokenPreview: googleToken ? `${googleToken.substring(0, 20)}...` : 'none'
-            });
-
-            const url = await getGoogleDriveImageUrl(actualImagePath, googleToken);
-            if (url) {
-              // Double-check we're not using public URL (which will fail with 403)
-              if (url.includes('drive.google.com/uc?export=view')) {
-                console.error('❌ ProductImage: ERROR - Public URL detected! This should not happen. URL:', url);
-                console.error('❌ This means getGoogleDriveImageUrl returned a public URL, which will fail with 403');
+              } else {
+                console.warn('⚠️ ProductImage: Could not generate CDN URL for Google Drive image');
                 setImageError(true);
                 setImageLoading(false);
-                return;
-              }
-
-                  console.log('✅ ProductImage: Got image URL via API (blob or direct):', url.substring(0, 80));
-              setImageUrl(url);
-              // Update cache
-              imageUrlCacheRef.current.set(cacheKey, url);
-                  // Update tracking ref
-                  lastLoadedRef.current = {
-                    path: currentPath,
-                    token: currentToken,
-                    hasImage: true
-                  };
-            } else {
-                  console.log('❌ ProductImage: API fallback returned no URL');
-                  setImageError(true);
                   lastLoadedRef.current = {
                     path: currentPath,
                     token: currentToken,
                     hasImage: false
                   };
-                }
-              } else {
-                console.log('⚠️ ProductImage: CDN failed and no token available');
-              setImageError(true);
-                lastLoadedRef.current = {
-                  path: currentPath,
-                  token: currentToken,
-                  hasImage: false
-                };
+                return;
               }
             } else {
               // For direct image links, use them as-is
               if (actualImagePath && actualImagePath.startsWith('http')) {
                 console.log('✅ ProductImage: Using direct image URL');
+                setThumbnailUrl(actualImagePath);
                 setImageUrl(actualImagePath);
+                setThumbnailLoading(false);
                 setImageLoading(false);
                 imageUrlCacheRef.current.set(cacheKey, actualImagePath);
                 lastLoadedRef.current = {
@@ -2403,6 +2639,8 @@ function PlaceOrder_ECommerce() {
               } else {
                 console.log('❌ ProductImage: Invalid image path');
                 setImageError(true);
+                setImageLoading(false);
+                setThumbnailLoading(false);
                 lastLoadedRef.current = {
                   path: currentPath,
                   token: currentToken,
@@ -2435,9 +2673,11 @@ function PlaceOrder_ECommerce() {
       };
 
         loadImageUrl();
-      }, [actualImagePath, googleToken, itemName, useFirstImageAsThumbnail]);
+      }, [actualImagePath, googleToken, useFirstImageAsThumbnail]);
 
-    if (!canShowImage || !imagePath || imageError) {
+    // Only show placeholder if we don't have permission, no actual image path, or there's an error
+    // Use actualImagePath instead of imagePath since actualImagePath is the processed/extracted path
+    if (!canShowImage || !actualImagePath || imageError) {
       return (
         <div style={{
           width: '100%',
@@ -2507,29 +2747,124 @@ function PlaceOrder_ECommerce() {
               transition: 'transform 0.5s ease-in-out'
             }}
             onError={(e) => {
-              console.warn('⚠️ ProductImage: Thumbnail failed to load, will try API fallback', {
-                url: thumbnailUrl?.substring(0, 80),
-                isCDN: thumbnailUrl?.includes('lh3.googleusercontent.com')
-              });
-              // If CDN fails, clear it and trigger API fallback
-              if (thumbnailUrl?.includes('lh3.googleusercontent.com')) {
-                setThumbnailUrl(null);
+              const img = e.target;
+              const url = thumbnailUrl;
+              const isCDN = url?.includes('lh3.googleusercontent.com');
+              const isAlternative = url?.includes('drive.google.com/thumbnail');
+              
+              // Prevent infinite retry loops
+              if (img.dataset.finalFailure === 'true') {
+                console.log('⏸️ ProductImage: Thumbnail already marked as final failure, stopping retries');
+                setImageError(true);
                 setThumbnailLoading(false);
-                // Trigger reload with API
-                const loadWithAPI = async () => {
-                  try {
-                    const apiUrl = await getGoogleDriveImageUrl(actualImagePath, googleToken);
-                    if (apiUrl) {
-                      setImageUrl(apiUrl);
-                      setImageLoading(false);
-                    }
-                  } catch (err) {
-                    console.error('❌ ProductImage: API fallback also failed:', err);
-                    setImageError(true);
-                  }
-                };
-                loadWithAPI();
+                e.target.style.display = 'none';
+                return;
               }
+              
+              console.warn('⚠️ ProductImage: Thumbnail failed to load', {
+                url: url?.substring(0, 80),
+                isCDN,
+                isAlternative,
+                retryCount: img.dataset.retryCount || '0',
+                hasTriedAlternative: img.dataset.triedAlternative === 'true'
+              });
+              
+              // If alternative format also failed, stop retrying
+              if (isAlternative) {
+                console.warn('⚠️ ProductImage: Alternative CDN thumbnail format also failed, stopping retries');
+                img.dataset.finalFailure = 'true';
+                setImageError(true);
+                setThumbnailLoading(false);
+                e.target.style.display = 'none';
+                return;
+              }
+              
+              // Handle 429 (rate limit) errors - detect and stop retrying immediately
+              if (isCDN || isAlternative) {
+                // Track this failure for rate limit detection
+                const now = Date.now();
+                rateLimitTracker.current.recentFailures.push(now);
+                
+                // Keep only failures from last 10 seconds
+                rateLimitTracker.current.recentFailures = rateLimitTracker.current.recentFailures.filter(
+                  time => now - time < 10000
+                );
+                
+                // If we have 3+ failures in last 10 seconds, we're likely rate-limited
+                if (rateLimitTracker.current.recentFailures.length >= 3) {
+                  rateLimitTracker.current.isRateLimited = true;
+                  rateLimitTracker.current.cooldownUntil = now + 60000; // 60 second cooldown
+                  console.warn('🚫 ProductImage: Rate limit detected (429) for thumbnail, stopping all retries for 60 seconds');
+                }
+                
+                // Check if we're in cooldown period
+                if (rateLimitTracker.current.isRateLimited && rateLimitTracker.current.cooldownUntil) {
+                  const timeLeft = rateLimitTracker.current.cooldownUntil - now;
+                  if (timeLeft > 0) {
+                    console.log(`⏸️ ProductImage: Rate limit cooldown active for thumbnail, ${Math.ceil(timeLeft / 1000)}s remaining`);
+                    img.dataset.finalFailure = 'true';
+                    setImageError(true);
+                    setThumbnailLoading(false);
+                    e.target.style.display = 'none';
+                    return;
+                  } else {
+                    // Cooldown expired, reset
+                    rateLimitTracker.current.isRateLimited = false;
+                    rateLimitTracker.current.cooldownUntil = null;
+                    rateLimitTracker.current.recentFailures = [];
+                    console.log('✅ ProductImage: Rate limit cooldown expired, retries enabled again');
+                  }
+                }
+                
+                // If we're not rate-limited, proceed with limited retries
+                if (!rateLimitTracker.current.isRateLimited) {
+                  const retryCount = parseInt(img.dataset.retryCount || '0', 10);
+                  const maxRetries = 0; // Disable retries to avoid triggering rate limits
+                  
+                  if (retryCount < maxRetries && !img.dataset.triedAlternative) {
+                    // Retry with delay: 2s
+                    const delay = 2000;
+                    console.log(`🔄 ProductImage: Retrying CDN thumbnail after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+                    
+                    img.dataset.retryCount = (retryCount + 1).toString();
+                    setTimeout(() => {
+                      // Try smaller size
+                      if (url.includes('=w400')) {
+                        img.src = url.replace('=w400', '=w200');
+                      } else if (url.includes('=w200')) {
+                        img.src = url; // Retry same URL
+                      } else {
+                        img.src = url; // Retry same URL
+                      }
+                    }, delay);
+                    return; // Don't hide image yet, wait for retry
+                  } else if (!img.dataset.triedAlternative && !isAlternative) {
+                    // Only try alternative if we haven't already and it's not already an alternative
+                    console.warn('⚠️ ProductImage: CDN thumbnail failed, trying alternative format (one time only)');
+                    img.dataset.triedAlternative = 'true';
+                    const fileIdMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)=/);
+                    if (fileIdMatch && fileIdMatch[1]) {
+                      const fileId = fileIdMatch[1];
+                      // Try alternative CDN format: https://drive.google.com/thumbnail?id=FILE_ID&sz=w200
+                      const altUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w200`;
+                      console.log('🔄 ProductImage: Trying alternative CDN thumbnail format (one time):', altUrl);
+                      img.src = altUrl;
+                      return; // Don't hide yet, wait for alternative to load
+                    } else {
+                      img.dataset.finalFailure = 'true';
+                    }
+                  } else {
+                    img.dataset.finalFailure = 'true';
+                  }
+                } else {
+                  // Rate limited, stop immediately
+                  img.dataset.finalFailure = 'true';
+                }
+              }
+              
+              // If all retries and alternatives failed, show error
+              setImageError(true);
+              setThumbnailLoading(false);
               e.target.style.display = 'none';
             }}
           />
@@ -2560,47 +2895,127 @@ function PlaceOrder_ECommerce() {
               e.target.style.opacity = '1';
             }}
             onError={(e) => {
+              const img = e.target;
+              const url = imageUrl;
+              const isCDN = url?.includes('lh3.googleusercontent.com');
+              const isAlternative = url?.includes('drive.google.com/thumbnail');
+              
+              // Prevent infinite retry loops - check if we've already tried everything
+              if (img.dataset.finalFailure === 'true') {
+                console.log('⏸️ ProductImage: Already marked as final failure, stopping retries');
+                setImageError(true);
+                setImageLoading(false);
+                e.target.style.display = 'none';
+                return;
+              }
+              
               console.error('❌ ProductImage: Full image failed to load', { 
-                imageUrl: imageUrl?.substring(0, 80),
-                isCDN: imageUrl?.includes('lh3.googleusercontent.com')
+                imageUrl: url?.substring(0, 80),
+                isCDN,
+                isAlternative,
+                retryCount: img.dataset.retryCount || '0',
+                hasTriedAlternative: img.dataset.triedAlternative === 'true'
               });
               
-              // If CDN fails, try API fallback (CDN only works for public files)
-              if (imageUrl?.includes('lh3.googleusercontent.com')) {
-                console.log('🔄 ProductImage: CDN failed (file might be private), trying API fallback...');
+              // If alternative format also failed, stop retrying
+              if (isAlternative) {
+                console.warn('⚠️ ProductImage: Alternative CDN format also failed, stopping retries');
+                img.dataset.finalFailure = 'true';
+                setImageError(true);
+                setImageLoading(false);
                 e.target.style.display = 'none';
-                setImageUrl(null);
-                setImageLoading(true);
+                return;
+              }
+              
+              // Handle 429 (rate limit) errors - detect and stop retrying immediately
+              if (isCDN || isAlternative) {
+                // Track this failure for rate limit detection
+                const now = Date.now();
+                rateLimitTracker.current.recentFailures.push(now);
                 
-                const loadWithAPI = async () => {
-                  try {
-                    console.log('🔄 ProductImage: Loading via API with token...', {
-                      path: actualImagePath?.substring(0, 50),
-                      hasToken: !!googleToken
-                    });
-                    const apiUrl = await getGoogleDriveImageUrl(actualImagePath, googleToken);
-                    if (apiUrl) {
-                      console.log('✅ ProductImage: API fallback succeeded');
-                      setImageUrl(apiUrl);
-                      setImageLoading(false);
-                      const apiCacheKey = `${actualImagePath}_${googleToken || 'no-token'}`;
-                      imageUrlCacheRef.current.set(apiCacheKey, apiUrl);
-                    } else {
-                      console.error('❌ ProductImage: API fallback returned no URL');
-                      setImageError(true);
-                      setImageLoading(false);
-                    }
-                  } catch (err) {
-                    console.error('❌ ProductImage: API fallback also failed:', err);
+                // Keep only failures from last 10 seconds
+                rateLimitTracker.current.recentFailures = rateLimitTracker.current.recentFailures.filter(
+                  time => now - time < 10000
+                );
+                
+                // If we have 3+ failures in last 10 seconds, we're likely rate-limited
+                if (rateLimitTracker.current.recentFailures.length >= 3) {
+                  rateLimitTracker.current.isRateLimited = true;
+                  rateLimitTracker.current.cooldownUntil = now + 60000; // 60 second cooldown
+                  console.warn('🚫 ProductImage: Rate limit detected (429), stopping all retries for 60 seconds');
+                }
+                
+                // Check if we're in cooldown period
+                if (rateLimitTracker.current.isRateLimited && rateLimitTracker.current.cooldownUntil) {
+                  const timeLeft = rateLimitTracker.current.cooldownUntil - now;
+                  if (timeLeft > 0) {
+                    console.log(`⏸️ ProductImage: Rate limit cooldown active, ${Math.ceil(timeLeft / 1000)}s remaining`);
+                    img.dataset.finalFailure = 'true';
                     setImageError(true);
                     setImageLoading(false);
+                    e.target.style.display = 'none';
+                    return;
+                  } else {
+                    // Cooldown expired, reset
+                    rateLimitTracker.current.isRateLimited = false;
+                    rateLimitTracker.current.cooldownUntil = null;
+                    rateLimitTracker.current.recentFailures = [];
+                    console.log('✅ ProductImage: Rate limit cooldown expired, retries enabled again');
                   }
-                };
-                loadWithAPI();
-              } else {
-                e.target.style.display = 'none';
-                setImageError(true);
+                }
+                
+                // If we're not rate-limited, proceed with limited retries
+                if (!rateLimitTracker.current.isRateLimited) {
+                  const retryCount = parseInt(img.dataset.retryCount || '0', 10);
+                  const maxRetries = 0; // Disable retries to avoid triggering rate limits
+                  
+                  if (retryCount < maxRetries && !img.dataset.triedAlternative) {
+                    // Retry with delay: 2s
+                    const delay = 2000;
+                    console.log(`🔄 ProductImage: Retrying CDN image after ${delay}ms (attempt ${retryCount + 1}/${maxRetries})`);
+                    
+                    img.dataset.retryCount = (retryCount + 1).toString();
+                    setTimeout(() => {
+                      // Try smaller size
+                      if (url.includes('=w400')) {
+                        img.src = url.replace('=w400', '=w200');
+                      } else if (url.includes('=w800')) {
+                        img.src = url.replace('=w800', '=w400');
+                      } else {
+                        img.src = url; // Retry same URL
+                      }
+                    }, delay);
+                    return; // Don't hide image yet, wait for retry
+                  } else if (!img.dataset.triedAlternative && !isAlternative) {
+                    // Only try alternative if we haven't already and it's not already an alternative
+                    console.warn('⚠️ ProductImage: CDN image failed, trying alternative format (one time only)');
+                    img.dataset.triedAlternative = 'true';
+                    const fileIdMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)=/);
+                    if (fileIdMatch && fileIdMatch[1]) {
+                      const fileId = fileIdMatch[1];
+                      // Try alternative CDN format: https://drive.google.com/thumbnail?id=FILE_ID&sz=w200
+                      const altUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w200`;
+                      console.log('🔄 ProductImage: Trying alternative CDN format (one time):', altUrl);
+                      img.src = altUrl;
+                      return; // Don't hide yet, wait for alternative to load
+                    } else {
+                      // Can't extract file ID, mark as final failure
+                      img.dataset.finalFailure = 'true';
+                    }
+                  } else {
+                    // Already tried alternative or it's already an alternative, mark as final failure
+                    img.dataset.finalFailure = 'true';
+                  }
+                } else {
+                  // Rate limited, stop immediately
+                  img.dataset.finalFailure = 'true';
+                }
               }
+              
+              // If all retries and alternatives failed, show error
+              setImageError(true);
+              setImageLoading(false);
+              e.target.style.display = 'none';
             }}
           />
         )}
@@ -2649,6 +3064,16 @@ function PlaceOrder_ECommerce() {
           </span>
         </div>
       </>
+    );
+  }, (prevProps, nextProps) => {
+    // Only re-render if these props actually change
+    // itemName can change without needing to reload image
+    return (
+      prevProps.imagePath === nextProps.imagePath &&
+      prevProps.googleToken === nextProps.googleToken &&
+      prevProps.canShowImage === nextProps.canShowImage &&
+      prevProps.useFirstImageAsThumbnail === nextProps.useFirstImageAsThumbnail &&
+      prevProps.imageUrlCacheRef === nextProps.imageUrlCacheRef
     );
   });
 
@@ -2719,19 +3144,20 @@ function PlaceOrder_ECommerce() {
           }
           
           // Try to get thumbnail via API if token is available (better quality, uses company config token)
-          if (currentToken) {
-            try {
-              console.log('🖼️ ProductVideo: Attempting to fetch video thumbnail via API (using company config token)');
-              const apiThumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
-              if (apiThumbUrl) {
-                console.log('✅ ProductVideo: Got better quality thumbnail via API');
-                finalThumbnailUrl = apiThumbUrl;
-                setThumbnailUrl(apiThumbUrl); // Override CDN with API thumbnail if available
-              }
-            } catch (e) {
-              console.warn('⚠️ ProductVideo: Could not load video thumbnail via API, using CDN fallback:', e);
-            }
-          }
+          // DISABLED: API thumbnail fetching causes CORS errors - use CDN only
+          // if (currentToken) {
+          //   try {
+          //     console.log('🖼️ ProductVideo: Attempting to fetch video thumbnail via API (using company config token)');
+          //     const apiThumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
+          //     if (apiThumbUrl) {
+          //       console.log('✅ ProductVideo: Got better quality thumbnail via API');
+          //       finalThumbnailUrl = apiThumbUrl;
+          //       setThumbnailUrl(apiThumbUrl); // Override CDN with API thumbnail if available
+          //     }
+          //   } catch (e) {
+          //     console.warn('⚠️ ProductVideo: Could not load video thumbnail via API, using CDN fallback:', e);
+          //   }
+          // }
           
           // For thumbnails, we can return early if we have a thumbnail
           if (finalThumbnailUrl) {
@@ -2771,19 +3197,20 @@ function PlaceOrder_ECommerce() {
             setThumbnailUrl(cdnThumbnailUrl);
           }
           
-          // Try API thumbnail if token is available (better quality, uses company config token)
-          if (currentToken && !thumbnailUrl) {
-            try {
-              console.log('🖼️ ProductVideo: Attempting to fetch video thumbnail via API for main display');
-              const apiThumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
-              if (apiThumbUrl) {
-                console.log('✅ ProductVideo: Got better quality thumbnail via API for main display');
-                setThumbnailUrl(apiThumbUrl);
-              }
-            } catch (e) {
-              console.warn('⚠️ ProductVideo: Could not load video thumbnail via API for main display:', e);
-            }
-          }
+          // DISABLED: API thumbnail fetching causes CORS errors
+          // Use CDN only for video thumbnails to avoid CORS and rate limit issues
+          // if (currentToken && !thumbnailUrl) {
+          //   try {
+          //     console.log('🖼️ ProductVideo: Attempting to fetch video thumbnail via API for main display');
+          //     const apiThumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
+          //     if (apiThumbUrl) {
+          //       console.log('✅ ProductVideo: Got better quality thumbnail via API for main display');
+          //       setThumbnailUrl(apiThumbUrl);
+          //     }
+          //   } catch (e) {
+          //     console.warn('⚠️ ProductVideo: Could not load video thumbnail via API for main display:', e);
+          //   }
+          // }
         }
 
         // For thumbnails, if no token and CDN didn't work, just stop loading
@@ -2798,15 +3225,16 @@ function PlaceOrder_ECommerce() {
           const cachedUrl = videoUrlCacheRef.current.get(cacheKey);
           setVideoUrl(cachedUrl);
           setVideoLoading(false);
+          // DISABLED: API thumbnail fetching causes CORS errors - use CDN only
           // For thumbnails, try to get video thumbnail via API if CDN didn't work
-          if (isThumbnail && !thumbnailUrl && currentToken) {
-            try {
-              const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
-              if (thumbUrl) setThumbnailUrl(thumbUrl);
-            } catch (e) {
-              console.warn('Could not load video thumbnail via API');
-            }
-          }
+          // if (isThumbnail && !thumbnailUrl && currentToken) {
+          //   try {
+          //     const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
+          //     if (thumbUrl) setThumbnailUrl(thumbUrl);
+          //   } catch (e) {
+          //     console.warn('Could not load video thumbnail via API');
+          //   }
+          // }
           return;
         }
 
@@ -2853,15 +3281,16 @@ function PlaceOrder_ECommerce() {
             if (url.includes('/preview')) {
               setIsPlaying(true);
             }
+            // DISABLED: API thumbnail fetching causes CORS errors - use CDN only
             // For thumbnails, try to get video thumbnail via API if CDN didn't work
-            if (isThumbnail && !thumbnailUrl && currentToken) {
-              try {
-                const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
-                if (thumbUrl) setThumbnailUrl(thumbUrl);
-              } catch (e) {
-                console.warn('⚠️ ProductVideo: Could not load video thumbnail via API', e);
-              }
-            }
+            // if (isThumbnail && !thumbnailUrl && currentToken) {
+            //   try {
+            //     const thumbUrl = await getGoogleDriveVideoThumbnail(videoPath, currentToken);
+            //     if (thumbUrl) setThumbnailUrl(thumbUrl);
+            //   } catch (e) {
+            //     console.warn('⚠️ ProductVideo: Could not load video thumbnail via API', e);
+            //   }
+            // }
           } else {
             console.error('❌ ProductVideo: No video URL returned');
             setVideoError(true);
@@ -2875,7 +3304,7 @@ function PlaceOrder_ECommerce() {
       };
 
       loadVideoUrl();
-    }, [videoPath, googleToken, itemName, isThumbnail, company, companies]);
+    }, [videoPath, googleToken, isThumbnail]);
 
     if (!canShowImage || !videoPath || videoError) {
       return (
@@ -3342,6 +3771,16 @@ function PlaceOrder_ECommerce() {
           </div>
         )}
       </div>
+    );
+  }, (prevProps, nextProps) => {
+    // Only re-render if these props actually change
+    // itemName, company, and companies can change without needing to reload video
+    return (
+      prevProps.videoPath === nextProps.videoPath &&
+      prevProps.googleToken === nextProps.googleToken &&
+      prevProps.canShowImage === nextProps.canShowImage &&
+      prevProps.isThumbnail === nextProps.isThumbnail &&
+      prevProps.videoUrlCacheRef === nextProps.videoUrlCacheRef
     );
   });
 
@@ -4224,6 +4663,28 @@ function PlaceOrder_ECommerce() {
                         justifyContent: 'center',
                         position: 'relative'
                       }}>
+                      {(() => {
+                        // Check if first media is a video (preview URL)
+                        const firstMediaPath = parseImagePaths(item.IMAGEPATH)[0];
+                        const isVideo = firstMediaPath && (
+                          firstMediaPath.includes('/preview') || 
+                          firstMediaPath.includes('video') ||
+                          mediaTypeMap[firstMediaPath] === 'video'
+                        );
+                        
+                        if (isVideo) {
+                          return (
+                            <ProductVideo
+                              videoPath={firstMediaPath}
+                              itemName={item.NAME}
+                              googleToken={googleToken}
+                              videoUrlCacheRef={videoUrlCache}
+                              canShowImage={canShowImage}
+                              isThumbnail={true}
+                            />
+                          );
+                        } else {
+                          return (
                       <ProductImage
                         imagePath={item.IMAGEPATH}
                         itemName={item.NAME}
@@ -4232,6 +4693,9 @@ function PlaceOrder_ECommerce() {
                         canShowImage={canShowImage}
                         useFirstImageAsThumbnail={true}
                       />
+                          );
+                        }
+                      })()}
                     </div>
 
                     {/* Product Details */}
@@ -6239,7 +6703,7 @@ function PlaceOrder_ECommerce() {
                           handleAddImage();
                         }
                       }}
-                      placeholder={`Enter Google Drive ${mediaType} link...`}
+                      placeholder={`Enter ${mediaType} link (direct URL or Google Drive)...`}
                       style={{
                         flex: 1,
                         padding: isMobile ? '10px 12px' : '12px 16px',

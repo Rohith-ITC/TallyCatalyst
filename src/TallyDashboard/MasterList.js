@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { getApiUrl, API_CONFIG } from '../config';
 import { apiPost } from '../utils/apiUtils';
 import MasterForm from './MasterForm';
+import { useIsMobile } from './MobileViewConfig';
 
 const MasterList = () => {
+  const isMobile = useIsMobile();
   const [masters, setMasters] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -623,87 +625,39 @@ const MasterList = () => {
 
   // Render master list
   const renderMasterList = () => (
-    <div style={{ padding: '24px' }}>
-      {/* Header with search and filters */}
-      <div className="master-header-container" style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center', 
-        marginBottom: '24px',
-        flexWrap: 'wrap',
-        gap: '16px'
-      }}>
-        <div>
-          <h2 style={{ 
-            fontSize: '24px', 
-            fontWeight: '600', 
-            color: '#1f2937', 
-            margin: '0',
-            fontFamily: 'system-ui, -apple-system, sans-serif'
-          }}>
-            Master List
-          </h2>
-          <p style={{ 
-            fontSize: '14px', 
-            color: '#6b7280', 
-            margin: '4px 0 0 0',
-            fontFamily: 'system-ui, -apple-system, sans-serif'
-          }}>
-            Manage your master database and authorizations
-          </p>
-        </div>
-        
-        <button
-          onClick={() => setShowInviteForm(!showInviteForm)}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: '#3b82f6',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            fontSize: '14px',
-            fontWeight: '500',
-            cursor: 'pointer',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
-          }}
-          onMouseEnter={(e) => e.target.style.backgroundColor = '#2563eb'}
-          onMouseLeave={(e) => e.target.style.backgroundColor = '#3b82f6'}
-        >
-          <span className="material-icons" style={{ fontSize: '18px' }}>person_add</span>
-          {showInviteForm ? 'Hide' : 'Invite'} Master
-        </button>
-      </div>
-      
+    <>
       {/* Invite Master Form */}
       {showInviteForm && (
         <div style={{
           background: '#fff',
           border: '1px solid #e5e7eb',
           borderRadius: '8px',
-          padding: '24px',
-          marginBottom: '24px',
+          padding: isMobile ? '16px' : '24px',
+          marginBottom: isMobile ? '16px' : '24px',
           boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
         }}>
           <h3 style={{ 
-            fontSize: '18px', 
+            fontSize: isMobile ? '16px' : '18px', 
             fontWeight: '600', 
             color: '#1f2937', 
-            marginBottom: '16px',
+            marginBottom: isMobile ? '12px' : '16px',
             fontFamily: 'system-ui, -apple-system, sans-serif',
             display: 'flex',
             alignItems: 'center',
             gap: '8px'
           }}>
-            <span className="material-icons" style={{ fontSize: '20px', color: '#3b82f6' }}>mail</span>
+            <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px', color: '#3b82f6' }}>mail</span>
             Send Master Invitation
           </h3>
           
-          <div style={{ display: 'flex', gap: '64px', marginBottom: '16px', flexWrap: 'wrap' }}>
-            <div style={{ flex: '1', minWidth: '200px', maxWidth: '300px' }}>
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? '16px' : '64px', 
+            marginBottom: '16px', 
+            flexWrap: 'wrap' 
+          }}>
+            <div style={{ flex: '1', minWidth: isMobile ? '100%' : '200px', maxWidth: isMobile ? '100%' : '300px' }}>
               <label style={{ 
                 display: 'block', 
                 fontSize: '14px', 
@@ -721,14 +675,16 @@ const MasterList = () => {
                 placeholder="Enter master name"
                 style={{
                   width: '100%',
-                  padding: '10px 16px',
+                  padding: isMobile ? '12px 16px' : '10px 16px',
                   border: realtimeDuplicateStatus === 'duplicate' ? '1px solid #ef4444' : 
                          realtimeDuplicateStatus === 'available' ? '1px solid #10b981' : '1px solid #d1d5db',
                   borderRadius: '6px',
-                  fontSize: '14px',
+                  fontSize: isMobile ? '16px' : '14px',
                   fontFamily: 'system-ui, -apple-system, sans-serif',
                   outline: 'none',
-                  transition: 'all 0.2s'
+                  transition: 'all 0.2s',
+                  minHeight: isMobile ? '44px' : 'auto',
+                  boxSizing: 'border-box'
                 }}
               />
               
@@ -768,10 +724,10 @@ const MasterList = () => {
               )}
             </div>
             
-            <div style={{ flex: '1', minWidth: '200px', maxWidth: '300px' }}>
+            <div style={{ flex: '1', minWidth: isMobile ? '100%' : '200px', maxWidth: isMobile ? '100%' : '300px' }}>
               <label style={{ 
                 display: 'block', 
-                fontSize: '14px', 
+                fontSize: isMobile ? '13px' : '14px', 
                 fontWeight: '500', 
                 color: '#374151', 
                 marginBottom: '6px',
@@ -786,13 +742,15 @@ const MasterList = () => {
                 placeholder="Enter email address"
                 style={{
                   width: '100%',
-                  padding: '10px 16px',
+                  padding: isMobile ? '12px 16px' : '10px 16px',
                   border: '1px solid #d1d5db',
                   borderRadius: '6px',
-                  fontSize: '14px',
+                  fontSize: isMobile ? '16px' : '14px',
                   fontFamily: 'system-ui, -apple-system, sans-serif',
                   outline: 'none',
-                  transition: 'all 0.2s'
+                  transition: 'all 0.2s',
+                  minHeight: isMobile ? '44px' : 'auto',
+                  boxSizing: 'border-box'
                 }}
               />
             </div>
@@ -825,19 +783,23 @@ const MasterList = () => {
             onClick={handleInviteMaster}
             disabled={isCheckingDuplicate || isCheckingRealtime || realtimeDuplicateStatus === 'duplicate'}
             style={{
-              padding: '10px 24px',
+              padding: isMobile ? '12px 20px' : '10px 24px',
               backgroundColor: (isCheckingDuplicate || isCheckingRealtime || realtimeDuplicateStatus === 'duplicate') ? '#9ca3af' : '#10b981',
               color: '#fff',
               border: 'none',
               borderRadius: '6px',
-              fontSize: '14px',
+              fontSize: isMobile ? '14px' : '14px',
               fontWeight: '500',
               cursor: (isCheckingDuplicate || isCheckingRealtime || realtimeDuplicateStatus === 'duplicate') ? 'not-allowed' : 'pointer',
               fontFamily: 'system-ui, -apple-system, sans-serif',
               display: 'flex',
               alignItems: 'center',
+              justifyContent: 'center',
               gap: '8px',
-              opacity: (isCheckingDuplicate || isCheckingRealtime || realtimeDuplicateStatus === 'duplicate') ? 0.7 : 1
+              opacity: (isCheckingDuplicate || isCheckingRealtime || realtimeDuplicateStatus === 'duplicate') ? 0.7 : 1,
+              width: isMobile ? '100%' : 'auto',
+              minHeight: isMobile ? '44px' : 'auto',
+              boxSizing: 'border-box'
             }}
             onMouseEnter={(e) => {
               if (!isCheckingDuplicate && !isCheckingRealtime && realtimeDuplicateStatus !== 'duplicate') {
@@ -889,34 +851,37 @@ const MasterList = () => {
         </div>
       )}
 
-      {/* Search and Filter Controls */}
-      <div className="search-filter-container" style={{ 
-        display: 'flex', 
-        gap: '16px', 
-        marginBottom: '24px',
-        flexWrap: 'wrap',
-        alignItems: 'center'
-      }}>
-        <div style={{ 
-          width: '100%', 
-          maxWidth: '600px',
-          minWidth: '250px'
-        }}>
-          <div style={{ position: 'relative' }}>
+      {/* Master List */}
+      <div className="master-list-master-list">
+        {/* Search Bar */}
+        <div className="master-list-search-bar">
+          <div style={{ position: 'relative', marginBottom: isMobile ? '10px' : '12px' }}>
+            <span className="material-icons" style={{
+              position: 'absolute',
+              left: '12px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              color: '#9ca3af',
+              fontSize: isMobile ? '18px' : '20px',
+              zIndex: 1
+            }}>
+              search
+            </span>
             <input
               type="text"
-              placeholder="Search masters by name, email, PAN, or GST..."
+              placeholder={isMobile ? "Search masters..." : "Search masters by name, email, PAN, or GST..."}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               style={{
                 width: '100%',
-                padding: '10px 16px 10px 40px',
-                border: '1px solid #d1d5db',
+                padding: isMobile ? '12px 12px 12px 40px' : '12px 12px 12px 44px',
+                border: '2px solid #e5e7eb',
                 borderRadius: '8px',
-                fontSize: '14px',
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                outline: 'none',
-                transition: 'all 0.2s',
+                fontSize: isMobile ? '16px' : '14px',
+                fontWeight: '500',
+                transition: 'all 0.2s ease',
+                background: 'white',
+                minHeight: isMobile ? '44px' : 'auto',
                 boxSizing: 'border-box'
               }}
               onFocus={(e) => {
@@ -924,175 +889,99 @@ const MasterList = () => {
                 e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
               }}
               onBlur={(e) => {
-                e.target.style.borderColor = '#d1d5db';
+                e.target.style.borderColor = '#e5e7eb';
                 e.target.style.boxShadow = 'none';
               }}
             />
-            <span 
-              className="material-icons" 
-              style={{ 
-                position: 'absolute', 
-                left: '12px', 
-                top: '50%', 
-                transform: 'translateY(-50%)', 
-                color: '#9ca3af',
-                fontSize: '18px'
-              }}
-            >
-              search
-            </span>
           </div>
-        </div>
-        
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          style={{
-            padding: '12px 16px',
-            border: '1px solid #d1d5db',
-            borderRadius: '8px',
-            fontSize: '14px',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            backgroundColor: '#fff',
-            cursor: 'pointer',
-            outline: 'none',
-            marginLeft: 'auto'
-          }}
-        >
-          <option value="all">All Masters</option>
-          <option value="active">Active</option>
-          <option value="pending">Pending</option>
-          <option value="rejected">Rejected</option>
-        </select>
-      </div>
-
-      {/* Master List */}
-      {loading ? (
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center', 
-          padding: '60px 0',
-          flexDirection: 'column',
-          gap: '16px'
-        }}>
-          <div style={{
-            width: '40px',
-            height: '40px',
-            border: '4px solid #e5e7eb',
-            borderTop: '4px solid #3b82f6',
-            borderRadius: '50%',
-            animation: 'spin 1s linear infinite'
-          }}></div>
-          <p style={{ 
-            color: '#6b7280', 
-            fontSize: '14px',
-            fontFamily: 'system-ui, -apple-system, sans-serif'
-          }}>
-            Loading masters...
-          </p>
-        </div>
-      ) : error ? (
-        <div style={{
-          background: '#fef2f2',
-          border: '1px solid #fecaca',
-          borderRadius: '8px',
-          padding: '24px',
-          textAlign: 'center'
-        }}>
-          <span className="material-icons" style={{ fontSize: '48px', color: '#ef4444', marginBottom: '16px' }}>
-            error
-          </span>
-          <h3 style={{ 
-            color: '#dc2626', 
-            fontSize: '18px', 
-            fontWeight: '600', 
-            margin: '0 0 8px 0',
-            fontFamily: 'system-ui, -apple-system, sans-serif'
-          }}>
-            Error Loading Masters
-          </h3>
-          <p style={{ 
-            color: '#7f1d1d', 
-            fontSize: '14px', 
-            margin: '0 0 16px 0',
-            fontFamily: 'system-ui, -apple-system, sans-serif'
-          }}>
-            {error}
-          </p>
-          <button
-            onClick={fetchMasters}
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
             style={{
-              padding: '8px 16px',
-              backgroundColor: '#ef4444',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '6px',
-              fontSize: '14px',
+              width: '100%',
+              padding: isMobile ? '12px 16px' : '12px 16px',
+              border: '2px solid #e5e7eb',
+              borderRadius: '8px',
+              fontSize: isMobile ? '16px' : '14px',
               fontWeight: '500',
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+              backgroundColor: 'white',
               cursor: 'pointer',
-              fontFamily: 'system-ui, -apple-system, sans-serif'
+              outline: 'none',
+              transition: 'all 0.2s ease',
+              minHeight: isMobile ? '44px' : 'auto',
+              boxSizing: 'border-box',
+              WebkitAppearance: 'none',
+              MozAppearance: 'none',
+              appearance: 'none',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 9L1 4h10z'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat',
+              backgroundPosition: 'right 12px center',
+              paddingRight: '40px'
+            }}
+            onFocus={(e) => {
+              e.target.style.borderColor = '#3b82f6';
+              e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+            }}
+            onBlur={(e) => {
+              e.target.style.borderColor = '#e5e7eb';
+              e.target.style.boxShadow = 'none';
             }}
           >
-            Retry
-          </button>
+            <option value="all">All Masters</option>
+            <option value="active">Active</option>
+            <option value="pending">Pending</option>
+            <option value="rejected">Rejected</option>
+          </select>
         </div>
-      ) : filteredMasters.length === 0 ? (
-        <div style={{
-          background: '#f9fafb',
-          border: '1px solid #e5e7eb',
-          borderRadius: '8px',
-          padding: '48px 24px',
-          textAlign: 'center'
-        }}>
-          <span className="material-icons" style={{ fontSize: '48px', color: '#9ca3af', marginBottom: '16px' }}>
-            {searchTerm || filterStatus !== 'all' ? 'search_off' : 'people'}
-          </span>
-          <h3 style={{ 
-            color: '#374151', 
-            fontSize: '18px', 
-            fontWeight: '600', 
-            margin: '0 0 8px 0',
-            fontFamily: 'system-ui, -apple-system, sans-serif'
-          }}>
-            {searchTerm || filterStatus !== 'all' ? 'No masters found' : 'No masters available'}
-          </h3>
-          <p style={{ 
-            color: '#6b7280', 
-            fontSize: '14px', 
-            margin: '0 0 16px 0',
-            fontFamily: 'system-ui, -apple-system, sans-serif'
-          }}>
-            {searchTerm || filterStatus !== 'all' 
-              ? 'Try adjusting your search criteria or filters' 
-              : 'Get started by adding your first master'
-            }
-          </p>
-        </div>
-      ) : (
-        <div style={{
-          background: '#fff',
-          border: '1px solid #e5e7eb',
-          borderRadius: '8px',
-          overflow: 'hidden'
-        }}>
-          {filteredMasters.map((master, index) => {
-            const isEven = index % 2 === 0;
-            const baseBackgroundColor = isEven ? '#ffffff' : '#f9fafb';
-            
-            return (
+        
+        {/* List Content */}
+        <div className="master-list-list-content">
+          {loading ? (
+            <div className="master-list-no-masters">
+              <div style={{
+                width: isMobile ? '56px' : '64px',
+                height: isMobile ? '56px' : '64px',
+                background: '#f3f4f6',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px',
+                fontSize: isMobile ? '28px' : '32px',
+                color: '#9ca3af'
+              }}>
+                <span className="material-icons">
+                  {searchTerm || filterStatus !== 'all' ? 'search_off' : 'people'}
+                </span>
+              </div>
+              <h3 style={{ 
+                color: '#374151', 
+                fontSize: isMobile ? '16px' : '18px', 
+                fontWeight: '600', 
+                margin: '0 0 8px 0',
+                fontFamily: 'system-ui, -apple-system, sans-serif'
+              }}>
+                {searchTerm || filterStatus !== 'all' ? 'No masters found' : 'No masters available'}
+              </h3>
+              <p style={{ 
+                color: '#6b7280', 
+                fontSize: isMobile ? '13px' : '14px', 
+                margin: '0',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                padding: isMobile ? '0 16px' : '0'
+              }}>
+                {searchTerm || filterStatus !== 'all' 
+                  ? 'Try adjusting your search criteria or filters' 
+                  : 'Get started by adding your first master'
+                }
+              </p>
+            </div>
+          ) : (
+            filteredMasters.map((master, index) => (
             <div
               key={master.NAME || index}
-              style={{
-                padding: '20px',
-                borderBottom: index < filteredMasters.length - 1 ? '1px solid #f3f4f6' : 'none',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                transition: 'background-color 0.2s',
-                backgroundColor: baseBackgroundColor,
-                cursor: 'pointer'
-              }}
+              className="master-list-master-item"
               onClick={async () => {
                 // Fetch full master details from API
                 const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid');
@@ -1240,79 +1129,133 @@ const MasterList = () => {
                   alert('Failed to load master details. Please try again.');
                 }
               }}
-              onMouseEnter={(e) => e.target.style.backgroundColor = '#f3f4f6'}
-              onMouseLeave={(e) => e.target.style.backgroundColor = baseBackgroundColor}
             >
-              <div style={{ flex: '1' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                  <h3 style={{ 
-                    fontSize: '16px', 
-                    fontWeight: '600', 
-                    color: '#1f2937', 
-                    margin: '0',
-                    fontFamily: 'system-ui, -apple-system, sans-serif'
-                  }}>
-                    {master.NAME || 'Unnamed Master'}
-                  </h3>
+              <div style={{ flex: '1', width: '100%' }}>
+                <div style={{ 
+                  display: 'flex', 
+                  flexDirection: isMobile ? 'column' : 'row',
+                  alignItems: isMobile ? 'flex-start' : 'center', 
+                  gap: isMobile ? '8px' : '12px', 
+                  marginBottom: isMobile ? '12px' : '8px' 
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, flexWrap: 'wrap' }}>
+                    <span className="material-icons" style={{ 
+                      fontSize: isMobile ? '18px' : '20px', 
+                      color: '#3b82f6' 
+                    }}>business</span>
+                    <h3 style={{ 
+                      fontSize: isMobile ? '16px' : '18px', 
+                      fontWeight: '700', 
+                      color: '#1f2937', 
+                      margin: '0',
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>
+                      {master.NAME || 'Unnamed Master'}
+                    </h3>
+                  </div>
                   {master.status && (
                     <span style={{
-                      padding: '4px 8px',
-                      borderRadius: '12px',
-                      fontSize: '12px',
-                      fontWeight: '500',
+                      padding: isMobile ? '6px 12px' : '4px 8px',
+                      borderRadius: '20px',
+                      fontSize: isMobile ? '11px' : '12px',
+                      fontWeight: '600',
                       fontFamily: 'system-ui, -apple-system, sans-serif',
                       backgroundColor: master.status === 'approved' ? '#dcfce7' : 
                                      master.status === 'pending' ? '#fef3c7' : '#fecaca',
                       color: master.status === 'approved' ? '#166534' : 
-                             master.status === 'pending' ? '#92400e' : '#991b1b'
+                             master.status === 'pending' ? '#92400e' : '#991b1b',
+                      border: `1px solid ${master.status === 'approved' ? '#166534' : 
+                             master.status === 'pending' ? '#92400e' : '#991b1b'}30`,
+                      alignSelf: isMobile ? 'flex-start' : 'center'
                     }}>
                       {master.status}
                     </span>
                   )}
                 </div>
                 
-                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-                  {master.EMAIL && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span className="material-icons" style={{ fontSize: '16px', color: '#6b7280' }}>email</span>
-                      <span style={{ fontSize: '14px', color: '#6b7280', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-                        {master.EMAIL}
-                      </span>
-                    </div>
-                  )}
+                {master.EMAIL && (
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: '6px',
+                    marginBottom: isMobile ? '8px' : '4px',
+                    flexWrap: 'wrap'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '16px', color: '#6b7280' }}>email</span>
+                    <span style={{ 
+                      fontSize: isMobile ? '13px' : '14px', 
+                      color: '#6b7280', 
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      wordBreak: 'break-word'
+                    }}>
+                      {master.EMAIL}
+                    </span>
+                  </div>
+                )}
+                
+                <div style={{ 
+                  display: 'flex', 
+                  gap: isMobile ? '12px' : '24px', 
+                  flexWrap: 'wrap',
+                  marginTop: isMobile ? '4px' : '0'
+                }}>
                   {master.PANNO && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span className="material-icons" style={{ fontSize: '16px', color: '#6b7280' }}>badge</span>
-                      <span style={{ fontSize: '14px', color: '#6b7280', fontFamily: 'monospace' }}>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px', color: '#6b7280' }}>badge</span>
+                      <span style={{ 
+                        fontSize: isMobile ? '12px' : '14px', 
+                        color: '#6b7280', 
+                        fontFamily: 'monospace'
+                      }}>
                         {master.PANNO}
                       </span>
                     </div>
                   )}
                   {master.GSTNO && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span className="material-icons" style={{ fontSize: '16px', color: '#6b7280' }}>receipt</span>
-                      <span style={{ fontSize: '14px', color: '#6b7280', fontFamily: 'monospace' }}>
+                      <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px', color: '#6b7280' }}>receipt</span>
+                      <span style={{ 
+                        fontSize: isMobile ? '12px' : '14px', 
+                        color: '#6b7280', 
+                        fontFamily: 'monospace'
+                      }}>
                         {master.GSTNO}
                       </span>
                     </div>
                   )}
-                  {master.ADDRESS && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span className="material-icons" style={{ fontSize: '16px', color: '#6b7280' }}>location_on</span>
-                      <span style={{ fontSize: '14px', color: '#6b7280', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-                        {master.ADDRESS}
-                      </span>
-                    </div>
-                  )}
                 </div>
+                
+                {master.ADDRESS && (
+                  <div style={{ 
+                    display: 'flex', 
+                    alignItems: 'flex-start', 
+                    gap: '6px',
+                    marginTop: isMobile ? '8px' : '4px',
+                    flexWrap: 'wrap'
+                  }}>
+                    <span className="material-icons" style={{ 
+                      fontSize: isMobile ? '16px' : '16px', 
+                      color: '#6b7280',
+                      marginTop: '2px'
+                    }}>location_on</span>
+                    <span style={{ 
+                      fontSize: isMobile ? '13px' : '14px', 
+                      color: '#6b7280', 
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      flex: 1,
+                      wordBreak: 'break-word'
+                    }}>
+                      {master.ADDRESS}
+                    </span>
+                  </div>
+                )}
               </div>
-              
             </div>
-            );
-          })}
+            ))
+          )}
         </div>
-      )}
-    </div>
+      </div>
+    </>
   );
 
   // Handle form success
@@ -1343,59 +1286,345 @@ const MasterList = () => {
     );
   }
 
+  if (loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        flexDirection: 'column',
+        gap: '16px'
+      }}>
+        <div style={{
+          width: '40px',
+          height: '40px',
+          border: '4px solid #e5e7eb',
+          borderTop: '4px solid #3b82f6',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite'
+        }}></div>
+        <p style={{
+          color: '#6b7280',
+          fontSize: '14px',
+          fontFamily: 'system-ui, -apple-system, sans-serif'
+        }}>
+          Loading masters...
+        </p>
+      </div>
+    );
+  }
+
   return (
-    <div style={{
-      background: '#f3f4f6',
-      width: '100vw',
-      minHeight: 'calc(100vh - 120px)',
-      padding: 0,
-      margin: 0,
-      paddingLeft: 'clamp(60px, 220px, 220px)',
-    }}>
+    <div className="master-list-wrapper">
+      <div className="master-list-container">
       <style>{`
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
         }
         
-        .master-header-container {
-          flex-direction: column;
+        .master-list-wrapper {
+          margin-top: 10px !important;
+          padding-top: 5px !important;
+          width: 100% !important;
+          align-self: stretch !important;
+          display: flex !important;
+          flex-direction: column !important;
+          background: transparent !important;
+          min-height: 100vh !important;
         }
-        
-        @media (min-width: 768px) {
-          .master-header-container {
-            flex-direction: row;
+        .master-list-container {
+          padding: ${isMobile ? '12px' : '20px'} !important;
+          width: 100% !important;
+          height: 100vh !important;
+          overflow: hidden !important;
+          margin: 0 !important;
+          box-sizing: border-box !important;
+          position: relative !important;
+          top: 0 !important;
+          left: 0 !important;
+          right: 0 !important;
+          bottom: 0 !important;
+          z-index: 1 !important;
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
+          justify-content: flex-start !important;
+        }
+        .master-list-container * {
+          box-sizing: border-box !important;
+        }
+        .master-list-card {
+          background: white !important;
+          border-radius: ${isMobile ? '8px' : '12px'} !important;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+          width: 100% !important;
+          max-width: ${isMobile ? '100%' : '95%'} !important;
+          margin: 0 auto !important;
+          padding: ${isMobile ? '16px' : '40px 24px 24px 40px'} !important;
+          display: flex !important;
+          flex-direction: column !important;
+          gap: ${isMobile ? '12px' : '20px'} !important;
+          height: ${isMobile ? 'auto' : 'calc(100vh - 40px)'} !important;
+          transform: ${isMobile ? 'translateX(0)' : 'translateX(20px)'} !important;
+        }
+        .master-list-header {
+          display: flex !important;
+          flex-direction: ${isMobile ? 'column' : 'row'} !important;
+          justify-content: space-between !important;
+          align-items: ${isMobile ? 'flex-start' : 'center'} !important;
+          margin-bottom: 0 !important;
+          padding: ${isMobile ? '12px 16px 0 16px' : '20px 30px 0 30px'} !important;
+          height: auto !important;
+          min-height: 50px !important;
+          width: 100% !important;
+          flex-shrink: 0 !important;
+          gap: ${isMobile ? '12px' : '0'} !important;
+        }
+        .master-list-main {
+          display: flex !important;
+          flex-direction: column !important;
+          gap: ${isMobile ? '12px' : '16px'} !important;
+          width: 100% !important;
+          margin: 0 !important;
+          padding: ${isMobile ? '12px' : '20px'} !important;
+          flex: 1 !important;
+        }
+        .master-list-master-list {
+          flex: 1 1 auto !important;
+          min-width: ${isMobile ? '100%' : '200px'} !important;
+          background: #f8fafc !important;
+          border-radius: 8px !important;
+          border: 1px solid #e2e8f0 !important;
+          overflow: hidden !important;
+          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1) !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        .master-list-search-bar {
+          padding: ${isMobile ? '10px' : '12px'} !important;
+          border-bottom: 1px solid #e2e8f0 !important;
+          background: white !important;
+          margin: 0 !important;
+        }
+        @media (max-width: 768px) {
+          .master-list-search-bar input,
+          .master-list-search-bar select {
+            font-size: 16px !important;
+            padding: 12px 12px 12px 44px !important;
+            min-height: 44px !important;
           }
         }
-        
-        .search-filter-container {
-          flex-direction: column;
-          width: 100%;
+        .master-list-list-content {
+          height: calc(100% - 50px) !important;
+          overflow-y: auto !important;
+          margin: 0 !important;
+          padding: 0 !important;
+        }
+        .master-list-master-item {
+          padding: ${isMobile ? '12px' : '16px'} !important;
+          border-bottom: 1px solid #e2e8f0 !important;
+          cursor: pointer !important;
+          transition: all 0.2s ease !important;
+          margin: 0 !important;
+          background: white !important;
+          min-height: ${isMobile ? 'auto' : '80px'} !important;
+        }
+        .master-list-master-item:hover {
+          background: #f1f5f9 !important;
+        }
+        @media (max-width: 768px) {
+          .master-list-master-item {
+            padding: 12px !important;
+          }
+          .master-list-master-item:active {
+            background: #e2e8f0 !important;
+          }
+        }
+        .master-list-no-masters {
+          padding: ${isMobile ? '32px 16px' : '20px 10px'} !important;
+          text-align: center !important;
+          color: #6b7280 !important;
+          margin: 0 !important;
+        }
+        @media (max-width: 768px) {
+          .master-list-no-masters {
+            padding: 24px 12px !important;
+          }
+          .master-list-no-masters .material-icons {
+            font-size: 40px !important;
+          }
+          .master-list-no-masters h3 {
+            font-size: 16px !important;
+          }
+          .master-list-no-masters p {
+            font-size: 13px !important;
+          }
+        }
+        .master-list-error {
+          background: #fef2f2 !important;
+          border: 1px solid #fecaca !important;
+          color: #dc2626 !important;
+          padding: 8px 12px !important;
+          border-radius: 6px !important;
+          margin-top: 10px !important;
+          margin-bottom: 10px !important;
+          flex-shrink: 0 !important;
+          position: relative !important;
+          z-index: 10 !important;
+        }
+        .master-list-card .material-icons {
+          padding: 4px !important;
+          margin: 2px !important;
+          border-radius: 4px !important;
+          transition: all 0.2s ease !important;
+        }
+        .master-list-card .material-icons:hover {
+          background-color: rgba(0, 0, 0, 0.05) !important;
         }
         
-        @media (min-width: 768px) {
-          .search-filter-container {
-            flex-direction: row;
+        /* Mobile-specific improvements */
+        @media (max-width: 768px) {
+          .master-list-wrapper {
+            padding-left: 0 !important;
+          }
+          .master-list-container {
+            padding: 8px !important;
+          }
+          .master-list-card {
+            padding: 12px !important;
+            border-radius: 8px !important;
+          }
+          .master-list-header {
+            padding: 12px 8px 0 8px !important;
+          }
+          .master-list-main {
+            padding: 8px !important;
+          }
+          .master-list-master-list {
+            max-height: calc(100vh - 300px) !important;
+          }
+          .master-list-list-content {
+            max-height: calc(100vh - 350px) !important;
+          }
+          /* Better touch targets for mobile */
+          button, .master-list-master-item {
+            min-height: 44px !important;
+            -webkit-tap-highlight-color: rgba(59, 130, 246, 0.2);
+          }
+          /* Prevent text selection on tap */
+          .master-list-master-item {
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-select: none;
           }
         }
       `}</style>
       
-      <div style={{
-        background: '#fff',
-        margin: 'clamp(12px, 24px, 24px) clamp(16px, 32px, 32px) 16px clamp(16px, 32px, 32px)',
-        maxWidth: '1400px',
-        width: 'calc(100% - clamp(32px, 64px, 64px))',
-        borderRadius: '16px',
-        boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-        overflow: 'hidden',
-        border: '1px solid #e5e7eb',
-        position: 'relative',
-        boxSizing: 'border-box'
-      }}>
-        {/* Content */}
-        <div style={{ minHeight: '500px' }}>
+      {error && (
+        <div className="master-list-error">
+          {error}
+        </div>
+      )}
+      
+      <div className="master-list-card">
+        {/* Header */}
+        <div className="master-list-header">
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+              <div style={{
+                width: '40px',
+                height: '40px',
+                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}>
+                <span className="material-icons" style={{ color: 'white', fontSize: '20px' }}>people</span>
+              </div>
+              <h1 style={{
+                fontSize: isMobile ? '20px' : '28px',
+                fontWeight: '700',
+                color: '#1f2937',
+                margin: 0
+              }}>
+                Master List
+              </h1>
+            </div>
+            <p style={{
+              fontSize: isMobile ? '13px' : '16px',
+              color: '#6b7280',
+              margin: 0,
+              fontWeight: '500'
+            }}>
+              Manage your master database and authorizations
+            </p>
+          </div>
+          
+          <div style={{
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? '8px' : '16px',
+            alignItems: isMobile ? 'stretch' : 'center',
+            width: isMobile ? '100%' : 'auto'
+          }}>
+            <div style={{
+              display: 'flex',
+              gap: '8px',
+              alignItems: 'center',
+              padding: '8px 16px',
+              background: '#f1f5f9',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0'
+            }}>
+              <span className="material-icons" style={{ fontSize: '16px', color: '#64748b' }}>business</span>
+              <span style={{ fontSize: '14px', color: '#64748b', fontWeight: '500' }}>
+                {masters.length} Masters
+              </span>
+            </div>
+            <button
+              onClick={() => setShowInviteForm(!showInviteForm)}
+              style={{
+                padding: isMobile ? '10px 16px' : '12px 20px',
+                background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: isMobile ? '13px' : '14px',
+                fontWeight: '600',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)',
+                width: isMobile ? '100%' : 'auto'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.transform = 'translateY(-1px)';
+                e.target.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.4)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.3)';
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: '16px' }}>
+                {showInviteForm ? 'close' : 'person_add'}
+              </span>
+              {showInviteForm ? 'Hide' : 'Invite'} Master
+            </button>
+          </div>
+        </div>
+        
+        <div className="master-list-main">
           {renderMasterList()}
         </div>
+      </div>
       </div>
       
       {/* Link Modal */}

@@ -819,6 +819,17 @@ const MasterForm = ({
   // Additional Details state
   const [showAdditionalDetails, setShowAdditionalDetails] = useState(false);
 
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   // API function to check for duplicates
   const checkDuplicate = async (field, value) => {
     if (!value || value.trim() === '') {
@@ -2873,12 +2884,11 @@ const MasterForm = ({
 
   return (
     <div style={{
-      background: '#f3f4f6',
       width: '100vw',
       minHeight: 'calc(100vh - 120px)',
       padding: 0,
       margin: 0,
-      paddingLeft: 220,
+      paddingLeft: isMobile ? 0 : 220,
     }}>
       <style>{`
         .master-form-grid > div {
@@ -2908,6 +2918,24 @@ const MasterForm = ({
             gap: 16px !important;
           }
         }
+        /* Hide scrollbar for tab navigation on mobile */
+        div::-webkit-scrollbar {
+          display: none;
+        }
+        /* Mobile tab navigation improvements */
+        @media (max-width: 768px) {
+          .master-form-container {
+            padding: 16px !important;
+          }
+          /* Ensure form doesn't overflow on mobile */
+          body {
+            overflow-x: hidden;
+          }
+          /* Better touch targets on mobile */
+          button {
+            min-height: 44px;
+          }
+        }
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
@@ -2915,7 +2943,7 @@ const MasterForm = ({
       `}</style>
       <div style={{
         background: '#fff',
-        margin: '24px 32px 16px 32px',
+        margin: isMobile ? '16px 12px' : '24px 32px 16px 32px',
         maxWidth: '1400px',
         width: 'auto',
         borderRadius: '16px',
@@ -2925,24 +2953,25 @@ const MasterForm = ({
         position: 'relative',
         boxSizing: 'border-box'
       }}>
-        <div style={{ padding: '16px', width: '100%', boxSizing: 'border-box' }}>
+        <div style={{ padding: isMobile ? '12px' : '16px', width: '100%', boxSizing: 'border-box' }}>
           <h2 style={{ 
-            fontSize: '20px', 
+            fontSize: isMobile ? '18px' : '20px', 
             fontWeight: '600', 
             color: '#374151', 
-            marginBottom: '24px',
+            marginBottom: isMobile ? '16px' : '24px',
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
-            fontFamily: 'system-ui, -apple-system, sans-serif'
+            gap: isMobile ? '8px' : '12px',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            flexWrap: 'wrap'
           }}>
-            <span className="material-icons" style={{ fontSize: '24px', color: '#3b82f6' }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6', flexShrink: 0 }}>
               {isApprovalMode ? 'verified_user' : (isEditing ? 'edit' : 'person_add')}
             </span>
-            {isApprovalMode ? 'Approve Master' : (isEditing ? 'Edit Master' : 'Master Information Form')}
+            <span>{isApprovalMode ? 'Approve Master' : (isEditing ? 'Edit Master' : 'Master Information Form')}</span>
           </h2>
 
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? '16px' : '24px' }}>
         {successMessage && (
           <div style={{
             background: '#dcfce7',
@@ -3111,29 +3140,38 @@ const MasterForm = ({
         <div style={{
           display: 'flex',
           borderBottom: '2px solid #e5e7eb',
-          marginBottom: '24px',
+          marginBottom: isMobile ? '16px' : '24px',
           backgroundColor: '#f9fafb',
           borderRadius: '8px 8px 0 0',
-          overflow: 'hidden'
+          overflowX: isMobile ? 'auto' : 'hidden',
+          overflowY: 'hidden',
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+          ...(isMobile && {
+            gap: '0',
+            flexWrap: 'nowrap',
+            minHeight: '56px'
+          })
         }}>
           {[
-            { id: 'basic', label: 'Basic Information', icon: 'person' },
-            { id: 'address', label: 'Address', icon: 'location_on' },
-            { id: 'contact', label: 'Contact Details', icon: 'contact_phone' },
-            { id: 'bank', label: 'Bank Details', icon: 'account_balance' },
-            { id: 'statutory', label: 'Statutory', icon: 'description' }
+            { id: 'basic', label: 'Basic Information', icon: 'person', shortLabel: 'Basic' },
+            { id: 'address', label: 'Address', icon: 'location_on', shortLabel: 'Address' },
+            { id: 'contact', label: 'Contact Details', icon: 'contact_phone', shortLabel: 'Contact' },
+            { id: 'bank', label: 'Bank Details', icon: 'account_balance', shortLabel: 'Bank' },
+            { id: 'statutory', label: 'Statutory', icon: 'description', shortLabel: 'Statutory' }
           ].map((tab) => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
               style={{
-                flex: 1,
-                padding: '16px 24px',
+                flex: isMobile ? '0 0 auto' : 1,
+                padding: isMobile ? '12px 16px' : '16px 24px',
                 border: 'none',
                 backgroundColor: activeTab === tab.id ? '#3b82f6' : 'transparent',
                 color: activeTab === tab.id ? '#fff' : '#6b7280',
-                fontSize: '14px',
+                fontSize: isMobile ? '13px' : '14px',
                 fontWeight: '500',
                 cursor: 'pointer',
                 transition: 'all 0.2s',
@@ -3141,30 +3179,44 @@ const MasterForm = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '8px',
-                borderRight: tab.id !== 'statutory' ? '1px solid #e5e7eb' : 'none'
+                gap: isMobile ? '6px' : '8px',
+                borderRight: !isMobile && tab.id !== 'statutory' ? '1px solid #e5e7eb' : 'none',
+                minWidth: isMobile ? '120px' : 'auto',
+                whiteSpace: 'nowrap',
+                touchAction: 'manipulation',
+                WebkitTapHighlightColor: 'transparent'
               }}
               onMouseEnter={(e) => {
-                if (activeTab !== tab.id) {
+                if (!isMobile && activeTab !== tab.id) {
                   e.target.style.backgroundColor = '#f3f4f6';
                   e.target.style.color = '#374151';
                 }
               }}
               onMouseLeave={(e) => {
-                if (activeTab !== tab.id) {
+                if (!isMobile && activeTab !== tab.id) {
                   e.target.style.backgroundColor = 'transparent';
                   e.target.style.color = '#6b7280';
                 }
               }}
+              onTouchStart={(e) => {
+                if (activeTab !== tab.id) {
+                  e.currentTarget.style.backgroundColor = '#e5e7eb';
+                }
+              }}
+              onTouchEnd={(e) => {
+                if (activeTab !== tab.id) {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }
+              }}
             >
-              <span className="material-icons" style={{ fontSize: '18px' }}>{tab.icon}</span>
-              {tab.label}
+              <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', flexShrink: 0 }}>{tab.icon}</span>
+              <span>{isMobile ? tab.shortLabel : tab.label}</span>
             </button>
           ))}
         </div>
 
         {/* Tab Content */}
-        <div style={{ minHeight: '400px' }}>
+        <div style={{ minHeight: isMobile ? '300px' : '400px' }}>
           {/* Basic Information Tab */}
           {activeTab === 'basic' && (
             <div>
@@ -5614,35 +5666,49 @@ const MasterForm = ({
         <div style={{ 
           display: 'flex', 
           justifyContent: 'center', 
-          gap: '16px', 
-          paddingTop: '24px',
-          marginTop: '24px',
-          borderTop: '1px solid #e5e7eb'
+          gap: isMobile ? '12px' : '16px', 
+          paddingTop: isMobile ? '16px' : '24px',
+          marginTop: isMobile ? '16px' : '24px',
+          borderTop: '1px solid #e5e7eb',
+          flexWrap: isMobile ? 'wrap' : 'nowrap'
         }}>
           <button
             type="button"
             onClick={handleCancel}
             style={{
-              padding: '12px 32px',
+              padding: isMobile ? '14px 24px' : '12px 32px',
               border: '1px solid #d1d5db',
               color: '#374151',
               borderRadius: '8px',
-              fontSize: '14px',
+              fontSize: isMobile ? '14px' : '14px',
               fontWeight: '500',
               cursor: 'pointer',
               transition: 'all 0.2s',
               fontFamily: 'system-ui, -apple-system, sans-serif',
               backgroundColor: '#fff',
               boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-              minWidth: '120px'
+              minWidth: isMobile ? '120px' : '120px',
+              flex: isMobile ? '1 1 auto' : '0 0 auto',
+              touchAction: 'manipulation',
+              WebkitTapHighlightColor: 'transparent'
             }}
             onMouseEnter={(e) => {
-              e.target.style.backgroundColor = '#f9fafb';
-              e.target.style.borderColor = '#9ca3af';
+              if (!isMobile) {
+                e.target.style.backgroundColor = '#f9fafb';
+                e.target.style.borderColor = '#9ca3af';
+              }
             }}
             onMouseLeave={(e) => {
-              e.target.style.backgroundColor = '#fff';
-              e.target.style.borderColor = '#d1d5db';
+              if (!isMobile) {
+                e.target.style.backgroundColor = '#fff';
+                e.target.style.borderColor = '#d1d5db';
+              }
+            }}
+            onTouchStart={(e) => {
+              e.currentTarget.style.backgroundColor = '#f9fafb';
+            }}
+            onTouchEnd={(e) => {
+              e.currentTarget.style.backgroundColor = '#fff';
             }}
           >
             {MASTER_CONSTANTS.BUTTON_LABELS.CANCEL}
@@ -5653,28 +5719,41 @@ const MasterForm = ({
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: '8px',
-              padding: '12px 32px',
+              gap: isMobile ? '6px' : '8px',
+              padding: isMobile ? '14px 24px' : '12px 32px',
               background: '#3b82f6',
               color: '#fff',
               borderRadius: '8px',
-              fontSize: '14px',
+              fontSize: isMobile ? '14px' : '14px',
               fontWeight: '500',
               cursor: 'pointer',
               transition: 'all 0.2s',
               border: 'none',
               fontFamily: 'system-ui, -apple-system, sans-serif',
               boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
-              minWidth: '160px'
+              minWidth: isMobile ? '140px' : '160px',
+              flex: isMobile ? '1 1 auto' : '0 0 auto',
+              touchAction: 'manipulation',
+              WebkitTapHighlightColor: 'transparent'
             }}
             onMouseEnter={(e) => {
-              e.target.style.background = '#2563eb';
+              if (!isMobile) {
+                e.target.style.background = '#2563eb';
+              }
             }}
             onMouseLeave={(e) => {
-              e.target.style.background = '#3b82f6';
+              if (!isMobile) {
+                e.target.style.background = '#3b82f6';
+              }
+            }}
+            onTouchStart={(e) => {
+              e.currentTarget.style.background = '#2563eb';
+            }}
+            onTouchEnd={(e) => {
+              e.currentTarget.style.background = '#3b82f6';
             }}
           >
-            <span className="material-icons" style={{ fontSize: '18px' }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', flexShrink: 0 }}>
               {isApprovalMode ? 'check_circle' : (isEditing ? 'edit' : 'person_add')}
             </span>
             <span>
