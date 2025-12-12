@@ -4,6 +4,7 @@ import { hybridCache } from './hybridCache';
 import { apiPost, apiGet } from './apiUtils';
 import { deobfuscateStockItems } from './frontendDeobfuscate';
 import { getApiUrl } from '../config';
+import { isFullAccessOrInternal, isExternalUser, fetchExternalUserCacheEnabled, getCacheAccessPermission } from './cacheUtils';
 
 // Cache version and utilities
 export const CACHE_VERSION = process.env.REACT_APP_VERSION || '1.0.0';
@@ -884,39 +885,57 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
       throw new Error('Unable to fetch booksfrom date. Please ensure you have access to this company.');
     }
 
+    // CRITICAL: Check if this is a resume scenario BEFORE checking for updates
+    // Resume scenario: savedProgress exists with incomplete chunks and startFresh is false
+    const isResume = !startFresh && savedProgress && 
+                     savedProgress.totalChunks > 0 && 
+                     savedProgress.chunksCompleted < savedProgress.totalChunks;
+    
+    if (isResume) {
+      console.log(`🔄 Resume scenario detected: ${savedProgress.chunksCompleted}/${savedProgress.totalChunks} chunks completed`);
+      console.log(`📋 Will continue download from chunk ${savedProgress.chunksCompleted + 1} using salesextract API`);
+    }
+
     // CRITICAL: Always check for existing cached data first to determine if this is an update
     let lastaltid = null;
     let isUpdate = false;
 
-    console.log('🔍 Checking for existing cached data to determine update mode...');
+    // If this is a resume scenario, skip update detection and force download mode
+    if (isResume) {
+      console.log('🔄 Resume mode: Forcing download mode (isUpdate=false) to continue with salesextract API');
+      isUpdate = false;
+      lastaltid = null;
+    } else {
+      console.log('🔍 Checking for existing cached data to determine update mode...');
 
-    try {
-      const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
-      if (existingData && existingData.data && existingData.data.vouchers && Array.isArray(existingData.data.vouchers) && existingData.data.vouchers.length > 0) {
-        console.log(`✅ Found ${existingData.data.vouchers.length} existing vouchers in cache`);
-        isUpdate = true;
+      try {
+        const existingData = await hybridCache.getCompleteSalesData(companyInfo, email);
+        if (existingData && existingData.data && existingData.data.vouchers && Array.isArray(existingData.data.vouchers) && existingData.data.vouchers.length > 0) {
+          console.log(`✅ Found ${existingData.data.vouchers.length} existing vouchers in cache`);
+          isUpdate = true;
 
-        // CRITICAL: Calculate lastaltid from actual vouchers in cache (most reliable method)
-        lastaltid = calculateMaxAlterId(existingData.data);
+          // CRITICAL: Calculate lastaltid from actual vouchers in cache (most reliable method)
+          lastaltid = calculateMaxAlterId(existingData.data);
 
-        // Fallback to metadata if calculation fails
-        if (!lastaltid && existingData.metadata?.lastaltid) {
-          lastaltid = existingData.metadata.lastaltid;
-          console.log(`⚠️ Using lastaltid from metadata as fallback: ${lastaltid}`);
+          // Fallback to metadata if calculation fails
+          if (!lastaltid && existingData.metadata?.lastaltid) {
+            lastaltid = existingData.metadata.lastaltid;
+            console.log(`⚠️ Using lastaltid from metadata as fallback: ${lastaltid}`);
+          }
+
+          console.log(`✅ Calculated largest alterid from cache: ${lastaltid}`);
+        } else {
+          console.log('✅ No existing data found - confirmed as fresh download');
+          isUpdate = false;
         }
-
-        console.log(`✅ Calculated largest alterid from cache: ${lastaltid}`);
-      } else {
-        console.log('✅ No existing data found - confirmed as fresh download');
-        isUpdate = false;
-      }
-    } catch (error) {
-      console.warn('⚠️ Could not check for existing data:', error);
-      // Fallback to saved progress if cache check fails
-      lastaltid = savedProgress?.lastSyncedAlterId || await hybridCache.getLastAlterId(companyInfo, email);
-      isUpdate = !!lastaltid;
-      if (isUpdate) {
-        console.log(`⚠️ Fallback: Using lastaltid from saved progress/metadata: ${lastaltid}`);
+      } catch (error) {
+        console.warn('⚠️ Could not check for existing data:', error);
+        // Fallback to saved progress if cache check fails
+        lastaltid = savedProgress?.lastSyncedAlterId || await hybridCache.getLastAlterId(companyInfo, email);
+        isUpdate = !!lastaltid;
+        if (isUpdate) {
+          console.log(`⚠️ Fallback: Using lastaltid from saved progress/metadata: ${lastaltid}`);
+        }
       }
     }
 
@@ -961,8 +980,9 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
     let needsSlice = false;
     // For updates, we'll use the new voucherextract_sync endpoint with looping
     // For downloads, use chunking
-    const shouldUseChunking = !isUpdate;
-    const useNewUpdateApi = isUpdate && lastaltid;
+    // CRITICAL: If resuming, force chunking mode even if isUpdate was set
+    const shouldUseChunking = !isUpdate || isResume;
+    const useNewUpdateApi = isUpdate && lastaltid && !isResume;
 
     if (!shouldUseChunking && !useNewUpdateApi) {
       try {
@@ -1284,6 +1304,10 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
         console.warn('Could not save progress state:', e);
       }
 
+      // Track current cache state for incremental saves
+      // Start with existing vouchers if update mode, otherwise empty
+      let currentCacheVouchers = isUpdate ? existingVouchersForMerge : [];
+
       for (let i = startChunkIndex; i < chunks.length; i++) {
         const chunk = chunks[i];
         onProgress({
@@ -1317,7 +1341,46 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
           if (chunkResponseText) {
             const chunkResponse = JSON.parse(chunkResponseText);
             if (chunkResponse && chunkResponse.vouchers && Array.isArray(chunkResponse.vouchers)) {
-              allVouchers.push(...chunkResponse.vouchers);
+              const chunkVouchers = chunkResponse.vouchers;
+              
+              // Load current cache state (from previous chunks or existing cache)
+              // For first chunk after resume, load from cache if available
+              if (i === startChunkIndex && currentCacheVouchers.length === 0) {
+                try {
+                  const currentCacheData = await hybridCache.getCompleteSalesData(companyInfo, email);
+                  if (currentCacheData && currentCacheData.data && currentCacheData.data.vouchers && Array.isArray(currentCacheData.data.vouchers) && currentCacheData.data.vouchers.length > 0) {
+                    currentCacheVouchers = currentCacheData.data.vouchers;
+                    console.log(`📥 Loaded ${currentCacheVouchers.length} vouchers from cache for chunk ${i + 1}`);
+                  }
+                } catch (cacheError) {
+                  console.warn(`⚠️ Could not load cache for chunk ${i + 1}, starting fresh:`, cacheError);
+                }
+              }
+              
+              // Merge and save incrementally after each chunk
+              try {
+                console.log(`💾 Saving chunk ${i + 1}/${chunks.length}: ${chunkVouchers.length} vouchers...`);
+                const { mergedVouchers, maxAlterId } = await mergeAndSaveVouchers(
+                  currentCacheVouchers,
+                  chunkVouchers,
+                  companyInfo,
+                  email,
+                  booksfrom
+                );
+                
+                // Update current cache state for next chunk
+                currentCacheVouchers = mergedVouchers;
+                
+                // Update allVouchers to reflect merged state (for final processing)
+                allVouchers = mergedVouchers;
+                
+                console.log(`✅ Chunk ${i + 1}/${chunks.length} saved: ${mergedVouchers.length} total vouchers in cache (maxAlterId=${maxAlterId})`);
+              } catch (mergeError) {
+                console.error(`❌ Error merging/saving chunk ${i + 1}:`, mergeError);
+                // Fallback: just add to allVouchers without saving (will be saved at end)
+                allVouchers.push(...chunkVouchers);
+                console.warn(`⚠️ Chunk ${i + 1} added to allVouchers without incremental save, will be saved at end`);
+              }
             }
           }
 
@@ -1428,6 +1491,20 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
       if (failedChunks.length > 0) {
         console.log(`🔄 Retrying ${failedChunks.length} failed chunks...`);
         
+        // Load current cache state before retrying (may have been updated by successful chunks)
+        let retryCacheVouchers = currentCacheVouchers;
+        if (retryCacheVouchers.length === 0) {
+          try {
+            const retryCacheData = await hybridCache.getCompleteSalesData(companyInfo, email);
+            if (retryCacheData && retryCacheData.data && retryCacheData.data.vouchers && Array.isArray(retryCacheData.data.vouchers) && retryCacheData.data.vouchers.length > 0) {
+              retryCacheVouchers = retryCacheData.data.vouchers;
+              console.log(`📥 Loaded ${retryCacheVouchers.length} vouchers from cache for retry`);
+            }
+          } catch (cacheError) {
+            console.warn(`⚠️ Could not load cache for retry, using current state:`, cacheError);
+          }
+        }
+        
         for (const failedChunkIndex of failedChunks) {
           if (failedChunkIndex >= chunks.length) continue;
           
@@ -1457,8 +1534,32 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
             if (chunkResponseText) {
               const chunkResponse = JSON.parse(chunkResponseText);
               if (chunkResponse && chunkResponse.vouchers && Array.isArray(chunkResponse.vouchers)) {
-                allVouchers.push(...chunkResponse.vouchers);
-                console.log(`✅ Successfully retried chunk ${failedChunkIndex + 1}`);
+                const retryChunkVouchers = chunkResponse.vouchers;
+                
+                // Merge and save incrementally for retried chunks
+                try {
+                  console.log(`💾 Saving retried chunk ${failedChunkIndex + 1}/${chunks.length}: ${retryChunkVouchers.length} vouchers...`);
+                  const { mergedVouchers, maxAlterId } = await mergeAndSaveVouchers(
+                    retryCacheVouchers,
+                    retryChunkVouchers,
+                    companyInfo,
+                    email,
+                    booksfrom
+                  );
+                  
+                  // Update cache state for next retry
+                  retryCacheVouchers = mergedVouchers;
+                  
+                  // Update allVouchers to reflect merged state
+                  allVouchers = mergedVouchers;
+                  
+                  console.log(`✅ Successfully retried and saved chunk ${failedChunkIndex + 1}: ${mergedVouchers.length} total vouchers in cache (maxAlterId=${maxAlterId})`);
+                } catch (mergeError) {
+                  console.error(`❌ Error merging/saving retried chunk ${failedChunkIndex + 1}:`, mergeError);
+                  // Fallback: just add to allVouchers
+                  allVouchers.push(...retryChunkVouchers);
+                  console.warn(`⚠️ Retried chunk ${failedChunkIndex + 1} added to allVouchers without incremental save`);
+                }
               }
             }
             
@@ -1499,7 +1600,23 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
         }
       }
       
+      // Since we've been saving incrementally, load the final cache state
+      // This ensures we use the actual saved state rather than just allVouchers
+      try {
+        const finalCacheData = await hybridCache.getCompleteSalesData(companyInfo, email);
+        if (finalCacheData && finalCacheData.data && finalCacheData.data.vouchers && Array.isArray(finalCacheData.data.vouchers) && finalCacheData.data.vouchers.length > 0) {
+          allVouchers = finalCacheData.data.vouchers;
+          console.log(`✅ Loaded final cache state: ${allVouchers.length} vouchers (from incremental saves)`);
+        } else {
+          console.warn('⚠️ Final cache state is empty, using allVouchers from chunks');
+        }
+      } catch (cacheError) {
+        console.warn('⚠️ Could not load final cache state, using allVouchers from chunks:', cacheError);
+      }
+      
       // If this is an update, ALWAYS merge with existing cache data to preserve old data
+      // Note: Since we've been saving incrementally, this merge should be mostly redundant
+      // but kept as a safety net in case incremental saves missed something
       if (isUpdate) {
         console.log(`🔄 Chunked path: Processing update merge with ${allVouchers.length} vouchers from chunks`);
 
@@ -2633,6 +2750,32 @@ export const cacheSyncManager = new CacheSyncManager();
 export const syncSalesData = async (companyInfo, onProgress = () => { }, startFresh = false) => {
   if (!companyInfo) {
     throw new Error('No company selected');
+  }
+
+  // Check cache access permission
+  try {
+    // Full access and internal users always have access
+    if (!isFullAccessOrInternal()) {
+      // External users need to check admin setting
+      if (isExternalUser()) {
+        const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+        const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+        if (!hasAccess) {
+          throw new Error('Cache download is not available for external users. Please contact your administrator if you need this feature enabled.');
+        }
+      } else {
+        // Unknown access type - deny by default
+        throw new Error('Cache download is not available for your user type.');
+      }
+    }
+  } catch (error) {
+    // If it's already an Error with a message, re-throw it
+    if (error instanceof Error && error.message.includes('Cache download')) {
+      throw error;
+    }
+    // Otherwise, deny access for safety
+    console.error('Error checking cache access:', error);
+    throw new Error('Cache download is not available. Please contact your administrator.');
   }
 
   const email = getUserEmail();

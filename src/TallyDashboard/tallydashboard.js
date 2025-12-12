@@ -36,6 +36,7 @@ import { apiGet } from '../utils/apiUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { MobileMenu, useIsMobile } from './MobileViewConfig';
 import { syncCustomers, syncItems } from '../utils/cacheSyncManager';
+import { isExternalUser, clearAllCacheForExternalUser } from '../utils/cacheUtils';
 
 function TallyDashboard() {
   console.log('🎯 TallyDashboard component loading...');
@@ -82,6 +83,11 @@ function TallyDashboard() {
   // Window width state for responsive header
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   
+  // Sidebar refs for responsive scrolling
+  const sidebarRef = useRef(null);
+  const sidebarContentRef = useRef(null);
+  const [needsScrolling, setNeedsScrolling] = useState(false);
+  
   useEffect(() => {
     const handleResize = () => {
       setWindowWidth(window.innerWidth);
@@ -103,8 +109,95 @@ function TallyDashboard() {
   const [sidebarTooltip, setSidebarTooltip] = useState({ show: false, text: '', top: 0 });
   let sidebarTooltipTimeout = null;
   // Track active sidebar item - will be set based on user permissions
-  const [activeSidebar, setActiveSidebar] = useState('main');
+  // Restore from sessionStorage if available, otherwise default to 'main'
+  const [activeSidebar, setActiveSidebar] = useState(() => {
+    const saved = sessionStorage.getItem('activeSidebar');
+    return saved || 'main';
+  });
   const [sidebarLoading, setSidebarLoading] = useState(false);
+  
+  // Check if sidebar needs scrolling based on content height
+  useEffect(() => {
+    const checkScrollNeeded = () => {
+      if (!sidebarRef.current || !sidebarContentRef.current || isMobile) {
+        setNeedsScrolling(false);
+        return;
+      }
+
+      // Ensure sidebar content is rendered
+      const sidebarItems = sidebarContentRef.current?.children;
+      if (!sidebarItems || sidebarItems.length === 0) {
+        // Content not ready yet, disable scrolling for now
+        setNeedsScrolling(false);
+        return;
+      }
+      
+      // Get the sidebar container height (viewport height minus header)
+      const sidebarContainerHeight = sidebarRef.current.clientHeight;
+      
+      // Get the total scroll height of all content inside sidebar
+      // Note: scrollHeight is accurate even when overflow is hidden
+      const sidebarScrollHeight = sidebarRef.current.scrollHeight;
+      
+      // Check if content exceeds container height
+      // Enable scrolling if content height is >= container height
+      // Use >= to be more permissive and ensure the last item is always accessible
+      const needsScroll = sidebarScrollHeight >= sidebarContainerHeight;
+      
+      setNeedsScrolling(needsScroll);
+      
+      // Debug logging
+      console.log('📏 Sidebar scroll check:', {
+        containerHeight: sidebarContainerHeight,
+        scrollHeight: sidebarScrollHeight,
+        needsScroll,
+        difference: sidebarScrollHeight - sidebarContainerHeight,
+        ratio: sidebarContainerHeight > 0 ? (sidebarScrollHeight / sidebarContainerHeight * 100).toFixed(1) + '%' : 'N/A'
+      });
+    };
+
+    // Check immediately
+    checkScrollNeeded();
+
+    // Check after delays to ensure DOM is fully rendered and sidebar animation completes
+    const timeoutId = setTimeout(checkScrollNeeded, 100);
+    const timeoutId2 = setTimeout(checkScrollNeeded, 300);
+    const timeoutId3 = setTimeout(checkScrollNeeded, 500);
+    // Check after sidebar transition completes (300ms transition + buffer)
+    const timeoutId4 = setTimeout(checkScrollNeeded, 400);
+    const timeoutId5 = setTimeout(checkScrollNeeded, 600);
+
+    // Check on window resize
+    window.addEventListener('resize', checkScrollNeeded);
+    
+    // Check when sidebar content changes
+    const observer = new MutationObserver(() => {
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        setTimeout(checkScrollNeeded, 50);
+      });
+    });
+    
+    if (sidebarRef.current) {
+      observer.observe(sidebarRef.current, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+      });
+    }
+
+    return () => {
+      clearTimeout(timeoutId);
+      clearTimeout(timeoutId2);
+      clearTimeout(timeoutId3);
+      clearTimeout(timeoutId4);
+      clearTimeout(timeoutId5);
+      window.removeEventListener('resize', checkScrollNeeded);
+      observer.disconnect();
+    };
+  }, [sidebarOpen, sidebarLoading, isMobile, activeSidebar]);
+  
   const [pendingSidebarNavigation, setPendingSidebarNavigation] = useState(null);
   const [accessControlDropdownOpen, setAccessControlDropdownOpen] = useState(false);
   const [masterManagementDropdownOpen, setMasterManagementDropdownOpen] = useState(false);
@@ -124,6 +217,11 @@ function TallyDashboard() {
     if (!moduleId) return false;
     const module = MODULE_SEQUENCE.find(m => m.id === moduleId);
     if (module) {
+      // Special handling for cache_management - always allow access
+      // The CacheManagement component itself handles the access check and shows error if needed
+      if (module.key === 'cache_management') {
+        return true;
+      }
       if (module.key === 'main_menu' || isAlwaysVisible(module.key)) {
         return true;
       }
@@ -165,19 +263,54 @@ function TallyDashboard() {
     return 'main';
   }, []);
 
+  // Wrapper for setActiveSidebar that also persists to sessionStorage
+  const setActiveSidebarWithPersistence = useCallback((newSidebar) => {
+    setActiveSidebar(newSidebar);
+    sessionStorage.setItem('activeSidebar', newSidebar);
+  }, []);
+
+  // Also update the state setter directly to use persistence
+  // This ensures all calls to setActiveSidebar persist
+  useEffect(() => {
+    // Save to sessionStorage whenever activeSidebar changes
+    if (activeSidebar) {
+      sessionStorage.setItem('activeSidebar', activeSidebar);
+    }
+  }, [activeSidebar]);
+
+  // Replace setActiveSidebar with the persistent version
+  // We'll use setActiveSidebarWithPersistence everywhere
+
   const resolveActiveSidebar = useCallback((userModules) => {
     if (!userModules || userModules.length === 0) {
       if (activeSidebar !== 'main') {
-        setActiveSidebar('main');
+        setActiveSidebarWithPersistence('main');
       }
       desiredActiveSidebarRef.current = null;
       return;
     }
 
+    // Check if current activeSidebar is valid and accessible
+    // If it is, keep it (don't auto-switch to first module)
+    if (activeSidebar !== 'main' && isModuleAccessibleById(activeSidebar, userModules)) {
+      desiredActiveSidebarRef.current = null;
+      return;
+    }
+
+    // Only auto-switch if we're on 'main' and there's no saved valid sidebar
     if (activeSidebar === 'main') {
+      // Check if there's a saved sidebar that's still accessible
+      const savedSidebar = sessionStorage.getItem('activeSidebar');
+      if (savedSidebar && savedSidebar !== 'main' && isModuleAccessibleById(savedSidebar, userModules)) {
+        setActiveSidebarWithPersistence(savedSidebar);
+        desiredActiveSidebarRef.current = null;
+        return;
+      }
+      
+      // Otherwise, use first accessible module
       const firstModuleId = getFirstAccessibleModuleId(userModules);
       if (firstModuleId && firstModuleId !== 'main') {
-        setActiveSidebar(firstModuleId);
+        setActiveSidebarWithPersistence(firstModuleId);
         desiredActiveSidebarRef.current = null;
         return;
       }
@@ -186,23 +319,18 @@ function TallyDashboard() {
     const desiredId = desiredActiveSidebarRef.current;
     if (desiredId && isModuleAccessibleById(desiredId, userModules)) {
       if (activeSidebar !== desiredId) {
-        setActiveSidebar(desiredId);
+        setActiveSidebarWithPersistence(desiredId);
       }
-      desiredActiveSidebarRef.current = null;
-      return;
-    }
-
-    if (isModuleAccessibleById(activeSidebar, userModules)) {
       desiredActiveSidebarRef.current = null;
       return;
     }
 
     const fallbackId = getFirstAccessibleModuleId(userModules) || 'main';
     if (activeSidebar !== fallbackId) {
-      setActiveSidebar(fallbackId);
+      setActiveSidebarWithPersistence(fallbackId);
     }
     desiredActiveSidebarRef.current = null;
-  }, [activeSidebar, getFirstAccessibleModuleId, isModuleAccessibleById]);
+  }, [activeSidebar, getFirstAccessibleModuleId, isModuleAccessibleById, setActiveSidebarWithPersistence]);
   
   
   // Update access control dropdown position when it opens
@@ -621,11 +749,11 @@ function TallyDashboard() {
     };
   }, [resolveActiveSidebar]);
 
-  // Listen for navigation to Place Order from E-commerce
+    // Listen for navigation to Place Order from E-commerce
   useEffect(() => {
     const handleNavigateToPlaceOrder = (event) => {
       console.log('🛒 Navigate to Place Order event received:', event.detail);
-      setActiveSidebar('order');
+      setActiveSidebarWithPersistence('order');
     };
 
     window.addEventListener('navigateToPlaceOrder', handleNavigateToPlaceOrder);
@@ -633,7 +761,7 @@ function TallyDashboard() {
     return () => {
       window.removeEventListener('navigateToPlaceOrder', handleNavigateToPlaceOrder);
     };
-  }, []);
+  }, [setActiveSidebarWithPersistence]);
 
   // Fetch user access permissions for a company
   const fetchUserAccessPermissions = async (companyConnection) => {
@@ -729,92 +857,24 @@ function TallyDashboard() {
 
   // Global refresh function for all pages
   const handleGlobalRefresh = async () => {
-    console.log('🔄 Global refresh triggered - updating customers and stock items cache...');
-    console.log('🔄 Refresh button clicked!');
-    
-    // Get current company info
-    const currentCompany = allConnections.find(c => c.guid === selectedCompanyGuid);
-    console.log('🔄 Current company:', currentCompany);
-    if (!currentCompany) {
-      console.log('⚠️ No company selected for refresh');
-      return;
-    }
-    
-    const { tallyloc_id, company: companyVal } = currentCompany;
-    console.log('🔄 Refreshing cache for:', { tallyloc_id, companyVal });
-    
-    // Refresh customers and stock items cache
-    try {
-      console.log('🔄 Starting customers cache refresh...');
-      const customersResult = await syncCustomers(currentCompany);
-      console.log('✅ Customers cache refreshed:', customersResult);
-    } catch (error) {
-      console.error('❌ Failed to refresh customers cache:', error);
-    }
-    
-    try {
-      console.log('🔄 Starting stock items cache refresh...');
-      const itemsResult = await syncItems(currentCompany);
-      console.log('✅ Stock items cache refreshed:', itemsResult);
-    } catch (error) {
-      console.error('❌ Failed to refresh stock items cache:', error);
-    }
-    
-    // Clear old sessionStorage cache keys (for backward compatibility)
-    const cacheKeys = [
-      `ledgerlist_${tallyloc_id}_${companyVal}`,
-      `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`,
-      `stockitems_${tallyloc_id}_${companyVal}`,
-      `reportlist_${tallyloc_id}_${companyVal}`
-    ];
-    
-    cacheKeys.forEach(key => {
-      sessionStorage.removeItem(key);
-      console.log(`🗑️ Cleared old sessionStorage cache: ${key}`);
-    });
-    
-    // Refresh user connections so latest companies are available after cache clear
-    try {
-      console.log('🔄 Refreshing user connections...');
-      const response = await apiGet(`/api/tally/user-connections?ts=${Date.now()}`);
-      if (response) {
-        let connections = [];
-        if (Array.isArray(response)) {
-          connections = response.filter(item => item?.status === 'Connected');
-        } else if (response.createdByMe && response.sharedWithMe) {
-          const created = Array.isArray(response.createdByMe)
-            ? response.createdByMe.filter(row => row?.status === 'Connected').map(row => ({ ...row, type: 'Created By Me' }))
-            : [];
-          const shared = Array.isArray(response.sharedWithMe)
-            ? response.sharedWithMe.filter(row => row?.status === 'Connected').map(row => ({ ...row, type: 'Shared With Me' }))
-            : [];
-          connections = [...created, ...shared];
-        }
-
-        sessionStorage.setItem('allConnections', JSON.stringify(connections));
-        // Notify listeners that connection data has been refreshed
-        window.dispatchEvent(new CustomEvent('connectionsUpdated', { detail: connections }));
-        // Update local dropdown data immediately
-        if (connections.length < 100) {
-          setFilteredTopBarCompanies(connections);
-        } else {
-          setFilteredTopBarCompanies([]);
-        }
-        setConnectionsVersion((prev) => prev + 1);
-        console.log(`✅ Refreshed user connections: ${connections.length} entries`);
-      }
-    } catch (error) {
-      console.error('⚠️ Failed to refresh user connections during global refresh:', error);
-    }
-    
-    // Dispatch custom event to notify all components to refresh
-    console.log('🔄 Dispatching globalRefresh event...');
-    window.dispatchEvent(new CustomEvent('globalRefresh'));
-    
-    console.log('✅ Global refresh completed - customers and stock items cache updated');
+    console.log('🔄 Refresh button clicked! Reloading window...');
+    // Reload the window to refresh all data
+    window.location.reload();
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Clear cache for external users before clearing sessionStorage
+    try {
+      const accessType = sessionStorage.getItem('access_type') || '';
+      if (accessType.toLowerCase() === 'external' || isExternalUser()) {
+        console.log('🧹 Clearing cache for external user on logout...');
+        await clearAllCacheForExternalUser();
+      }
+    } catch (error) {
+      console.error('Error clearing cache on logout:', error);
+      // Continue with logout even if cache clearing fails
+    }
+    
     sessionStorage.clear();
     window.location.href = process.env.REACT_APP_HOMEPAGE || '/';
   };
@@ -825,7 +885,7 @@ function TallyDashboard() {
     if (window.salesDashboardLoading && activeSidebar === 'sales_dashboard') {
       console.log('⚠️ Navigation blocked - Sales dashboard is loading data');
       const navigationCallback = () => {
-        setActiveSidebar(newSidebarId);
+        setActiveSidebarWithPersistence(newSidebarId);
         setPendingSidebarNavigation(null);
       };
       setPendingSidebarNavigation(() => navigationCallback);
@@ -836,9 +896,9 @@ function TallyDashboard() {
     }
     
     // Safe to navigate
-    setActiveSidebar(newSidebarId);
+    setActiveSidebarWithPersistence(newSidebarId);
     return true;
-  }, [activeSidebar]);
+  }, [activeSidebar, setActiveSidebarWithPersistence]);
 
   // Execute pending navigation when user confirms
   useEffect(() => {
@@ -961,6 +1021,15 @@ function TallyDashboard() {
       // Always show modules marked as alwaysVisible (except main_menu and modules with submodules)
       if (isAlwaysVisible(module.key)) {
         console.log('✅ Rendering always visible module:', module.key, module.label);
+        return renderSidebarItem(module.key, module);
+      }
+      
+      // Special handling for cache_management - check access permissions
+      if (module.key === 'cache_management') {
+        // Check cache access asynchronously - we'll show it if user has access
+        // The CacheManagement component itself will handle the access check and show error if needed
+        // For now, we'll show it to all users and let the component handle access denial
+        // This is because access check is async and we don't want to block sidebar rendering
         return renderSidebarItem(module.key, module);
       }
       
@@ -1719,7 +1788,7 @@ function TallyDashboard() {
       <div key={module.key} style={{ marginBottom: 4 }}>
         <button
           onClick={() => { 
-            setActiveSidebar(module.id); 
+            setActiveSidebarWithPersistence(module.id); 
           }}
           style={{
             color: isParentActive ? '#ff9800' : '#fff',
@@ -2319,7 +2388,7 @@ function TallyDashboard() {
                 minWidth: windowWidth < 1000 ? '38px' : '44px',
                 height: windowWidth < 1000 ? '38px' : '44px',
               }}
-              title="Refresh all data (ledgers & stock items)"
+              title="Refresh window"
               onMouseEnter={(e) => {
                 e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
                 e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.5)';
@@ -2783,6 +2852,7 @@ function TallyDashboard() {
       {/* Sidebar - Hidden in Mobile */}
       {!isMobile && (
       <aside
+        ref={sidebarRef}
         className={`adminhome-sidebar sidebar-animated`}
         style={{
           height: 'calc(100vh - 64px)',
@@ -2790,7 +2860,7 @@ function TallyDashboard() {
           top: 64,
           left: 0,
           background: '#1e3a8a',
-          overflowY: 'auto',
+          overflowY: needsScrolling ? 'auto' : 'hidden',
           overflowX: 'hidden',
           width: sidebarOpen ? 260 : 70,
           minWidth: sidebarOpen ? 260 : 70,
@@ -2824,14 +2894,16 @@ function TallyDashboard() {
           />
         </div>
         {/* Sidebar items */}
-        <nav style={{ 
-          display: 'flex', 
-          flexDirection: 'column', 
-          gap: 8, 
-          fontSize: 15, 
-          marginTop: 8,
-          padding: '0 12px',
-        }}>
+        <nav 
+          ref={sidebarContentRef}
+          style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            gap: 8, 
+            fontSize: 15, 
+            marginTop: 8,
+            padding: '0 12px 16px 12px', // Added bottom padding to ensure last item is visible
+          }}>
           {sidebarLoading ? (
             <div style={{ 
               display: 'flex',

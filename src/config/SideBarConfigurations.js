@@ -242,7 +242,7 @@ export const MODULE_SEQUENCE = [
       id                : 'cache_management',
       label             : 'Cache Management',
       icon              : 'storage',
-      alwaysVisible     : true,
+      alwaysVisible     : false,
       permissions       : {}
     }
     

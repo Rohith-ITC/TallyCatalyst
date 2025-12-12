@@ -1,5 +1,6 @@
 // Hybrid cache implementation - OPFS with IndexedDB fallback
 import Dexie from 'dexie';
+import { isFullAccessOrInternal, isExternalUser, fetchExternalUserCacheEnabled, getCacheAccessPermission } from './cacheUtils';
 
 // Date range utility functions
 class DateRangeUtils {
@@ -606,6 +607,24 @@ class OPFSBackend {
 
   async setSalesData(cacheKey, data, maxAgeDays = null, startDate = null, endDate = null) {
     try {
+      // Check cache access permission before storing
+      if (!isFullAccessOrInternal()) {
+        if (isExternalUser()) {
+          const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+          const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+          if (!hasAccess) {
+            console.warn('⚠️ External user cache disabled - skipping persistent storage');
+            // Don't throw error, just skip persistent storage
+            // Data can still be used in memory/sessionStorage
+            return;
+          }
+        } else {
+          // Unknown access type - deny persistent storage
+          console.warn('⚠️ Unknown access type - skipping persistent storage');
+          return;
+        }
+      }
+
       await this.init();
 
       // Check data size and warn on mobile if large
@@ -1330,6 +1349,24 @@ class OPFSBackend {
   // Store complete sales data with metadata
   async setCompleteSalesData(companyInfo, data, metadata = {}) {
     try {
+      // Check cache access permission before storing
+      if (!isFullAccessOrInternal()) {
+        if (isExternalUser()) {
+          const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+          const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+          if (!hasAccess) {
+            console.warn('⚠️ External user cache disabled - skipping persistent storage');
+            // Don't throw error, just skip persistent storage
+            // Data can still be used in memory/sessionStorage
+            return;
+          }
+        } else {
+          // Unknown access type - deny persistent storage
+          console.warn('⚠️ Unknown access type - skipping persistent storage');
+          return;
+        }
+      }
+
       const syncStart = performance.now();
       await this.init();
       const email = metadata.email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
@@ -1887,6 +1924,24 @@ class IndexedDBBackend {
 
   async setSalesData(cacheKey, data, maxAgeDays = 5, startDate = null, endDate = null) {
     try {
+      // Check cache access permission before storing (IndexedDB backend)
+      if (!isFullAccessOrInternal()) {
+        if (isExternalUser()) {
+          const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+          const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+          if (!hasAccess) {
+            console.warn('⚠️ External user cache disabled - skipping persistent storage');
+            // Don't throw error, just skip persistent storage
+            // Data can still be used in memory/sessionStorage
+            return;
+          }
+        } else {
+          // Unknown access type - deny persistent storage
+          console.warn('⚠️ Unknown access type - skipping persistent storage');
+          return;
+        }
+      }
+
       await this.init();
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
@@ -2531,6 +2586,24 @@ class HybridCache {
   }
 
   async setSalesData(cacheKey, data, maxAgeDays = null, startDate = null, endDate = null) {
+    // Check cache access permission before storing
+    if (!isFullAccessOrInternal()) {
+      if (isExternalUser()) {
+        const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+        const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+        if (!hasAccess) {
+          console.warn('⚠️ External user cache disabled - skipping persistent storage');
+          // Don't throw error, just skip persistent storage
+          // Data can still be used in memory/sessionStorage
+          return;
+        }
+      } else {
+        // Unknown access type - deny persistent storage
+        console.warn('⚠️ Unknown access type - skipping persistent storage');
+        return;
+      }
+    }
+
     await this.init();
     // Use configured expiry if not provided
     if (maxAgeDays === null || maxAgeDays === undefined) {

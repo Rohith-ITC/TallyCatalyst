@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { apiPost } from '../utils/apiUtils';
 import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
-import { getCustomersFromOPFS } from '../utils/cacheSyncManager';
+import { getCustomersFromOPFS, syncCustomers } from '../utils/cacheSyncManager';
+import { generateOrderPdf } from '../utils/orderPdfUtils';
 
 
 function PlaceOrder() {
@@ -284,6 +285,7 @@ function PlaceOrder() {
   const [customerFocused, setCustomerFocused] = useState(false);
 
   const [refreshCustomers, setRefreshCustomers] = useState(0);
+  const [refreshingCustomers, setRefreshingCustomers] = useState(false);
 
 
 
@@ -1017,6 +1019,15 @@ function PlaceOrder() {
   const [compoundAddlQty, setCompoundAddlQty] = useState(null); // Store compound additional unit quantity (e.g., 25.7 pkt from "25 pkt 7 nos")
   const [baseQtyOnly, setBaseQtyOnly] = useState(null); // Store only the base quantity (e.g., 3 box from "3 box 9 pkt 7 nos")
   const settingCustomConversionRef = useRef(false); // Prevent infinite loop when setting custom conversion
+  // Refs for form field navigation
+  const itemInputRef = useRef(null);
+  const quantityInputRef = useRef(null);
+  const quantityInputFallbackRef = useRef(null);
+  const rateInputRef = useRef(null);
+  const discountInputRef = useRef(null);
+  const gstInputRef = useRef(null);
+  const descriptionInputRef = useRef(null);
+  const addItemButtonRef = useRef(null);
   const [itemRate, setItemRate] = useState(0);
 
   const [itemDiscountPercent, setItemDiscountPercent] = useState(0);
@@ -4678,6 +4689,31 @@ function PlaceOrder() {
 
   }, [company, refreshCustomers, filteredCompanies.length]); // Use length instead of array reference to prevent infinite loops
 
+  // Handler to refresh customers cache
+  const handleRefreshCustomers = async () => {
+    if (!company || refreshingCustomers) return;
+    
+    const currentCompany = companies.find(c => c.guid === company);
+    if (!currentCompany) {
+      console.warn('No company selected for refresh');
+      return;
+    }
+
+    setRefreshingCustomers(true);
+    try {
+      console.log('🔄 Refreshing customers cache...');
+      await syncCustomers(currentCompany);
+      console.log('✅ Customers cache refreshed');
+      // Trigger refresh by incrementing refreshCustomers
+      setRefreshCustomers(prev => prev + 1);
+    } catch (error) {
+      console.error('❌ Failed to refresh customers cache:', error);
+      setCustomerError('Failed to refresh customers cache. Please try again.');
+    } finally {
+      setRefreshingCustomers(false);
+    }
+  };
+
 
 
   // Fetch stock items when company changes or refreshStockItems increments
@@ -6782,6 +6818,9 @@ function PlaceOrder() {
       if (result.success) {
 
         // Order created successfully
+        // Store order data before resetting form for PDF generation
+        const orderDate = new Date();
+        const voucherNumberFromResponse = result.tallyResponse?.BODY?.DATA?.IMPORTRESULT?.VCHNUMBER || voucherNumber;
 
         setOrderResult({
 
@@ -6789,7 +6828,27 @@ function PlaceOrder() {
 
           message: 'Order placed successfully!',
 
-          tallyResponse: result.tallyResponse
+          tallyResponse: result.tallyResponse,
+          
+          // Store order data for PDF generation
+          orderData: {
+            orderItems: [...orderItems],
+            selectedCustomer: selectedCustomer,
+            selectedCustomerObj: { ...selectedCustomerObj },
+            currentCompany: { ...currentCompany },
+            orderDate: orderDate,
+            voucherNumber: voucherNumberFromResponse,
+            voucherType: selectedVoucherType,
+            buyerOrderRef: buyerOrderRef,
+            paymentTerms: paymentTerms,
+            deliveryTerms: deliveryTerms,
+            narration: narration,
+            editableAddress: editableAddress,
+            editableState: editableState,
+            editableCountry: editableCountry,
+            editableGstNo: editableGstNo,
+            editablePincode: editablePincode
+          }
 
         });
 
@@ -6877,7 +6936,196 @@ function PlaceOrder() {
 
   };
 
+  // Handle Print PDF
+  const handlePrint = () => {
+    if (!orderResult.orderData) {
+      alert('Order data not available for printing');
+      return;
+    }
 
+    try {
+      const pdf = generateOrderPdf(orderResult.orderData);
+      
+      // Generate blob and create iframe for printing
+      const pdfBlob = pdf.output('blob');
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      
+      // Create iframe for printing
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      iframe.src = pdfUrl;
+      
+      document.body.appendChild(iframe);
+      
+      iframe.onload = () => {
+        setTimeout(() => {
+          iframe.contentWindow.print();
+          // Clean up after printing
+          setTimeout(() => {
+            document.body.removeChild(iframe);
+            URL.revokeObjectURL(pdfUrl);
+          }, 100);
+        }, 250);
+      };
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Error generating PDF: ' + error.message);
+    }
+  };
+
+  // Handle WhatsApp Share
+  const handleWhatsAppShare = () => {
+    if (!orderResult.orderData) {
+      alert('Order data not available for sharing');
+      return;
+    }
+
+    try {
+      const pdf = generateOrderPdf(orderResult.orderData);
+      
+      // Generate blob
+      const pdfBlob = pdf.output('blob');
+      const fileName = `Order_${orderResult.orderData.voucherNumber || 'Receipt'}.pdf`;
+      const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
+      
+      // Detect if mobile device
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                      (window.innerWidth <= 768);
+      
+      // On mobile, use Web Share API (shows share menu where user can select WhatsApp)
+      // On desktop, directly open WhatsApp Web (skip share menu)
+      if (isMobile && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        // Mobile: Use native share menu
+        navigator.share({
+          title: `Order Receipt - ${orderResult.orderData.voucherNumber || 'Receipt'}`,
+          text: `Order Receipt - Voucher: ${orderResult.orderData.voucherNumber || 'N/A'}`,
+          files: [file]
+        }).catch((error) => {
+          console.log('Share failed:', error);
+          // Fallback to download method
+          downloadAndOpenWhatsApp(pdfBlob, fileName, orderResult.orderData.voucherNumber);
+        });
+      } else {
+        // Desktop: Directly open WhatsApp Web
+        downloadAndOpenWhatsApp(pdfBlob, fileName, orderResult.orderData.voucherNumber);
+      }
+    } catch (error) {
+      console.error('Error generating PDF for WhatsApp:', error);
+      alert('Error generating PDF: ' + error.message);
+    }
+  };
+
+  // Helper function to download PDF and open WhatsApp
+  const downloadAndOpenWhatsApp = (pdfBlob, fileName, voucherNumber) => {
+    // Download the PDF
+    const pdfUrl = URL.createObjectURL(pdfBlob);
+    const link = document.createElement('a');
+    link.href = pdfUrl;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(pdfUrl);
+
+    // Open WhatsApp Web/Desktop with message
+    setTimeout(() => {
+      const message = `Order Receipt - Voucher: ${voucherNumber || 'N/A'}\n\n📎 PDF downloaded: ${fileName}\nPlease attach it using the 📎 button.`;
+      
+      // Try WhatsApp Desktop app first
+      try {
+        window.location.href = `whatsapp://send?text=${encodeURIComponent(message)}`;
+        
+        // If desktop app doesn't respond, fall back to WhatsApp Web after a delay
+        setTimeout(() => {
+          window.open(`https://web.whatsapp.com/send?text=${encodeURIComponent(message)}`, '_blank');
+        }, 1000);
+      } catch (e) {
+        // Fallback to WhatsApp Web
+        window.open(`https://web.whatsapp.com/send?text=${encodeURIComponent(message)}`, '_blank');
+      }
+    }, 500);
+  };
+
+  // Handle Email Share
+  const handleEmailShare = () => {
+    if (!orderResult.orderData) {
+      alert('Order data not available for sharing');
+      return;
+    }
+
+    try {
+      const pdf = generateOrderPdf(orderResult.orderData);
+      const pdfBlob = pdf.output('blob');
+      const fileName = `Order_${orderResult.orderData.voucherNumber || 'Receipt'}.pdf`;
+      
+      // Download the PDF first
+      const pdfUrl = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = pdfUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(pdfUrl);
+
+      // Open default email client with pre-filled subject and body
+      setTimeout(() => {
+        const subject = encodeURIComponent(`Order Receipt - Voucher: ${orderResult.orderData.voucherNumber || 'N/A'}`);
+        const body = encodeURIComponent(`Please find attached the order receipt.\n\nVoucher Number: ${orderResult.orderData.voucherNumber || 'N/A'}\n\nPlease attach the downloaded PDF file: ${fileName}`);
+        window.location.href = `mailto:?subject=${subject}&body=${body}`;
+      }, 500);
+    } catch (error) {
+      console.error('Error generating PDF for email:', error);
+      alert('Error generating PDF: ' + error.message);
+    }
+  };
+
+  // Navigation function to find and focus the next available field
+  const focusNextField = (currentField) => {
+    // Define field order - conditions are checked dynamically
+    const fieldOrder = [
+      { ref: itemInputRef, checkCondition: () => true }, // Item is always visible
+      { ref: quantityInputRef, checkCondition: () => selectedItemUnitConfig && quantityInputRef.current }, // Quantity (Tally-style)
+      { ref: quantityInputFallbackRef, checkCondition: () => !selectedItemUnitConfig && quantityInputFallbackRef.current }, // Quantity (fallback)
+      { ref: rateInputRef, checkCondition: () => canShowRateAmtColumn && rateInputRef.current }, // Rate
+      { ref: discountInputRef, checkCondition: () => canShowRateAmtColumn && canShowDiscColumn && discountInputRef.current }, // Discount
+      { ref: gstInputRef, checkCondition: () => canShowRateAmtColumn && gstInputRef.current }, // GST
+      { ref: descriptionInputRef, checkCondition: () => (canShowItemDesc || showDescription) && descriptionInputRef.current }, // Description
+    ];
+
+    // Find current field index
+    const currentIndex = fieldOrder.findIndex(field => field.ref === currentField);
+    
+    // Find next available field
+    for (let i = currentIndex + 1; i < fieldOrder.length; i++) {
+      const field = fieldOrder[i];
+      if (field.checkCondition() && field.ref.current) {
+        // Check if field is disabled or readonly (skip readonly fields except GST which is always readonly)
+        const isReadOnly = field.ref.current.readOnly;
+        const isDisabled = field.ref.current.disabled;
+        
+        // Allow focusing readonly fields (like GST) but skip disabled ones
+        if (!isDisabled) {
+          field.ref.current.focus();
+          // Select text for input fields (not textarea)
+          if (field.ref.current.select && field.ref.current.type !== 'textarea') {
+            field.ref.current.select();
+          }
+          return;
+        }
+      }
+    }
+
+    // If no more fields, focus the Add Item button
+    if (addItemButtonRef.current && !addItemButtonRef.current.disabled) {
+      addItemButtonRef.current.focus();
+    }
+  };
 
   const addOrderItem = () => {
 
@@ -8062,6 +8310,88 @@ function PlaceOrder() {
                 </span>
 
               </div>
+
+              <button
+
+                onClick={handleRefreshCustomers}
+
+                disabled={refreshingCustomers || !company}
+
+                title="Refresh customers cache"
+
+                style={{
+
+                  background: refreshingCustomers ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+
+                  border: 'none',
+
+                  borderRadius: '8px',
+
+                  padding: isMobile ? '6px' : '8px',
+
+                  cursor: (refreshingCustomers || !company) ? 'not-allowed' : 'pointer',
+
+                  display: 'flex',
+
+                  alignItems: 'center',
+
+                  justifyContent: 'center',
+
+                  minWidth: isMobile ? '32px' : '36px',
+
+                  height: isMobile ? '32px' : '36px',
+
+                  transition: 'all 0.2s',
+
+                  boxShadow: (refreshingCustomers || !company) ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
+
+                  opacity: (refreshingCustomers || !company) ? 0.6 : 1
+
+                }}
+
+                onMouseEnter={(e) => {
+
+                  if (!refreshingCustomers && company) {
+
+                    e.currentTarget.style.transform = 'scale(1.05)';
+
+                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+
+                  }
+
+                }}
+
+                onMouseLeave={(e) => {
+
+                  e.currentTarget.style.transform = 'scale(1)';
+
+                  e.currentTarget.style.boxShadow = (refreshingCustomers || !company) ? 'none' : '0 2px 4px rgba(0,0,0,0.1)';
+
+                }}
+
+              >
+
+                <span
+
+                  className="material-icons"
+
+                  style={{
+
+                    fontSize: isMobile ? '16px' : '18px',
+
+                    color: '#fff',
+
+                    animation: refreshingCustomers ? 'spin 1s linear infinite' : 'none'
+
+                  }}
+
+                >
+
+                  refresh
+
+                </span>
+
+              </button>
 
             </div>
 
@@ -9577,10 +9907,17 @@ function PlaceOrder() {
                 }}>
 
                   <input
-
+                    ref={itemInputRef}
                     type="text"
 
                     value={selectedItem || itemSearchTerm}
+
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        focusNextField(itemInputRef);
+                      }
+                    }}
 
                     onChange={(e) => {
 
@@ -10117,7 +10454,7 @@ function PlaceOrder() {
                     minWidth: 0
                   }}>
                     <input
-
+                      ref={quantityInputRef}
                       type="text"
 
                       value={quantityInput}
@@ -10133,6 +10470,12 @@ function PlaceOrder() {
                         // While typing, just update the input - don't validate yet
                         // Validation will happen on blur
                         setQuantityInput(filtered);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          focusNextField(quantityInputRef);
+                        }
                       }}
                       onBlur={(e) => {
                         // Final validation on blur - always round/format based on unit's decimal places
@@ -10569,12 +10912,19 @@ function PlaceOrder() {
                   }}>
 
                     <input
-
+                      ref={quantityInputFallbackRef}
                       type="number"
 
                       value={itemQuantity}
 
                       onChange={(e) => setItemQuantity(parseFloat(e.target.value) || 0)}
+
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          focusNextField(quantityInputFallbackRef);
+                        }
+                      }}
 
                       onFocus={() => setQuantityFocused(true)}
 
@@ -10799,11 +11149,20 @@ function PlaceOrder() {
 
                       <input
 
+                        ref={rateInputRef}
+
                         type="number"
 
                         value={itemRate}
 
                         onChange={canEditRate ? (e) => setItemRate(parseFloat(e.target.value) || 0) : undefined}
+
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            focusNextField(rateInputRef);
+                          }
+                        }}
 
                         readOnly={!canEditRate}
 
@@ -11265,12 +11624,19 @@ function PlaceOrder() {
                   }}>
 
                     <input
-
+                      ref={discountInputRef}
                       type="number"
 
                       value={itemDiscountPercent}
 
                       onChange={canEditDiscount ? (e) => setItemDiscountPercent(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))) : undefined}
+
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          focusNextField(discountInputRef);
+                        }
+                      }}
 
                       readOnly={!canEditDiscount}
 
@@ -11363,10 +11729,17 @@ function PlaceOrder() {
                   }}>
 
                     <input
-
+                      ref={gstInputRef}
                       type="number"
 
                       value={itemGstPercent}
+
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          focusNextField(gstInputRef);
+                        }
+                      }}
 
                       style={{
 
@@ -11475,10 +11848,17 @@ function PlaceOrder() {
               {/* Add Button */}
 
               <button
-
+                ref={addItemButtonRef}
                 type="button"
 
                 onClick={addOrderItem}
+
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addOrderItem();
+                  }
+                }}
 
                 disabled={!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)}
 
@@ -11683,10 +12063,17 @@ function PlaceOrder() {
                     }}>
 
                       <textarea
-
+                        ref={descriptionInputRef}
                         value={itemDescription}
 
                         onChange={(e) => setItemDescription(e.target.value)}
+
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            focusNextField(descriptionInputRef);
+                          }
+                        }}
 
                         onFocus={() => setDescriptionFocused(true)}
 
@@ -13486,9 +13873,147 @@ function PlaceOrder() {
 
                 display: 'flex',
 
-                justifyContent: 'center'
+                justifyContent: 'center',
+
+                gap: '12px',
+
+                flexWrap: 'wrap'
 
               }}>
+
+                {orderResult.success && orderResult.orderData && (
+
+                  <>
+
+                    <button
+
+                      onClick={handlePrint}
+
+                      style={{
+
+                        background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+
+                        color: '#fff',
+
+                        border: 'none',
+
+                        borderRadius: '8px',
+
+                        padding: '12px 24px',
+
+                        cursor: 'pointer',
+
+                        fontSize: '14px',
+
+                        fontWeight: '600',
+
+                        minWidth: '100px',
+
+                        display: 'flex',
+
+                        alignItems: 'center',
+
+                        justifyContent: 'center',
+
+                        gap: '6px'
+
+                      }}
+
+                    >
+
+                      <span className="material-icons" style={{ fontSize: '18px' }}>print</span>
+
+                      Print
+
+                    </button>
+
+                    <button
+
+                      onClick={handleWhatsAppShare}
+
+                      style={{
+
+                        background: 'linear-gradient(135deg, #25d366 0%, #128c7e 100%)',
+
+                        color: '#fff',
+
+                        border: 'none',
+
+                        borderRadius: '8px',
+
+                        padding: '12px 24px',
+
+                        cursor: 'pointer',
+
+                        fontSize: '14px',
+
+                        fontWeight: '600',
+
+                        minWidth: '100px',
+
+                        display: 'flex',
+
+                        alignItems: 'center',
+
+                        justifyContent: 'center',
+
+                        gap: '6px'
+
+                      }}
+
+                    >
+
+                      <span className="material-icons" style={{ fontSize: '18px' }}>send</span>
+
+                      WhatsApp
+
+                    </button>
+
+                    <button
+
+                      onClick={handleEmailShare}
+
+                      style={{
+
+                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+
+                        color: '#fff',
+
+                        border: 'none',
+
+                        borderRadius: '8px',
+
+                        padding: '12px 24px',
+
+                        cursor: 'pointer',
+
+                        fontSize: '14px',
+
+                        fontWeight: '600',
+
+                        minWidth: '100px',
+
+                        display: 'flex',
+
+                        alignItems: 'center',
+
+                        justifyContent: 'center',
+
+                        gap: '6px'
+
+                      }}
+
+                    >
+
+                      <span className="material-icons" style={{ fontSize: '18px' }}>email</span>
+
+                      Email
+
+                    </button>
+
+                  </>
+
+                )}
 
                 <button
 
@@ -13522,7 +14047,7 @@ function PlaceOrder() {
 
                 >
 
-                  {orderResult.success ? 'Great!' : 'Close'}
+                  {orderResult.success ? 'Close' : 'Close'}
 
                 </button>
 
