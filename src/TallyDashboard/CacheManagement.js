@@ -5,6 +5,10 @@ import { syncSalesData, syncCustomers, syncItems, cacheSyncManager, safeSessionS
 import ResumeDownloadModal from './components/ResumeDownloadModal';
 import { useIsMobile } from './MobileViewConfig';
 import { isFullAccessOrInternal, isExternalUser, fetchExternalUserCacheEnabled, getCacheAccessPermission } from '../utils/cacheUtils';
+import { fetchJsonFromGmail } from '../utils/gmailUtils';
+import { gmailAutoSync } from '../utils/gmailAutoSync';
+import { getValidGoogleTokenFromConfigs } from '../utils/googleDriveUtils';
+import { getGoogleUserEmail } from '../utils/gmailUtils';
 
 // Helper to remove sessionStorage key and its chunks (for backward compatibility)
 const removeSessionStorageKey = (key) => {
@@ -75,6 +79,26 @@ const CacheManagement = () => {
   // Access control state
   const [hasCacheAccess, setHasCacheAccess] = useState(true);
   const [checkingAccess, setCheckingAccess] = useState(true);
+
+  // Gmail JSON fetch state
+  const [fetchingGmailJson, setFetchingGmailJson] = useState(false);
+  const [gmailJsonStatus, setGmailJsonStatus] = useState('');
+  const [gmailJsonConfigured, setGmailJsonConfigured] = useState(false);
+  const [googleAccountEmail, setGoogleAccountEmail] = useState(null);
+
+  // External user session cache date range state
+  const getDefaultFromDate = () => {
+    const today = new Date();
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    return firstDayOfMonth.toISOString().split('T')[0];
+  };
+  const getDefaultToDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+  const [externalUserFromDate, setExternalUserFromDate] = useState(getDefaultFromDate());
+  const [externalUserToDate, setExternalUserToDate] = useState(getDefaultToDate());
+  const [downloadingSessionCache, setDownloadingSessionCache] = useState(false);
 
   // Load progress for selected company
   const loadCompanyProgress = async () => {
@@ -593,6 +617,96 @@ const CacheManagement = () => {
     }
   };
 
+  // Check Google account configuration for Gmail fetch
+  useEffect(() => {
+    const checkGoogleConfig = async () => {
+      try {
+        const tallylocId = sessionStorage.getItem('tallyloc_id');
+        const coGuid = sessionStorage.getItem('selectedCompanyGuid');
+        const userEmail = isExternalUser() ? sessionStorage.getItem('email') : null;
+
+        if (!tallylocId || !coGuid) {
+          setGmailJsonConfigured(false);
+          return;
+        }
+
+        const token = await getValidGoogleTokenFromConfigs(tallylocId, coGuid, userEmail);
+        if (token) {
+          setGmailJsonConfigured(true);
+          const email = await getGoogleUserEmail(token);
+          setGoogleAccountEmail(email);
+        } else {
+          setGmailJsonConfigured(false);
+          setGoogleAccountEmail(null);
+        }
+      } catch (error) {
+        console.error('Error checking Google config:', error);
+        setGmailJsonConfigured(false);
+      }
+    };
+
+    if (selectedCompany) {
+      checkGoogleConfig();
+    }
+  }, [selectedCompany]);
+
+  // Handler for fetching JSON from Gmail
+  const handleFetchJsonFromGmail = async () => {
+    if (!selectedCompany) {
+      setGmailJsonStatus('Please select a company first');
+      setTimeout(() => setGmailJsonStatus(''), 3000);
+      return;
+    }
+
+    setFetchingGmailJson(true);
+    setGmailJsonStatus('Fetching JSON from Gmail...');
+
+    try {
+      // TODO: Replace SUBJECT_PATTERN_PLACEHOLDER with actual subject pattern when provided
+      const subjectPattern = 'SUBJECT_PATTERN_PLACEHOLDER'; // Will be replaced later
+      
+      if (subjectPattern === 'SUBJECT_PATTERN_PLACEHOLDER') {
+        setGmailJsonStatus('Subject pattern not configured. Please configure it in the code.');
+        setTimeout(() => setGmailJsonStatus(''), 5000);
+        setFetchingGmailJson(false);
+        return;
+      }
+
+      const userEmail = isExternalUser() ? sessionStorage.getItem('email') : null;
+      const result = await fetchJsonFromGmail(
+        subjectPattern,
+        selectedCompany.tallyloc_id,
+        selectedCompany.guid,
+        userEmail
+      );
+
+      if (result.success && result.downloaded) {
+        // Store in cache using gmailAutoSync service
+        await gmailAutoSync.storeJsonInCache(result.data, result.messageId);
+        setGmailJsonStatus(`✅ JSON file downloaded and cached successfully! Message ID: ${result.messageId.substring(0, 8)}...`);
+        setMessage({ type: 'success', text: 'JSON file fetched from Gmail and loaded into cache successfully!' });
+        setTimeout(() => {
+          setGmailJsonStatus('');
+          setMessage({ type: '', text: '' });
+        }, 5000);
+        // Reload cache stats
+        loadCacheStats();
+      } else if (result.success && !result.downloaded) {
+        setGmailJsonStatus('ℹ️ ' + (result.message || 'No new emails found'));
+        setTimeout(() => setGmailJsonStatus(''), 5000);
+      } else {
+        setGmailJsonStatus('❌ ' + (result.error || 'Failed to fetch JSON'));
+        setTimeout(() => setGmailJsonStatus(''), 5000);
+      }
+    } catch (error) {
+      console.error('Error fetching JSON from Gmail:', error);
+      setGmailJsonStatus('❌ Error: ' + error.message);
+      setTimeout(() => setGmailJsonStatus(''), 5000);
+    } finally {
+      setFetchingGmailJson(false);
+    }
+  };
+
   const loadCacheEntries = async () => {
     setLoadingEntries(true);
     try {
@@ -613,42 +727,63 @@ const CacheManagement = () => {
     setMessage({ type: '', text: '' });
 
     try {
-      // Clear all cache by clearing OPFS directories
-      const opfsRoot = await navigator.storage.getDirectory();
+      // Check which backend is being used
+      const cacheStats = await hybridCache.getCacheStats();
+      const isUsingIndexedDB = cacheStats.isUsingIndexedDB;
 
-      // Clear sales directory
-      try {
-        await opfsRoot.removeEntry('sales', { recursive: true });
-        await opfsRoot.getDirectoryHandle('sales', { create: true });
-      } catch (err) {
-        // Directory might not exist
-      }
+      if (isUsingIndexedDB) {
+        // Clear IndexedDB backend using hybridCache method
+        console.log('🧹 Clearing IndexedDB cache...');
+        try {
+          await hybridCache.clearAllCache();
+        } catch (indexedDBError) {
+          console.error('Error clearing IndexedDB:', indexedDBError);
+          // Continue with other cleanup steps
+        }
+      } else {
+        // Clear OPFS backend
+        console.log('🧹 Clearing OPFS cache...');
+        try {
+          const opfsRoot = await navigator.storage.getDirectory();
 
-      // Clear dashboard directory
-      try {
-        await opfsRoot.removeEntry('dashboard', { recursive: true });
-        await opfsRoot.getDirectoryHandle('dashboard', { create: true });
-      } catch (err) {
-        // Directory might not exist
-      }
+          // Clear sales directory
+          try {
+            await opfsRoot.removeEntry('sales', { recursive: true });
+            await opfsRoot.getDirectoryHandle('sales', { create: true });
+          } catch (err) {
+            // Directory might not exist
+          }
 
-      // Clear metadata (both sales and dashboard)
-      try {
-        const metadataDir = await opfsRoot.getDirectoryHandle('metadata', { create: true });
+          // Clear dashboard directory
+          try {
+            await opfsRoot.removeEntry('dashboard', { recursive: true });
+            await opfsRoot.getDirectoryHandle('dashboard', { create: true });
+          } catch (err) {
+            // Directory might not exist
+          }
 
-        // Clear sales metadata
-        const salesFile = await metadataDir.getFileHandle('sales.json', { create: true });
-        const salesWritable = await salesFile.createWritable();
-        await salesWritable.write(JSON.stringify([]));
-        await salesWritable.close();
+          // Clear metadata (both sales and dashboard)
+          try {
+            const metadataDir = await opfsRoot.getDirectoryHandle('metadata', { create: true });
 
-        // Clear dashboard metadata
-        const dashboardFile = await metadataDir.getFileHandle('dashboard.json', { create: true });
-        const dashboardWritable = await dashboardFile.createWritable();
-        await dashboardWritable.write(JSON.stringify([]));
-        await dashboardWritable.close();
-      } catch (err) {
-        console.warn('Failed to clear metadata:', err);
+            // Clear sales metadata
+            const salesFile = await metadataDir.getFileHandle('sales.json', { create: true });
+            const salesWritable = await salesFile.createWritable();
+            await salesWritable.write(JSON.stringify([]));
+            await salesWritable.close();
+
+            // Clear dashboard metadata
+            const dashboardFile = await metadataDir.getFileHandle('dashboard.json', { create: true });
+            const dashboardWritable = await dashboardFile.createWritable();
+            await dashboardWritable.write(JSON.stringify([]));
+            await dashboardWritable.close();
+          } catch (err) {
+            console.warn('Failed to clear metadata:', err);
+          }
+        } catch (opfsError) {
+          console.error('Error clearing OPFS:', opfsError);
+          // Continue with other cleanup steps
+        }
       }
 
       // Clear session storage for items and customers (including count keys)
@@ -676,9 +811,6 @@ const CacheManagement = () => {
       progressKeysToRemove.forEach(key => sessionStorage.removeItem(key));
 
       setSessionCacheStats({ customers: 0, items: 0 });
-
-      // Note: We keep the keys directory as it contains user encryption keys
-      // Clearing it would prevent decryption of any remaining cached data
 
       // Clear in-memory metadata cache to ensure listAllCacheEntries shows updated data
       await hybridCache.clearMetadataCache();
@@ -1205,6 +1337,103 @@ const CacheManagement = () => {
     }
   };
 
+  // Download session cache for external users (date range specific)
+  const downloadSessionCacheForExternalUser = async () => {
+    if (!selectedCompany) {
+      setMessage({ type: 'error', text: 'No company selected' });
+      return;
+    }
+
+    if (!externalUserFromDate || !externalUserToDate) {
+      setMessage({ type: 'error', text: 'Please select both From Date and To Date' });
+      return;
+    }
+
+    // Validate date range
+    const fromDate = new Date(externalUserFromDate);
+    const toDate = new Date(externalUserToDate);
+    if (fromDate > toDate) {
+      setMessage({ type: 'error', text: 'From Date must be before or equal to To Date' });
+      return;
+    }
+
+    setDownloadingSessionCache(true);
+    setMessage({ type: '', text: '' });
+    setDownloadProgress({ current: 0, total: 1, message: 'Fetching data for selected date range...' });
+
+    try {
+      const { apiPost } = await import('../utils/apiUtils');
+      const { formatDateForAPI } = await import('../utils/cacheSyncManager');
+      
+      const payload = {
+        tallyloc_id: selectedCompany.tallyloc_id,
+        company: selectedCompany.company,
+        guid: selectedCompany.guid,
+        fromdate: formatDateForAPI(externalUserFromDate),
+        todate: formatDateForAPI(externalUserToDate),
+        serverslice: "No",
+        vouchertype: "$$isSales, $$IsCreditNote"
+      };
+
+      const salesextractUrl = `${(await import('../config')).getApiUrl('/api/reports/salesextract')}?ts=${Date.now()}`;
+      const token = sessionStorage.getItem('token');
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      };
+
+      setDownloadProgress({ current: 0, total: 1, message: 'Downloading data...' });
+
+      const response = await fetch(salesextractUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const responseText = await response.text();
+      const responseData = JSON.parse(responseText);
+
+      if (responseData && responseData.vouchers && Array.isArray(responseData.vouchers)) {
+        const vouchers = responseData.vouchers;
+        
+        // Store in session cache with special prefix
+        const sessionCacheKey = `session_cache_${selectedCompany.guid}_${selectedCompany.tallyloc_id}_${externalUserFromDate}_${externalUserToDate}`;
+        const sessionCacheData = {
+          vouchers: vouchers,
+          fromDate: externalUserFromDate,
+          toDate: externalUserToDate,
+          timestamp: Date.now()
+        };
+
+        // Store in OPFS/IndexedDB with session cache prefix
+        await hybridCache.setSessionCacheData(selectedCompany, sessionCacheData, sessionCacheKey);
+
+        setMessage({ 
+          type: 'success', 
+          text: `Successfully downloaded ${vouchers.length} vouchers for the selected date range. This cache will be cleared on logout.` 
+        });
+        setDownloadProgress({ current: 1, total: 1, message: 'Download complete!' });
+        
+        // Clear progress after 3 seconds
+        setTimeout(() => {
+          setDownloadProgress({ current: 0, total: 0, message: '' });
+        }, 3000);
+      } else {
+        throw new Error('Invalid response format from server');
+      }
+    } catch (error) {
+      console.error('Error downloading session cache:', error);
+      setMessage({ type: 'error', text: `Failed to download data: ${error.message}` });
+      setDownloadProgress({ current: 0, total: 0, message: '' });
+    } finally {
+      setDownloadingSessionCache(false);
+    }
+  };
+
   // View cache file as JSON
   const viewCacheAsJson = async (cacheKey) => {
     setViewingJsonCache(cacheKey);
@@ -1474,6 +1703,190 @@ const CacheManagement = () => {
         </div>
       )}
 
+      {/* External User Session Cache Section */}
+      {isExternalUser() && (
+        <div style={{
+          background: '#fff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '16px',
+          padding: isMobile ? '16px' : '24px',
+          marginBottom: isMobile ? '16px' : '24px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            marginBottom: isMobile ? '16px' : '20px'
+          }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '28px', color: '#8b5cf6' }}>
+              cloud_download
+            </span>
+            <h3 style={{
+              fontSize: isMobile ? '16px' : '18px',
+              fontWeight: 600,
+              color: '#1e293b',
+              margin: 0
+            }}>
+              Session Cache Download
+            </h3>
+          </div>
+          <p style={{
+            fontSize: isMobile ? '13px' : '14px',
+            color: '#64748b',
+            marginBottom: isMobile ? '16px' : '20px',
+            lineHeight: '1.6'
+          }}>
+            Download data for a specific date range. This cache will be stored temporarily and automatically cleared when you logout.
+          </p>
+
+          {/* Date Range Inputs */}
+          <div style={{
+            display: 'flex',
+            gap: isMobile ? '12px' : '16px',
+            flexWrap: 'wrap',
+            marginBottom: '16px',
+            flexDirection: isMobile ? 'column' : 'row'
+          }}>
+            <div style={{ flex: isMobile ? '1 1 100%' : '1 1 calc(50% - 8px)', minWidth: isMobile ? '100%' : '200px' }}>
+              <label style={{ 
+                display: 'block', 
+                fontSize: isMobile ? '13px' : '14px', 
+                fontWeight: 500, 
+                color: '#475569', 
+                marginBottom: '6px' 
+              }}>
+                From Date
+              </label>
+              <input
+                type="date"
+                value={externalUserFromDate}
+                onChange={(e) => setExternalUserFromDate(e.target.value)}
+                disabled={downloadingSessionCache || !selectedCompany}
+                style={{
+                  width: '100%',
+                  padding: isMobile ? '12px' : '10px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: isMobile ? '15px' : '14px',
+                  color: '#1e293b',
+                  outline: 'none',
+                  backgroundColor: (downloadingSessionCache || !selectedCompany) ? '#f1f5f9' : '#fff'
+                }}
+              />
+            </div>
+            <div style={{ flex: isMobile ? '1 1 100%' : '1 1 calc(50% - 8px)', minWidth: isMobile ? '100%' : '200px' }}>
+              <label style={{ 
+                display: 'block', 
+                fontSize: isMobile ? '13px' : '14px', 
+                fontWeight: 500, 
+                color: '#475569', 
+                marginBottom: '6px' 
+              }}>
+                To Date
+              </label>
+              <input
+                type="date"
+                value={externalUserToDate}
+                onChange={(e) => setExternalUserToDate(e.target.value)}
+                disabled={downloadingSessionCache || !selectedCompany}
+                style={{
+                  width: '100%',
+                  padding: isMobile ? '12px' : '10px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: isMobile ? '15px' : '14px',
+                  color: '#1e293b',
+                  outline: 'none',
+                  backgroundColor: (downloadingSessionCache || !selectedCompany) ? '#f1f5f9' : '#fff'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Download Progress */}
+          {downloadingSessionCache && downloadProgress.message && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '12px',
+              background: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              borderRadius: '8px'
+            }}>
+              <div style={{
+                fontSize: '13px',
+                color: '#0369a1',
+                marginBottom: '8px',
+                fontWeight: 500
+              }}>
+                {downloadProgress.message}
+              </div>
+              {downloadProgress.total > 0 && (
+                <div style={{
+                  width: '100%',
+                  height: '8px',
+                  background: '#e0f2fe',
+                  borderRadius: '4px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    width: `${Math.min(100, Math.round((downloadProgress.current / downloadProgress.total) * 100))}%`,
+                    height: '100%',
+                    background: 'linear-gradient(90deg, #8b5cf6 0%, #7c3aed 100%)',
+                    transition: 'width 0.3s ease'
+                  }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Download Button */}
+          <button
+            onClick={downloadSessionCacheForExternalUser}
+            disabled={downloadingSessionCache || !selectedCompany || !externalUserFromDate || !externalUserToDate}
+            style={{
+              width: '100%',
+              padding: isMobile ? '14px 16px' : '12px 16px',
+              background: (downloadingSessionCache || !selectedCompany || !externalUserFromDate || !externalUserToDate) 
+                ? '#94a3b8' 
+                : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: isMobile ? '15px' : '14px',
+              cursor: (downloadingSessionCache || !selectedCompany || !externalUserFromDate || !externalUserToDate) 
+                ? 'not-allowed' 
+                : 'pointer',
+              boxShadow: (downloadingSessionCache || !selectedCompany || !externalUserFromDate || !externalUserToDate) 
+                ? 'none' 
+                : '0 2px 8px rgba(139, 92, 246, 0.25)',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px'
+            }}
+          >
+            {downloadingSessionCache ? (
+              <>
+                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '18px', animation: 'spin 1s linear infinite' }}>
+                  refresh
+                </span>
+                <span>Downloading...</span>
+              </>
+            ) : (
+              <>
+                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '18px' }}>
+                  download
+                </span>
+                <span>Download Session Cache</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
       <div style={{
         display: 'grid',
         gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(400px, 1fr))',
@@ -1483,39 +1896,40 @@ const CacheManagement = () => {
         maxWidth: '100%'
       }}>
         {/* Download Complete Sales Data */}
-        <div style={{
-          background: '#fff',
-          border: '1px solid #e2e8f0',
-          borderRadius: '12px',
-          padding: isMobile ? '16px' : '24px',
-          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-        }}>
+        {!isExternalUser() && (
           <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
-            marginBottom: '16px'
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: isMobile ? '16px' : '24px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
           }}>
-            <span className="material-icons" style={{ fontSize: '28px', color: '#10b981' }}>
-              download
-            </span>
-            <h3 style={{
-              fontSize: isMobile ? '16px' : '18px',
-              fontWeight: 600,
-              color: '#1e293b',
-              margin: 0
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              marginBottom: '16px'
             }}>
-              Complete Sales Data
-            </h3>
-          </div>
-          <p style={{
-            fontSize: isMobile ? '13px' : '14px',
-            color: '#64748b',
-            marginBottom: isMobile ? '16px' : '20px',
-            lineHeight: '1.6'
-          }}>
-            Download and cache complete sales data from the beginning of your books. Update to fetch only new records since last download.
-          </p>
+              <span className="material-icons" style={{ fontSize: '28px', color: '#10b981' }}>
+                download
+              </span>
+              <h3 style={{
+                fontSize: isMobile ? '16px' : '18px',
+                fontWeight: 600,
+                color: '#1e293b',
+                margin: 0
+              }}>
+                Complete Sales Data
+              </h3>
+            </div>
+            <p style={{
+              fontSize: isMobile ? '13px' : '14px',
+              color: '#64748b',
+              marginBottom: isMobile ? '16px' : '20px',
+              lineHeight: '1.6'
+            }}>
+              Download and cache complete sales data from the beginning of your books. Update to fetch only new records since last download.
+            </p>
 
           {(downloadingComplete || downloadProgress.total > 0 || downloadProgress.message) && (
             <div style={{
@@ -1792,6 +2206,7 @@ const CacheManagement = () => {
             </div>
           </div>
         </div>
+        )}
 
         {/* Ledger Cache */}
         <div style={{
@@ -2737,6 +3152,134 @@ const CacheManagement = () => {
                   delete_sweep
                 </span>
                 Clear All Cache
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Fetch JSON from Gmail */}
+        <div style={{
+          background: '#fff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '12px',
+          padding: isMobile ? '16px' : '24px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: isMobile ? '8px' : '12px',
+            marginBottom: isMobile ? '12px' : '16px'
+          }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '28px', color: '#3b82f6' }}>
+              email
+            </span>
+            <h3 style={{
+              fontSize: isMobile ? '16px' : '18px',
+              fontWeight: 600,
+              color: '#1e293b',
+              margin: 0
+            }}>
+              Fetch JSON from Gmail
+            </h3>
+          </div>
+          <p style={{
+            fontSize: isMobile ? '13px' : '14px',
+            color: '#64748b',
+            marginBottom: isMobile ? '16px' : '20px',
+            lineHeight: '1.6'
+          }}>
+            Search your Gmail for emails with JSON attachments matching a specific subject pattern and automatically load them into cache.
+          </p>
+          
+          {isExternalUser() && googleAccountEmail && (
+            <div style={{
+              padding: '10px 12px',
+              background: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              borderRadius: '8px',
+              marginBottom: '16px',
+              fontSize: '13px',
+              color: '#0369a1'
+            }}>
+              <strong>Using your Google account:</strong> {googleAccountEmail}
+            </div>
+          )}
+
+          {!gmailJsonConfigured && (
+            <div style={{
+              padding: '10px 12px',
+              background: '#fef3c7',
+              border: '1px solid #fcd34d',
+              borderRadius: '8px',
+              marginBottom: '16px',
+              fontSize: '13px',
+              color: '#92400e'
+            }}>
+              ⚠️ Please configure your Google account in Link Account settings first.
+            </div>
+          )}
+
+          {gmailJsonStatus && (
+            <div style={{
+              padding: '10px 12px',
+              background: gmailJsonStatus.includes('✅') ? '#f0fdf4' : gmailJsonStatus.includes('❌') ? '#fef2f2' : '#f0f9ff',
+              border: `1px solid ${gmailJsonStatus.includes('✅') ? '#86efac' : gmailJsonStatus.includes('❌') ? '#fca5a5' : '#bae6fd'}`,
+              borderRadius: '8px',
+              marginBottom: '16px',
+              fontSize: '13px',
+              color: gmailJsonStatus.includes('✅') ? '#065f46' : gmailJsonStatus.includes('❌') ? '#991b1b' : '#0369a1'
+            }}>
+              {gmailJsonStatus}
+            </div>
+          )}
+
+          <button
+            onClick={handleFetchJsonFromGmail}
+            disabled={fetchingGmailJson || !gmailJsonConfigured || !selectedCompany}
+            style={{
+              width: '100%',
+              padding: '12px 20px',
+              background: (fetchingGmailJson || !gmailJsonConfigured || !selectedCompany) ? '#94a3b8' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: '15px',
+              cursor: (fetchingGmailJson || !gmailJsonConfigured || !selectedCompany) ? 'not-allowed' : 'pointer',
+              boxShadow: (fetchingGmailJson || !gmailJsonConfigured || !selectedCompany) ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.25)',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px'
+            }}
+            onMouseEnter={(e) => {
+              if (!fetchingGmailJson && gmailJsonConfigured && selectedCompany) {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.35)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!fetchingGmailJson && gmailJsonConfigured && selectedCompany) {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(59, 130, 246, 0.25)';
+              }
+            }}
+          >
+            {fetchingGmailJson ? (
+              <>
+                <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite' }}>
+                  refresh
+                </span>
+                Fetching...
+              </>
+            ) : (
+              <>
+                <span className="material-icons" style={{ fontSize: '18px' }}>
+                  email
+                </span>
+                Fetch JSON from Gmail
               </>
             )}
           </button>

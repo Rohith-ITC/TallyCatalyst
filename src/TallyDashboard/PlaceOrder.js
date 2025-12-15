@@ -3,7 +3,6 @@ import { apiPost } from '../utils/apiUtils';
 import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
 import { getCustomersFromOPFS, syncCustomers } from '../utils/cacheSyncManager';
-import { generateOrderPdf } from '../utils/orderPdfUtils';
 
 
 function PlaceOrder() {
@@ -150,6 +149,58 @@ function PlaceOrder() {
 
   }, []);
 
+  // Listen for cache updates from Cache Management
+
+  useEffect(() => {
+
+    const handleCacheUpdate = (event) => {
+
+      const { type, company: updatedCompany } = event.detail || {};
+
+      if (type === 'customers') {
+
+        const currentCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+
+        // Read companies from sessionStorage inside the handler to avoid dependency issues
+
+        let companies = [];
+
+        try {
+
+          companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+
+        } catch (e) { }
+
+        const currentCompany = companies.find(c => c.guid === currentCompanyGuid);
+
+        // Only refresh if the update is for the current company
+
+        if (currentCompany && updatedCompany && 
+
+            (updatedCompany.guid === currentCompanyGuid || 
+
+             (updatedCompany.tallyloc_id === currentCompany.tallyloc_id && 
+
+              updatedCompany.company === currentCompany.company))) {
+
+          console.log('🔄 PlaceOrder: Customer cache updated, refreshing...');
+
+          setRefreshCustomers(prev => prev + 1);
+
+        }
+
+      }
+
+    };
+
+
+
+    window.addEventListener('ledgerCacheUpdated', handleCacheUpdate);
+
+    return () => window.removeEventListener('ledgerCacheUpdated', handleCacheUpdate);
+
+  }, []);
+
 
 
   // Auto-populate from E-commerce cart data
@@ -285,6 +336,7 @@ function PlaceOrder() {
   const [customerFocused, setCustomerFocused] = useState(false);
 
   const [refreshCustomers, setRefreshCustomers] = useState(0);
+
   const [refreshingCustomers, setRefreshingCustomers] = useState(false);
 
 
@@ -1019,15 +1071,6 @@ function PlaceOrder() {
   const [compoundAddlQty, setCompoundAddlQty] = useState(null); // Store compound additional unit quantity (e.g., 25.7 pkt from "25 pkt 7 nos")
   const [baseQtyOnly, setBaseQtyOnly] = useState(null); // Store only the base quantity (e.g., 3 box from "3 box 9 pkt 7 nos")
   const settingCustomConversionRef = useRef(false); // Prevent infinite loop when setting custom conversion
-  // Refs for form field navigation
-  const itemInputRef = useRef(null);
-  const quantityInputRef = useRef(null);
-  const quantityInputFallbackRef = useRef(null);
-  const rateInputRef = useRef(null);
-  const discountInputRef = useRef(null);
-  const gstInputRef = useRef(null);
-  const descriptionInputRef = useRef(null);
-  const addItemButtonRef = useRef(null);
   const [itemRate, setItemRate] = useState(0);
 
   const [itemDiscountPercent, setItemDiscountPercent] = useState(0);
@@ -4378,7 +4421,50 @@ function PlaceOrder() {
 
     // Use flexible columns to fit within container without scrolling
     // Item Name gets more space, other columns are compact but visible
+    // Note: Mobile uses card layout, this function is for desktop only
 
+    if (isMobile) {
+      // Mobile uses card layout, but keep this as fallback with minimal widths
+      if (canShowRateAmtColumn) {
+        let columns = 'minmax(80px, 1fr)'; // Item Name column (flexible)
+
+        columns += ' minmax(40px, 50px)'; // Qty column
+
+        if (canShowClosingStock) {
+          columns += ' minmax(30px, 35px)'; // Stock column
+        }
+
+        columns += ' minmax(40px, 45px)'; // Rate column
+
+        columns += ' minmax(40px, 50px)'; // Rate UOM column
+
+        if (canShowDiscColumn) {
+          columns += ' minmax(25px, 30px)'; // Disc % column
+        }
+
+        columns += ' minmax(25px, 30px)'; // GST % column
+
+        columns += ' minmax(50px, 55px)'; // Amount column
+
+        columns += ' minmax(50px, 55px)'; // Action column
+
+        return columns;
+      } else {
+        let columns = '1fr'; // Item Name column (flexible)
+
+        columns += ' minmax(40px, 50px)'; // Qty column
+
+        if (canShowClosingStock) {
+          columns += ' minmax(30px, 35px)'; // Stock column
+        }
+
+        columns += ' minmax(50px, 55px)'; // Action column
+
+        return columns;
+      }
+    }
+
+    // Desktop layout
     if (canShowRateAmtColumn) {
 
       let columns = 'minmax(200px, 2fr)'; // Item Name column (flexible)
@@ -4569,6 +4655,54 @@ function PlaceOrder() {
 
 
 
+  // Handle customer cache refresh
+
+  const handleRefreshCustomers = async () => {
+
+    if (!company) return;
+
+    const currentCompany = companies.find(c => c.guid === company);
+
+    if (!currentCompany) return;
+
+    setRefreshingCustomers(true);
+
+    setCustomerError('');
+
+    try {
+
+      console.log('🔄 Refreshing customer cache...');
+
+      await syncCustomers(currentCompany);
+
+      console.log('✅ Customer cache refreshed successfully');
+
+      // Dispatch event to notify other components
+      window.dispatchEvent(new CustomEvent('ledgerCacheUpdated', { 
+        detail: { type: 'customers', company: currentCompany } 
+      }));
+
+      // Small delay to ensure cache is fully written and readable
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Trigger re-fetch by incrementing refreshCustomers
+
+      setRefreshCustomers(prev => prev + 1);
+
+    } catch (error) {
+
+      console.error('❌ Error refreshing customer cache:', error);
+
+      setCustomerError('Failed to refresh customer cache. Please try again.');
+
+    } finally {
+
+      setRefreshingCustomers(false);
+
+    }
+
+  };
+
   // Fetch customers with addresses when company changes or refreshCustomers increments
 
   useEffect(() => {
@@ -4623,53 +4757,56 @@ function PlaceOrder() {
 
       // Cache updates are handled by Cache Management page
 
-      try {
+      // Retry logic for reading cache (handles timing issues after cache write)
+      let cachedCustomers = null;
+      let retries = refreshCustomers > 0 ? 3 : 1; // Retry more times if we just refreshed
+      let attempt = 0;
 
-        const cachedCustomers = await getCustomersFromOPFS(cacheKey);
+      while (attempt < retries && !cachedCustomers) {
+        try {
+          attempt++;
+          console.log(`📖 Attempting to load customers from cache (attempt ${attempt}/${retries})...`);
 
-        if (cachedCustomers && Array.isArray(cachedCustomers) && cachedCustomers.length > 0) {
+          cachedCustomers = await getCustomersFromOPFS(cacheKey);
 
-          console.log(`✅ Loaded ${cachedCustomers.length} customers from cache`);
-
-          setCustomerOptions(cachedCustomers);
-
-          if (cachedCustomers.length === 1) setSelectedCustomer(cachedCustomers[0].NAME);
-
-          else setSelectedCustomer('');
-
-          setCustomerError('');
-
-          setCustomerLoading(false);
-
-        } else {
-
-          // No cache found - user needs to refresh from Cache Management
-
-          console.warn('No customer cache found. Please refresh from Cache Management.');
-
-          setCustomerOptions([]);
-
-          setSelectedCustomer('');
-
-          setCustomerError('No customer data found. Please use the refresh button in the top bar to load customer data.');
-
-          setCustomerLoading(false);
-
+          if (cachedCustomers && Array.isArray(cachedCustomers) && cachedCustomers.length > 0) {
+            console.log(`✅ Successfully loaded ${cachedCustomers.length} customers from cache`);
+            break;
+          } else {
+            cachedCustomers = null;
+            if (attempt < retries) {
+              console.log(`⚠️ No data found, retrying in 200ms...`);
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+          }
+        } catch (cacheError) {
+          console.error(`❌ Error loading customers from cache (attempt ${attempt}):`, cacheError);
+          if (attempt < retries) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          } else {
+            setCustomerOptions([]);
+            setSelectedCustomer('');
+            setCustomerError('Error loading customer data. Please use the refresh button in the top bar.');
+            setCustomerLoading(false);
+            return;
+          }
         }
-
-      } catch (cacheError) {
-
-        console.error('Error loading customers from cache:', cacheError);
-
-        setCustomerOptions([]);
-
-        setSelectedCustomer('');
-
-        setCustomerError('Error loading customer data. Please use the refresh button in the top bar.');
-
-        setCustomerLoading(false);
-
       }
+
+      if (cachedCustomers && Array.isArray(cachedCustomers) && cachedCustomers.length > 0) {
+        setCustomerOptions(cachedCustomers);
+        if (cachedCustomers.length === 1) setSelectedCustomer(cachedCustomers[0].NAME);
+        else setSelectedCustomer('');
+        setCustomerError('');
+      } else {
+        // No data in cache after retries
+        console.warn('⚠️ No customer data found in cache after retries');
+        setCustomerOptions([]);
+        setSelectedCustomer('');
+        setCustomerError('No customer data found. Please use the refresh button in the top bar to load customer data.');
+      }
+
+      setCustomerLoading(false);
 
 
 
@@ -4688,31 +4825,6 @@ function PlaceOrder() {
     fetchCustomers();
 
   }, [company, refreshCustomers, filteredCompanies.length]); // Use length instead of array reference to prevent infinite loops
-
-  // Handler to refresh customers cache
-  const handleRefreshCustomers = async () => {
-    if (!company || refreshingCustomers) return;
-    
-    const currentCompany = companies.find(c => c.guid === company);
-    if (!currentCompany) {
-      console.warn('No company selected for refresh');
-      return;
-    }
-
-    setRefreshingCustomers(true);
-    try {
-      console.log('🔄 Refreshing customers cache...');
-      await syncCustomers(currentCompany);
-      console.log('✅ Customers cache refreshed');
-      // Trigger refresh by incrementing refreshCustomers
-      setRefreshCustomers(prev => prev + 1);
-    } catch (error) {
-      console.error('❌ Failed to refresh customers cache:', error);
-      setCustomerError('Failed to refresh customers cache. Please try again.');
-    } finally {
-      setRefreshingCustomers(false);
-    }
-  };
 
 
 
@@ -6209,15 +6321,15 @@ function PlaceOrder() {
 
     backgroundColor: '#fff',
 
-    borderRadius: '12px',
+    borderRadius: isMobile ? '16px' : '12px',
 
-    padding: '24px',
+    padding: isMobile ? '16px' : '24px',
 
-    maxWidth: '500px',
+    maxWidth: isMobile ? '95%' : '500px',
 
-    width: '90%',
+    width: isMobile ? '95%' : '90%',
 
-    maxHeight: '80vh',
+    maxHeight: isMobile ? '90vh' : '80vh',
 
     overflow: 'auto',
 
@@ -6235,9 +6347,9 @@ function PlaceOrder() {
 
     alignItems: 'center',
 
-    marginBottom: '20px',
+    marginBottom: isMobile ? '16px' : '20px',
 
-    paddingBottom: '16px',
+    paddingBottom: isMobile ? '12px' : '16px',
 
     borderBottom: '2px solid #3b82f6',
 
@@ -6251,7 +6363,7 @@ function PlaceOrder() {
 
     color: '#1f2937',
 
-    fontSize: '20px',
+    fontSize: isMobile ? '18px' : '20px',
 
     fontWeight: '600',
 
@@ -6265,13 +6377,13 @@ function PlaceOrder() {
 
     border: 'none',
 
-    fontSize: '24px',
+    fontSize: isMobile ? '22px' : '24px',
 
     cursor: 'pointer',
 
     color: '#6b7280',
 
-    padding: '4px',
+    padding: isMobile ? '6px' : '4px',
 
     borderRadius: '4px',
 
@@ -6283,7 +6395,7 @@ function PlaceOrder() {
 
   const formGroupStyle = {
 
-    marginBottom: '20px',
+    marginBottom: isMobile ? '16px' : '20px',
 
   };
 
@@ -6293,13 +6405,13 @@ function PlaceOrder() {
 
     display: 'block',
 
-    marginBottom: '8px',
+    marginBottom: isMobile ? '6px' : '8px',
 
     fontWeight: '600',
 
     color: '#374151',
 
-    fontSize: '14px',
+    fontSize: isMobile ? '13px' : '14px',
 
   };
 
@@ -6309,13 +6421,13 @@ function PlaceOrder() {
 
     width: '100%',
 
-    padding: '12px',
+    padding: isMobile ? '12px 14px' : '12px',
 
     border: '1px solid #d1d5db',
 
-    borderRadius: '8px',
+    borderRadius: isMobile ? '10px' : '8px',
 
-    fontSize: '14px',
+    fontSize: isMobile ? '15px' : '14px',
 
     boxSizing: 'border-box',
 
@@ -6329,9 +6441,13 @@ function PlaceOrder() {
 
     ...inputStyle,
 
-    minHeight: '80px',
+    minHeight: isMobile ? '100px' : '80px',
 
     resize: 'vertical',
+
+    height: 'auto',
+
+    padding: isMobile ? '12px 14px' : '12px',
 
   };
 
@@ -6353,11 +6469,13 @@ function PlaceOrder() {
 
     display: 'flex',
 
-    gap: '12px',
+    gap: isMobile ? '10px' : '12px',
 
     justifyContent: 'flex-end',
 
-    marginTop: '24px',
+    marginTop: isMobile ? '20px' : '24px',
+
+    flexDirection: isMobile ? 'column-reverse' : 'row',
 
   };
 
@@ -6365,19 +6483,21 @@ function PlaceOrder() {
 
   const buttonStyle = {
 
-    padding: '12px 24px',
+    padding: isMobile ? '14px 20px' : '12px 24px',
 
     border: 'none',
 
-    borderRadius: '8px',
+    borderRadius: isMobile ? '10px' : '8px',
 
-    fontSize: '14px',
+    fontSize: isMobile ? '15px' : '14px',
 
     fontWeight: '600',
 
     cursor: 'pointer',
 
     transition: 'all 0.2s',
+
+    width: isMobile ? '100%' : 'auto',
 
   };
 
@@ -6818,9 +6938,6 @@ function PlaceOrder() {
       if (result.success) {
 
         // Order created successfully
-        // Store order data before resetting form for PDF generation
-        const orderDate = new Date();
-        const voucherNumberFromResponse = result.tallyResponse?.BODY?.DATA?.IMPORTRESULT?.VCHNUMBER || voucherNumber;
 
         setOrderResult({
 
@@ -6828,27 +6945,7 @@ function PlaceOrder() {
 
           message: 'Order placed successfully!',
 
-          tallyResponse: result.tallyResponse,
-          
-          // Store order data for PDF generation
-          orderData: {
-            orderItems: [...orderItems],
-            selectedCustomer: selectedCustomer,
-            selectedCustomerObj: { ...selectedCustomerObj },
-            currentCompany: { ...currentCompany },
-            orderDate: orderDate,
-            voucherNumber: voucherNumberFromResponse,
-            voucherType: selectedVoucherType,
-            buyerOrderRef: buyerOrderRef,
-            paymentTerms: paymentTerms,
-            deliveryTerms: deliveryTerms,
-            narration: narration,
-            editableAddress: editableAddress,
-            editableState: editableState,
-            editableCountry: editableCountry,
-            editableGstNo: editableGstNo,
-            editablePincode: editablePincode
-          }
+          tallyResponse: result.tallyResponse
 
         });
 
@@ -6936,196 +7033,7 @@ function PlaceOrder() {
 
   };
 
-  // Handle Print PDF
-  const handlePrint = () => {
-    if (!orderResult.orderData) {
-      alert('Order data not available for printing');
-      return;
-    }
 
-    try {
-      const pdf = generateOrderPdf(orderResult.orderData);
-      
-      // Generate blob and create iframe for printing
-      const pdfBlob = pdf.output('blob');
-      const pdfUrl = URL.createObjectURL(pdfBlob);
-      
-      // Create iframe for printing
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = '0';
-      iframe.src = pdfUrl;
-      
-      document.body.appendChild(iframe);
-      
-      iframe.onload = () => {
-        setTimeout(() => {
-          iframe.contentWindow.print();
-          // Clean up after printing
-          setTimeout(() => {
-            document.body.removeChild(iframe);
-            URL.revokeObjectURL(pdfUrl);
-          }, 100);
-        }, 250);
-      };
-    } catch (error) {
-      console.error('Error generating PDF:', error);
-      alert('Error generating PDF: ' + error.message);
-    }
-  };
-
-  // Handle WhatsApp Share
-  const handleWhatsAppShare = () => {
-    if (!orderResult.orderData) {
-      alert('Order data not available for sharing');
-      return;
-    }
-
-    try {
-      const pdf = generateOrderPdf(orderResult.orderData);
-      
-      // Generate blob
-      const pdfBlob = pdf.output('blob');
-      const fileName = `Order_${orderResult.orderData.voucherNumber || 'Receipt'}.pdf`;
-      const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
-      
-      // Detect if mobile device
-      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
-                      (window.innerWidth <= 768);
-      
-      // On mobile, use Web Share API (shows share menu where user can select WhatsApp)
-      // On desktop, directly open WhatsApp Web (skip share menu)
-      if (isMobile && navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
-        // Mobile: Use native share menu
-        navigator.share({
-          title: `Order Receipt - ${orderResult.orderData.voucherNumber || 'Receipt'}`,
-          text: `Order Receipt - Voucher: ${orderResult.orderData.voucherNumber || 'N/A'}`,
-          files: [file]
-        }).catch((error) => {
-          console.log('Share failed:', error);
-          // Fallback to download method
-          downloadAndOpenWhatsApp(pdfBlob, fileName, orderResult.orderData.voucherNumber);
-        });
-      } else {
-        // Desktop: Directly open WhatsApp Web
-        downloadAndOpenWhatsApp(pdfBlob, fileName, orderResult.orderData.voucherNumber);
-      }
-    } catch (error) {
-      console.error('Error generating PDF for WhatsApp:', error);
-      alert('Error generating PDF: ' + error.message);
-    }
-  };
-
-  // Helper function to download PDF and open WhatsApp
-  const downloadAndOpenWhatsApp = (pdfBlob, fileName, voucherNumber) => {
-    // Download the PDF
-    const pdfUrl = URL.createObjectURL(pdfBlob);
-    const link = document.createElement('a');
-    link.href = pdfUrl;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(pdfUrl);
-
-    // Open WhatsApp Web/Desktop with message
-    setTimeout(() => {
-      const message = `Order Receipt - Voucher: ${voucherNumber || 'N/A'}\n\n📎 PDF downloaded: ${fileName}\nPlease attach it using the 📎 button.`;
-      
-      // Try WhatsApp Desktop app first
-      try {
-        window.location.href = `whatsapp://send?text=${encodeURIComponent(message)}`;
-        
-        // If desktop app doesn't respond, fall back to WhatsApp Web after a delay
-        setTimeout(() => {
-          window.open(`https://web.whatsapp.com/send?text=${encodeURIComponent(message)}`, '_blank');
-        }, 1000);
-      } catch (e) {
-        // Fallback to WhatsApp Web
-        window.open(`https://web.whatsapp.com/send?text=${encodeURIComponent(message)}`, '_blank');
-      }
-    }, 500);
-  };
-
-  // Handle Email Share
-  const handleEmailShare = () => {
-    if (!orderResult.orderData) {
-      alert('Order data not available for sharing');
-      return;
-    }
-
-    try {
-      const pdf = generateOrderPdf(orderResult.orderData);
-      const pdfBlob = pdf.output('blob');
-      const fileName = `Order_${orderResult.orderData.voucherNumber || 'Receipt'}.pdf`;
-      
-      // Download the PDF first
-      const pdfUrl = URL.createObjectURL(pdfBlob);
-      const link = document.createElement('a');
-      link.href = pdfUrl;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(pdfUrl);
-
-      // Open default email client with pre-filled subject and body
-      setTimeout(() => {
-        const subject = encodeURIComponent(`Order Receipt - Voucher: ${orderResult.orderData.voucherNumber || 'N/A'}`);
-        const body = encodeURIComponent(`Please find attached the order receipt.\n\nVoucher Number: ${orderResult.orderData.voucherNumber || 'N/A'}\n\nPlease attach the downloaded PDF file: ${fileName}`);
-        window.location.href = `mailto:?subject=${subject}&body=${body}`;
-      }, 500);
-    } catch (error) {
-      console.error('Error generating PDF for email:', error);
-      alert('Error generating PDF: ' + error.message);
-    }
-  };
-
-  // Navigation function to find and focus the next available field
-  const focusNextField = (currentField) => {
-    // Define field order - conditions are checked dynamically
-    const fieldOrder = [
-      { ref: itemInputRef, checkCondition: () => true }, // Item is always visible
-      { ref: quantityInputRef, checkCondition: () => selectedItemUnitConfig && quantityInputRef.current }, // Quantity (Tally-style)
-      { ref: quantityInputFallbackRef, checkCondition: () => !selectedItemUnitConfig && quantityInputFallbackRef.current }, // Quantity (fallback)
-      { ref: rateInputRef, checkCondition: () => canShowRateAmtColumn && rateInputRef.current }, // Rate
-      { ref: discountInputRef, checkCondition: () => canShowRateAmtColumn && canShowDiscColumn && discountInputRef.current }, // Discount
-      { ref: gstInputRef, checkCondition: () => canShowRateAmtColumn && gstInputRef.current }, // GST
-      { ref: descriptionInputRef, checkCondition: () => (canShowItemDesc || showDescription) && descriptionInputRef.current }, // Description
-    ];
-
-    // Find current field index
-    const currentIndex = fieldOrder.findIndex(field => field.ref === currentField);
-    
-    // Find next available field
-    for (let i = currentIndex + 1; i < fieldOrder.length; i++) {
-      const field = fieldOrder[i];
-      if (field.checkCondition() && field.ref.current) {
-        // Check if field is disabled or readonly (skip readonly fields except GST which is always readonly)
-        const isReadOnly = field.ref.current.readOnly;
-        const isDisabled = field.ref.current.disabled;
-        
-        // Allow focusing readonly fields (like GST) but skip disabled ones
-        if (!isDisabled) {
-          field.ref.current.focus();
-          // Select text for input fields (not textarea)
-          if (field.ref.current.select && field.ref.current.type !== 'textarea') {
-            field.ref.current.select();
-          }
-          return;
-        }
-      }
-    }
-
-    // If no more fields, focus the Add Item button
-    if (addItemButtonRef.current && !addItemButtonRef.current.disabled) {
-      addItemButtonRef.current.focus();
-    }
-  };
 
   const addOrderItem = () => {
 
@@ -8265,17 +8173,17 @@ function PlaceOrder() {
 
               <div style={{
 
-                fontSize: isMobile ? '12px' : '14px',
+                fontSize: isMobile ? '11px' : '14px',
 
                 color: '#64748b',
 
                 fontWeight: '500',
 
-                padding: isMobile ? '8px 14px' : '8px 16px',
+                padding: isMobile ? '6px 12px' : '8px 16px',
 
                 backgroundColor: '#f8fafc',
 
-                borderRadius: '20px',
+                borderRadius: isMobile ? '16px' : '20px',
 
                 border: '1px solid #e2e8f0',
 
@@ -8283,7 +8191,7 @@ function PlaceOrder() {
 
                 alignItems: 'center',
 
-                gap: '8px',
+                gap: isMobile ? '6px' : '8px',
 
                 position: 'relative',
 
@@ -8297,13 +8205,31 @@ function PlaceOrder() {
 
                 whiteSpace: 'nowrap',
 
-                flex: isMobile ? '1' : 'none'
+                flex: isMobile ? '1' : 'none',
+
+                boxSizing: 'border-box',
+
+                minWidth: isMobile ? '0' : 'auto',
+
+                justifyContent: isMobile ? 'center' : 'flex-start'
 
               }}>
 
                 <span style={{ fontSize: isMobile ? '14px' : '16px', flexShrink: 0 }}>👥</span>
 
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <span style={{ 
+
+                  overflow: 'hidden', 
+
+                  textOverflow: 'ellipsis', 
+                  
+                  whiteSpace: 'nowrap',
+                  
+                  flex: isMobile ? '1 1 auto' : '0 0 auto',
+                  
+                  minWidth: 0
+
+                }}>
 
                   {customerLoading ? 'Loading...' : customerError ? 'Error' : `${customerOptions.length.toLocaleString()} customers available`}
 
@@ -8311,25 +8237,15 @@ function PlaceOrder() {
 
               </div>
 
+              {/* Refresh Button */}
+
               <button
 
                 onClick={handleRefreshCustomers}
 
-                disabled={refreshingCustomers || !company}
-
-                title="Refresh customers cache"
+                disabled={refreshingCustomers || !company || customerLoading}
 
                 style={{
-
-                  background: refreshingCustomers ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
-
-                  border: 'none',
-
-                  borderRadius: '8px',
-
-                  padding: isMobile ? '6px' : '8px',
-
-                  cursor: (refreshingCustomers || !company) ? 'not-allowed' : 'pointer',
 
                   display: 'flex',
 
@@ -8337,57 +8253,43 @@ function PlaceOrder() {
 
                   justifyContent: 'center',
 
-                  minWidth: isMobile ? '32px' : '36px',
+                  padding: isMobile ? '6px' : '8px',
 
-                  height: isMobile ? '32px' : '36px',
+                  backgroundColor: refreshingCustomers ? '#e2e8f0' : '#3b82f6',
 
-                  transition: 'all 0.2s',
+                  color: refreshingCustomers ? '#94a3b8' : 'white',
 
-                  boxShadow: (refreshingCustomers || !company) ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
+                  border: 'none',
 
-                  opacity: (refreshingCustomers || !company) ? 0.6 : 1
+                  borderRadius: '50%',
 
-                }}
+                  cursor: refreshingCustomers || !company || customerLoading ? 'not-allowed' : 'pointer',
 
-                onMouseEnter={(e) => {
+                  transition: 'all 0.2s ease',
 
-                  if (!refreshingCustomers && company) {
+                  minWidth: isMobile ? '28px' : '32px',
 
-                    e.currentTarget.style.transform = 'scale(1.05)';
+                  height: isMobile ? '28px' : '32px',
 
-                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
+                  flexShrink: 0,
 
-                  }
-
-                }}
-
-                onMouseLeave={(e) => {
-
-                  e.currentTarget.style.transform = 'scale(1)';
-
-                  e.currentTarget.style.boxShadow = (refreshingCustomers || !company) ? 'none' : '0 2px 4px rgba(0,0,0,0.1)';
+                  opacity: refreshingCustomers || !company || customerLoading ? 0.6 : 1
 
                 }}
+
+                title="Refresh customer cache"
 
               >
 
-                <span
+                <span className="material-icons" style={{ 
 
-                  className="material-icons"
+                  fontSize: isMobile ? '16px' : '18px',
 
-                  style={{
+                  animation: refreshingCustomers ? 'spin 1s linear infinite' : 'none'
 
-                    fontSize: isMobile ? '16px' : '18px',
+                }}>
 
-                    color: '#fff',
-
-                    animation: refreshingCustomers ? 'spin 1s linear infinite' : 'none'
-
-                  }}
-
-                >
-
-                  refresh
+                  {refreshingCustomers ? 'sync' : 'refresh'}
 
                 </span>
 
@@ -8547,11 +8449,11 @@ function PlaceOrder() {
 
                   position: 'absolute',
 
-                  left: '20px',
+                  left: isMobile ? '18px' : '20px',
 
-                  top: voucherTypeFocused || selectedVoucherType ? '-10px' : '16px',
+                  top: voucherTypeFocused || selectedVoucherType ? '-10px' : (isMobile ? '14px' : '16px'),
 
-                  fontSize: voucherTypeFocused || selectedVoucherType ? '12px' : '15px',
+                  fontSize: voucherTypeFocused || selectedVoucherType ? '12px' : (isMobile ? '14px' : '15px'),
 
                   fontWeight: '600',
 
@@ -9051,11 +8953,11 @@ function PlaceOrder() {
 
                   position: 'absolute',
 
-                  left: '20px',
+                  left: isMobile ? '18px' : '20px',
 
                   top: '-10px',
 
-                  fontSize: '12px',
+                  fontSize: isMobile ? '11px' : '12px',
 
                   fontWeight: '600',
 
@@ -9759,20 +9661,26 @@ function PlaceOrder() {
 
         boxShadow: isMobile ? '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.1)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
 
-        overflow: 'visible',
+        overflow: isMobile ? 'hidden' : 'visible',
 
-        border: '1px solid #e5e7eb'
+        border: '1px solid #e5e7eb',
+        boxSizing: 'border-box'
 
       }}>
 
         {/* Add Item Form */}
-        <div data-item-entry-form>
+        <div data-item-entry-form style={{
+          width: '100%',
+          maxWidth: '100%',
+          boxSizing: 'border-box',
+          overflow: 'hidden'
+        }}>
 
           <div style={{
 
-            padding: isMobile ? '16px 12px' : '16px 32px',
+            padding: isMobile ? '12px 8px' : '16px 32px',
 
-            paddingBottom: isMobile ? '16px' : '24px',
+            paddingBottom: isMobile ? '12px' : '24px',
 
             borderBottom: '1px solid #f3f4f6',
 
@@ -9780,7 +9688,11 @@ function PlaceOrder() {
 
             position: 'relative',
 
-            borderRadius: isMobile ? '16px 16px 0 0' : '0'
+            borderRadius: isMobile ? '16px 16px 0 0' : '0',
+
+            width: '100%',
+            maxWidth: '100%',
+            boxSizing: 'border-box'
 
           }}>
 
@@ -9822,25 +9734,63 @@ function PlaceOrder() {
 
               <div style={{
 
-                fontSize: isMobile ? '12px' : '14px',
+                fontSize: isMobile ? '11px' : '14px',
 
                 color: '#64748b',
 
                 fontWeight: '500',
 
-                padding: isMobile ? '8px 14px' : '8px 16px',
+                padding: isMobile ? '6px 12px' : '8px 16px',
 
                 backgroundColor: '#f8fafc',
 
-                borderRadius: '20px',
+                borderRadius: isMobile ? '16px' : '20px',
 
                 border: '1px solid #e2e8f0',
 
-                width: isMobile ? '100%' : 'auto'
+                width: isMobile ? '100%' : 'auto',
+
+                display: 'flex',
+
+                alignItems: 'center',
+
+                justifyContent: isMobile ? 'center' : 'flex-start',
+
+                gap: '4px',
+
+                boxSizing: 'border-box',
+
+                whiteSpace: isMobile ? 'nowrap' : 'normal',
+
+                overflow: 'hidden',
+
+                textOverflow: 'ellipsis',
+
+                minWidth: isMobile ? '0' : 'auto',
+
+                maxWidth: isMobile ? '100%' : 'none'
 
               }}>
 
-                📦 {stockItems.length.toLocaleString()} items available
+                <span style={{ fontSize: isMobile ? '14px' : '16px', flexShrink: 0 }}>📦</span>
+
+                <span style={{ 
+
+                  overflow: 'hidden', 
+
+                  textOverflow: 'ellipsis', 
+
+                  whiteSpace: 'nowrap',
+
+                  flex: isMobile ? '1 1 auto' : '0 0 auto',
+
+                  minWidth: 0
+
+                }}>
+
+                  {stockItems.length.toLocaleString()} items available
+
+                </span>
 
               </div>
 
@@ -9856,7 +9806,7 @@ function PlaceOrder() {
 
               flexWrap: isMobile ? 'nowrap' : 'wrap',
 
-              gap: isMobile ? '12px' : '14px',
+              gap: isMobile ? '10px' : '14px',
 
               alignItems: isMobile ? 'stretch' : 'flex-end',
 
@@ -9864,13 +9814,18 @@ function PlaceOrder() {
 
               minHeight: '30px',
 
-              padding: isMobile ? '16px 12px' : '18px',
+              padding: isMobile ? '12px 8px' : '18px',
 
               background: '#f8fafc',
 
               borderRadius: isMobile ? '12px' : '14px',
 
-              border: '1px solid #e2e8f0'
+              border: '1px solid #e2e8f0',
+
+              width: '100%',
+              maxWidth: '100%',
+              boxSizing: 'border-box',
+              overflow: 'hidden'
 
             }}>
 
@@ -9882,9 +9837,12 @@ function PlaceOrder() {
 
                 flex: isMobile ? '1 1 100%' : '1 1 320px',
 
-                minWidth: isMobile ? '100%' : '280px',
+                minWidth: isMobile ? '0' : '280px',
 
-                width: isMobile ? '100%' : 'auto'
+                width: isMobile ? '100%' : 'auto',
+
+                maxWidth: isMobile ? '100%' : 'none',
+                boxSizing: 'border-box'
 
               }}>
 
@@ -9907,17 +9865,10 @@ function PlaceOrder() {
                 }}>
 
                   <input
-                    ref={itemInputRef}
+
                     type="text"
 
                     value={selectedItem || itemSearchTerm}
-
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        focusNextField(itemInputRef);
-                      }
-                    }}
 
                     onChange={(e) => {
 
@@ -9983,15 +9934,15 @@ function PlaceOrder() {
 
                       width: '100%',
 
-                      padding: '16px 20px',
+                      padding: isMobile ? '14px 18px' : '16px 20px',
 
-                      paddingRight: selectedItem ? '50px' : '20px',
+                      paddingRight: selectedItem ? (isMobile ? '45px' : '50px') : (isMobile ? '18px' : '20px'),
 
                       border: 'none',
 
-                      borderRadius: '12px',
+                      borderRadius: isMobile ? '10px' : '12px',
 
-                      fontSize: '15px',
+                      fontSize: isMobile ? '14px' : '15px',
 
                       color: selectedCustomer ? '#1e293b' : '#9ca3af',
 
@@ -9999,7 +9950,11 @@ function PlaceOrder() {
 
                       background: selectedCustomer ? 'transparent' : '#f1f5f9',
 
-                      cursor: selectedCustomer ? 'text' : 'not-allowed'
+                      cursor: selectedCustomer ? 'text' : 'not-allowed',
+
+                      height: isMobile ? '48px' : 'auto',
+
+                      boxSizing: 'border-box'
 
                     }}
 
@@ -10021,7 +9976,7 @@ function PlaceOrder() {
 
                         position: 'absolute',
 
-                        right: '16px',
+                        right: isMobile ? '14px' : '16px',
 
                         top: '50%',
 
@@ -10029,7 +9984,7 @@ function PlaceOrder() {
 
                         color: showItemDropdown ? '#3b82f6' : '#9ca3af',
 
-                        fontSize: '20px',
+                        fontSize: isMobile ? '18px' : '20px',
 
                         pointerEvents: 'none',
 
@@ -10127,11 +10082,11 @@ function PlaceOrder() {
 
                     position: 'absolute',
 
-                    left: '20px',
+                    left: isMobile ? '18px' : '20px',
 
                     top: '-10px',
 
-                    fontSize: '12px',
+                    fontSize: isMobile ? '11px' : '12px',
 
                     fontWeight: '600',
 
@@ -10177,7 +10132,7 @@ function PlaceOrder() {
 
                         borderRadius: '8px',
 
-                        maxHeight: '500px',
+                        maxHeight: isMobile ? '300px' : '500px',
 
                         overflowY: 'auto',
 
@@ -10187,7 +10142,10 @@ function PlaceOrder() {
 
                         marginTop: '0',
 
-                        minHeight: '50px'
+                        minHeight: '50px',
+                        width: '100%',
+                        maxWidth: '100%',
+                        boxSizing: 'border-box'
 
                       }}
 
@@ -10433,11 +10391,14 @@ function PlaceOrder() {
                 <div style={{
                   position: 'relative',
                   flex: isMobile ? '1 1 100%' : '0 0 220px',
-                  minWidth: isMobile ? '100%' : '180px',
+                  minWidth: isMobile ? '0' : '180px',
                   maxWidth: isMobile ? '100%' : '240px',
+                  width: isMobile ? '100%' : 'auto',
                   display: 'flex',
-                  alignItems: 'flex-end',
-                  gap: '8px'
+                  alignItems: isMobile ? 'stretch' : 'flex-end',
+                  gap: isMobile ? '10px' : '8px',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  boxSizing: 'border-box'
                 }}>
                   <div style={{
 
@@ -10454,7 +10415,7 @@ function PlaceOrder() {
                     minWidth: 0
                   }}>
                     <input
-                      ref={quantityInputRef}
+
                       type="text"
 
                       value={quantityInput}
@@ -10470,12 +10431,6 @@ function PlaceOrder() {
                         // While typing, just update the input - don't validate yet
                         // Validation will happen on blur
                         setQuantityInput(filtered);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          focusNextField(quantityInputRef);
-                        }
                       }}
                       onBlur={(e) => {
                         // Final validation on blur - always round/format based on unit's decimal places
@@ -10708,7 +10663,8 @@ function PlaceOrder() {
                         textAlign: 'left',
                         cursor: selectedItem ? 'text' : 'not-allowed',
                         height: isMobile ? '48px' : '52px',
-                        boxSizing: 'border-box'
+                        boxSizing: 'border-box',
+                        minHeight: isMobile ? '48px' : 'auto'
                       }}
 
                       placeholder={selectedItemUnitConfig ? `${selectedItemUnitConfig.BASEUNITS || 'Qty'}${selectedItemUnitConfig.ADDITIONALUNITS ? ` or ${selectedItemUnitConfig.ADDITIONALUNITS}` : ''}` : 'Qty'}
@@ -10718,10 +10674,10 @@ function PlaceOrder() {
 
                       position: 'absolute',
 
-                      left: '20px',
+                      left: isMobile ? '18px' : '20px',
 
                       top: '-10px',
-                      fontSize: '12px',
+                      fontSize: isMobile ? '11px' : '12px',
                       fontWeight: '600',
 
                       color: quantityFocused || quantityInput ? '#3b82f6' : '#64748b',
@@ -10743,14 +10699,17 @@ function PlaceOrder() {
                   {/* Alternative unit quantity display (Tally-style) - inline next to quantity */}
                   {selectedItemUnitConfig.ADDITIONALUNITS && (
                     <div style={{
-                      flex: '0 0 auto',
-                      fontSize: '13px',
+                      flex: isMobile ? '0 0 auto' : '0 0 auto',
+                      fontSize: isMobile ? '12px' : '13px',
                       color: '#64748b',
                       fontStyle: 'italic',
-                      paddingBottom: isMobile ? '14px' : '16px',
-                      whiteSpace: 'nowrap',
+                      paddingBottom: isMobile ? '0' : '16px',
+                      paddingTop: isMobile ? '4px' : '0',
+                      whiteSpace: isMobile ? 'normal' : 'nowrap',
                       minWidth: itemQuantity > 0 ? 'auto' : '0',
-                      visibility: itemQuantity > 0 ? 'visible' : 'hidden'
+                      visibility: itemQuantity > 0 ? 'visible' : 'hidden',
+                      width: isMobile ? '100%' : 'auto',
+                      textAlign: isMobile ? 'left' : 'left'
                     }}>
                       {(() => {
                         if (itemQuantity > 0) {
@@ -10893,7 +10852,7 @@ function PlaceOrder() {
 
               {!selectedItemUnitConfig && (
 
-                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none' }}>
+                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none', minWidth: isMobile ? '100%' : 'auto' }}>
 
                   <div style={{
 
@@ -10912,19 +10871,12 @@ function PlaceOrder() {
                   }}>
 
                     <input
-                      ref={quantityInputFallbackRef}
+
                       type="number"
 
                       value={itemQuantity}
 
                       onChange={(e) => setItemQuantity(parseFloat(e.target.value) || 0)}
-
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          focusNextField(quantityInputFallbackRef);
-                        }
-                      }}
 
                       onFocus={() => setQuantityFocused(true)}
 
@@ -10938,13 +10890,13 @@ function PlaceOrder() {
 
                         width: '100%',
 
-                        padding: isMobile ? '14px 20px' : '16px 20px',
+                        padding: isMobile ? '14px 18px' : '16px 20px',
 
                         border: 'none',
 
                         borderRadius: isMobile ? '10px' : '12px',
 
-                        fontSize: isMobile ? '15px' : '15px',
+                        fontSize: isMobile ? '14px' : '15px',
 
                         color: selectedItem ? '#1e293b' : '#9ca3af',
 
@@ -10954,7 +10906,11 @@ function PlaceOrder() {
 
                         textAlign: 'left',
 
-                        cursor: selectedItem ? 'text' : 'not-allowed'
+                        cursor: selectedItem ? 'text' : 'not-allowed',
+
+                        height: isMobile ? '48px' : 'auto',
+
+                        boxSizing: 'border-box'
 
                       }}
 
@@ -10966,11 +10922,11 @@ function PlaceOrder() {
 
                       position: 'absolute',
 
-                      left: '20px',
+                      left: isMobile ? '18px' : '20px',
 
                       top: '-10px',
 
-                      fontSize: '12px',
+                      fontSize: isMobile ? '11px' : '12px',
 
                       fontWeight: '600',
 
@@ -11002,7 +10958,7 @@ function PlaceOrder() {
 
               {canShowClosingStock && (
 
-                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 140px' }}>
+                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 140px', minWidth: isMobile ? '0' : 'auto', maxWidth: isMobile ? '100%' : 'none', boxSizing: 'border-box' }}>
 
                   <div style={{
 
@@ -11098,11 +11054,11 @@ function PlaceOrder() {
 
                       position: 'absolute',
 
-                      left: '20px',
+                      left: isMobile ? '18px' : '20px',
 
                       top: '-10px',
 
-                      fontSize: '12px',
+                      fontSize: isMobile ? '11px' : '12px',
 
                       fontWeight: '600',
 
@@ -11132,7 +11088,7 @@ function PlaceOrder() {
               {canShowRateAmtColumn && (
 
                 <>
-                  <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 140px' }}>
+                  <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 140px', minWidth: isMobile ? '0' : 'auto', maxWidth: isMobile ? '100%' : 'none', boxSizing: 'border-box' }}>
                     <div style={{
 
                       position: 'relative',
@@ -11149,20 +11105,11 @@ function PlaceOrder() {
 
                       <input
 
-                        ref={rateInputRef}
-
                         type="number"
 
                         value={itemRate}
 
                         onChange={canEditRate ? (e) => setItemRate(parseFloat(e.target.value) || 0) : undefined}
-
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            focusNextField(rateInputRef);
-                          }
-                        }}
 
                         readOnly={!canEditRate}
 
@@ -11204,11 +11151,11 @@ function PlaceOrder() {
 
                         position: 'absolute',
 
-                        left: '20px',
+                        left: isMobile ? '18px' : '20px',
 
                         top: '-10px',
 
-                        fontSize: '12px',
+                        fontSize: isMobile ? '11px' : '12px',
 
                         fontWeight: '600',
 
@@ -11240,7 +11187,7 @@ function PlaceOrder() {
                     const hasMultipleUnits = selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit;
 
                     return (
-                      <div style={{ position: 'relative', width: isMobile ? '100%' : '150px', flex: isMobile ? '1 1 100%' : 'none' }}>
+                      <div style={{ position: 'relative', width: isMobile ? '100%' : '150px', flex: isMobile ? '1 1 100%' : 'none', minWidth: isMobile ? '0' : 'auto', maxWidth: isMobile ? '100%' : 'none', boxSizing: 'border-box' }}>
                         <div style={{
                           position: 'relative',
                           background: 'white',
@@ -11330,9 +11277,9 @@ function PlaceOrder() {
                           )}
                           <label style={{
                             position: 'absolute',
-                            left: '16px',
+                            left: isMobile ? '14px' : '16px',
                             top: '-9px',
-                            fontSize: '11px',
+                            fontSize: isMobile ? '10px' : '11px',
                             fontWeight: '600',
                             color: '#3b82f6',
                             backgroundColor: 'white',
@@ -11607,7 +11554,7 @@ function PlaceOrder() {
 
               {canShowRateAmtColumn && canShowDiscColumn && (
 
-                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 120px' }}>
+                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 120px', minWidth: isMobile ? '100%' : 'auto' }}>
 
                   <div style={{
 
@@ -11624,19 +11571,12 @@ function PlaceOrder() {
                   }}>
 
                     <input
-                      ref={discountInputRef}
+
                       type="number"
 
                       value={itemDiscountPercent}
 
                       onChange={canEditDiscount ? (e) => setItemDiscountPercent(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))) : undefined}
-
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          focusNextField(discountInputRef);
-                        }
-                      }}
 
                       readOnly={!canEditDiscount}
 
@@ -11678,11 +11618,11 @@ function PlaceOrder() {
 
                       position: 'absolute',
 
-                      left: '20px',
+                      left: isMobile ? '18px' : '20px',
 
                       top: '-10px',
 
-                      fontSize: '12px',
+                      fontSize: isMobile ? '11px' : '12px',
 
                       fontWeight: '600',
 
@@ -11712,7 +11652,7 @@ function PlaceOrder() {
 
               {canShowRateAmtColumn && (
 
-                <div style={{ position: 'relative' }}>
+                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none', minWidth: isMobile ? '100%' : 'auto' }}>
 
                   <div style={{
 
@@ -11729,17 +11669,10 @@ function PlaceOrder() {
                   }}>
 
                     <input
-                      ref={gstInputRef}
+
                       type="number"
 
                       value={itemGstPercent}
-
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          focusNextField(gstInputRef);
-                        }
-                      }}
 
                       style={{
 
@@ -11779,11 +11712,11 @@ function PlaceOrder() {
 
                       position: 'absolute',
 
-                      left: '20px',
+                      left: isMobile ? '18px' : '20px',
 
                       top: '-10px',
 
-                      fontSize: '12px',
+                      fontSize: isMobile ? '11px' : '12px',
 
                       fontWeight: '600',
 
@@ -11831,7 +11764,11 @@ function PlaceOrder() {
 
                   textAlign: 'center',
 
+                  width: isMobile ? '100%' : 'auto',
+
                   minWidth: isMobile ? '100%' : '110px',
+
+                  boxSizing: 'border-box',
 
                   boxShadow: isMobile ? '0 2px 6px rgba(14, 165, 233, 0.25)' : '0 2px 4px rgba(14, 165, 233, 0.2)'
 
@@ -11848,17 +11785,10 @@ function PlaceOrder() {
               {/* Add Button */}
 
               <button
-                ref={addItemButtonRef}
+
                 type="button"
 
                 onClick={addOrderItem}
-
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addOrderItem();
-                  }
-                }}
 
                 disabled={!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)}
 
@@ -12040,9 +11970,11 @@ function PlaceOrder() {
 
                   <div style={{
 
-                    width: '34%',
+                    width: isMobile ? '100%' : '34%',
 
-                    maxWidth: '600px'
+                    maxWidth: isMobile ? '100%' : '600px',
+                    boxSizing: 'border-box',
+                    minWidth: isMobile ? '0' : 'auto'
 
                   }}>
 
@@ -12052,28 +11984,24 @@ function PlaceOrder() {
 
                       background: 'white',
 
-                      borderRadius: '12px',
+                      borderRadius: isMobile ? '10px' : '12px',
 
                       border: '2px solid #e2e8f0',
 
                       transition: 'all 0.2s ease',
 
-                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                      width: '100%',
+                      maxWidth: '100%',
+                      boxSizing: 'border-box'
 
                     }}>
 
                       <textarea
-                        ref={descriptionInputRef}
+
                         value={itemDescription}
 
                         onChange={(e) => setItemDescription(e.target.value)}
-
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            focusNextField(descriptionInputRef);
-                          }
-                        }}
 
                         onFocus={() => setDescriptionFocused(true)}
 
@@ -12083,13 +12011,13 @@ function PlaceOrder() {
 
                           width: '100%',
 
-                          padding: '16px 20px',
+                          padding: isMobile ? '14px 18px' : '16px 20px',
 
                           border: 'none',
 
-                          borderRadius: '12px',
+                          borderRadius: isMobile ? '10px' : '12px',
 
-                          fontSize: '15px',
+                          fontSize: isMobile ? '14px' : '15px',
 
                           color: '#1e293b',
 
@@ -12099,9 +12027,11 @@ function PlaceOrder() {
 
                           resize: 'vertical',
 
-                          minHeight: '60px',
+                          minHeight: isMobile ? '80px' : '60px',
 
-                          fontFamily: 'inherit'
+                          fontFamily: 'inherit',
+                          boxSizing: 'border-box',
+                          maxWidth: '100%'
 
                         }}
 
@@ -12113,11 +12043,11 @@ function PlaceOrder() {
 
                         position: 'absolute',
 
-                        left: '20px',
+                        left: isMobile ? '18px' : '20px',
 
-                        top: descriptionFocused || itemDescription ? '-10px' : '16px',
+                        top: descriptionFocused || itemDescription ? '-10px' : (isMobile ? '14px' : '16px'),
 
-                        fontSize: descriptionFocused || itemDescription ? '12px' : '15px',
+                        fontSize: descriptionFocused || itemDescription ? '12px' : (isMobile ? '14px' : '15px'),
 
                         fontWeight: '600',
 
@@ -12156,7 +12086,15 @@ function PlaceOrder() {
 
         {orderItems.length > 0 && (
 
-          <div style={{ padding: isMobile ? '0' : '2px 2px' }}>
+          <div style={{ 
+            padding: isMobile ? '0' : '2px 2px',
+            width: '100%',
+            maxWidth: '100%',
+            boxSizing: 'border-box',
+            overflowX: 'hidden',
+            overflowY: 'visible',
+            position: 'relative'
+          }}>
 
             <div style={{
 
@@ -12170,21 +12108,24 @@ function PlaceOrder() {
 
               boxShadow: isMobile ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.1)',
 
-              maxWidth: '100%'
+              width: '100%',
+              maxWidth: '100%',
+              boxSizing: 'border-box',
+              position: 'relative'
 
             }}>
 
-              {/* Table Header */}
-
+              {/* Table Header - Hidden on mobile, shown on desktop */}
+              {!isMobile && (
               <div style={{
 
                 display: 'grid',
 
                 gridTemplateColumns: getGridTemplateColumns(),
 
-                gap: isMobile ? '8px' : '12px',
+                gap: '12px',
 
-                padding: isMobile ? '12px 12px 12px 16px' : '10px 8px 10px 16px',
+                padding: '10px 8px 10px 16px',
 
                 backgroundColor: '#f8fafc',
 
@@ -12194,326 +12135,537 @@ function PlaceOrder() {
 
                 color: '#475569',
 
-                fontSize: isMobile ? '13px' : '14px',
+                fontSize: '14px',
 
-                letterSpacing: '0.025em'
+                letterSpacing: '0.025em',
+
+                minWidth: 0,
+                width: '100%',
+                boxSizing: 'border-box'
 
               }}>
 
-                <div>Item Name</div>
+                <div style={{ 
+                  overflow: 'hidden', 
+                  textOverflow: 'ellipsis', 
+                  whiteSpace: 'nowrap',
+                  minWidth: 0,
+                  maxWidth: isMobile ? '90px' : 'none'
+                }}>Item Name</div>
 
-                <div style={{ textAlign: 'center' }}>Qty</div>
+                <div style={{ textAlign: 'center', minWidth: 0 }}>Qty</div>
 
-                {canShowClosingStock && <div style={{ textAlign: 'center' }}>Stock</div>}
+                {canShowClosingStock && <div style={{ textAlign: 'center', minWidth: 0 }}>Stock</div>}
 
-                {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>Rate</div>}
+                {canShowRateAmtColumn && <div style={{ textAlign: 'right', minWidth: 0 }}>Rate</div>}
 
-                {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>Rate UOM</div>}
+                {canShowRateAmtColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>Rate UOM</div>}
 
-                {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center' }}>Disc %</div>}
+                {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>Disc %</div>}
 
-                {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>GST %</div>}
+                {canShowRateAmtColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>GST %</div>}
 
-                {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>Amount</div>}
+                {canShowRateAmtColumn && <div style={{ textAlign: 'right', minWidth: 0 }}>Amount</div>}
 
-                <div style={{ textAlign: 'center' }}>Actions</div>
+                <div style={{ textAlign: 'center', minWidth: 0 }}>Actions</div>
 
               </div>
+              )}
 
+              {/* Mobile Header - Simple title with item count */}
+              {isMobile && (
+                <div style={{
+                  padding: '12px 16px',
+                  backgroundColor: '#f8fafc',
+                  borderBottom: '2px solid #e2e8f0',
+                  fontWeight: '700',
+                  color: '#475569',
+                  fontSize: '14px'
+                }}>
+                  Order Items ({orderItems.length})
+                </div>
+              )}
 
+              {/* Table Rows (Desktop) / Card Layout (Mobile) */}
 
-              {/* Table Rows */}
+              {orderItems.map((item, index) => {
+                // Get stock value for display
+                const selectedStockItem = stockItems.find(stockItem => stockItem.NAME === item.name);
+                const stockValue = selectedStockItem ? (canShowClosingStockYesNo ? (selectedStockItem.CLOSINGSTOCK || 0) > 0 ? 'Yes' : 'No' : selectedStockItem.CLOSINGSTOCK || 0) : '';
 
-              {orderItems.map((item, index) => (
+                // Get rate UOM display
+                const getRateUOMDisplay = () => {
+                  if (!item.unitConfig || !item.rateUOM) return '';
+                  const baseUnitObj = units && units.length > 0
+                    ? units.find(u => u.NAME === item.unitConfig.BASEUNITS)
+                    : null;
+                  const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
 
-                <div key={item.id} style={{
+                  if (hasCompoundBaseUnit && baseUnitObj) {
+                    if (item.rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
+                    if (item.rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
+                  }
 
-                  display: 'grid',
+                  const addlUnitObj = units && units.length > 0 && item.unitConfig.ADDITIONALUNITS
+                    ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
+                    : null;
+                  const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
 
-                  gridTemplateColumns: getGridTemplateColumns(),
+                  if (hasCompoundAddlUnit && addlUnitObj) {
+                    if (item.rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
+                    if (item.rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
+                  }
 
-                  gap: isMobile ? '8px' : '12px',
+                  if (item.rateUOM === 'base') return item.unitConfig.BASEUNITS;
+                  if (item.rateUOM === 'additional') return item.unitConfig.ADDITIONALUNITS;
+                  return item.unitConfig.BASEUNITS || '';
+                };
 
-                  padding: isMobile ? '14px 12px 14px 16px' : '12px 8px 12px 16px',
+                // Mobile Card Layout
+                if (isMobile) {
+                  return (
+                    <div
+                      key={item.id}
+                      style={{
+                        padding: '12px',
+                        margin: '8px',
+                        backgroundColor: '#ffffff',
+                        borderRadius: '12px',
+                        border: '1px solid #e2e8f0',
+                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                        width: 'calc(100% - 16px)',
+                        boxSizing: 'border-box'
+                      }}
+                    >
+                      {/* Primary Row: Item Name + Amount */}
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'flex-start',
+                        marginBottom: '8px',
+                        gap: '8px'
+                      }}>
+                        <div style={{
+                          flex: 1,
+                          minWidth: 0
+                        }}>
+                          <div style={{
+                            fontWeight: '700',
+                            color: '#1e293b',
+                            fontSize: '15px',
+                            marginBottom: item.description ? '4px' : '0',
+                            wordBreak: 'break-word',
+                            lineHeight: '1.3'
+                          }}>
+                            {item.name}
+                          </div>
+                          {item.description && (
+                            <div style={{
+                              fontSize: '12px',
+                              color: '#64748b',
+                              fontWeight: '400',
+                              fontStyle: 'italic',
+                              lineHeight: '1.3',
+                              marginTop: '4px'
+                            }}>
+                              {item.description}
+                            </div>
+                          )}
+                        </div>
+                        {canShowRateAmtColumn && (
+                          <div style={{
+                            fontWeight: '700',
+                            color: '#059669',
+                            fontSize: '18px',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0
+                          }}>
+                            ₹{item.amount.toFixed(2)}
+                          </div>
+                        )}
+                      </div>
 
-                  borderBottom: '1px solid #f1f5f9',
+                      {/* Secondary Row: Qty, Rate, GST */}
+                      <div style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '12px',
+                        marginBottom: '8px',
+                        fontSize: '13px',
+                        color: '#475569'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          <span style={{ fontWeight: '600', color: '#64748b' }}>Qty:</span>
+                          <span style={{ fontWeight: '600', color: '#059669' }}>
+                            {item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`}
+                          </span>
+                          {item.altQtyDisplay && (
+                            <span style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>
+                              ({item.altQtyDisplay})
+                            </span>
+                          )}
+                        </div>
+                        {canShowRateAmtColumn && (
+                          <>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ fontWeight: '600', color: '#64748b' }}>Rate:</span>
+                              <span style={{ fontWeight: '600', color: '#dc2626' }}>₹{item.rate.toFixed(2)}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ fontWeight: '600', color: '#64748b' }}>GST:</span>
+                              <span style={{ fontWeight: '600', color: '#ea580c' }}>{item.gstPercent}%</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
 
-                  alignItems: 'center',
+                      {/* Tertiary Row: Stock, Rate UOM, Disc % */}
+                      {(canShowClosingStock || (canShowRateAmtColumn && getRateUOMDisplay()) || (canShowRateAmtColumn && canShowDiscColumn && item.discountPercent)) && (
+                        <div style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '12px',
+                          marginBottom: '8px',
+                          fontSize: '12px',
+                          color: '#64748b'
+                        }}>
+                          {canShowClosingStock && stockValue !== '' && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ fontWeight: '500' }}>Stock:</span>
+                              <span style={{ fontWeight: '600', color: '#7c3aed' }}>{stockValue}</span>
+                            </div>
+                          )}
+                          {canShowRateAmtColumn && getRateUOMDisplay() && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ fontWeight: '500' }}>UOM:</span>
+                              <span style={{ fontWeight: '600' }}>{getRateUOMDisplay()}</span>
+                            </div>
+                          )}
+                          {canShowRateAmtColumn && canShowDiscColumn && item.discountPercent > 0 && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <span style={{ fontWeight: '500' }}>Disc:</span>
+                              <span style={{ fontWeight: '600', color: '#0ea5e9' }}>{item.discountPercent || 0}%</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
-                  fontSize: isMobile ? '13px' : '14px',
+                      {/* Actions Row */}
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'flex-end',
+                        gap: '8px',
+                        marginTop: '8px',
+                        paddingTop: '8px',
+                        borderTop: '1px solid #f1f5f9'
+                      }}>
+                        <button
+                          type="button"
+                          onClick={() => startEditItem(index)}
+                          style={{
+                            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            padding: '8px 16px',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            transition: 'all 0.2s ease',
+                            boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            minHeight: '44px'
+                          }}
+                          title="Edit item"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>edit</span>
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeOrderItem(item.id)}
+                          style={{
+                            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '8px',
+                            padding: '8px 16px',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            fontWeight: '600',
+                            transition: 'all 0.2s ease',
+                            boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            minHeight: '44px'
+                          }}
+                          title="Remove item"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>delete_outline</span>
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
 
-                  color: '#1e293b',
+                // Desktop Grid Table Layout
+                return (
+                  <div key={item.id} style={{
 
-                  transition: 'background-color 0.2s ease'
+                    display: 'grid',
 
-                }}
+                    gridTemplateColumns: getGridTemplateColumns(),
 
-                  onMouseEnter={(e) => {
+                    gap: '12px',
 
-                    e.currentTarget.style.backgroundColor = '#f8fafc';
+                    padding: '12px 8px 12px 16px',
 
-                  }}
+                    borderBottom: '1px solid #f1f5f9',
 
-                  onMouseLeave={(e) => {
+                    alignItems: 'center',
 
-                    e.currentTarget.style.backgroundColor = 'transparent';
-
-                  }}
-
-                >
-
-                  <div style={{
-
-                    fontWeight: '600',
+                    fontSize: '14px',
 
                     color: '#1e293b',
 
-                    fontSize: isMobile ? '14px' : '15px',
+                    transition: 'background-color 0.2s ease',
 
-                    overflow: 'hidden',
+                    minWidth: 0,
+                    width: '100%',
+                    boxSizing: 'border-box'
 
-                    wordBreak: 'break-word',
+                  }}
 
-                    lineHeight: '1.4'
+                    onMouseEnter={(e) => {
 
-                  }}>
+                      e.currentTarget.style.backgroundColor = '#f8fafc';
 
-                    {item.name}
+                    }}
 
-                    {item.description && (
+                    onMouseLeave={(e) => {
+
+                      e.currentTarget.style.backgroundColor = 'transparent';
+
+                    }}
+
+                  >
+
+                    <div style={{
+
+                      fontWeight: '600',
+
+                      color: '#1e293b',
+
+                      fontSize: '15px',
+
+                      overflow: 'hidden',
+
+                      wordBreak: 'break-word',
+
+                      lineHeight: '1.2',
+
+                      minWidth: 0
+
+                    }}>
+
+                      {item.name}
+
+                      {item.description && (
+
+                        <div style={{
+
+                          fontSize: '12px',
+
+                          color: '#64748b',
+
+                          fontWeight: '400',
+
+                          marginTop: '4px',
+
+                          fontStyle: 'italic',
+
+                          lineHeight: '1.3'
+
+                        }}>
+
+                          {item.description}
+
+                        </div>
+
+                      )}
+
+                    </div>
+
+                    <div style={{
+
+                      textAlign: 'center',
+
+                      fontWeight: '600',
+
+                      color: '#059669',
+
+                      display: 'flex',
+
+                      flexDirection: 'column',
+
+                      alignItems: 'center',
+
+                      gap: '2px',
+                      minWidth: 0
+
+                    }}>
+
+                      <div style={{ textAlign: 'center' }}>
+                        <div style={{ fontWeight: '600', color: '#1e293b' }}>
+                          {item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`}
+                        </div>
+                        {item.altQtyDisplay && (
+                          <div style={{
+                            fontSize: '12px',
+                            color: '#64748b',
+                            fontStyle: 'italic',
+                            marginTop: '2px'
+                          }}>
+                            ({item.altQtyDisplay})
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+
+                    {canShowClosingStock && (
 
                       <div style={{
 
-                        fontSize: '12px',
+                        textAlign: 'center',
 
-                        color: '#64748b',
+                        fontWeight: '600',
 
-                        fontWeight: '400',
-
-                        marginTop: '4px',
-
-                        fontStyle: 'italic',
-
-                        lineHeight: '1.3'
+                        color: '#7c3aed',
+                        minWidth: 0
 
                       }}>
 
-                        {item.description}
+                        {stockValue !== '' ? stockValue : ''}
 
                       </div>
 
                     )}
 
-                  </div>
+                    {canShowRateAmtColumn && (
 
-                  <div style={{
+                      <div style={{
 
-                    textAlign: 'center',
+                        textAlign: 'right',
 
-                    fontWeight: '600',
+                        fontWeight: '600',
 
-                    color: '#059669',
+                        color: '#dc2626',
+                        minWidth: 0
 
-                    display: 'flex',
+                      }}>
 
-                    flexDirection: 'column',
+                        ₹{item.rate.toFixed(2)}
 
-                    alignItems: 'center',
-
-                    gap: '4px'
-
-                  }}>
-
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontWeight: '600', color: '#1e293b' }}>
-                        {item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`}
                       </div>
-                      {item.altQtyDisplay && (
-                        <div style={{
-                          fontSize: '12px',
-                          color: '#64748b',
-                          fontStyle: 'italic',
-                          marginTop: '2px'
-                        }}>
-                          ({item.altQtyDisplay})
-                        </div>
-                      )}
-                    </div>
 
-                  </div>
+                    )}
 
-                  {canShowClosingStock && (
+                    {canShowRateAmtColumn && (
+
+                      <div style={{
+
+                        textAlign: 'center',
+
+                        fontWeight: '500',
+
+                        color: '#64748b',
+
+                        fontSize: '13px',
+
+                        position: 'relative',
+                        minWidth: 0
+
+                      }}>
+
+                        {getRateUOMDisplay()}
+
+                      </div>
+
+                    )}
+
+                    {canShowRateAmtColumn && canShowDiscColumn && (
+
+                      <div style={{
+
+                        textAlign: 'center',
+
+                        fontWeight: '600',
+
+                        color: '#0ea5e9',
+                        minWidth: 0
+
+                      }}>
+
+                        {item.discountPercent || 0}%
+
+                      </div>
+
+                    )}
+
+                    {canShowRateAmtColumn && (
+
+                      <div style={{
+
+                        textAlign: 'center',
+
+                        fontWeight: '600',
+
+                        color: '#ea580c',
+                        minWidth: 0
+
+                      }}>
+
+                        {item.gstPercent}%
+
+                      </div>
+
+                    )}
+
+                    {canShowRateAmtColumn && (
+
+                      <div style={{
+
+                        textAlign: 'right',
+
+                        fontWeight: '700',
+
+                        color: '#059669',
+
+                        fontSize: '15px',
+                        minWidth: 0
+
+                      }}>
+
+                        ₹{item.amount.toFixed(2)}
+
+                      </div>
+
+                    )}
 
                     <div style={{
-
                       textAlign: 'center',
-
-                      fontWeight: '600',
-
-                      color: '#7c3aed'
-
+                      display: 'flex',
+                      gap: '6px',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      width: '100%',
+                      minWidth: 0
                     }}>
-
-                      {(() => {
-
-                        const selectedStockItem = stockItems.find(stockItem => stockItem.NAME === item.name);
-
-                        if (selectedStockItem) {
-
-                          const stockValue = selectedStockItem.CLOSINGSTOCK || 0;
-
-                          // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
-
-                          if (canShowClosingStockYesNo) {
-
-                            return stockValue > 0 ? 'Yes' : 'No';
-
-                          }
-
-                          return stockValue;
-
-                        }
-
-                        return '';
-
-                      })()}
-
-                    </div>
-
-                  )}
-
-                  {canShowRateAmtColumn && (
-
-                    <div style={{
-
-                      textAlign: 'right',
-
-                      fontWeight: '600',
-
-                      color: '#dc2626'
-
-                    }}>
-
-                      ₹{item.rate.toFixed(2)}
-
-                    </div>
-
-                  )}
-
-                  {canShowRateAmtColumn && (
-
-                    <div style={{
-
-                      textAlign: 'center',
-
-                      fontWeight: '500',
-
-                      color: '#64748b',
-
-                      fontSize: '13px',
-
-                      position: 'relative'
-
-                    }}>
-
-                      {(() => {
-                        if (!item.unitConfig || !item.rateUOM) return '';
-
-                        const baseUnitObj = units && units.length > 0
-                          ? units.find(u => u.NAME === item.unitConfig.BASEUNITS)
-                          : null;
-                        const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-
-                        if (hasCompoundBaseUnit && baseUnitObj) {
-                          if (item.rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
-                          if (item.rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
-                        }
-
-                        const addlUnitObj = units && units.length > 0 && item.unitConfig.ADDITIONALUNITS
-                          ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
-                          : null;
-                        const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
-                        if (hasCompoundAddlUnit && addlUnitObj) {
-                          if (item.rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
-                          if (item.rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
-                        }
-
-                        if (item.rateUOM === 'base') return item.unitConfig.BASEUNITS;
-                        if (item.rateUOM === 'additional') return item.unitConfig.ADDITIONALUNITS;
-
-                        return item.unitConfig.BASEUNITS || '';
-                      })()}
-                    </div>
-
-                  )}
-
-                  {canShowRateAmtColumn && canShowDiscColumn && (
-
-                    <div style={{
-
-                      textAlign: 'center',
-
-                      fontWeight: '600',
-
-                      color: '#0ea5e9'
-
-                    }}>
-
-                      {item.discountPercent || 0}%
-
-                    </div>
-
-                  )}
-
-                  {canShowRateAmtColumn && (
-
-                    <div style={{
-
-                      textAlign: 'center',
-
-                      fontWeight: '600',
-
-                      color: '#ea580c'
-
-                    }}>
-
-                      {item.gstPercent}%
-
-                    </div>
-
-                  )}
-
-                  {canShowRateAmtColumn && (
-
-                    <div style={{
-
-                      textAlign: 'right',
-
-                      fontWeight: '700',
-
-                      color: '#059669',
-
-                      fontSize: '15px'
-
-                    }}>
-
-                      ₹{item.amount.toFixed(2)}
-
-                    </div>
-
-                  )}
-
-                  <div style={{
-                    textAlign: 'center',
-                    display: 'flex',
-                    gap: '6px',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    width: '100%'
-                  }}>
-
-                    <>
 
                       <button
 
@@ -12541,7 +12693,9 @@ function PlaceOrder() {
 
                           transition: 'all 0.2s ease',
 
-                          boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)'
+                          boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)',
+                          minWidth: 0,
+                          flexShrink: 0
 
                         }}
 
@@ -12583,7 +12737,9 @@ function PlaceOrder() {
 
                           transition: 'all 0.2s ease',
 
-                          boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)'
+                          boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)',
+                          minWidth: 0,
+                          flexShrink: 0
 
                         }}
 
@@ -12599,15 +12755,11 @@ function PlaceOrder() {
 
                       </button>
 
-                    </>
+                    </div>
 
                   </div>
-
-                </div>
-
-              ))}
-
-
+                );
+              })}
 
               {/* Totals Row */}
 
@@ -12615,17 +12767,62 @@ function PlaceOrder() {
 
                 const totals = calculateTotals();
 
-                return (
+                // Mobile Card Style Totals
+                if (isMobile) {
+                  return (
+                    <div style={{
+                      padding: '16px',
+                      margin: '8px',
+                      background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
+                      borderRadius: '12px',
+                      color: 'white',
+                      boxShadow: '0 2px 8px rgba(30, 64, 175, 0.3)'
+                    }}>
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '8px'
+                      }}>
+                        <div style={{
+                          fontSize: '16px',
+                          fontWeight: '700'
+                        }}>
+                          Total ({orderItems.length} {orderItems.length === 1 ? 'item' : 'items'})
+                        </div>
+                        {canShowRateAmtColumn && (
+                          <div style={{
+                            fontSize: '24px',
+                            fontWeight: '700'
+                          }}>
+                            ₹{totals.totalAmount.toFixed(2)}
+                          </div>
+                        )}
+                      </div>
+                      {totals.canShowQuantityTotal && (
+                        <div style={{
+                          fontSize: '14px',
+                          opacity: 0.9,
+                          marginTop: '4px'
+                        }}>
+                          Total Qty: {totals.totalQuantity}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
 
+                // Desktop Grid Totals
+                return (
                   <div style={{
 
                     display: 'grid',
 
                     gridTemplateColumns: getGridTemplateColumns(),
 
-                    gap: isMobile ? '8px' : '12px',
+                    gap: '12px',
 
-                    padding: isMobile ? '14px 12px 14px 16px' : '12px 8px 12px 16px',
+                    padding: '12px 8px 12px 16px',
 
                     background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
 
@@ -12633,33 +12830,53 @@ function PlaceOrder() {
 
                     fontWeight: '700',
 
-                    fontSize: isMobile ? '13px' : '12px',
+                    fontSize: '12px',
 
                     borderTop: '2px solid #3b82f6',
 
-                    borderRadius: isMobile ? '0 0 16px 16px' : '0'
+                    borderRadius: '0',
+                    minWidth: 0,
+                    width: '100%',
+                    boxSizing: 'border-box'
 
                   }}>
 
-                    <div style={{ fontSize: isMobile ? '16px' : '18px' }}>OrderTotal ({orderItems.length} items selected)</div>
+                    <div style={{ 
+                      fontSize: '18px',
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      wordBreak: 'break-word',
+                      whiteSpace: 'nowrap',
+                      textOverflow: 'ellipsis'
+                    }}>OrderTotal ({orderItems.length} items selected)</div>
 
-                    <div style={{ textAlign: 'center', fontSize: isMobile ? '16px' : '18px' }}>
+                    <div style={{ 
+                      textAlign: 'center', 
+                      fontSize: '18px',
+                      minWidth: 0
+                    }}>
                       {totals.canShowQuantityTotal ? totals.totalQuantity : '-'}
                     </div>
 
-                    {canShowClosingStock && <div style={{ textAlign: 'center' }}>-</div>}
+                    {canShowClosingStock && <div style={{ textAlign: 'center', minWidth: 0 }}>-</div>}
 
-                    {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>-</div>}
+                    {canShowRateAmtColumn && <div style={{ textAlign: 'right', minWidth: 0 }}>-</div>}
 
-                    {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>-</div>}
+                    {canShowRateAmtColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>-</div>}
 
-                    {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center' }}>-</div>}
+                    {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>-</div>}
 
-                    {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>-</div>}
+                    {canShowRateAmtColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>-</div>}
 
                     {canShowRateAmtColumn && (
 
-                      <div style={{ textAlign: 'right', fontSize: isMobile ? '18px' : '20px', color: '#fbbf24', fontWeight: '700' }}>
+                      <div style={{ 
+                        textAlign: 'right', 
+                        fontSize: '20px', 
+                        color: '#fbbf24', 
+                        fontWeight: '700',
+                        minWidth: 0
+                      }}>
 
                         ₹{totals.totalAmount.toFixed(2)}
 
@@ -12667,7 +12884,7 @@ function PlaceOrder() {
 
                     )}
 
-                    <div></div>
+                    <div style={{ minWidth: 0 }}></div>
 
                   </div>
 
@@ -13873,147 +14090,9 @@ function PlaceOrder() {
 
                 display: 'flex',
 
-                justifyContent: 'center',
-
-                gap: '12px',
-
-                flexWrap: 'wrap'
+                justifyContent: 'center'
 
               }}>
-
-                {orderResult.success && orderResult.orderData && (
-
-                  <>
-
-                    <button
-
-                      onClick={handlePrint}
-
-                      style={{
-
-                        background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-
-                        color: '#fff',
-
-                        border: 'none',
-
-                        borderRadius: '8px',
-
-                        padding: '12px 24px',
-
-                        cursor: 'pointer',
-
-                        fontSize: '14px',
-
-                        fontWeight: '600',
-
-                        minWidth: '100px',
-
-                        display: 'flex',
-
-                        alignItems: 'center',
-
-                        justifyContent: 'center',
-
-                        gap: '6px'
-
-                      }}
-
-                    >
-
-                      <span className="material-icons" style={{ fontSize: '18px' }}>print</span>
-
-                      Print
-
-                    </button>
-
-                    <button
-
-                      onClick={handleWhatsAppShare}
-
-                      style={{
-
-                        background: 'linear-gradient(135deg, #25d366 0%, #128c7e 100%)',
-
-                        color: '#fff',
-
-                        border: 'none',
-
-                        borderRadius: '8px',
-
-                        padding: '12px 24px',
-
-                        cursor: 'pointer',
-
-                        fontSize: '14px',
-
-                        fontWeight: '600',
-
-                        minWidth: '100px',
-
-                        display: 'flex',
-
-                        alignItems: 'center',
-
-                        justifyContent: 'center',
-
-                        gap: '6px'
-
-                      }}
-
-                    >
-
-                      <span className="material-icons" style={{ fontSize: '18px' }}>send</span>
-
-                      WhatsApp
-
-                    </button>
-
-                    <button
-
-                      onClick={handleEmailShare}
-
-                      style={{
-
-                        background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-
-                        color: '#fff',
-
-                        border: 'none',
-
-                        borderRadius: '8px',
-
-                        padding: '12px 24px',
-
-                        cursor: 'pointer',
-
-                        fontSize: '14px',
-
-                        fontWeight: '600',
-
-                        minWidth: '100px',
-
-                        display: 'flex',
-
-                        alignItems: 'center',
-
-                        justifyContent: 'center',
-
-                        gap: '6px'
-
-                      }}
-
-                    >
-
-                      <span className="material-icons" style={{ fontSize: '18px' }}>email</span>
-
-                      Email
-
-                    </button>
-
-                  </>
-
-                )}
 
                 <button
 
@@ -14047,7 +14126,7 @@ function PlaceOrder() {
 
                 >
 
-                  {orderResult.success ? 'Close' : 'Close'}
+                  {orderResult.success ? 'Great!' : 'Close'}
 
                 </button>
 

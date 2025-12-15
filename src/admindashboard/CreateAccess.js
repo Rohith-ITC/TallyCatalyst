@@ -2130,8 +2130,24 @@ function CreateAccess() {
     user.email.toLowerCase().includes(userSearchTerm.toLowerCase())
   );
 
+  const isMobile = window.innerWidth <= 768;
+
   return (
-    <div style={{ margin: '0', padding: 0, width: '100%', maxWidth: 1400, boxSizing: 'border-box', background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)', minHeight: '100vh' }}>
+    <div 
+      className="user-management-wrapper"
+      style={{ 
+        margin: '0', 
+        padding: isMobile ? '16px 12px' : '24px', 
+        width: '100%', 
+        maxWidth: '1200px', 
+        marginLeft: 'auto',
+        marginRight: 'auto',
+        boxSizing: 'border-box', 
+        minHeight: '100vh',
+        fontFamily: 'Segoe UI, Roboto, Arial, sans-serif',
+        overflowX: 'hidden'
+      }}
+    >
       <style>{`
         @keyframes spin {
           from { transform: rotate(0deg); }
@@ -2147,85 +2163,521 @@ function CreateAccess() {
         }
       `}</style>
       
+      {/* Mobile Responsive Styles */}
+      <style>{`
+        @media (max-width: 768px) {
+          .user-management-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 16px !important;
+            padding: 20px 16px 20px 60px !important;
+            margin-top: 20px !important;
+            margin-bottom: 24px !important;
+            position: relative !important;
+          }
+          .user-management-header-title {
+            font-size: 24px !important;
+          }
+          .user-management-header-icon {
+            width: 44px !important;
+            height: 44px !important;
+          }
+          .user-management-header-icon .material-icons {
+            font-size: 24px !important;
+          }
+          .user-management-header-subtitle {
+            font-size: 14px !important;
+            margin-left: 0 !important;
+            margin-top: 8px !important;
+          }
+          .user-management-companies-badge {
+            width: 100% !important;
+            max-width: 100% !important;
+            justify-content: center !important;
+            padding: 10px 16px !important;
+            font-size: 13px !important;
+            margin-top: 0 !important;
+            white-space: normal !important;
+            text-align: center !important;
+            box-sizing: border-box !important;
+            word-wrap: break-word !important;
+            overflow-wrap: break-word !important;
+          }
+          .user-management-companies-badge span {
+            display: inline-flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            flex-wrap: wrap !important;
+            justify-content: center !important;
+          }
+          .user-management-companies-badge .material-icons {
+            font-size: 18px !important;
+            flex-shrink: 0 !important;
+          }
+          .user-management-tabs {
+            flex-direction: column !important;
+            gap: 6px !important;
+            padding: 6px !important;
+          }
+          .user-management-tab-button {
+            padding: 12px 16px !important;
+            font-size: 13px !important;
+            min-height: 48px !important;
+          }
+          .user-management-tab-button .material-icons {
+            font-size: 18px !important;
+          }
+          
+          /* Form Container */
+          .user-form-container {
+            padding: 20px 16px !important;
+            margin-bottom: 20px !important;
+            border-radius: 16px !important;
+          }
+          
+          /* Form Header */
+          .user-form-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 12px !important;
+            margin-bottom: 24px !important;
+            padding-bottom: 16px !important;
+          }
+          .user-form-header h3 {
+            font-size: 20px !important;
+          }
+          .user-form-header-icon {
+            width: 40px !important;
+            height: 40px !important;
+          }
+          .user-form-header-icon .material-icons {
+            font-size: 24px !important;
+          }
+          
+          /* Form Grid Fields */
+          .user-form-grid {
+            grid-template-columns: 1fr !important;
+            gap: 16px !important;
+            margin-bottom: 20px !important;
+          }
+          
+          /* Form Labels */
+          .user-form-label {
+            font-size: 13px !important;
+            margin-bottom: 8px !important;
+          }
+          .user-form-label .material-icons {
+            font-size: 16px !important;
+          }
+          
+          /* Form Inputs */
+          .user-form-input,
+          .user-form-select {
+            padding: 12px 14px !important;
+            font-size: 14px !important;
+            border-radius: 10px !important;
+          }
+          
+          /* Company Selection Section */
+          .company-selection-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 12px !important;
+            padding: 12px 16px !important;
+          }
+          .company-selection-header h4 {
+            font-size: 16px !important;
+          }
+          .company-selection-grid {
+            grid-template-columns: 1fr !important;
+            gap: 12px !important;
+            padding: 16px !important;
+          }
+          
+          /* External User Checkbox */
+          .external-user-checkbox {
+            padding: 16px !important;
+            margin-top: 16px !important;
+            margin-bottom: 16px !important;
+          }
+          
+          /* Submit Button */
+          .user-form-submit-button {
+            width: 100% !important;
+            padding: 14px 20px !important;
+            font-size: 14px !important;
+            min-width: auto !important;
+          }
+          
+          /* Form Messages */
+          .user-form-message {
+            padding: 14px 16px !important;
+            font-size: 13px !important;
+            margin-top: 16px !important;
+          }
+          .user-form-message .material-icons {
+            font-size: 18px !important;
+          }
+          
+          /* Users Table Container */
+          .users-table-container {
+            padding: 20px 16px !important;
+            margin-top: 0 !important;
+            border-radius: 16px !important;
+          }
+          
+          /* Users Table Header */
+          .users-table-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 16px !important;
+            margin-bottom: 20px !important;
+            padding-bottom: 16px !important;
+          }
+          .users-table-header h3 {
+            font-size: 20px !important;
+          }
+          .users-table-header-icon {
+            width: 40px !important;
+            height: 40px !important;
+          }
+          .users-table-header-icon .material-icons {
+            font-size: 24px !important;
+          }
+          
+          /* Search Input */
+          .users-search-input {
+            width: 100% !important;
+            padding: 10px 14px !important;
+            font-size: 14px !important;
+          }
+          .users-search-input input {
+            width: 100% !important;
+            font-size: 14px !important;
+          }
+          
+          /* Users Table */
+          .users-table-wrapper {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            border-radius: 12px !important;
+          }
+          .users-table {
+            min-width: 800px !important;
+            font-size: 13px !important;
+          }
+          .users-table th {
+            padding: 12px 14px !important;
+            font-size: 11px !important;
+          }
+          .users-table td {
+            padding: 16px 14px !important;
+            font-size: 13px !important;
+          }
+          
+          /* Action Buttons */
+          .user-action-button {
+            padding: 8px 12px !important;
+            font-size: 12px !important;
+            min-width: auto !important;
+          }
+          .user-action-button .material-icons {
+            font-size: 16px !important;
+          }
+          
+          /* Users Table Action Buttons */
+          .users-table-actions {
+            flex-direction: column !important;
+            gap: 8px !important;
+            width: 100% !important;
+          }
+          .users-table-actions button {
+            width: 100% !important;
+            padding: 10px 12px !important;
+            font-size: 12px !important;
+          }
+          .users-table-actions .material-icons {
+            font-size: 14px !important;
+          }
+          
+          /* Empty/Loading States */
+          .users-empty-state,
+          .users-loading-state {
+            padding: 40px 20px !important;
+          }
+          .users-empty-state .material-icons,
+          .users-loading-state .material-icons {
+            font-size: 40px !important;
+          }
+          
+          /* Routes Tab Container */
+          .routes-container {
+            padding: 20px 16px !important;
+            margin-top: 20px !important;
+            border-radius: 16px !important;
+          }
+          
+          /* Routes Header */
+          .routes-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 16px !important;
+            margin-bottom: 20px !important;
+            padding-bottom: 16px !important;
+          }
+          .routes-header h3 {
+            font-size: 20px !important;
+          }
+          .routes-header-icon {
+            width: 40px !important;
+            height: 40px !important;
+          }
+          .routes-header-icon .material-icons {
+            font-size: 24px !important;
+          }
+          
+          /* Routes Search and Create */
+          .routes-search-create {
+            flex-direction: column !important;
+            gap: 12px !important;
+            width: 100% !important;
+          }
+          .routes-search-input {
+            width: 100% !important;
+            padding: 10px 14px !important;
+          }
+          .routes-search-input input {
+            width: 100% !important;
+            font-size: 14px !important;
+          }
+          .routes-create-button {
+            width: 100% !important;
+            padding: 12px 20px !important;
+            font-size: 13px !important;
+            justify-content: center !important;
+          }
+          
+          /* Routes Table */
+          .routes-table-wrapper {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            border-radius: 12px !important;
+          }
+          .routes-table {
+            min-width: 900px !important;
+            font-size: 13px !important;
+          }
+          .routes-table th {
+            padding: 12px 14px !important;
+            font-size: 11px !important;
+          }
+          .routes-table td {
+            padding: 16px 14px !important;
+            font-size: 13px !important;
+          }
+          
+          /* Routes Empty/Loading States */
+          .routes-empty-state,
+          .routes-loading-state {
+            padding: 40px 20px !important;
+          }
+          .routes-empty-state .material-icons,
+          .routes-loading-state .material-icons {
+            font-size: 40px !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .user-management-wrapper {
+            padding: 16px 12px !important;
+          }
+          .user-management-tab-button {
+            padding: 10px 12px !important;
+            font-size: 12px !important;
+            gap: 6px !important;
+          }
+          .user-management-tab-button .material-icons {
+            font-size: 16px !important;
+          }
+          
+          /* Form Container */
+          .user-form-container {
+            padding: 16px 12px !important;
+            border-radius: 12px !important;
+          }
+          
+          /* Form Header */
+          .user-form-header h3 {
+            font-size: 18px !important;
+          }
+          .user-form-header-icon {
+            width: 36px !important;
+            height: 36px !important;
+          }
+          .user-form-header-icon .material-icons {
+            font-size: 20px !important;
+          }
+          
+          /* Form Grid Fields */
+          .user-form-grid {
+            gap: 12px !important;
+          }
+          
+          /* Form Labels */
+          .user-form-label {
+            font-size: 12px !important;
+          }
+          
+          /* Form Inputs */
+          .user-form-input,
+          .user-form-select {
+            padding: 10px 12px !important;
+            font-size: 13px !important;
+          }
+          
+          /* Company Selection */
+          .company-selection-header {
+            padding: 10px 12px !important;
+          }
+          .company-selection-header h4 {
+            font-size: 14px !important;
+          }
+          .company-selection-grid {
+            padding: 12px !important;
+            gap: 10px !important;
+          }
+          
+          /* External User Checkbox */
+          .external-user-checkbox {
+            padding: 12px !important;
+          }
+          
+          /* Submit Button */
+          .user-form-submit-button {
+            padding: 12px 16px !important;
+            font-size: 13px !important;
+          }
+          
+          /* Users Table Container */
+          .users-table-container {
+            padding: 16px 12px !important;
+          }
+          
+          /* Users Table Header */
+          .users-table-header h3 {
+            font-size: 18px !important;
+          }
+          .users-table-header-icon {
+            width: 36px !important;
+            height: 36px !important;
+          }
+          .users-table-header-icon .material-icons {
+            font-size: 20px !important;
+          }
+          
+          /* Users Table */
+          .users-table {
+            min-width: 700px !important;
+            font-size: 12px !important;
+          }
+          .users-table th {
+            padding: 10px 12px !important;
+            font-size: 10px !important;
+          }
+          .users-table td {
+            padding: 12px !important;
+            font-size: 12px !important;
+          }
+          
+          /* Action Buttons */
+          .user-action-button {
+            padding: 6px 10px !important;
+            font-size: 11px !important;
+          }
+          
+          /* Users Table Action Buttons */
+          .users-table-actions button {
+            padding: 8px 10px !important;
+            font-size: 11px !important;
+          }
+          .users-table-actions .material-icons {
+            font-size: 12px !important;
+          }
+          
+          /* Routes Tab Container */
+          .routes-container {
+            padding: 16px 12px !important;
+          }
+          
+          /* Routes Header */
+          .routes-header h3 {
+            font-size: 18px !important;
+          }
+          .routes-header-icon {
+            width: 36px !important;
+            height: 36px !important;
+          }
+          .routes-header-icon .material-icons {
+            font-size: 20px !important;
+          }
+          
+          /* Routes Search and Create */
+          .routes-create-button {
+            padding: 10px 16px !important;
+            font-size: 12px !important;
+          }
+          
+          /* Routes Table */
+          .routes-table {
+            min-width: 800px !important;
+            font-size: 12px !important;
+          }
+          .routes-table th {
+            padding: 10px 12px !important;
+            font-size: 10px !important;
+          }
+          .routes-table td {
+            padding: 12px !important;
+            font-size: 12px !important;
+          }
+        }
+      `}</style>
+
       {/* Header Section */}
       <div style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'space-between', 
-        marginBottom: 40, 
-        marginTop: 50,
-        padding: '24px 32px',
-        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-        borderRadius: 20,
-        boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
-        border: '1px solid rgba(59, 130, 246, 0.1)',
-        animation: 'fadeIn 0.5s ease-out'
+        marginBottom: '32px',
+        borderBottom: '2px solid #e5e7eb',
+        paddingBottom: '24px',
+        paddingTop: isMobile ? '70px' : '24px',
+        paddingLeft: isMobile ? '0' : '0'
       }}>
-        <div>
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 16,
-            marginBottom: 8
-          }}>
-            <div style={{
-              width: 56,
-              height: 56,
-              borderRadius: 14,
-              background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 4px 15px rgba(59, 130, 246, 0.3)',
-              flexShrink: 0
-            }}>
-              <span className="material-icons" style={{ fontSize: 32, color: '#fff' }}>people</span>
-            </div>
-            <h2 style={{ 
-              color: '#1e40af', 
-              fontWeight: 800, 
-              fontSize: 32, 
-              margin: 0, 
-              background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text'
-            }}>
-              User Management
-            </h2>
-          </div>
-          <div style={{ color: '#64748b', fontSize: 16, marginTop: 8, fontWeight: 500, marginLeft: 72 }}>Grant access to users and manage routes</div>
-        </div>
-        <div style={{ 
-          background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)', 
-          color: '#fff', 
-          padding: '12px 24px', 
-          borderRadius: 25, 
-          fontSize: 15, 
+        <h1 style={{
+          fontSize: isMobile ? '22px' : '28px',
           fontWeight: 700,
+          color: '#1e293b',
+          margin: 0,
           display: 'flex',
           alignItems: 'center',
-          gap: 10,
-          boxShadow: '0 4px 15px rgba(59, 130, 246, 0.4)',
-          transition: 'all 0.3s ease',
-          cursor: 'default'
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.transform = 'translateY(-2px)';
-          e.currentTarget.style.boxShadow = '0 6px 20px rgba(59, 130, 246, 0.5)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.transform = 'translateY(0)';
-          e.currentTarget.style.boxShadow = '0 4px 15px rgba(59, 130, 246, 0.4)';
-        }}
-        >
-          <span className="material-icons" style={{ fontSize: 20 }}>business</span>
-          {connections.length} companies available
-        </div>
+          gap: isMobile ? '8px' : '12px',
+          flexWrap: isMobile ? 'wrap' : 'nowrap'
+        }}>
+          <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '32px', color: '#3b82f6' }}>
+            people
+          </span>
+          User Management
+        </h1>
+        <p style={{
+          fontSize: isMobile ? '14px' : '16px',
+          color: '#64748b',
+          marginTop: '8px',
+          marginLeft: isMobile ? '0' : '44px'
+        }}>
+          Grant access to users and manage routes
+        </p>
       </div>
 
       {/* Tab Navigation */}
-      <div style={{
+      <div className="user-management-tabs" style={{
         background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
         borderRadius: 20,
         boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
@@ -2236,6 +2688,7 @@ function CreateAccess() {
         gap: 8
       }}>
         <button
+          className="user-management-tab-button"
           onClick={() => setUserManagementTab('form')}
           style={{
             flex: 1,
@@ -2254,101 +2707,98 @@ function CreateAccess() {
             justifyContent: 'center',
             gap: 10,
             transition: 'all 0.3s ease',
-            boxShadow: userManagementTab === 'form' ? '0 4px 12px rgba(59, 130, 246, 0.3)' : 'none'
+            boxShadow: userManagementTab === 'form' ? '0 4px 12px rgba(59, 130, 246, 0.3)' : 'none',
+            whiteSpace: 'nowrap'
           }}
           onMouseEnter={(e) => {
             if (userManagementTab !== 'form') {
               e.currentTarget.style.background = '#f1f5f9';
-              e.currentTarget.style.color = '#374151';
             }
           }}
           onMouseLeave={(e) => {
             if (userManagementTab !== 'form') {
               e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = '#64748b';
             }
           }}
         >
-          <span className="material-icons" style={{ fontSize: 20 }}>person_add</span>
-          User Access Form
+          <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>person_add</span>
+          <span>User Access Form</span>
         </button>
         <button
+          className="user-management-tab-button"
           onClick={() => setUserManagementTab('users')}
           style={{
             flex: 1,
-            padding: '14px 24px',
-            borderRadius: 14,
+            padding: isMobile ? '10px 16px' : '12px 20px',
+            borderRadius: '8px',
             border: 'none',
             background: userManagementTab === 'users' 
-              ? 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)' 
+              ? '#3b82f6' 
               : 'transparent',
             color: userManagementTab === 'users' ? '#fff' : '#64748b',
-            fontSize: 15,
-            fontWeight: userManagementTab === 'users' ? 700 : 600,
+            fontSize: isMobile ? '13px' : '14px',
+            fontWeight: userManagementTab === 'users' ? 600 : 500,
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 10,
-            transition: 'all 0.3s ease',
-            boxShadow: userManagementTab === 'users' ? '0 4px 12px rgba(59, 130, 246, 0.3)' : 'none'
+            gap: isMobile ? '6px' : '8px',
+            transition: 'all 0.2s ease',
+            whiteSpace: 'nowrap'
           }}
           onMouseEnter={(e) => {
             if (userManagementTab !== 'users') {
               e.currentTarget.style.background = '#f1f5f9';
-              e.currentTarget.style.color = '#374151';
             }
           }}
           onMouseLeave={(e) => {
             if (userManagementTab !== 'users') {
               e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = '#64748b';
             }
           }}
         >
-          <span className="material-icons" style={{ fontSize: 20 }}>group</span>
-          Users ({filteredUsers.length})
+          <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>group</span>
+          <span>Users ({filteredUsers.length})</span>
         </button>
         <button
+          className="user-management-tab-button"
           onClick={() => setUserManagementTab('routes')}
           style={{
             flex: 1,
-            padding: '14px 24px',
-            borderRadius: 14,
+            padding: isMobile ? '10px 16px' : '12px 20px',
+            borderRadius: '8px',
             border: 'none',
             background: userManagementTab === 'routes' 
-              ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' 
+              ? '#3b82f6' 
               : 'transparent',
             color: userManagementTab === 'routes' ? '#fff' : '#64748b',
-            fontSize: 15,
-            fontWeight: userManagementTab === 'routes' ? 700 : 600,
+            fontSize: isMobile ? '13px' : '14px',
+            fontWeight: userManagementTab === 'routes' ? 600 : 500,
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: 10,
-            transition: 'all 0.3s ease',
-            boxShadow: userManagementTab === 'routes' ? '0 4px 12px rgba(59, 130, 246, 0.3)' : 'none'
+            gap: isMobile ? '6px' : '8px',
+            transition: 'all 0.2s ease',
+            whiteSpace: 'nowrap'
           }}
           onMouseEnter={(e) => {
             if (userManagementTab !== 'routes') {
               e.currentTarget.style.background = '#f1f5f9';
-              e.currentTarget.style.color = '#374151';
             }
           }}
           onMouseLeave={(e) => {
             if (userManagementTab !== 'routes') {
               e.currentTarget.style.background = 'transparent';
-              e.currentTarget.style.color = '#64748b';
             }
           }}
         >
-          <span className="material-icons" style={{ fontSize: 20 }}>route</span>
-          Routes ({routes.filter(route =>
+          <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>route</span>
+          <span>Routes ({routes.filter(route =>
             routeSearchTerm === '' ||
             route.name?.toLowerCase().includes(routeSearchTerm.toLowerCase()) ||
             route.assignedTo?.toLowerCase().includes(routeSearchTerm.toLowerCase())
-          ).length})
+          ).length})</span>
         </button>
       </div>
 
@@ -2358,60 +2808,42 @@ function CreateAccess() {
         {userManagementTab === 'form' && (
           <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
             {/* User Management Form */}
-            <div style={{ 
-        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', 
-        borderRadius: 24, 
-        boxShadow: '0 8px 32px rgba(0,0,0,0.12)', 
-        padding: window.innerWidth <= 700 ? 24 : 40, 
-        marginBottom: 32, 
+            <div className="user-form-container" style={{ 
+        background: '#fff', 
+        borderRadius: '12px', 
+        boxShadow: '0 1px 3px rgba(0,0,0,0.1)', 
+        padding: isMobile ? '20px 16px' : '24px', 
+        marginBottom: isMobile ? '20px' : '24px', 
         width: '100%', 
-        margin: '0 auto', 
         boxSizing: 'border-box',
-        border: '1px solid rgba(59, 130, 246, 0.1)',
-        animation: 'fadeIn 0.6s ease-out',
-        position: 'relative',
-        overflow: 'hidden'
+        border: '1px solid #e5e7eb'
       }}>
-        {/* Decorative gradient overlay */}
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          right: 0,
-          width: '300px',
-          height: '300px',
-          background: 'radial-gradient(circle, rgba(59, 130, 246, 0.08) 0%, transparent 70%)',
-          borderRadius: '50%',
-          transform: 'translate(30%, -30%)',
-          pointerEvents: 'none'
-        }} />
-        
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: 16,
-          marginBottom: 32,
-          paddingBottom: 20,
-          borderBottom: '3px solid',
-          borderImage: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%) 1',
-          position: 'relative',
-          zIndex: 1
+        <div className="user-form-header" style={{ 
+          marginBottom: isMobile ? '20px' : '24px',
+          paddingBottom: isMobile ? '16px' : '20px',
+          borderBottom: '2px solid #e5e7eb'
         }}>
-          <div style={{
-            width: 48,
-            height: 48,
-            borderRadius: 12,
-            background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+          <h3 style={{ 
+            color: '#1e293b', 
+            fontWeight: 600, 
+            margin: 0, 
+            fontSize: isMobile ? '18px' : '20px',
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 4px 15px rgba(59, 130, 246, 0.3)'
+            gap: isMobile ? '8px' : '10px',
+            marginBottom: '8px'
           }}>
-            <span className="material-icons" style={{ fontSize: 28, color: '#fff' }}>person_add</span>
-          </div>
-          <div style={{ flex: 1 }}>
-            <h3 style={{ color: '#1e293b', fontWeight: 800, margin: 0, fontSize: 24, letterSpacing: '-0.5px', marginBottom: 4 }}>User Access Form</h3>
-            <div style={{ color: '#64748b', fontSize: 14, marginTop: 4, fontWeight: 500 }}>Create new user access and assign permissions</div>
-          </div>
+            <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>person_add</span>
+            User Access Form
+          </h3>
+          <p style={{ 
+            color: '#64748b', 
+            fontSize: isMobile ? '13px' : '14px', 
+            margin: 0,
+            marginLeft: isMobile ? '0' : '34px'
+          }}>
+            Create new user access and assign permissions
+          </p>
           {/* Show Subscribe button if no subscription, otherwise show user count badge */}
           {(!subscriptionInfo || !subscriptionInfo.planId || !subscriptionInfo.total_user_limit || subscriptionInfo.total_user_limit === 0) ? (
             <button
@@ -2521,14 +2953,14 @@ function CreateAccess() {
         <form onSubmit={handleCreateAccess}>
           {/* User Details Section */}
           <div style={{ marginBottom: 32, position: 'relative', zIndex: 1 }}>
-            <div style={{ 
+            <div className="user-form-grid" style={{ 
               display: 'grid', 
               gridTemplateColumns: window.innerWidth <= 700 ? '1fr' : 'repeat(4, 1fr)', 
               gap: 24,
               marginBottom: 24
             }}>
               <div style={{ position: 'relative' }}>
-                <label style={{ 
+                <label className="user-form-label" style={{ 
                   fontWeight: 700, 
                   color: '#1e293b', 
                   marginBottom: 10, 
@@ -2546,6 +2978,7 @@ function CreateAccess() {
                   onChange={handleInput}
                   required
                   disabled={rolesLoading}
+                  className="user-form-select"
                   style={{
                     padding: '14px 18px',
                     borderRadius: 12,
@@ -2583,7 +3016,7 @@ function CreateAccess() {
                 </select>
               </div>
               <div style={{ position: 'relative' }}>
-                <label style={{ 
+                <label className="user-form-label" style={{ 
                   fontWeight: 700, 
                   color: '#1e293b', 
                   marginBottom: 10, 
@@ -2601,6 +3034,7 @@ function CreateAccess() {
                   value={form.userName} 
                   onChange={handleInput} 
                   required 
+                  className="user-form-input"
                   style={{ 
                     padding: '14px 18px', 
                     borderRadius: 12, 
@@ -2630,7 +3064,7 @@ function CreateAccess() {
               </div>
               
               <div style={{ position: 'relative' }}>
-                <label style={{ 
+                <label className="user-form-label" style={{ 
                   fontWeight: 700, 
                   color: '#1e293b', 
                   marginBottom: 10, 
@@ -2648,6 +3082,7 @@ function CreateAccess() {
                   value={form.email} 
                   onChange={handleInput} 
                   required 
+                  className="user-form-input"
                   style={{ 
                     padding: '14px 18px', 
                     borderRadius: 12, 
@@ -2677,7 +3112,7 @@ function CreateAccess() {
               </div>
               
               <div style={{ position: 'relative' }}>
-                <label style={{ 
+                <label className="user-form-label" style={{ 
                   fontWeight: 700, 
                   color: '#1e293b', 
                   marginBottom: 10, 
@@ -2695,6 +3130,7 @@ function CreateAccess() {
                   value={form.mobile} 
                   onChange={handleInput} 
                   required 
+                  className="user-form-input"
                   style={{ 
                     padding: '14px 18px', 
                     borderRadius: 12, 
@@ -2725,14 +3161,14 @@ function CreateAccess() {
             </div>
             
             {/* External User Checkbox */}
-            <div style={{ 
-              marginTop: 24, 
-              marginBottom: 24,
-              padding: '20px 24px',
-              background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-              borderRadius: 16,
-              border: '2px solid rgba(59, 130, 246, 0.2)',
-              transition: 'all 0.3s ease'
+            <div className="external-user-checkbox" style={{ 
+              marginTop: isMobile ? '16px' : '20px', 
+              marginBottom: isMobile ? '16px' : '20px',
+              padding: isMobile ? '16px' : '20px',
+              background: '#f0f9ff',
+              borderRadius: '12px',
+              border: '1px solid #bae6fd',
+              transition: 'all 0.2s ease'
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = 'rgba(59, 130, 246, 0.4)';
@@ -2810,47 +3246,36 @@ function CreateAccess() {
 
           {/* Company Selection Section */}
           <div style={{ marginBottom: 32, position: 'relative', zIndex: 1 }}>
-            <div style={{ 
+            <div className="company-selection-header" style={{ 
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'space-between',
-              marginBottom: 20,
-              padding: '16px 20px',
-              background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-              borderRadius: 16,
-              border: '1px solid rgba(59, 130, 246, 0.15)'
+              marginBottom: isMobile ? '16px' : '20px',
+              padding: isMobile ? '12px 16px' : '16px 20px',
+              background: '#f0f9ff',
+              borderRadius: '12px',
+              border: '1px solid #bae6fd'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                <div style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 10,
-                  background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
-                }}>
-                  <span className="material-icons" style={{ fontSize: 22, color: '#fff' }}>business</span>
-                </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '12px' : '16px' }}>
+                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>business</span>
                 <div>
                   <h4 style={{ 
                     color: '#1e293b', 
-                    fontWeight: 700, 
+                    fontWeight: 600, 
                     margin: 0, 
-                    fontSize: 18,
-                    marginBottom: 4
+                    fontSize: isMobile ? '16px' : '18px',
+                    marginBottom: form.companyGuids.length > 0 ? '4px' : '0'
                   }}>
                     Company Access
                   </h4>
                   {form.companyGuids.length > 0 && (
                     <div style={{ 
-                      fontSize: 13, 
-                      color: '#3b82f6',
+                      fontSize: isMobile ? '12px' : '13px', 
+                      color: '#0369a1',
                       display: 'flex',
                       alignItems: 'center',
                       gap: 6,
-                      fontWeight: 600
+                      fontWeight: 500
                     }}>
                       <span className="material-icons" style={{ fontSize: 16 }}>check_circle</span>
                       {form.companyGuids.length} company{form.companyGuids.length > 1 ? 'ies' : ''} selected
@@ -2864,38 +3289,29 @@ function CreateAccess() {
                   type="button"
                   onClick={handleSelectAll}
                   style={{
-                    padding: '10px 20px',
+                    padding: isMobile ? '8px 16px' : '10px 20px',
                     background: form.companyGuids.length === connections.length 
-                      ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' 
-                      : 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+                      ? '#ef4444' 
+                      : '#3b82f6',
                     color: '#fff',
                     border: 'none',
-                    borderRadius: 12,
-                    fontSize: 13,
-                    fontWeight: 700,
+                    borderRadius: '8px',
+                    fontSize: isMobile ? '12px' : '13px',
+                    fontWeight: 600,
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 8,
-                    transition: 'all 0.3s ease',
-                    boxShadow: form.companyGuids.length === connections.length 
-                      ? '0 4px 15px rgba(239, 68, 68, 0.3)' 
-                      : '0 4px 15px rgba(59, 130, 246, 0.3)'
+                    gap: isMobile ? '6px' : '8px',
+                    transition: 'all 0.2s ease'
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.transform = 'translateY(-2px)';
-                    e.target.style.boxShadow = form.companyGuids.length === connections.length 
-                      ? '0 6px 20px rgba(239, 68, 68, 0.4)' 
-                      : '0 6px 20px rgba(59, 130, 246, 0.4)';
+                    e.target.style.opacity = '0.9';
                   }}
                   onMouseLeave={(e) => {
-                    e.target.style.transform = 'translateY(0)';
-                    e.target.style.boxShadow = form.companyGuids.length === connections.length 
-                      ? '0 4px 15px rgba(239, 68, 68, 0.3)' 
-                      : '0 4px 15px rgba(59, 130, 246, 0.3)';
+                    e.target.style.opacity = '1';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: 18 }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px' }}>
                     {form.companyGuids.length === connections.length ? 'check_box' : 'check_box_outline_blank'}
                   </span>
                   {form.companyGuids.length === connections.length ? 'Deselect All' : 'Select All'}
@@ -2904,15 +3320,15 @@ function CreateAccess() {
             </div>
             
             <div style={{ 
-              padding: '24px',
-              background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-              borderRadius: 16,
-              border: '2px solid rgba(59, 130, 246, 0.15)',
-              boxShadow: '0 4px 16px rgba(0,0,0,0.06)'
+              padding: isMobile ? '16px' : '20px',
+              background: '#fff',
+              borderRadius: '12px',
+              border: '1px solid #e5e7eb',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
             }}>
               {connections.length > 0 ? (
                 <>
-                  <div style={{ 
+                  <div className="company-selection-grid" style={{ 
                     display: 'grid', 
                     gridTemplateColumns: window.innerWidth <= 700 ? '1fr' : 'repeat(auto-fill, minmax(250px, 1fr))',
                     gap: 16, 
@@ -3049,7 +3465,8 @@ function CreateAccess() {
           <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 16, position: 'relative', zIndex: 1 }}>
             <button 
               type="submit" 
-              disabled={formLoading || form.companyGuids.length === 0} 
+              disabled={formLoading || form.companyGuids.length === 0}
+              className="user-form-submit-button"
               style={{ 
                 padding: '18px 48px', 
                 background: form.companyGuids.length === 0 
@@ -3098,7 +3515,7 @@ function CreateAccess() {
         
         {/* Form Messages */}
         {formError && (
-          <div style={{ 
+          <div className="user-form-message" style={{ 
             background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)', 
             border: '2px solid #fecaca',
             borderRadius: 14, 
@@ -3128,7 +3545,7 @@ function CreateAccess() {
           </div>
         )}
         {formSuccess && (
-          <div style={{ 
+          <div className="user-form-message" style={{ 
             background: 'linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%)', 
             border: '2px solid #bbf7d0',
             borderRadius: 14, 
@@ -3166,7 +3583,7 @@ function CreateAccess() {
         {userManagementTab === 'users' && (
           <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
             {/* Internal Users Table */}
-            <div style={{ 
+            <div className="users-table-container" style={{ 
         background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', 
         borderRadius: 24, 
         boxShadow: '0 8px 32px rgba(0,0,0,0.12)', 
@@ -3194,40 +3611,35 @@ function CreateAccess() {
           pointerEvents: 'none'
         }} />
         
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'space-between',
-          marginBottom: 28,
-          paddingBottom: 20,
-          borderBottom: '3px solid',
-          borderImage: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%) 1',
-          position: 'relative',
-          zIndex: 1
+        <div className="users-table-header" style={{ 
+          marginBottom: isMobile ? '20px' : '24px',
+          paddingBottom: isMobile ? '16px' : '20px',
+          borderBottom: '2px solid #e5e7eb'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{
-              width: 48,
-              height: 48,
-              borderRadius: 12,
-              background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 4px 15px rgba(59, 130, 246, 0.3)'
-            }}>
-              <span className="material-icons" style={{ fontSize: 28, color: '#fff' }}>group</span>
-            </div>
-            <div>
-              <h3 style={{ color: '#1e293b', fontWeight: 800, margin: 0, fontSize: 24, letterSpacing: '-0.5px' }}>
-                Users <span style={{ color: '#3b82f6', fontWeight: 600 }}>({filteredUsers.length})</span>
-              </h3>
-              <div style={{ color: '#64748b', fontSize: 14, marginTop: 4, fontWeight: 500 }}>Manage user access and permissions</div>
-            </div>
-          </div>
+          <h3 style={{ 
+            color: '#1e293b', 
+            fontWeight: 600, 
+            margin: 0, 
+            fontSize: isMobile ? '18px' : '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: isMobile ? '8px' : '10px',
+            marginBottom: '8px'
+          }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>group</span>
+            Users <span style={{ color: '#64748b', fontWeight: 500 }}>({filteredUsers.length})</span>
+          </h3>
+          <p style={{ 
+            color: '#64748b', 
+            fontSize: isMobile ? '13px' : '14px', 
+            margin: 0,
+            marginLeft: isMobile ? '0' : '34px'
+          }}>
+            Manage user access and permissions
+          </p>
           
           {/* Search Input */}
-          <div style={{ 
+          <div className="users-search-input" style={{ 
             display: 'flex', 
             alignItems: 'center', 
             gap: 12,
@@ -3268,7 +3680,7 @@ function CreateAccess() {
         
         {/* Loading State */}
         {usersLoading && (
-          <div style={{ 
+          <div className="users-loading-state" style={{ 
             textAlign: 'center', 
             padding: 60, 
             color: '#64748b',
@@ -3283,7 +3695,7 @@ function CreateAccess() {
 
         {/* Empty State */}
         {!usersLoading && filteredUsers.length === 0 && (
-          <div style={{ 
+          <div className="users-empty-state" style={{ 
             textAlign: 'center', 
             padding: 60, 
             color: '#64748b',
@@ -3303,7 +3715,7 @@ function CreateAccess() {
 
         {/* Users Table */}
         {!usersLoading && filteredUsers.length > 0 && (
-          <div style={{ 
+          <div className="users-table-wrapper" style={{ 
             overflowX: 'auto',
             maxHeight: '600px',
             overflowY: 'auto',
@@ -3314,7 +3726,7 @@ function CreateAccess() {
             position: 'relative',
             zIndex: 1
           }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 14 }}>
+            <table className="users-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 14 }}>
               <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                 <tr style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)' }}>
                   <th style={{ 
@@ -3665,9 +4077,10 @@ function CreateAccess() {
                       </div>
                     </td>
                     <td style={{ padding: '20px', verticalAlign: 'top' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start', width: '100%' }}>
+                      <div className="users-table-actions" style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start', width: '100%' }}>
                         <div style={{ display: 'flex', gap: 6, width: '100%' }}>
                           <button
+                            className="user-action-button"
                             style={{
                               padding: '7px 14px',
                               background: '#4285F4',
@@ -3703,6 +4116,7 @@ function CreateAccess() {
                             Edit
                           </button>
                           <button
+                            className="user-action-button"
                             style={{
                               padding: '7px 14px',
                               background: deletingEmail === user.email ? '#9ca3af' : '#EA4335',
@@ -3801,7 +4215,7 @@ function CreateAccess() {
         {userManagementTab === 'routes' && (
           <div style={{ animation: 'fadeIn 0.3s ease-out' }}>
             {/* Routes Container */}
-            <div style={{ 
+            <div className="routes-container" style={{ 
         background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', 
         borderRadius: 24, 
         boxShadow: '0 8px 32px rgba(0,0,0,0.12)', 
@@ -3827,45 +4241,40 @@ function CreateAccess() {
           pointerEvents: 'none'
         }} />
         
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'space-between',
-          marginBottom: 28,
-          paddingBottom: 20,
-          borderBottom: '3px solid',
-          borderImage: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%) 1',
-          position: 'relative',
-          zIndex: 1
+        <div className="routes-header" style={{ 
+          marginBottom: isMobile ? '20px' : '24px',
+          paddingBottom: isMobile ? '16px' : '20px',
+          borderBottom: '2px solid #e5e7eb'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <div style={{
-              width: 48,
-              height: 48,
-              borderRadius: 12,
-              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 4px 15px rgba(59, 130, 246, 0.3)'
-            }}>
-              <span className="material-icons" style={{ fontSize: 28, color: '#fff' }}>route</span>
-            </div>
-            <div>
-              <h3 style={{ color: '#1e293b', fontWeight: 800, margin: 0, fontSize: 24, letterSpacing: '-0.5px' }}>
-                Routes <span style={{ color: '#3b82f6', fontWeight: 600 }}>({routes.filter(route => 
-                  routeSearchTerm === '' || 
-                  route.name?.toLowerCase().includes(routeSearchTerm.toLowerCase()) ||
-                  route.assignedTo?.toLowerCase().includes(routeSearchTerm.toLowerCase())
-                ).length})</span>
-              </h3>
-              <div style={{ color: '#64748b', fontSize: 14, marginTop: 4, fontWeight: 500 }}>Manage delivery routes and assignments</div>
-            </div>
-          </div>
+          <h3 style={{ 
+            color: '#1e293b', 
+            fontWeight: 600, 
+            margin: 0, 
+            fontSize: isMobile ? '18px' : '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: isMobile ? '8px' : '10px',
+            marginBottom: '8px'
+          }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>route</span>
+            Routes <span style={{ color: '#64748b', fontWeight: 500 }}>({routes.filter(route => 
+              routeSearchTerm === '' || 
+              route.name?.toLowerCase().includes(routeSearchTerm.toLowerCase()) ||
+              route.assignedTo?.toLowerCase().includes(routeSearchTerm.toLowerCase())
+            ).length})</span>
+          </h3>
+          <p style={{ 
+            color: '#64748b', 
+            fontSize: isMobile ? '13px' : '14px', 
+            margin: 0,
+            marginLeft: isMobile ? '0' : '34px'
+          }}>
+            Manage delivery routes and assignments
+          </p>
           
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="routes-search-create" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {/* Search Input */}
-            <div style={{ 
+            <div className="routes-search-input" style={{ 
               display: 'flex', 
               alignItems: 'center', 
               gap: 12,
@@ -3905,6 +4314,7 @@ function CreateAccess() {
             
             {/* Create New Route Button */}
             <button
+              className="routes-create-button"
               style={{
                 padding: '12px 24px',
                 background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
@@ -3953,7 +4363,7 @@ function CreateAccess() {
         
         {/* Loading State */}
         {routesLoading && (
-          <div style={{ 
+          <div className="routes-loading-state" style={{ 
             textAlign: 'center', 
             padding: 60, 
             color: '#64748b',
@@ -3972,7 +4382,7 @@ function CreateAccess() {
           route.name?.toLowerCase().includes(routeSearchTerm.toLowerCase()) ||
           route.assignedTo?.toLowerCase().includes(routeSearchTerm.toLowerCase())
         ).length === 0 && (
-          <div style={{ 
+          <div className="routes-empty-state" style={{ 
             textAlign: 'center', 
             padding: 60, 
             color: '#64748b',
@@ -3996,7 +4406,7 @@ function CreateAccess() {
           route.name?.toLowerCase().includes(routeSearchTerm.toLowerCase()) ||
           route.assignedTo?.toLowerCase().includes(routeSearchTerm.toLowerCase())
         ).length > 0 && (
-          <div style={{ 
+          <div className="routes-table-wrapper" style={{ 
             overflowX: 'auto',
             maxHeight: '600px',
             overflowY: 'auto',
@@ -4007,7 +4417,7 @@ function CreateAccess() {
             position: 'relative',
             zIndex: 1
           }}>
-            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 14 }}>
+            <table className="routes-table" style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: 14 }}>
               <thead style={{ position: 'sticky', top: 0, zIndex: 10 }}>
                 <tr style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' }}>
                   <th style={{ 
