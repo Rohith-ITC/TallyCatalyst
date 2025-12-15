@@ -233,6 +233,28 @@ function Ledgerbook() {
     return () => window.removeEventListener('globalRefresh', handleGlobalRefresh);
   }, []);
 
+  // Listen for cache updates from Cache Management
+  useEffect(() => {
+    const handleCacheUpdate = (event) => {
+      const { type, company: updatedCompany } = event.detail || {};
+      if (type === 'customers') {
+        const currentCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+        const currentCompany = companies.find(c => c.guid === currentCompanyGuid);
+        // Only refresh if the update is for the current company
+        if (currentCompany && updatedCompany && 
+            (updatedCompany.guid === currentCompanyGuid || 
+             (updatedCompany.tallyloc_id === currentCompany.tallyloc_id && 
+              updatedCompany.company === currentCompany.company))) {
+          console.log('🔄 Ledgerbook: Customer cache updated, refreshing...');
+          setRefreshLedgers(prev => prev + 1);
+        }
+      }
+    };
+
+    window.addEventListener('ledgerCacheUpdated', handleCacheUpdate);
+    return () => window.removeEventListener('ledgerCacheUpdated', handleCacheUpdate);
+  }, [companies]);
+
   // Filter ledgers based on search term with debouncing
   useEffect(() => {
     const currentSearchTerm = ledgerSearchTerm.trim();
@@ -403,6 +425,36 @@ function Ledgerbook() {
     return modifiedData;
   }, [tableData, table, configOptions]);
 
+  // Handle ledger cache refresh
+  const handleRefreshLedgers = async () => {
+    if (!company || !currentCompanyObj) return;
+
+    setRefreshingLedgers(true);
+    setLedgerError('');
+
+    try {
+      console.log('🔄 Refreshing ledger cache...');
+      await syncCustomers(currentCompanyObj);
+      console.log('✅ Ledger cache refreshed successfully');
+      
+      // Dispatch event to notify other components
+      window.dispatchEvent(new CustomEvent('ledgerCacheUpdated', { 
+        detail: { type: 'customers', company: currentCompanyObj } 
+      }));
+      
+      // Small delay to ensure cache is fully written and readable
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Trigger re-fetch by incrementing refreshLedgers
+      setRefreshLedgers(prev => prev + 1);
+    } catch (error) {
+      console.error('❌ Error refreshing ledger cache:', error);
+      setLedgerError('Failed to refresh ledger cache. Please try again.');
+    } finally {
+      setRefreshingLedgers(false);
+    }
+  };
+
   // Fetch ledgers when company changes or refreshLedgers increments
   useEffect(() => {
     const fetchLedgers = async () => {
@@ -419,68 +471,66 @@ function Ledgerbook() {
       const { tallyloc_id, company: companyVal, guid } = currentCompanyObj;
       const cacheKey = `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`;
       
-      // On refresh, clear cache
-      if (refreshLedgers) {
-        try {
-          await hybridCache.deleteCacheKey(cacheKey);
-          sessionStorage.removeItem(cacheKey);
-          sessionStorage.removeItem(`${cacheKey}_count`);
-        } catch (clearError) {
-          console.warn('Could not clear cache:', clearError.message);
-        }
-      }
-      
       setLedgerLoading(true);
       setLedgerError('');
       
-      try {
-        // Get customers from cache instead of making API call
-        const ledgers = await getCustomersFromOPFS(cacheKey);
-        
-        if (ledgers && Array.isArray(ledgers) && ledgers.length > 0) {
-          console.log(`Successfully loaded ${ledgers.length} ledgers from cache`);
-          setLedgerOptions(ledgers);
-          if (ledgers.length === 1) setDropdown3(ledgers[0].NAME);
-          else setDropdown3('');
-          setLedgerError('');
-        } else {
-          // No data in cache
-          setLedgerOptions([]);
-          setDropdown3('');
-          setLedgerError('No customer data found in cache. Please sync customers first from Cache Management.');
+      // Retry logic for reading cache (handles timing issues after cache write)
+      let ledgers = null;
+      let retries = refreshLedgers > 0 ? 3 : 1; // Retry more times if we just refreshed
+      let attempt = 0;
+      
+      while (attempt < retries && !ledgers) {
+        try {
+          attempt++;
+          console.log(`📖 Attempting to load ledgers from cache (attempt ${attempt}/${retries})...`);
+          
+          // Get customers from cache instead of making API call
+          // Note: syncCustomers already handles clearing and writing cache, so we just read it here
+          ledgers = await getCustomersFromOPFS(cacheKey);
+          
+          if (ledgers && Array.isArray(ledgers) && ledgers.length > 0) {
+            console.log(`✅ Successfully loaded ${ledgers.length} ledgers from cache`);
+            break;
+          } else {
+            ledgers = null;
+            if (attempt < retries) {
+              console.log(`⚠️ No data found, retrying in 200ms...`);
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+          }
+        } catch (err) {
+          console.error(`❌ Error loading ledgers from cache (attempt ${attempt}):`, err);
+          if (attempt < retries) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          } else {
+            const errorMessage = err.message || 'Failed to load ledgers from cache';
+            setLedgerError(errorMessage);
+            setLedgerOptions([]);
+            setDropdown3('');
+            setLedgerLoading(false);
+            return;
+          }
         }
-      } catch (err) {
-        console.error('Error loading ledgers from cache:', err);
-        const errorMessage = err.message || 'Failed to load ledgers from cache';
-        setLedgerError(errorMessage);
+      }
+      
+      if (ledgers && Array.isArray(ledgers) && ledgers.length > 0) {
+        setLedgerOptions(ledgers);
+        if (ledgers.length === 1) setDropdown3(ledgers[0].NAME);
+        else setDropdown3('');
+        setLedgerError('');
+      } else {
+        // No data in cache after retries
+        console.warn('⚠️ No customer data found in cache after retries');
         setLedgerOptions([]);
         setDropdown3('');
-      } finally {
-        setLedgerLoading(false);
+        setLedgerError('No customer data found in cache. Please sync customers first from Cache Management.');
       }
+      
+      setLedgerLoading(false);
     };
 
     fetchLedgers();
   }, [company, refreshLedgers, currentCompanyObj]);
-
-  // Handler to refresh ledgers cache
-  const handleRefreshLedgers = async () => {
-    if (!company || refreshingLedgers || !currentCompanyObj) return;
-
-    setRefreshingLedgers(true);
-    try {
-      console.log('🔄 Refreshing ledgers cache...');
-      await syncCustomers(currentCompanyObj);
-      console.log('✅ Ledgers cache refreshed');
-      // Trigger refresh by incrementing refreshLedgers
-      setRefreshLedgers(prev => prev + 1);
-    } catch (error) {
-      console.error('❌ Failed to refresh ledgers cache:', error);
-      setLedgerError('Failed to refresh ledgers cache. Please try again.');
-    } finally {
-      setRefreshingLedgers(false);
-    }
-  };
 
   // Handle clicks outside configuration dropdown and escape key
   useEffect(() => {
@@ -1136,11 +1186,14 @@ function Ledgerbook() {
             /* Main container */
             .ledgerbook-container {
               padding: 8px !important;
+              overflow-x: hidden !important;
+              max-width: 100vw !important;
             }
 
             /* Form container */
             .ledgerbook-form-container {
               padding: 8px !important;
+              overflow: visible !important;
             }
 
             /* Header section */
@@ -1208,21 +1261,41 @@ function Ledgerbook() {
               padding: 14px 24px !important;
             }
 
-            /* Table area */
+            /* Table area - improved mobile view */
             .ledgerbook-table-area {
-              padding: 12px !important;
+              padding: 12px 8px !important;
+              overflow-x: hidden !important;
+              max-width: 100% !important;
             }
 
             /* Export buttons */
             .ledgerbook-export-buttons {
+              flex-direction: column !important;
+              gap: 8px !important;
+              margin-bottom: 12px !important;
+              width: 100% !important;
+              align-items: stretch !important;
+            }
+
+            .ledgerbook-export-buttons > div {
+              width: 100% !important;
+              display: flex !important;
               flex-wrap: wrap !important;
               gap: 6px !important;
-              margin-bottom: 12px !important;
+            }
+
+            .ledgerbook-export-buttons > div[data-config-dropdown] {
+              width: 100% !important;
+            }
+
+            .ledgerbook-export-buttons > div[data-config-dropdown] button {
+              width: 100% !important;
             }
 
             .ledgerbook-export-button {
-              flex: 1 1 auto !important;
-              min-width: 80px !important;
+              flex: 1 1 calc(50% - 3px) !important;
+              min-width: calc(50% - 3px) !important;
+              max-width: calc(50% - 3px) !important;
               padding: 8px 12px !important;
               font-size: 12px !important;
             }
@@ -1236,20 +1309,28 @@ function Ledgerbook() {
               flex-direction: column !important;
               align-items: flex-start !important;
               gap: 8px !important;
+              width: 100% !important;
             }
 
             .ledgerbook-table-header h3 {
               font-size: 16px !important;
+              word-break: break-word !important;
+              width: 100% !important;
             }
 
             .ledgerbook-table-header .period {
               font-size: 12px !important;
+              word-break: break-word !important;
+              width: 100% !important;
             }
 
             /* Table wrapper - horizontal scroll */
             .ledgerbook-table-wrapper {
               overflow-x: auto !important;
               -webkit-overflow-scrolling: touch !important;
+              width: 100% !important;
+              max-width: 100% !important;
+              margin: 0 !important;
             }
 
             .ledgerbook-table {
@@ -1268,12 +1349,81 @@ function Ledgerbook() {
               font-size: 12px !important;
             }
 
+            /* Pagination controls */
+            .ledgerbook-pagination {
+              flex-direction: column !important;
+              gap: 12px !important;
+              align-items: stretch !important;
+            }
+
+            .ledgerbook-pagination > div:first-child {
+              width: 100% !important;
+              text-align: center !important;
+              font-size: 12px !important;
+            }
+
+            .ledgerbook-pagination > div:last-child {
+              width: 100% !important;
+              display: flex !important;
+              justify-content: center !important;
+              flex-wrap: wrap !important;
+              gap: 6px !important;
+            }
+
+            .ledgerbook-pagination button {
+              flex: 1 1 auto !important;
+              min-width: 60px !important;
+              padding: 10px 12px !important;
+              font-size: 13px !important;
+            }
+
+            /* Opening/Current/Closing balance tables */
+            .ledgerbook-table-area table {
+              font-size: 13px !important;
+            }
+
+            .ledgerbook-table-area table td {
+              padding: 12px 8px !important;
+              font-size: 13px !important;
+            }
+
+            /* Table container improvements */
+            .ledgerbook-table-container {
+              width: 100% !important;
+              max-width: 100% !important;
+              overflow-x: hidden !important;
+            }
+
+            .ledgerbook-table-container > div {
+              width: 100% !important;
+              max-width: 100% !important;
+            }
+
+            .ledgerbook-table-header-section {
+              width: 100% !important;
+              max-width: 100% !important;
+              overflow-x: hidden !important;
+            }
+
+            /* Empty state message */
+            .ledgerbook-empty-state {
+              padding-left: 16px !important;
+              padding-right: 16px !important;
+              padding-top: 40px !important;
+              padding-bottom: 40px !important;
+              text-align: center !important;
+              font-size: 16px !important;
+              justify-content: center !important;
+              align-items: center !important;
+            }
+
             /* Voucher details modal */
             .ledgerbook-voucher-modal {
               width: 95vw !important;
               max-width: 95vw !important;
               height: 90vh !important;
               margin: 5vh auto !important;
+              padding: 16px !important;
             }
 
             .ledgerbook-voucher-modal-content {
@@ -1331,15 +1481,54 @@ function Ledgerbook() {
               padding: 5px 10px !important;
             }
 
+            .ledgerbook-table-area {
+              padding: 8px 4px !important;
+            }
+
             .ledgerbook-export-button {
               font-size: 11px !important;
               padding: 7px 10px !important;
+              flex: 1 1 calc(50% - 3px) !important;
+              min-width: calc(50% - 3px) !important;
+              max-width: calc(50% - 3px) !important;
             }
 
             .ledgerbook-table th,
             .ledgerbook-table td {
               padding: 10px 12px !important;
               font-size: 12px !important;
+            }
+
+            .ledgerbook-table-header h3 {
+              font-size: 14px !important;
+            }
+
+            .ledgerbook-table-header .period {
+              font-size: 11px !important;
+            }
+
+            .ledgerbook-pagination {
+              padding: 12px 8px !important;
+            }
+
+            .ledgerbook-pagination > div:first-child {
+              font-size: 11px !important;
+            }
+
+            .ledgerbook-pagination button {
+              padding: 8px 10px !important;
+              font-size: 12px !important;
+              min-width: 50px !important;
+            }
+
+            .ledgerbook-table-area table td {
+              padding: 10px 6px !important;
+              font-size: 12px !important;
+            }
+
+            .ledgerbook-empty-state {
+              font-size: 14px !important;
+              padding: 30px 12px !important;
             }
           }
         `}
@@ -1403,83 +1592,65 @@ function Ledgerbook() {
               </h3>
             </div>
 
-            {/* Ledger Count Display */}
+            {/* Ledger Count Display with Refresh Button */}
             <div className="ledgerbook-header-right" style={{
               display: 'flex',
               alignItems: 'center',
               gap: '12px'
             }}>
-              {/* Ledger Count Display with Refresh Button */}
-              <div style={{
+              {/* Ledger Count Display */}
+              <div className="ledger-count-display" style={{
+                fontSize: '14px',
+                color: '#64748b',
+                fontWeight: '500',
+                padding: '8px 16px',
+                backgroundColor: '#f8fafc',
+                borderRadius: '20px',
+                border: '1px solid #e2e8f0',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px'
+                gap: '8px',
+                position: 'relative',
+                zIndex: 1,
+                maxWidth: '200px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
               }}>
-                <div className="ledger-count-display" style={{
-                  fontSize: '14px',
-                  color: '#64748b',
-                  fontWeight: '500',
-                  padding: '8px 16px',
-                  backgroundColor: '#f8fafc',
-                  borderRadius: '20px',
-                  border: '1px solid #e2e8f0',
+                <span style={{ fontSize: '16px', flexShrink: 0 }}>📊</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {ledgerLoading ? 'Loading...' : ledgerError ? 'Error' : `${ledgerOptions.length.toLocaleString()} ledgers available`}
+                </span>
+              </div>
+              {/* Refresh Button */}
+              <button
+                onClick={handleRefreshLedgers}
+                disabled={refreshingLedgers || !company || ledgerLoading}
+                style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
-                  position: 'relative',
-                  zIndex: 1,
-                  maxWidth: '200px',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap'
+                  justifyContent: 'center',
+                  padding: '8px',
+                  backgroundColor: refreshingLedgers ? '#e2e8f0' : '#3b82f6',
+                  color: refreshingLedgers ? '#94a3b8' : 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  cursor: refreshingLedgers || !company || ledgerLoading ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s ease',
+                  minWidth: '32px',
+                  height: '32px',
+                  flexShrink: 0,
+                  opacity: refreshingLedgers || !company || ledgerLoading ? 0.6 : 1
+                }}
+                title="Refresh ledger cache"
+              >
+                <span className="material-icons" style={{ 
+                  fontSize: '18px',
+                  animation: refreshingLedgers ? 'spin 1s linear infinite' : 'none'
                 }}>
-                  <span style={{ fontSize: '16px', flexShrink: 0 }}>📊</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {ledgerLoading ? 'Loading...' : ledgerError ? 'Error' : `${ledgerOptions.length.toLocaleString()} ledgers available`}
-                  </span>
-                </div>
-                <button
-                  onClick={handleRefreshLedgers}
-                  disabled={refreshingLedgers || !company || !currentCompanyObj}
-                  title="Refresh ledgers cache"
-                  style={{
-                    background: refreshingLedgers ? '#cbd5e1' : 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '8px',
-                    cursor: (refreshingLedgers || !company || !currentCompanyObj) ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    minWidth: '36px',
-                    height: '36px',
-                    transition: 'all 0.2s',
-                    boxShadow: (refreshingLedgers || !company || !currentCompanyObj) ? 'none' : '0 2px 4px rgba(0,0,0,0.1)',
-                    opacity: (refreshingLedgers || !company || !currentCompanyObj) ? 0.6 : 1
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!refreshingLedgers && company && currentCompanyObj) {
-                      e.currentTarget.style.transform = 'scale(1.05)';
-                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(0,0,0,0.15)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'scale(1)';
-                    e.currentTarget.style.boxShadow = (refreshingLedgers || !company || !currentCompanyObj) ? 'none' : '0 2px 4px rgba(0,0,0,0.1)';
-                  }}
-                >
-                  <span
-                    className="material-icons"
-                    style={{
-                      fontSize: '18px',
-                      color: '#fff',
-                      animation: refreshingLedgers ? 'spin 1s linear infinite' : 'none'
-                    }}
-                  >
-                    refresh
-                  </span>
-                </button>
-              </div>
+                  {refreshingLedgers ? 'sync' : 'refresh'}
+                </span>
+              </button>
             </div>
           </div>
 
@@ -1990,7 +2161,7 @@ function Ledgerbook() {
           )}
 
           {tableData && !tableLoading && tableData.reporttype === table && (
-            <div>
+            <div className="ledgerbook-table-container">
               {/* Data Table */}
               <div style={{
                 background: '#fff',
@@ -2000,7 +2171,7 @@ function Ledgerbook() {
                 boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
               }}>
                 <div style={{ maxWidth: '100%' }}>
-                  <div style={{ background: '#f8fafc', padding: '16px' }}>
+                  <div className="ledgerbook-table-header-section" style={{ background: '#f8fafc', padding: '16px' }}>
                     {/* First Line: Export and Print Icons */}
                     <div className="ledgerbook-export-buttons" style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center', justifyContent: 'space-between' }}>
                       {/* Export buttons on the left */}
@@ -2928,7 +3099,7 @@ function Ledgerbook() {
 
                     {/* Pagination Controls */}
                     {totalPages > 1 && (
-                      <div style={{
+                      <div className="ledgerbook-pagination" style={{
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'center',
@@ -3009,7 +3180,7 @@ function Ledgerbook() {
           )}
 
           {!tableData && !tableLoading && !tableError && (
-            <div style={{ display: 'flex', alignItems: 'Left', justifyContent: 'Left', paddingLeft: '10em', padding: '60px', color: '#64748b', fontSize: 20, fontWeight: 500 }}>
+            <div className="ledgerbook-empty-state" style={{ display: 'flex', alignItems: 'Left', justifyContent: 'Left', paddingLeft: '10em', padding: '60px', color: '#64748b', fontSize: 20, fontWeight: 500 }}>
               <span>Table data will appear here after you submit.</span>
             </div>
           )}
