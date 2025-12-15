@@ -914,6 +914,8 @@ function TallyDashboard() {
     return MODULE_SEQUENCE
       .filter(module => {
         if (module.key === 'main_menu') return false;
+        // Special handling for cache_management - always show it, let component handle access denial
+        if (module.key === 'cache_management') return true;
         if (module.hasSubModules) {
           return isAlwaysVisible(module.key) || hasAnySubModuleAccess(module.key, userModules);
         }

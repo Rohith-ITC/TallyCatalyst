@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { getApiUrl, API_CONFIG } from '../config';
 import { apiGet, apiPost } from '../utils/apiUtils';
+import { useIsMobile } from './MobileViewConfig';
 
 const ShareAccess = () => {
   console.log('ShareAccess component rendered'); // Debug log
+  const isMobile = useIsMobile();
   const [allConnections, setAllConnections] = useState([]);
   const [company, setCompany] = useState('');
   const [companyFocused, setCompanyFocused] = useState(false);
@@ -276,7 +278,12 @@ const ShareAccess = () => {
   }, [apiData, searchTerm]);
 
   return (
-    <div style={{ width: '100%', maxWidth: '1400px', margin: '0' }}>
+    <div style={{ 
+      width: '100%', 
+      maxWidth: '1400px', 
+      margin: '0',
+      padding: isMobile ? '12px 8px' : '0'
+    }}>
       <style>
         {`
           @keyframes spin {
@@ -298,30 +305,60 @@ const ShareAccess = () => {
           .dropdown-animation {
             animation: dropdownFadeIn 0.2s ease-out;
           }
+          
+          @media (max-width: 768px) {
+            .share-access-table {
+              overflow-x: auto;
+              -webkit-overflow-scrolling: touch;
+            }
+            .share-access-table table {
+              min-width: 600px;
+            }
+          }
         `}
       </style>
 
       {/* Header Section */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32, marginTop: 50 }}>
-        <div>
-          <h2 style={{ color: '#1e40af', fontWeight: 700, fontSize: 28, margin: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span className="material-icons" style={{ fontSize: 32, color: '#1e40af' }}>share</span>
-            Share Access Management
-          </h2>
-          <div style={{ color: '#64748b', fontSize: 16, marginTop: 4 }}>Grant access to users</div>
-        </div>
-      <div style={{
-          background: '#f0f9ff', 
-          color: '#0369a1', 
-          padding: '8px 16px', 
-          borderRadius: 20, 
-          fontSize: 14, 
-          fontWeight: 600,
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between', 
+        marginBottom: isMobile ? 20 : 32, 
+        marginTop: isMobile ? 20 : 50,
+        flexDirection: isMobile ? 'column' : 'row',
+        gap: isMobile ? 12 : 0,
+        alignItems: isMobile ? 'flex-start' : 'center'
+      }}>
+        <div style={{ width: isMobile ? '100%' : 'auto' }}>
+          <h2 style={{ 
+            color: '#1e40af', 
+            fontWeight: 700, 
+            fontSize: isMobile ? 20 : 28, 
+            margin: 0, 
             display: 'flex', 
             alignItems: 'center', 
-          gap: 8
+            gap: isMobile ? 8 : 12,
+            flexWrap: 'wrap'
+          }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? 24 : 32, color: '#1e40af' }}>share</span>
+            Share Access Management
+          </h2>
+          <div style={{ color: '#64748b', fontSize: isMobile ? 14 : 16, marginTop: 4 }}>Grant access to users</div>
+        </div>
+        <div style={{
+          background: '#f0f9ff', 
+          color: '#0369a1', 
+          padding: isMobile ? '6px 12px' : '8px 16px', 
+          borderRadius: 20, 
+          fontSize: isMobile ? 12 : 14, 
+          fontWeight: 600,
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 8,
+          width: isMobile ? '100%' : 'auto',
+          justifyContent: isMobile ? 'center' : 'flex-start'
         }}>
-          <span className="material-icons" style={{ fontSize: 18 }}>business</span>
+          <span className="material-icons" style={{ fontSize: isMobile ? 16 : 18 }}>business</span>
           {allConnections.filter(c => c.status === 'Connected' && c.access_type === 'Full Access').length} companies available
         </div>
       </div>
@@ -329,31 +366,32 @@ const ShareAccess = () => {
       {/* Company Selection Form */}
       <div style={{ 
         background: '#fff', 
-        borderRadius: 16, 
+        borderRadius: isMobile ? 12 : 16, 
         boxShadow: '0 4px 24px 0 rgba(31,38,135,0.08)', 
-        padding: 32, 
-        marginBottom: 24,
+        padding: isMobile ? 16 : 32, 
+        marginBottom: isMobile ? 16 : 24,
         width: '100%', 
         boxSizing: 'border-box' 
           }}>
           <div style={{
             display: 'flex',
-              alignItems: 'center', 
-          gap: 12,
-          marginBottom: 28,
-          paddingBottom: 16,
-          borderBottom: '2px solid #f1f5f9'
+            alignItems: 'center', 
+            gap: isMobile ? 8 : 12,
+            marginBottom: isMobile ? 16 : 28,
+            paddingBottom: isMobile ? 12 : 16,
+            borderBottom: '2px solid #f1f5f9'
         }}>
-          <span className="material-icons" style={{ fontSize: 24, color: '#3b82f6' }}>share</span>
-          <h3 style={{ color: '#1e293b', fontWeight: 700, margin: 0, fontSize: 20 }}>Share Access Form</h3>
+          <span className="material-icons" style={{ fontSize: isMobile ? 20 : 24, color: '#3b82f6' }}>share</span>
+          <h3 style={{ color: '#1e293b', fontWeight: 700, margin: 0, fontSize: isMobile ? 18 : 20 }}>Share Access Form</h3>
             </div>
             
         <form onSubmit={handleGetMasters}>
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: '400px 200px',
-            gap: '24px',
-            alignItems: 'end',
+            display: isMobile ? 'flex' : 'grid',
+            gridTemplateColumns: isMobile ? 'none' : '400px 200px',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? '16px' : '24px',
+            alignItems: isMobile ? 'stretch' : 'end',
             position: 'relative'
           }}>
             {/* Company */}
@@ -401,11 +439,11 @@ const ShareAccess = () => {
                   required
                   style={{
                     width: '100%',
-                    padding: '16px 20px',
-                    paddingRight: company ? '50px' : '20px',
+                    padding: isMobile ? '14px 18px' : '16px 20px',
+                    paddingRight: company ? (isMobile ? '45px' : '50px') : (isMobile ? '18px' : '20px'),
                     border: 'none',
                     borderRadius: '12px',
-                    fontSize: '15px',
+                    fontSize: isMobile ? '14px' : '15px',
                     color: '#374151',
                     outline: 'none',
                     background: 'transparent',
@@ -511,7 +549,7 @@ const ShareAccess = () => {
                       backgroundColor: 'white',
                       border: '2px solid #3b82f6',
                       borderRadius: '8px',
-                      maxHeight: '300px',
+                      maxHeight: isMobile ? '250px' : '300px',
                       overflowY: 'auto',
                       zIndex: 9999,
                       boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
@@ -531,7 +569,7 @@ const ShareAccess = () => {
                           setShowCompanyDropdown(false);
                         }}
                         style={{
-                          padding: '12px 16px',
+                          padding: isMobile ? '10px 14px' : '12px 16px',
                           cursor: 'pointer',
                           borderBottom: index < filteredCompanyOptions.filter(c => c.status === 'Connected' && c.access_type === 'Full Access').length - 1 ? '1px solid #f1f5f9' : 'none',
                           transition: 'background-color 0.2s ease'
@@ -546,12 +584,12 @@ const ShareAccess = () => {
                         <div style={{
                           fontWeight: '600',
                           color: '#1e293b',
-                          fontSize: '14px'
+                          fontSize: isMobile ? '13px' : '14px'
                         }}>
                           {companyOption.company}
                         </div>
                         <div style={{
-                          fontSize: '12px',
+                          fontSize: isMobile ? '11px' : '12px',
                           color: '#64748b',
                           marginTop: '2px'
                         }}>
@@ -563,10 +601,10 @@ const ShareAccess = () => {
                     {/* Show total results count */}
                     {filteredCompanyOptions.filter(c => c.status === 'Connected' && c.access_type === 'Full Access').length > 0 && (
                       <div style={{
-                        padding: '12px 16px',
+                        padding: isMobile ? '10px 14px' : '12px 16px',
                         textAlign: 'center',
                         color: '#64748b',
-                        fontSize: '12px',
+                        fontSize: isMobile ? '11px' : '12px',
                         fontStyle: 'italic',
                         borderTop: '1px solid #f1f5f9',
                         backgroundColor: '#f8fafc'
@@ -589,18 +627,20 @@ const ShareAccess = () => {
                   border: 'none', 
                   borderRadius: 8, 
                 fontWeight: 600, 
-                fontSize: 16, 
-                padding: '12px 24px', 
+                fontSize: isMobile ? 14 : 16, 
+                padding: isMobile ? '14px 20px' : '12px 24px', 
                 cursor: isLoading || !currentCompanyObj ? 'not-allowed' : 'pointer', 
                 boxShadow: '0 2px 8px 0 rgba(59,130,246,0.10)', 
                 transition: 'all 0.2s',
                 display: 'flex',
                 alignItems: 'center',
+                justifyContent: 'center',
                 gap: 8,
-                minWidth: 140
+                minWidth: isMobile ? '100%' : 140,
+                width: isMobile ? '100%' : 'auto'
               }}
             >
-              <span className="material-icons" style={{ fontSize: 18 }}>
+              <span className="material-icons" style={{ fontSize: isMobile ? 16 : 18 }}>
                 {isLoading ? 'sync' : 'search'}
               </span>
                 {isLoading ? 'Getting...' : 'Get Masters'}
@@ -614,19 +654,19 @@ const ShareAccess = () => {
           <div style={{ 
             background: message.includes('Error') ? '#fee2e2' : '#d1fae5', 
             color: message.includes('Error') ? '#b91c1c' : '#059669', 
-          borderRadius: 16, 
-          padding: 16, 
-          marginBottom: 24,
+          borderRadius: isMobile ? 12 : 16, 
+          padding: isMobile ? 12 : 16, 
+          marginBottom: isMobile ? 16 : 24,
             fontWeight: 600, 
-            fontSize: 15, 
+            fontSize: isMobile ? 13 : 15, 
             display: 'flex', 
             alignItems: 'center', 
           gap: 8
           }}>
-            <span className="material-icons" style={{ fontSize: 18 }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? 16 : 18 }}>
               {message.includes('Error') ? 'error_outline' : 'check_circle'}
             </span>
-            {message}
+            <span style={{ wordBreak: 'break-word' }}>{message}</span>
           </div>
         )}
 
@@ -634,31 +674,39 @@ const ShareAccess = () => {
         {apiData && (
         <div style={{
           background: '#fff',
-          borderRadius: 16, 
+          borderRadius: isMobile ? 12 : 16, 
           boxShadow: '0 4px 24px 0 rgba(31,38,135,0.08)', 
-          padding: 24, 
-          marginBottom: 24,
-               display: 'flex', 
+          padding: isMobile ? 16 : 24, 
+          marginBottom: isMobile ? 16 : 24,
+          display: 'flex', 
+          flexDirection: isMobile ? 'column' : 'row',
           justifyContent: 'space-between',
-               alignItems: 'center', 
-          gap: 16
+          alignItems: isMobile ? 'stretch' : 'center', 
+          gap: isMobile ? 16 : 16
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1 }}>
-            <span className="material-icons" style={{ color: '#64748b', fontSize: 20 }}>search</span>
+          <div style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            gap: isMobile ? 8 : 12, 
+            flex: 1,
+            width: isMobile ? '100%' : 'auto'
+          }}>
+            <span className="material-icons" style={{ color: '#64748b', fontSize: isMobile ? 18 : 20 }}>search</span>
                   <input
                     type="text"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Search users..."
                     style={{
-                      padding: '12px 16px',
+                      padding: isMobile ? '10px 14px' : '12px 16px',
                       borderRadius: 8,
                 border: '1.5px solid #e2e8f0',
-                      fontSize: 16,
+                      fontSize: isMobile ? 14 : 16,
                 color: '#1e293b',
                 outline: 'none',
                 flex: 1,
-                maxWidth: 400,
+                maxWidth: isMobile ? '100%' : 400,
+                width: '100%',
                 transition: 'border-color 0.2s'
               }}
               onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
@@ -666,23 +714,30 @@ const ShareAccess = () => {
             />
           </div>
           
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ position: 'relative' }}>
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: isMobile ? 'column' : 'row',
+            alignItems: 'stretch',
+            gap: isMobile ? 12 : 12,
+            width: isMobile ? '100%' : 'auto'
+          }}>
+            <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto' }}>
               <select
                 value={selectedRole}
                 onChange={(e) => setSelectedRole(e.target.value)}
                 disabled={rolesLoading}
                 required
                 style={{
-                  padding: '12px 16px',
+                  padding: isMobile ? '10px 14px' : '12px 16px',
                   borderRadius: 8,
                   border: `2px solid ${!selectedRole ? '#dc2626' : '#e5e7eb'}`,
-                  fontSize: 15,
+                  fontSize: isMobile ? 14 : 15,
                   color: '#1e293b',
                   outline: 'none',
                   background: '#fff',
                   cursor: rolesLoading ? 'not-allowed' : 'pointer',
-                  minWidth: 250
+                  minWidth: isMobile ? '100%' : 250,
+                  width: isMobile ? '100%' : 'auto'
                 }}
                 onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
                 onBlur={(e) => e.target.style.borderColor = !selectedRole ? '#dc2626' : '#e5e7eb'}
@@ -702,7 +757,7 @@ const ShareAccess = () => {
                   top: '-8px',
                   right: '8px',
                   color: '#dc2626',
-                  fontSize: '12px',
+                  fontSize: isMobile ? '10px' : '12px',
                   fontWeight: 600,
                   background: '#fff',
                   padding: '0 4px'
@@ -721,18 +776,20 @@ const ShareAccess = () => {
                         border: 'none',
                 borderRadius: 8,
                 fontWeight: 600,
-                        fontSize: 16,
-                padding: '12px 24px',
+                        fontSize: isMobile ? 14 : 16,
+                padding: isMobile ? '12px 20px' : '12px 24px',
                 cursor: (selectedEmails.length === 0 || !selectedRole) ? 'not-allowed' : 'pointer',
                 boxShadow: '0 2px 8px 0 rgba(5,150,105,0.10)',
                 transition: 'all 0.2s',
                         display: 'flex',
                         alignItems: 'center',
+                justifyContent: 'center',
                 gap: 8,
-                minWidth: 160
+                minWidth: isMobile ? '100%' : 160,
+                width: isMobile ? '100%' : 'auto'
               }}
             >
-              <span className="material-icons" style={{ fontSize: 18 }}>
+              <span className="material-icons" style={{ fontSize: isMobile ? 16 : 18 }}>
                 share
               </span>
               Share Access ({selectedEmails.length})
@@ -745,21 +802,21 @@ const ShareAccess = () => {
       {apiData && (
         <div style={{ 
           background: '#fff', 
-          borderRadius: 16, 
+          borderRadius: isMobile ? 12 : 16, 
           boxShadow: '0 4px 24px 0 rgba(31,38,135,0.08)', 
-          padding: 32, 
-          marginBottom: 24
+          padding: isMobile ? 16 : 32, 
+          marginBottom: isMobile ? 16 : 24
         }}>
           <div style={{ 
             display: 'flex', 
             alignItems: 'center', 
-            gap: 12,
-            marginBottom: 24,
-            paddingBottom: 16,
+            gap: isMobile ? 8 : 12,
+            marginBottom: isMobile ? 16 : 24,
+            paddingBottom: isMobile ? 12 : 16,
             borderBottom: '2px solid #f1f5f9'
           }}>
-            <span className="material-icons" style={{ fontSize: 24, color: '#3b82f6' }}>group</span>
-            <h3 style={{ color: '#1e293b', fontWeight: 700, margin: 0, fontSize: 20 }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? 20 : 24, color: '#3b82f6' }}>group</span>
+            <h3 style={{ color: '#1e293b', fontWeight: 700, margin: 0, fontSize: isMobile ? 18 : 20 }}>
               Share Access ({filteredEmails.length})
             </h3>
              </div>
@@ -771,11 +828,19 @@ const ShareAccess = () => {
               borderRadius: 8,
               overflow: 'hidden'
             }}>
-              <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
+              <div className="share-access-table" style={{ maxHeight: isMobile ? '400px' : '500px', overflowY: 'auto', overflowX: isMobile ? 'auto' : 'visible' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ background: '#f3f4f6' }}>
-                      <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 600, color: '#374151', width: '80px' }}>
+                      <th style={{ 
+                        padding: isMobile ? '10px 12px' : '12px 16px', 
+                        textAlign: 'left', 
+                        borderBottom: '1px solid #e5e7eb', 
+                        fontWeight: 600, 
+                        color: '#374151', 
+                        width: isMobile ? '60px' : '80px',
+                        fontSize: isMobile ? 12 : 14
+                      }}>
                          <input
                            type="checkbox"
                            checked={filteredEmails.length > 0 && selectedEmails.length === filteredEmails.length}
@@ -792,13 +857,36 @@ const ShareAccess = () => {
                                setSelectedEmails(remainingEmails);
                              }
                            }}
-                           style={{ marginRight: '8px' }}
+                           style={{ marginRight: isMobile ? '4px' : '8px' }}
                          />
-                        All
+                        {!isMobile && 'All'}
                        </th>
-                      <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 600, color: '#374151', width: '150px' }}>Role</th>
-                       <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 600, color: '#374151', width: '200px' }}>Email</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', fontWeight: 600, color: '#374151' }}>Ledgers</th>
+                      <th style={{ 
+                        padding: isMobile ? '10px 12px' : '12px 16px', 
+                        textAlign: 'left', 
+                        borderBottom: '1px solid #e5e7eb', 
+                        fontWeight: 600, 
+                        color: '#374151', 
+                        width: isMobile ? '120px' : '150px',
+                        fontSize: isMobile ? 12 : 14
+                      }}>Role</th>
+                       <th style={{ 
+                         padding: isMobile ? '10px 12px' : '12px 16px', 
+                         textAlign: 'left', 
+                         borderBottom: '1px solid #e5e7eb', 
+                         fontWeight: 600, 
+                         color: '#374151', 
+                         width: isMobile ? '180px' : '200px',
+                         fontSize: isMobile ? 12 : 14
+                       }}>Email</th>
+                      <th style={{ 
+                        padding: isMobile ? '10px 12px' : '12px 16px', 
+                        textAlign: 'left', 
+                        borderBottom: '1px solid #e5e7eb', 
+                        fontWeight: 600, 
+                        color: '#374151',
+                        fontSize: isMobile ? 12 : 14
+                      }}>Ledgers</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -812,24 +900,46 @@ const ShareAccess = () => {
                         borderBottom: '1px solid #f3f4f6',
                         background: email.STATUS === 1 ? '#fef3c7' : '#fff'
                       }}>
-                                                 <td style={{ padding: '12px 16px', textAlign: 'left' }}>
+                                                 <td style={{ 
+                           padding: isMobile ? '10px 12px' : '12px 16px', 
+                           textAlign: 'left' 
+                         }}>
                            <input
                              type="checkbox"
                              checked={selectedEmails.includes(email.EMAIL)}
                              onChange={() => handleEmailSelection(email.EMAIL)}
-                             style={{ marginRight: '8px' }}
+                             style={{ marginRight: isMobile ? '4px' : '8px' }}
                            />
                          </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 500, color: '#374151' }}>
+                        <td style={{ 
+                          padding: isMobile ? '10px 12px' : '12px 16px', 
+                          textAlign: 'left', 
+                          fontWeight: 500, 
+                          color: '#374151',
+                          fontSize: isMobile ? 12 : 14
+                        }}>
                           {roleName}
                          </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'left', fontWeight: 500, color: '#374151' }}>
+                        <td style={{ 
+                          padding: isMobile ? '10px 12px' : '12px 16px', 
+                          textAlign: 'left', 
+                          fontWeight: 500, 
+                          color: '#374151',
+                          fontSize: isMobile ? 12 : 14,
+                          wordBreak: 'break-word'
+                        }}>
                           {email.EMAIL}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'left', color: '#6b7280', maxWidth: '400px' }}>
+                        <td style={{ 
+                          padding: isMobile ? '10px 12px' : '12px 16px', 
+                          textAlign: 'left', 
+                          color: '#6b7280', 
+                          maxWidth: isMobile ? '250px' : '400px',
+                          fontSize: isMobile ? 11 : 14
+                        }}>
                           <div style={{ 
                             wordWrap: 'break-word', 
-                            whiteSpace: 'pre-wrap',
+                            whiteSpace: isMobile ? 'normal' : 'pre-wrap',
                             lineHeight: '1.4'
                           }}>
                             {email.LEDGERS.map(ledger => `${ledger.NAME} (${ledger.GROUP})`).join(' | ')}

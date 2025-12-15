@@ -160,6 +160,14 @@ export const clearAllCacheForExternalUser = async () => {
       };
     }
 
+    // Clear session cache first (for external users)
+    try {
+      await hybridCache.clearSessionCache();
+      console.log('✅ Cleared session cache');
+    } catch (error) {
+      console.error('Error clearing session cache:', error);
+    }
+
     // Clear OPFS and IndexedDB cache via hybridCache
     if (companyInfo) {
       try {
