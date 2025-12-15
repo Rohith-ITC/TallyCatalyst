@@ -912,6 +912,21 @@ function TallyConfig() {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
+        .tallyconfig-desktop-table {
+          overflow-x: hidden !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          box-sizing: border-box !important;
+        }
+        .tallyconfig-desktop-table table {
+          table-layout: fixed !important;
+          width: 100% !important;
+        }
+        .tallyconfig-desktop-table th,
+        .tallyconfig-desktop-table td {
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+        }
         @media (max-width: 700px) {
           body, html, #root, .adminhome-container {
             max-width: 100vw !important;
@@ -1322,7 +1337,9 @@ function TallyConfig() {
           width: '100%', 
           margin: '0 auto', 
           minHeight: isMobile ? 'auto' : 360, 
-          boxSizing: 'border-box' 
+          boxSizing: 'border-box',
+          overflowX: 'hidden',
+          maxWidth: '100%'
         }}>
           <div style={{ 
             display: 'flex', 
@@ -1387,8 +1404,8 @@ function TallyConfig() {
           {!loading && connections.length > 0 && (
             <>
               {/* Desktop Table */}
-              <div className="tallyconfig-desktop-table" style={{ display: !isMobile ? 'block' : 'none', overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <div className="tallyconfig-desktop-table" style={{ display: !isMobile ? 'block' : 'none', overflowX: 'hidden', width: '100%', boxSizing: 'border-box' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, tableLayout: 'fixed' }}>
                   <thead>
                     <tr style={{ background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)' }}>
                       <th style={{ 
@@ -1399,7 +1416,8 @@ function TallyConfig() {
                         fontSize: 14,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
-                        borderBottom: '2px solid #e2e8f0'
+                        borderBottom: '2px solid #e2e8f0',
+                        width: '12%'
                       }}>Site ID</th>
                       <th style={{ 
                         padding: '10px 12px', 
@@ -1409,7 +1427,8 @@ function TallyConfig() {
                         fontSize: 14,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
-                        borderBottom: '2px solid #e2e8f0'
+                        borderBottom: '2px solid #e2e8f0',
+                        width: '28%'
                       }}>IP Address</th>
                       <th style={{ 
                         padding: '10px 12px', 
@@ -1419,7 +1438,8 @@ function TallyConfig() {
                         fontSize: 14,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
-                        borderBottom: '2px solid #e2e8f0'
+                        borderBottom: '2px solid #e2e8f0',
+                        width: '8%'
                       }}>Port</th>
                       <th style={{ 
                         padding: '10px 12px', 
@@ -1429,7 +1449,8 @@ function TallyConfig() {
                         fontSize: 14,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
-                        borderBottom: '2px solid #e2e8f0'
+                        borderBottom: '2px solid #e2e8f0',
+                        width: '12%'
                       }}>Access Type</th>
                       <th style={{ 
                         padding: '10px 12px', 
@@ -1440,7 +1461,7 @@ function TallyConfig() {
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
                         borderBottom: '2px solid #e2e8f0',
-                        width: 300 
+                        width: '20%'
                       }}>Status</th>
                       <th style={{ 
                         padding: '10px 12px', 
@@ -1451,7 +1472,7 @@ function TallyConfig() {
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
                         borderBottom: '2px solid #e2e8f0',
-                        width: 120 
+                        width: '20%'
                       }}>Actions</th>
                     </tr>
                   </thead>
@@ -1464,7 +1485,8 @@ function TallyConfig() {
                           key={connection.id} 
                           style={{ 
                             borderBottom: '1px solid #f1f5f9', 
-                            height: '60px',
+                            height: 'auto',
+                            minHeight: '60px',
                             background: idx % 2 === 0 ? '#fff' : '#f8fafc',
                             transition: 'all 0.2s ease'
                           }}
@@ -1479,19 +1501,19 @@ function TallyConfig() {
                             e.target.style.boxShadow = 'none';
                           }}
                         >
-                          <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1e293b' }}>{connection.name}</td>
-                          <td style={{ padding: '10px 12px', color: '#64748b' }}>
-                            <div style={{ fontFamily: 'monospace', marginBottom: 4 }}>{connection.ip}</div>
+                          <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{connection.name}</td>
+                          <td style={{ padding: '10px 12px', color: '#64748b', overflow: 'hidden', verticalAlign: 'top' }}>
+                            <div style={{ fontFamily: 'monospace', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{connection.ip}</div>
                             <div style={{
                               fontSize: 12,
                               color: '#475569',
                               display: 'flex',
-                              alignItems: 'center',
+                              alignItems: 'flex-start',
+                              flexWrap: 'wrap',
                               gap: 6,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              width: '100%'
+                              width: '100%',
+                              maxWidth: '100%',
+                              lineHeight: 1.5
                             }}
                               title={activeCompanies.length > 0 ? activeCompanies.map((company) => `${company.company}${company.accessType ? ` (${company.accessType})` : ''}`).join(', ') : (companiesLoading ? 'Checking companies…' : 'No active companies')}>
                               {companiesLoading ? (
@@ -1500,10 +1522,10 @@ function TallyConfig() {
                                 <>
                                   {activeCompanies.map((company, idx) => (
                                     <React.Fragment key={company.guid}>
-                                      {idx > 0 && <span style={{ color: '#cbd5f5' }}>•</span>}
-                                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                      {idx > 0 && <span style={{ color: '#cbd5f5', marginRight: 2 }}>•</span>}
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                         <span className="material-icons" style={{ fontSize: 12, color: '#3b82f6' }}>apartment</span>
-                                        <span style={{ color: '#0f172a', fontWeight: 600 }}>{company.company}</span>
+                                        <span style={{ color: '#0f172a', fontWeight: 600, wordBreak: 'break-word' }}>{company.company}</span>
                                       </span>
                                     </React.Fragment>
                                   ))}
@@ -1513,8 +1535,8 @@ function TallyConfig() {
                               )}
                             </div>
                           </td>
-                          <td style={{ padding: '10px 12px', color: '#64748b', fontFamily: 'monospace' }}>{connection.port}</td>
-                          <td style={{ padding: '10px 12px' }}>
+                          <td style={{ padding: '10px 12px', color: '#64748b', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{connection.port}</td>
+                          <td style={{ padding: '10px 12px', overflow: 'hidden', verticalAlign: 'top' }}>
                             <span style={{
                               padding: '3px 6px',
                               borderRadius: '8px',
@@ -1522,10 +1544,14 @@ function TallyConfig() {
                               fontWeight: 600,
                               background: '#e0f2fe',
                               color: '#0c4a6e',
-                              display: 'inline-block'
+                              display: 'inline-block',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              maxWidth: '100%'
                             }}>{connection.accessType || 'Tally'}</span>
                           </td>
-                          <td style={{ padding: '10px 12px', width: 300 }}>
+                          <td style={{ padding: '10px 12px', overflow: 'hidden', verticalAlign: 'top' }}>
                             <span style={{
                               padding: '3px 6px',
                               borderRadius: '8px',
@@ -1540,7 +1566,7 @@ function TallyConfig() {
                                      connection.status === 'rejected' ? '#dc2626' : 
                                      connection.status === 'approved' ? '#166534' : '#64748b',
                               display: 'inline-block',
-                              maxWidth: '280px',
+                              maxWidth: '100%',
                               whiteSpace: 'nowrap',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis'
@@ -1548,7 +1574,7 @@ function TallyConfig() {
                               {connection.statusMessage || connection.status}
                             </span>
                           </td>
-                          <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top', overflow: 'hidden' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               {(connection.status === 'active' || connection.status === 'approved' || connection.status === 'inactive') ? (
                                 <>
