@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import TallyLogo from '../DLrlogo.png';
+import TallyLogo from '../DLlogo.png';
 import '../AdminHomeResponsive.css';
 import { getApiUrl, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { apiGet } from '../utils/apiUtils';
@@ -391,33 +391,33 @@ function AdminDashboard() {
           onClick={() => setMobileMenuOpen(true)}
           style={{
             position: 'fixed',
-            top: '12px',
-            left: '12px',
+            top: '16px',
+            left: '16px',
             zIndex: 10000,
-            background: 'rgba(255, 255, 255, 0.95)',
-            border: '1px solid rgba(0, 0, 0, 0.1)',
-            borderRadius: '8px',
+            background: '#fff',
+            border: '1px solid #e5e7eb',
+            borderRadius: '10px',
             width: '44px',
             height: '44px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
             transition: 'all 0.2s ease',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = '#fff';
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+            e.currentTarget.style.background = '#f8fafc';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
             e.currentTarget.style.transform = 'scale(1.05)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.95)';
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+            e.currentTarget.style.background = '#fff';
+            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.1)';
             e.currentTarget.style.transform = 'scale(1)';
           }}
         >
-          <span className="material-icons" style={{ fontSize: 24, color: '#1e3a8a' }}>
+          <span className="material-icons" style={{ fontSize: 24, color: '#1e293b' }}>
             menu
           </span>
         </button>
@@ -473,7 +473,7 @@ function AdminDashboard() {
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text',
-          }}>DataLynkr</span>
+          }}>DataLynk</span>
         </div>
         <div ref={profileDropdownRef} style={{ display: 'flex', alignItems: 'center', gap: 16, marginLeft: 'auto', position: 'relative' }}>
           <SubscriptionBadge />
