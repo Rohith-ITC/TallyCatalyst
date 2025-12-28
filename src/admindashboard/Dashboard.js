@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import TallyLogo from '../DLlogo.png';
 import '../AdminHomeResponsive.css';
+import Header from '../components/Header';
 import { getApiUrl, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { apiGet } from '../utils/apiUtils';
 import TallyConfig from './tallyconfig';
@@ -444,6 +445,32 @@ function AdminDashboard() {
         />
       )}
 
+      {/* Top Bar - Hidden in Mobile */}
+      <Header
+        type="admin"
+        isMobile={isMobile}
+        zIndex={4001}
+        logo={{
+          src: TallyLogo,
+          alt: 'Tally Logo',
+          height: 50,
+          width: 'auto'
+        }}
+        brandText="DataLynk"
+        showSubscriptionBadge={true}
+        subscriptionBadge={<SubscriptionBadge />}
+        profileProps={{
+          profileRef: profileDropdownRef,
+          name: name,
+          email: email,
+          profileDropdownOpen: profileDropdownOpen,
+          setProfileDropdownOpen: setProfileDropdownOpen,
+          navigate: navigate,
+          onGoogleConfigClick: () => setShowGoogleConfigModal(true),
+          isAdmin: () => true // Admin dashboard users are always admins
+        }}
+        onLogout={handleLogout}
+      />
 
       {/* Google Account Configuration Modal */}
       {showGoogleConfigModal && (
@@ -663,9 +690,9 @@ function AdminDashboard() {
       <aside
         className={`adminhome-sidebar sidebar-animated`}
         style={{
-          height: '100vh',
+          height: 'calc(100vh - 70px)',
           position: 'fixed',
-          top: 0,
+          top: 70,
           left: 0,
           background: '#1e3a8a',
           overflowY: 'auto',
@@ -673,15 +700,13 @@ function AdminDashboard() {
           minWidth: sidebarOpen ? 220 : 60,
           maxWidth: sidebarOpen ? 220 : 60,
           transition: 'width 0.3s, min-width 0.3s, max-width 0.3s',
-          display: 'flex',
-          flexDirection: 'column',
         }}
       >
-        <div className="sidebar-logo" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', margin: '24px 0', flexShrink: 0 }}>
-          <img src={TallyLogo} alt="Tally Logo" style={{ width: sidebarOpen ? 140 : 40, height: sidebarOpen ? 'auto' : 40, maxWidth: '100%', objectFit: 'contain', transition: 'width 0.3s, height 0.3s', margin: '0 auto', display: 'block' }} />
+        <div className="sidebar-logo" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', margin: '24px 0' }}>
+          <img src={TallyLogo} alt="Tally Logo" style={{ width: sidebarOpen ? 220 : 48, height: sidebarOpen ? 90 : 48, objectFit: 'contain', transition: 'width 0.3s, height 0.3s' }} />
         </div>
         <div className="sidebar-menu-label"></div>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 18, fontSize: 17, flex: 1 }}>
+        <nav style={{ display: 'flex', flexDirection: 'column', gap: 18, fontSize: 17 }}>
           <a
             href="#"
             onClick={handleDashboard}
@@ -896,186 +921,6 @@ function AdminDashboard() {
             )}
           </div>
         </nav>
-        
-        {/* Profile and Logout Section at Bottom */}
-        <div style={{ 
-          marginTop: 'auto', 
-          paddingTop: 24, 
-          borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-          padding: '24px 8px 16px 8px',
-          flexShrink: 0,
-        }}>
-          <div ref={profileDropdownRef} style={{ position: 'relative', marginBottom: 12 }}>
-            <div 
-              style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: 10, 
-                cursor: 'pointer',
-                padding: '10px 12px',
-                borderRadius: '10px',
-                background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
-                transition: 'all 0.3s ease',
-                justifyContent: sidebarOpen ? 'flex-start' : 'center',
-              }}
-              onClick={() => setProfileDropdownOpen((open) => !open)}
-              onMouseEnter={(e) => {
-                if (!profileDropdownOpen) {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!profileDropdownOpen) {
-                  e.currentTarget.style.background = 'transparent';
-                }
-              }}
-            >
-              <span className="material-icons profile-icon" style={{ color: '#fff', fontSize: '24px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}>account_circle</span>
-              {sidebarOpen && (
-                <>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="profile-name" style={{ color: '#fff', fontWeight: 600, fontSize: '14px', textShadow: '0 1px 2px rgba(0,0,0,0.1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name || 'User'}</div>
-                    <div style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '12px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email || ''}</div>
-                  </div>
-                  <span className="material-icons" style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '18px', transition: 'transform 0.3s ease', transform: profileDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
-                </>
-              )}
-            </div>
-            {profileDropdownOpen && sidebarOpen && (
-              <div className="profile-dropdown" style={{ 
-                position: 'absolute', 
-                bottom: '100%', 
-                left: 0,
-                right: 0,
-                marginBottom: 8,
-                minWidth: 260, 
-                background: '#fff', 
-                borderRadius: 16, 
-                boxShadow: '0 12px 40px 0 rgba(31, 38, 135, 0.2), 0 0 0 1px rgba(0,0,0,0.05)', 
-                padding: 20, 
-                zIndex: 4000, 
-                textAlign: 'left',
-                animation: 'fadeIn 0.2s ease-out',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
-                  <span className="material-icons" style={{ fontSize: 32, color: '#3b82f6' }}>account_circle</span>
-                  <div>
-                    <div className="profile-dropdown-name" style={{ fontSize: 16, color: '#1e293b', fontWeight: 700, marginBottom: 2 }}>{name || 'User'}</div>
-                    <div className="profile-dropdown-email" style={{ fontSize: 13, color: '#64748b' }}>{email || ''}</div>
-                  </div>
-                </div>
-                <div style={{ marginBottom: 8 }}>
-                  <SubscriptionBadge />
-                </div>
-                <button 
-                  className="change-password-btn" 
-                  style={{ 
-                    width: '100%',
-                    padding: '12px 18px', 
-                    background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)', 
-                    color: '#fff', 
-                    border: 'none', 
-                    borderRadius: 10, 
-                    fontWeight: 600, 
-                    fontSize: 14, 
-                    cursor: 'pointer', 
-                    boxShadow: '0 4px 12px 0 rgba(59,130,246,0.25)', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    gap: 8,
-                    transition: 'all 0.3s ease',
-                    marginBottom: 10,
-                  }} 
-                  onClick={() => navigate('/change-password')}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(59,130,246,0.35)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(59,130,246,0.25)';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: 18 }}>lock</span>
-                  Change Password
-                </button>
-                <button 
-                  className="google-config-btn" 
-                  style={{ 
-                    width: '100%',
-                    padding: '12px 18px', 
-                    background: 'linear-gradient(135deg, #4285f4 0%, #34a853 100%)', 
-                    color: '#fff', 
-                    border: 'none', 
-                    borderRadius: 10, 
-                    fontWeight: 600, 
-                    fontSize: 14, 
-                    cursor: 'pointer', 
-                    boxShadow: '0 4px 12px 0 rgba(66,133,244,0.25)', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    gap: 8,
-                    transition: 'all 0.3s ease',
-                  }} 
-                  onClick={() => {
-                    setShowGoogleConfigModal(true);
-                    setProfileDropdownOpen(false);
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(66,133,244,0.35)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(66,133,244,0.25)';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: 18 }}>account_circle</span>
-                  Configure Google Account
-                </button>
-              </div>
-            )}
-          </div>
-          <button 
-            className="logout-btn" 
-            title="Logout" 
-            style={{ 
-              background: 'rgba(220, 38, 38, 0.15)', 
-              color: '#fff', 
-              border: '1px solid rgba(220, 38, 38, 0.3)', 
-              width: '100%',
-              padding: '10px 18px',
-              borderRadius: '10px',
-              fontWeight: 600,
-              fontSize: '14px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: sidebarOpen ? 'flex-start' : 'center',
-              gap: 8,
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              boxShadow: '0 2px 6px rgba(220, 38, 38, 0.2)',
-            }} 
-            onClick={handleLogout}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(220, 38, 38, 0.25)';
-              e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.4)';
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.3)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(220, 38, 38, 0.15)';
-              e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.3)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 2px 6px rgba(220, 38, 38, 0.2)';
-            }}
-          >
-            <span className="material-icons" style={{ fontSize: 18 }}>logout</span>
-            {sidebarOpen && <span>Logout</span>}
-          </button>
-        </div>
       </aside>
       )}
 
@@ -1087,7 +932,7 @@ function AdminDashboard() {
         aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
         style={{
           position: 'fixed',
-          top: 16,
+          top: 72,
           left: (sidebarOpen ? 220 : 60) - 18,
           zIndex: 5000,
           background: '#fff',
@@ -1119,13 +964,13 @@ function AdminDashboard() {
         className="adminhome-main"
         style={{
           marginLeft: isMobile ? 0 : (sidebarOpen ? 220 : 60),
-          paddingTop: 0,
+          paddingTop: isMobile ? 0 : 70,
           padding: isMobile ? 12 : 20,
           transition: 'margin 0.3s',
         }}
       >
         {view === 'dashboard' ? (
-          <div>
+          <div style={{ marginTop: 50 }}>
             {/* Header Section */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32 }}>
               <div>
