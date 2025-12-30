@@ -129,7 +129,12 @@ const MasterList = () => {
     }
 
     // Find the current company object
-    const currentCompany = companies.find(c => c.guid === selectedCompanyGuid);
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const currentCompany = companies.find(c => 
+      c.guid === selectedCompanyGuid && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
     if (!currentCompany) {
       setMasters([]);
       setError('Company not found');
@@ -405,7 +410,12 @@ const MasterList = () => {
       console.error('Error parsing allConnections:', e);
     }
 
-    const currentCompany = companies.find(c => c.guid === selectedCompanyGuid);
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const currentCompany = companies.find(c => 
+      c.guid === selectedCompanyGuid && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
     if (!currentCompany) {
       alert('Please ensure you are connected to Tally before inviting masters');
       return;
@@ -543,7 +553,12 @@ const MasterList = () => {
             return;
           }
 
-          const currentCompany = companies.find(c => c.guid === selectedCompanyGuid);
+          const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const currentCompany = companies.find(c => 
+      c.guid === selectedCompanyGuid && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
           if (!currentCompany) {
             setRealtimeDuplicateStatus(null);
             setIsCheckingRealtime(false);
@@ -997,7 +1012,12 @@ const MasterList = () => {
                   console.error('Error parsing allConnections:', e);
                 }
 
-                const currentCompany = companies.find(c => c.guid === selectedCompanyGuid);
+                const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const currentCompany = companies.find(c => 
+      c.guid === selectedCompanyGuid && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
                 if (!currentCompany) {
                   alert('Company not found');
                   return;

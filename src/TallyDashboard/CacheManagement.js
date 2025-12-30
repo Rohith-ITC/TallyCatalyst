@@ -155,7 +155,7 @@ const CacheManagement = () => {
     }
 
     try {
-      const progressKey = `download_progress_${selectedCompany.guid}`;
+      const progressKey = `download_progress_${selectedCompany.tallyloc_id}_${selectedCompany.guid}`;
       const progressStr = sessionStorage.getItem(progressKey);
       if (progressStr) {
         const progress = JSON.parse(progressStr);
@@ -226,7 +226,8 @@ const CacheManagement = () => {
       // Only update if this progress is for the currently selected company
       const currentCompanyInfo = cacheSyncManager.getCompanyInfo();
       if (currentCompanyInfo && selectedCompany &&
-        currentCompanyInfo.guid === selectedCompany.guid) {
+        currentCompanyInfo.guid === selectedCompany.guid &&
+        currentCompanyInfo.tallyloc_id === selectedCompany.tallyloc_id) {
         setDownloadProgress(progress);
         setDownloadingComplete(cacheSyncManager.isSyncInProgress());
         // Set start time if not already set and we have progress
@@ -592,8 +593,13 @@ const CacheManagement = () => {
     try {
       const connections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
       const selectedGuid = sessionStorage.getItem('selectedCompanyGuid');
+      const selectedTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
       if (selectedGuid && Array.isArray(connections)) {
-        const company = connections.find(c => c.guid === selectedGuid);
+        // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+        const company = connections.find(c => 
+          c.guid === selectedGuid && 
+          (selectedTallylocId ? String(c.tallyloc_id) === String(selectedTallylocId) : true)
+        );
         if (company) {
           setSelectedCompany({
             tallyloc_id: company.tallyloc_id,
@@ -617,6 +623,7 @@ const CacheManagement = () => {
     }
   };
 
+<<<<<<< HEAD
   // Check Google account configuration for Gmail fetch
   useEffect(() => {
     const checkGoogleConfig = async () => {
@@ -706,6 +713,8 @@ const CacheManagement = () => {
       setFetchingGmailJson(false);
     }
   };
+=======
+>>>>>>> 1806b7601280579f341376f1ecc1fe7b9b37259b
 
   const loadCacheEntries = async () => {
     setLoadingEntries(true);
@@ -872,7 +881,7 @@ const CacheManagement = () => {
           sessionStorage.removeItem(`${itemKey}_count`);
 
           // Clear download progress for this company
-          sessionStorage.removeItem(`download_progress_${selectedCompany.guid}`);
+          sessionStorage.removeItem(`download_progress_${selectedCompany.tallyloc_id}_${selectedCompany.guid}`);
         } catch (e) {
           console.warn('Error clearing company cache keys:', e);
         }

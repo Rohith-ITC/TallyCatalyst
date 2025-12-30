@@ -145,8 +145,9 @@ function AdminDashboard() {
     sessionStorage.setItem('startingfrom', row.startingfrom || '');
     sessionStorage.setItem('booksfrom', row.booksfrom || '');
     sessionStorage.setItem('createdAt', row.createdAt || '');
-    // Store the selected company's guid as the primary identifier
+    // Store the selected company's guid and tallyloc_id as identifiers
     sessionStorage.setItem('selectedCompanyGuid', row.guid || '');
+    sessionStorage.setItem('selectedCompanyTallylocId', row.tallyloc_id || '');
     // Store all connected companies for dropdown in Ledgerbook
     const connected = allConnections.filter(c => c.status === 'Connected');
     sessionStorage.setItem('allConnections', JSON.stringify(connected));

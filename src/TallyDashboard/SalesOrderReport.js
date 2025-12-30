@@ -226,8 +226,13 @@ function Reports() {
   const getCurrentCompany = () => {
     try {
       const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
       const allConnections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
-      const currentCompany = allConnections.find(c => c.guid === selectedCompanyGuid);
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = allConnections.find(c => 
+        c.guid === selectedCompanyGuid && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
       
       if (currentCompany) {
         return {

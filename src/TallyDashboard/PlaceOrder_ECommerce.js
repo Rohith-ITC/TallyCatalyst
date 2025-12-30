@@ -585,7 +585,12 @@ function PlaceOrder_ECommerce() {
         return;
       }
 
-      const currentCompany = companies.find(c => c.guid === company);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
       if (!currentCompany) {
         console.log('🔄 Company not found in companies list:', {
           lookingFor: company,
@@ -783,7 +788,12 @@ function PlaceOrder_ECommerce() {
       setProductSearchTerm(''); // Reset search term
       imageUrlCache.current.clear(); // Clear image URL cache
 
-      const currentCompany = companies.find(c => c.guid === newCompanyGuid);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === newCompanyGuid && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
 
       if (currentCompany) {
         const { tallyloc_id, company: companyVal } = currentCompany;
@@ -846,7 +856,12 @@ function PlaceOrder_ECommerce() {
       const { type, company: updatedCompany } = event.detail || {};
       if (type === 'customers') {
         const currentCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
-        const currentCompany = companies.find(c => c.guid === currentCompanyGuid);
+        const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+        // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+        const currentCompany = companies.find(c => 
+          c.guid === currentCompanyGuid && 
+          (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+        );
         // Only refresh if the update is for the current company
         if (currentCompany && updatedCompany && 
             (updatedCompany.guid === currentCompanyGuid || 
@@ -1227,7 +1242,12 @@ function PlaceOrder_ECommerce() {
       }
 
       // Get the current company object directly from companies
-      const currentCompany = companies.find(c => c.guid === company);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
       if (!currentCompany) {
         setVoucherTypes([]);
         setSelectedVoucherType('');
@@ -1284,7 +1304,12 @@ function PlaceOrder_ECommerce() {
   const handleRefreshCustomers = async () => {
     if (!company) return;
 
-    const currentCompany = companies.find(c => c.guid === company);
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const currentCompany = companies.find(c => 
+      c.guid === company && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
     if (!currentCompany) return;
 
     setRefreshingCustomers(true);
@@ -1330,7 +1355,12 @@ function PlaceOrder_ECommerce() {
         return;
       }
 
-      const currentCompany = companies.find(c => c.guid === company);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
       if (!currentCompany) return;
 
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
@@ -1424,7 +1454,12 @@ function PlaceOrder_ECommerce() {
         return;
       }
 
-      const currentCompany = companies.find(c => c.guid === company);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
       if (!currentCompany) return;
 
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
@@ -1840,7 +1875,12 @@ function PlaceOrder_ECommerce() {
   const fetchStockBreakdown = async (itemName) => {
     if (!itemName || !company) return;
 
-    const currentCompany = companies.find(c => c.guid === company);
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const currentCompany = companies.find(c => 
+      c.guid === company && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
     if (!currentCompany) return;
 
     setStockBreakdownLoading(true);
@@ -2075,7 +2115,12 @@ function PlaceOrder_ECommerce() {
       }
 
       // Get current company
-      const currentCompany = companies.find(c => c.guid === company);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
       if (!currentCompany) {
         throw new Error('Company information not found');
       }
@@ -2372,7 +2417,12 @@ function PlaceOrder_ECommerce() {
       return;
     }
 
-    const currentCompany = companies.find(c => c.guid === company);
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const currentCompany = companies.find(c => 
+      c.guid === company && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
     if (!currentCompany) {
       setImageUploadError('Company information not found');
       return;
@@ -2548,7 +2598,12 @@ function PlaceOrder_ECommerce() {
         
         // Also update sessionStorage cache
         try {
-          const currentCompany = companies.find(c => c.guid === company);
+          const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
           if (currentCompany) {
             const { tallyloc_id, company: companyVal } = currentCompany;
             const cacheKey = `stockitems_${tallyloc_id}_${companyVal}`;
@@ -2654,7 +2709,12 @@ function PlaceOrder_ECommerce() {
 
       try {
         setCreditLimitLoading(true);
-        const currentCompany = companies.find(c => c.guid === company);
+        const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
         if (!currentCompany) {
           console.error('No company found for credit limit API');
           setCreditLimitData(null);
@@ -3528,7 +3588,12 @@ function PlaceOrder_ECommerce() {
         let currentToken = googleToken;
         if ((isGoogleDrive || isGoogleDriveId) && !currentToken) {
           try {
-            const currentCompany = companies.find(c => c.guid === company);
+            const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
             if (currentCompany) {
               const { tallyloc_id, guid } = currentCompany;
               console.log('🔄 ProductVideo: Auto-fetching Google token from company configs');

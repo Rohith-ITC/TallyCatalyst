@@ -47,8 +47,12 @@ function PlaceOrder() {
 
 
       const newCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
-
-      const currentCompany = companies.find(c => c.guid === newCompanyGuid);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === newCompanyGuid && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
 
 
 
@@ -172,7 +176,12 @@ function PlaceOrder() {
 
         } catch (e) { }
 
-        const currentCompany = companies.find(c => c.guid === currentCompanyGuid);
+        const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+        // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+        const currentCompany = companies.find(c => 
+          c.guid === currentCompanyGuid && 
+          (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+        );
 
         // Only refresh if the update is for the current company
 
@@ -5067,7 +5076,12 @@ function PlaceOrder() {
 
     if (!company) return;
 
-    const currentCompany = companies.find(c => c.guid === company);
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const currentCompany = companies.find(c => 
+      c.guid === company && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
 
     if (!currentCompany) return;
 
@@ -5134,8 +5148,12 @@ function PlaceOrder() {
       // Get the current company object directly from companies
 
       // Use companies directly to avoid dependency issues
-
-      const currentCompany = companies.find(c => c.guid === company);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
 
       if (!currentCompany) {
 
@@ -5257,8 +5275,12 @@ function PlaceOrder() {
       // Get the current company object directly from companies
 
       // Use companies directly to avoid dependency issues
-
-      const currentCompany = companies.find(c => c.guid === company);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
 
       if (!currentCompany) {
 
@@ -8305,7 +8327,12 @@ function PlaceOrder() {
 
 
   // Get current company for display
-  const currentCompany = companies.find(c => c.guid === selectedCompanyGuid);
+  const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+  // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+  const currentCompany = companies.find(c => 
+    c.guid === selectedCompanyGuid && 
+    (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+  );
 
   return (
 
