@@ -1,5 +1,6 @@
 // Hybrid cache implementation - OPFS with IndexedDB fallback
 import Dexie from 'dexie';
+import { isFullAccessOrInternal, isExternalUser, fetchExternalUserCacheEnabled, getCacheAccessPermission } from './cacheUtils';
 
 // Date range utility functions
 class DateRangeUtils {
@@ -606,6 +607,24 @@ class OPFSBackend {
 
   async setSalesData(cacheKey, data, maxAgeDays = null, startDate = null, endDate = null) {
     try {
+      // Check cache access permission before storing
+      if (!isFullAccessOrInternal()) {
+        if (isExternalUser()) {
+          const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+          const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+          if (!hasAccess) {
+            console.warn('⚠️ External user cache disabled - skipping persistent storage');
+            // Don't throw error, just skip persistent storage
+            // Data can still be used in memory/sessionStorage
+            return;
+          }
+        } else {
+          // Unknown access type - deny persistent storage
+          console.warn('⚠️ Unknown access type - skipping persistent storage');
+          return;
+        }
+      }
+
       await this.init();
 
       // Check data size and warn on mobile if large
@@ -747,10 +766,66 @@ class OPFSBackend {
       await this.init();
 
       // Check metadata first
-      const salesMap = this.metadataCache.get('sales') || new Map();
-      const metadata = salesMap.get(cacheKey);
+      let salesMap = this.metadataCache.get('sales') || new Map();
+      let metadata = salesMap.get(cacheKey);
+      
+      // If metadata doesn't exist, try reloading metadata first (mobile fallback)
+      // This handles cases where metadata cache wasn't loaded yet
+      if (!metadata && salesMap.size === 0) {
+        console.log(`🔄 Metadata cache is empty, reloading metadata...`);
+        try {
+          await this.loadMetadata();
+          salesMap = this.metadataCache.get('sales') || new Map();
+          metadata = salesMap.get(cacheKey);
+        } catch (reloadError) {
+          console.warn('⚠️ Could not reload metadata:', reloadError.message);
+        }
+      }
+      
+      // If metadata still doesn't exist, try to check if file exists directly (mobile fallback)
+      // This handles cases where metadata file is missing but data file exists
       if (!metadata) {
-        return null;
+        try {
+          const filePath = this.getSalesFilePath(cacheKey);
+          const pathParts = filePath.split('/');
+          const fileName = pathParts.pop();
+          const dirPath = pathParts.join('/');
+
+          let dir = this.root;
+          if (dirPath) {
+            for (const part of dirPath.split('/')) {
+              if (part) {
+                dir = await dir.getDirectoryHandle(part);
+              }
+            }
+          }
+
+          // Try to access the file - if it exists, restore metadata
+          const fileHandle = await dir.getFileHandle(fileName);
+          const file = await fileHandle.getFile();
+          
+          if (file && file.size > 0) {
+            console.log(`📋 Found cache file without metadata, restoring metadata for: ${cacheKey}`);
+            // Restore metadata from file
+            metadata = {
+              cacheKey,
+              timestamp: file.lastModified || Date.now(),
+              baseKey: this.extractBaseKey(cacheKey)
+            };
+            salesMap.set(cacheKey, metadata);
+            this.metadataCache.set('sales', salesMap);
+            // Save metadata asynchronously (don't block)
+            this.saveMetadata().catch(err => console.warn('Could not save restored metadata:', err));
+          } else {
+            return null;
+          }
+        } catch (fileError) {
+          // File doesn't exist or can't be accessed
+          if (fileError.name !== 'NotFoundError') {
+            console.warn(`⚠️ Error checking for cache file ${cacheKey}:`, fileError.message);
+          }
+          return null;
+        }
       }
 
       // Check expiry only if maxAgeDays is set (not null/never)
@@ -1274,6 +1349,24 @@ class OPFSBackend {
   // Store complete sales data with metadata
   async setCompleteSalesData(companyInfo, data, metadata = {}) {
     try {
+      // Check cache access permission before storing
+      if (!isFullAccessOrInternal()) {
+        if (isExternalUser()) {
+          const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+          const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+          if (!hasAccess) {
+            console.warn('⚠️ External user cache disabled - skipping persistent storage');
+            // Don't throw error, just skip persistent storage
+            // Data can still be used in memory/sessionStorage
+            return;
+          }
+        } else {
+          // Unknown access type - deny persistent storage
+          console.warn('⚠️ Unknown access type - skipping persistent storage');
+          return;
+        }
+      }
+
       const syncStart = performance.now();
       await this.init();
       const email = metadata.email || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null) || 'unknown';
@@ -1620,6 +1713,221 @@ class OPFSBackend {
     }
   }
 
+  // Store session cache data for external users (gets cleared on logout)
+  async setSessionCacheData(companyInfo, data, cacheKey) {
+    try {
+      // Only allow for external users
+      if (!isExternalUser()) {
+        console.warn('⚠️ setSessionCacheData is only for external users');
+        return;
+      }
+
+      const syncStart = performance.now();
+      await this.init();
+      const email = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null;
+      if (!email) {
+        throw new Error('Email is required for session cache');
+      }
+
+      console.log(`💾 Session cache write started for: ${cacheKey}`);
+      const encrypted = await this.encryption.encryptData(data);
+      const timestamp = Date.now();
+
+      // Extract date range from data
+      const startDate = data.fromDate || null;
+      const endDate = data.toDate || null;
+
+      // Write encrypted data to OPFS with session_cache prefix
+      const filePath = this.getSalesFilePath(cacheKey);
+      const pathParts = filePath.split('/');
+      const fileName = pathParts.pop();
+      const dirPath = pathParts.join('/');
+
+      // Create directory if needed
+      let dir = this.root;
+      if (dirPath) {
+        for (const part of dirPath.split('/')) {
+          if (part) {
+            dir = await dir.getDirectoryHandle(part, { create: true });
+          }
+        }
+      }
+
+      // Write file - delete existing file first to ensure complete replacement
+      try {
+        try {
+          await dir.removeEntry(fileName);
+          console.log(`🗑️ Removed existing session cache file: ${fileName}`);
+        } catch (removeError) {
+          if (removeError.name !== 'NotFoundError') {
+            console.warn(`⚠️ Could not remove existing file: ${removeError.message}`);
+          }
+        }
+      } catch (error) {
+        console.warn(`⚠️ Error during file removal attempt: ${error.message}`);
+      }
+
+      // Create new file handle
+      const fileHandle = await dir.getFileHandle(fileName, { create: true });
+
+      try {
+        if ('createSyncAccessHandle' in fileHandle) {
+          const syncHandle = await fileHandle.createSyncAccessHandle();
+          try {
+            const encoder = new TextEncoder();
+            const dataToWrite = encoder.encode(encrypted);
+            syncHandle.write(dataToWrite, { at: 0 });
+            syncHandle.truncate(dataToWrite.length);
+            console.log(`✅ Wrote ${dataToWrite.length} bytes using sync access handle`);
+          } finally {
+            syncHandle.close();
+          }
+        } else {
+          const writable = await fileHandle.createWritable();
+          await writable.write(encrypted);
+          await writable.close();
+          console.log(`✅ Wrote ${encrypted.length} bytes using writable stream`);
+        }
+      } catch (writeError) {
+        console.error(`❌ Error writing file, attempting recovery: ${writeError.message}`);
+        try {
+          await dir.removeEntry(fileName);
+        } catch (removeError) {
+          // Ignore removal errors during recovery
+        }
+        const newFileHandle = await dir.getFileHandle(fileName, { create: true });
+        const writable = await newFileHandle.createWritable();
+        await writable.write(encrypted);
+        await writable.close();
+        console.log(`✅ Recovery write completed`);
+      }
+
+      // Store metadata with session cache flag
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const metadataEntry = {
+        cacheKey,
+        timestamp,
+        baseKey: cacheKey,
+        isComplete: true,
+        isSessionCache: true, // Mark as session cache
+        ...(startDate && endDate ? { startDate, endDate } : {})
+      };
+      salesMap.set(cacheKey, metadataEntry);
+      this.metadataCache.set('sales', salesMap);
+
+      // Save metadata immediately
+      await this.saveMetadata();
+
+      const syncTime = performance.now() - syncStart;
+      console.log(`✅ Cached session data in OPFS: ${cacheKey} (${syncTime.toFixed(2)}ms)`);
+    } catch (error) {
+      console.error('Error storing session cache data in OPFS:', error);
+      throw error;
+    }
+  }
+
+  // Get session cache data for external users
+  async getSessionCacheData(cacheKey) {
+    try {
+      if (!isExternalUser()) {
+        return null;
+      }
+
+      await this.init();
+      
+      // Check metadata first
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const metadata = salesMap.get(cacheKey);
+
+      if (!metadata || !metadata.isSessionCache) {
+        return null;
+      }
+
+      // Read file
+      const filePath = this.getSalesFilePath(cacheKey);
+      const pathParts = filePath.split('/');
+      const fileName = pathParts.pop();
+      const dirPath = pathParts.join('/');
+
+      let dir = this.root;
+      if (dirPath) {
+        for (const part of dirPath.split('/')) {
+          if (part) {
+            dir = await dir.getDirectoryHandle(part);
+          }
+        }
+      }
+
+      const fileHandle = await dir.getFileHandle(fileName);
+      const file = await fileHandle.getFile();
+      const encrypted = await file.arrayBuffer();
+
+      // Decrypt the data
+      const decrypted = await this.encryption.decryptData(encrypted);
+      return decrypted;
+    } catch (error) {
+      console.error('Error retrieving session cache data from OPFS:', error);
+      return null;
+    }
+  }
+
+  // Clear all session cache data (called on logout for external users)
+  async clearSessionCache() {
+    try {
+      await this.init();
+      
+      const salesMap = this.metadataCache.get('sales') || new Map();
+      const sessionCacheKeys = [];
+
+      // Find all session cache entries
+      for (const [cacheKey, metadata] of salesMap.entries()) {
+        if (metadata.isSessionCache || cacheKey.startsWith('session_cache_')) {
+          sessionCacheKeys.push(cacheKey);
+        }
+      }
+
+      // Delete all session cache files
+      for (const cacheKey of sessionCacheKeys) {
+        try {
+          const filePath = this.getSalesFilePath(cacheKey);
+          const pathParts = filePath.split('/');
+          const fileName = pathParts.pop();
+          const dirPath = pathParts.join('/');
+
+          let dir = this.root;
+          if (dirPath) {
+            for (const part of dirPath.split('/')) {
+              if (part) {
+                dir = await dir.getDirectoryHandle(part);
+              }
+            }
+          }
+
+          try {
+            await dir.removeEntry(fileName);
+            console.log(`🗑️ Deleted session cache file: ${fileName}`);
+          } catch (removeError) {
+            if (removeError.name !== 'NotFoundError') {
+              console.warn(`⚠️ Could not delete session cache file ${fileName}:`, removeError);
+            }
+          }
+
+          // Remove from metadata
+          salesMap.delete(cacheKey);
+        } catch (error) {
+          console.warn(`⚠️ Error deleting session cache key ${cacheKey}:`, error);
+        }
+      }
+
+      this.metadataCache.set('sales', salesMap);
+      await this.saveMetadata();
+
+      console.log(`✅ Cleared ${sessionCacheKeys.length} session cache entries`);
+    } catch (error) {
+      console.error('Error clearing session cache:', error);
+    }
+  }
+
   // Get raw cache file data as JSON (for viewing)
   async getCacheFileAsJson(cacheKey) {
     try {
@@ -1831,6 +2139,24 @@ class IndexedDBBackend {
 
   async setSalesData(cacheKey, data, maxAgeDays = 5, startDate = null, endDate = null) {
     try {
+      // Check cache access permission before storing (IndexedDB backend)
+      if (!isFullAccessOrInternal()) {
+        if (isExternalUser()) {
+          const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+          const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+          if (!hasAccess) {
+            console.warn('⚠️ External user cache disabled - skipping persistent storage');
+            // Don't throw error, just skip persistent storage
+            // Data can still be used in memory/sessionStorage
+            return;
+          }
+        } else {
+          // Unknown access type - deny persistent storage
+          console.warn('⚠️ Unknown access type - skipping persistent storage');
+          return;
+        }
+      }
+
       await this.init();
       const encrypted = await this.encryption.encryptData(data);
       const timestamp = Date.now();
@@ -1847,6 +2173,9 @@ class IndexedDBBackend {
       const baseKey = this.extractBaseKey(cacheKey);
 
       // Store encrypted data in IndexedDB
+      const dataSize = encrypted.byteLength || encrypted.length || 0;
+      const dataSizeKB = (dataSize / 1024).toFixed(2);
+      
       await this.db.salesData.put({
         cacheKey,
         encryptedData: encrypted,
@@ -1856,11 +2185,29 @@ class IndexedDBBackend {
         endDate: dateRange ? dateRange.endDate : null
       });
 
-      // Clean up old entries
-      const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
-      await this.db.salesData.where('timestamp').below(expiryTime).delete();
+      // Verify the data was stored by reading it back
+      const storedEntry = await this.db.salesData.get(cacheKey);
+      if (storedEntry) {
+        console.log(`✅ Cached sales data in IndexedDB: ${cacheKey} (${dataSizeKB} KB)`);
+        // Log additional info for customers and items
+        if (cacheKey.startsWith('ledgerlist-w-addrs')) {
+          const dataStr = JSON.stringify(data);
+          const ledgerCount = data.ledgers ? data.ledgers.length : 0;
+          console.log(`📊 [IndexedDB] Stored ${ledgerCount} customers (${(dataStr.length / 1024).toFixed(2)} KB uncompressed)`);
+        } else if (cacheKey.startsWith('stockitems')) {
+          const dataStr = JSON.stringify(data);
+          const itemCount = data.stockItems ? data.stockItems.length : 0;
+          console.log(`📊 [IndexedDB] Stored ${itemCount} items (${(dataStr.length / 1024).toFixed(2)} KB uncompressed)`);
+        }
+      } else {
+        console.warn(`⚠️ [IndexedDB] Data stored but verification read failed for: ${cacheKey}`);
+      }
 
-      console.log(`✅ Cached sales data in IndexedDB: ${cacheKey}`);
+      // Clean up old entries
+      if (maxAgeDays !== null && maxAgeDays !== undefined) {
+        const expiryTime = Date.now() - (maxAgeDays * 24 * 60 * 60 * 1000);
+        await this.db.salesData.where('timestamp').below(expiryTime).delete();
+      }
     } catch (error) {
       console.error('Error storing sales data in IndexedDB:', error);
       throw error;
@@ -1872,9 +2219,42 @@ class IndexedDBBackend {
       await this.init();
 
       // Get entry from IndexedDB
-      const entry = await this.db.salesData.get(cacheKey);
+      let entry = await this.db.salesData.get(cacheKey);
+      
+      // If exact match not found, try to find a matching key (handles variations in cache key format)
       if (!entry) {
-        return null;
+        try {
+          // Extract base key pattern (ledgerlist-w-addrs_tallyloc_id_company)
+          const basePattern = cacheKey.split('_').slice(0, 3).join('_'); // First 3 parts: ledgerlist-w-addrs_tallyloc_id_company
+          const allEntries = await this.db.salesData
+            .where('cacheKey')
+            .startsWith(basePattern)
+            .toArray();
+          
+          if (allEntries.length > 0) {
+            // Find the most recent entry that matches the pattern
+            const sortedEntries = allEntries.sort((a, b) => b.timestamp - a.timestamp);
+            entry = sortedEntries[0];
+            console.log(`🔄 [IndexedDB] Exact key not found, using matching key: ${entry.cacheKey} (requested: ${cacheKey})`);
+          } else {
+            // Log for debugging - check if any entries exist with similar keys
+            const allCustomerEntries = await this.db.salesData
+              .where('cacheKey')
+              .startsWith('ledgerlist-w-addrs')
+              .toArray();
+            const matchingKeys = allCustomerEntries.map(e => e.cacheKey);
+            if (matchingKeys.length > 0) {
+              console.log(`⚠️ [IndexedDB] Cache key not found: ${cacheKey}`);
+              console.log(`📋 [IndexedDB] Available customer cache keys:`, matchingKeys);
+            }
+          }
+        } catch (debugError) {
+          console.warn('⚠️ [IndexedDB] Error searching for matching cache key:', debugError.message);
+        }
+        
+        if (!entry) {
+          return null;
+        }
       }
 
       // Check expiry only if maxAgeDays is set (not null/never)
@@ -2282,10 +2662,60 @@ class IndexedDBBackend {
     try {
       await this.init();
 
-      // Try sales data first
-      const salesEntry = await this.db.salesData.get(cacheKey);
+      // Try sales data first with exact match
+      let salesEntry = await this.db.salesData.get(cacheKey);
+      
+      // If exact match not found, try to find a matching key (handles variations in cache key format)
+      // This matches the pattern matching logic used in getSalesData
+      if (!salesEntry) {
+        try {
+          // Extract base key pattern (ledgerlist-w-addrs_tallyloc_id_company or stockitems_tallyloc_id_company)
+          const basePattern = cacheKey.split('_').slice(0, 3).join('_'); // First 3 parts
+          const allEntries = await this.db.salesData
+            .where('cacheKey')
+            .startsWith(basePattern)
+            .toArray();
+          
+          if (allEntries.length > 0) {
+            // Find the most recent entry that matches the pattern
+            const sortedEntries = allEntries.sort((a, b) => b.timestamp - a.timestamp);
+            salesEntry = sortedEntries[0];
+            console.log(`🔄 [IndexedDB] Exact key not found for viewing, using matching key: ${salesEntry.cacheKey} (requested: ${cacheKey})`);
+          } else {
+            // Log for debugging - check if any entries exist with similar keys
+            if (cacheKey.startsWith('ledgerlist-w-addrs')) {
+              const allCustomerEntries = await this.db.salesData
+                .where('cacheKey')
+                .startsWith('ledgerlist-w-addrs')
+                .toArray();
+              const matchingKeys = allCustomerEntries.map(e => e.cacheKey);
+              if (matchingKeys.length > 0) {
+                console.log(`⚠️ [IndexedDB] Cache key not found for viewing: ${cacheKey}`);
+                console.log(`📋 [IndexedDB] Available customer cache keys:`, matchingKeys);
+              }
+            } else if (cacheKey.startsWith('stockitems')) {
+              const allItemEntries = await this.db.salesData
+                .where('cacheKey')
+                .startsWith('stockitems')
+                .toArray();
+              const matchingKeys = allItemEntries.map(e => e.cacheKey);
+              if (matchingKeys.length > 0) {
+                console.log(`⚠️ [IndexedDB] Cache key not found for viewing: ${cacheKey}`);
+                console.log(`📋 [IndexedDB] Available item cache keys:`, matchingKeys);
+              }
+            }
+          }
+        } catch (debugError) {
+          console.warn('⚠️ [IndexedDB] Error searching for matching cache key:', debugError.message);
+        }
+      }
+
       if (salesEntry) {
         const decrypted = await this.encryption.decryptData(salesEntry.encryptedData);
+        if (!decrypted) {
+          console.error(`❌ Failed to decrypt cache entry for viewing: ${cacheKey}`);
+          return null;
+        }
         return decrypted;
       }
 
@@ -2293,6 +2723,10 @@ class IndexedDBBackend {
       const dashboardEntry = await this.db.dashboardState.get(cacheKey);
       if (dashboardEntry) {
         const decrypted = await this.encryption.decryptData(dashboardEntry.encryptedData);
+        if (!decrypted) {
+          console.error(`❌ Failed to decrypt dashboard cache entry for viewing: ${cacheKey}`);
+          return null;
+        }
         return decrypted;
       }
 
@@ -2366,18 +2800,13 @@ class HybridCache {
       userAgent: navigator.userAgent
     });
 
-    // On mobile browsers, OPFS support varies significantly
-    // Safari iOS: Limited OPFS support, better to use IndexedDB
-    // Chrome Android: Good OPFS support
-    // Firefox Android: Limited OPFS support
-    const isSafariIOS = isMobile && /Safari/i.test(navigator.userAgent) && /iPhone|iPad|iPod/i.test(navigator.userAgent) && !/Chrome|CriOS|FxiOS/i.test(navigator.userAgent);
-    const isFirefoxMobile = isMobile && /Firefox/i.test(navigator.userAgent);
-
-    // Prefer IndexedDB on Safari iOS and Firefox Mobile due to better stability
-    const preferIndexedDB = isSafariIOS || isFirefoxMobile;
+    // On mobile browsers, prefer IndexedDB for better compatibility and stability
+    // OPFS support varies significantly across mobile browsers and can be unreliable
+    // Using IndexedDB ensures consistent behavior across all mobile devices
+    const preferIndexedDB = isMobile;
 
     if (preferIndexedDB) {
-      console.log('📱 Mobile browser detected with limited OPFS support, using IndexedDB');
+      console.log('📱 Mobile device detected, using IndexedDB for cache storage');
     }
 
     if (supportsOPFS && !preferIndexedDB) {
@@ -2442,6 +2871,24 @@ class HybridCache {
   }
 
   async setSalesData(cacheKey, data, maxAgeDays = null, startDate = null, endDate = null) {
+    // Check cache access permission before storing
+    if (!isFullAccessOrInternal()) {
+      if (isExternalUser()) {
+        const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+        const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+        if (!hasAccess) {
+          console.warn('⚠️ External user cache disabled - skipping persistent storage');
+          // Don't throw error, just skip persistent storage
+          // Data can still be used in memory/sessionStorage
+          return;
+        }
+      } else {
+        // Unknown access type - deny persistent storage
+        console.warn('⚠️ Unknown access type - skipping persistent storage');
+        return;
+      }
+    }
+
     await this.init();
     // Use configured expiry if not provided
     if (maxAgeDays === null || maxAgeDays === undefined) {
@@ -2599,6 +3046,44 @@ class HybridCache {
     return await this.backend.deleteCacheKey(cacheKey);
   }
 
+  // Store session cache data for external users (gets cleared on logout)
+  async setSessionCacheData(companyInfo, data, cacheKey) {
+    await this.init();
+    // Only allow for external users
+    if (!isExternalUser()) {
+      console.warn('⚠️ setSessionCacheData is only for external users');
+      return;
+    }
+    // Delegate to backend
+    if (this.backend && this.backend.setSessionCacheData) {
+      return await this.backend.setSessionCacheData(companyInfo, data, cacheKey);
+    }
+    throw new Error('Session cache storage not supported by backend');
+  }
+
+  // Get session cache data for external users
+  async getSessionCacheData(cacheKey) {
+    await this.init();
+    if (!isExternalUser()) {
+      return null;
+    }
+    // Delegate to backend
+    if (this.backend && this.backend.getSessionCacheData) {
+      return await this.backend.getSessionCacheData(cacheKey);
+    }
+    return null;
+  }
+
+  // Clear all session cache data (called on logout for external users)
+  async clearSessionCache() {
+    await this.init();
+    // Delegate to backend
+    if (this.backend && this.backend.clearSessionCache) {
+      return await this.backend.clearSessionCache();
+    }
+    console.warn('⚠️ clearSessionCache not supported by backend');
+  }
+
   async getCacheStats() {
     await this.init();
     const isSecureContext = window.isSecureContext || window.location.protocol === 'https:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -2620,6 +3105,23 @@ class HybridCache {
     await this.init();
     if (this.backend && this.backend.clearMetadataCache) {
       await this.backend.clearMetadataCache();
+    }
+  }
+
+  // Clear all cache data (sales and dashboard, but not userKeys)
+  async clearAllCache() {
+    await this.init();
+    if (this.backendType === 'IndexedDB' && this.backend && this.backend.db) {
+      // Clear IndexedDB
+      await this.backend.db.salesData.clear();
+      await this.backend.db.dashboardState.clear();
+      console.log('✅ Cleared all cache from IndexedDB');
+    } else if (this.backendType === 'OPFS' && this.backend) {
+      // Clear OPFS - delegate to backend if it has a clearAll method
+      // Otherwise, the caller will handle OPFS clearing
+      if (this.backend.clearAllCache) {
+        await this.backend.clearAllCache();
+      }
     }
   }
 

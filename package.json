@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "homepage1": "/Development/CustomerPortal",
+  "homepage": "",
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
@@ -25,6 +26,8 @@
     "date-fns": "^4.1.0",
     "dexie": "^4.2.1",
     "echarts": "^6.0.0",
+    "jspdf": "^2.5.2",
+    "jspdf-autotable": "^3.8.4",
     "plotly.js": "^3.3.0",
     "razorpay": "^2.9.6",
     "react": "^19.2.1",

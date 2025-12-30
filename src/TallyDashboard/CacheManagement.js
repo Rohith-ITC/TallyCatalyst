@@ -4,6 +4,11 @@ import { apiGet } from '../utils/apiUtils';
 import { syncSalesData, syncCustomers, syncItems, cacheSyncManager, safeSessionStorageGet, getCustomersFromOPFS, getItemsFromOPFS, checkInterruptedDownload, clearDownloadProgress } from '../utils/cacheSyncManager';
 import ResumeDownloadModal from './components/ResumeDownloadModal';
 import { useIsMobile } from './MobileViewConfig';
+import { isFullAccessOrInternal, isExternalUser, fetchExternalUserCacheEnabled, getCacheAccessPermission } from '../utils/cacheUtils';
+import { fetchJsonFromGmail } from '../utils/gmailUtils';
+import { gmailAutoSync } from '../utils/gmailAutoSync';
+import { getValidGoogleTokenFromConfigs } from '../utils/googleDriveUtils';
+import { getGoogleUserEmail } from '../utils/gmailUtils';
 
 // Helper to remove sessionStorage key and its chunks (for backward compatibility)
 const removeSessionStorageKey = (key) => {
@@ -50,6 +55,8 @@ const CacheManagement = () => {
   const [financialYearOptions, setFinancialYearOptions] = useState([]);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [interruptedProgress, setInterruptedProgress] = useState(null);
+  // Track dismissed interruptions to prevent showing modal again after user closes it
+  const dismissedInterruptionsRef = useRef(new Set());
 
   // Detect if running on mobile
   const isMobile = useIsMobile();
@@ -63,6 +70,35 @@ const CacheManagement = () => {
     customers: false,
     items: false
   });
+  // Download progress for customers and items
+  const [ledgerDownloadProgress, setLedgerDownloadProgress] = useState({
+    customers: { status: 'idle', progress: 0, count: 0, error: null },
+    items: { status: 'idle', progress: 0, count: 0, error: null }
+  });
+
+  // Access control state
+  const [hasCacheAccess, setHasCacheAccess] = useState(true);
+  const [checkingAccess, setCheckingAccess] = useState(true);
+
+  // Gmail JSON fetch state
+  const [fetchingGmailJson, setFetchingGmailJson] = useState(false);
+  const [gmailJsonStatus, setGmailJsonStatus] = useState('');
+  const [gmailJsonConfigured, setGmailJsonConfigured] = useState(false);
+  const [googleAccountEmail, setGoogleAccountEmail] = useState(null);
+
+  // External user session cache date range state
+  const getDefaultFromDate = () => {
+    const today = new Date();
+    const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    return firstDayOfMonth.toISOString().split('T')[0];
+  };
+  const getDefaultToDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
+  };
+  const [externalUserFromDate, setExternalUserFromDate] = useState(getDefaultFromDate());
+  const [externalUserToDate, setExternalUserToDate] = useState(getDefaultToDate());
+  const [downloadingSessionCache, setDownloadingSessionCache] = useState(false);
 
   // Load progress for selected company
   const loadCompanyProgress = async () => {
@@ -108,7 +144,79 @@ const CacheManagement = () => {
     }
   };
 
+  // Load ledger download progress (customers and items) from sessionStorage
+  const loadLedgerDownloadProgress = () => {
+    if (!selectedCompany) {
+      setLedgerDownloadProgress({
+        customers: { status: 'idle', progress: 0, count: 0, error: null },
+        items: { status: 'idle', progress: 0, count: 0, error: null }
+      });
+      return;
+    }
+
+    try {
+      const progressKey = `download_progress_${selectedCompany.guid}`;
+      const progressStr = sessionStorage.getItem(progressKey);
+      if (progressStr) {
+        const progress = JSON.parse(progressStr);
+        setLedgerDownloadProgress({
+          customers: progress.customers || { status: 'idle', progress: 0, count: 0, error: null },
+          items: progress.items || { status: 'idle', progress: 0, count: 0, error: null }
+        });
+        console.log('📊 Loaded ledger download progress:', progress);
+      } else {
+        setLedgerDownloadProgress({
+          customers: { status: 'idle', progress: 0, count: 0, error: null },
+          items: { status: 'idle', progress: 0, count: 0, error: null }
+        });
+      }
+    } catch (error) {
+      console.error('Error loading ledger download progress:', error);
+      setLedgerDownloadProgress({
+        customers: { status: 'idle', progress: 0, count: 0, error: null },
+        items: { status: 'idle', progress: 0, count: 0, error: null }
+      });
+    }
+  };
+
+  // Check cache access permission
   useEffect(() => {
+    const checkAccess = async () => {
+      setCheckingAccess(true);
+      try {
+        // Full access and internal users always have access
+        if (isFullAccessOrInternal()) {
+          setHasCacheAccess(true);
+          setCheckingAccess(false);
+          return;
+        }
+
+        // External users need to check admin setting
+        if (isExternalUser()) {
+          const externalCacheEnabled = await fetchExternalUserCacheEnabled();
+          const hasAccess = getCacheAccessPermission(externalCacheEnabled);
+          setHasCacheAccess(hasAccess);
+        } else {
+          // Unknown access type - deny by default
+          setHasCacheAccess(false);
+        }
+      } catch (error) {
+        console.error('Error checking cache access:', error);
+        // On error, deny access for safety
+        setHasCacheAccess(false);
+      } finally {
+        setCheckingAccess(false);
+      }
+    };
+    checkAccess();
+  }, []);
+
+  useEffect(() => {
+    // Don't load data if user doesn't have access
+    if (!hasCacheAccess) {
+      return;
+    }
+    
     loadCacheStats();
     loadCurrentCompany();
     loadCacheExpiry();
@@ -145,8 +253,14 @@ const CacheManagement = () => {
         if (selectedCompany) {
           const interrupted = await checkInterruptedDownload(selectedCompany);
           if (interrupted) {
-            setInterruptedProgress(interrupted);
-            setShowResumeModal(true);
+            // Create a unique key for this interruption
+            const interruptionKey = `${interrupted.companyGuid}_${interrupted.current}_${interrupted.total}`;
+
+            // Only show modal if this specific interruption hasn't been dismissed
+            if (!dismissedInterruptionsRef.current.has(interruptionKey)) {
+              setInterruptedProgress(interrupted);
+              setShowResumeModal(true);
+            }
           }
         }
       } catch (error) {
@@ -160,7 +274,7 @@ const CacheManagement = () => {
     // Listen for company changes from header
     const handleCompanyChange = (event) => {
       console.log('🔄 CacheManagement: Company changed event received', event.detail);
-      
+
       // Use company data from event detail if available, otherwise fall back to sessionStorage
       if (event.detail && event.detail.guid) {
         const companyConnection = event.detail;
@@ -174,7 +288,7 @@ const CacheManagement = () => {
         // Fallback to loading from sessionStorage
         loadCurrentCompany();
       }
-      
+
       loadCacheStats();
       // Reload progress for new company
       setTimeout(() => {
@@ -188,10 +302,59 @@ const CacheManagement = () => {
 
     window.addEventListener('companyChanged', handleCompanyChange);
 
+    // Listen for ledger download events (customers and items)
+    const handleLedgerDownloadStarted = (event) => {
+      const company = event.detail?.company;
+      const currentSelectedCompany = selectedCompanyRef.current;
+      if (company && currentSelectedCompany && company.guid === currentSelectedCompany.guid) {
+        console.log('📥 Ledger download started for company:', company.company);
+        loadLedgerDownloadProgress();
+      }
+    };
+
+    const handleLedgerDownloadProgress = (event) => {
+      const { company, type, status, count, error } = event.detail || {};
+      const currentSelectedCompany = selectedCompanyRef.current;
+      if (company && currentSelectedCompany && company.guid === currentSelectedCompany.guid) {
+        console.log('📊 Ledger download progress:', { type, status, count, error });
+        setLedgerDownloadProgress(prev => ({
+          ...prev,
+          [type]: {
+            status,
+            progress: status === 'completed' ? 100 : status === 'downloading' ? 50 : 0,
+            count: count || prev[type].count,
+            error: error || null
+          }
+        }));
+      }
+    };
+
+    // Listen for cache updates to reload stats
+    const handleLedgerCacheUpdated = (event) => {
+      const { company, type } = event.detail || {};
+      const currentSelectedCompany = selectedCompanyRef.current;
+      if (company && currentSelectedCompany && company.guid === currentSelectedCompany.guid) {
+        console.log('🔄 Ledger cache updated, reloading stats:', type);
+        // Delay to ensure OPFS write is complete
+        setTimeout(() => {
+          loadSessionCacheStats().catch(err => {
+            console.error('Error reloading cache stats after update:', err);
+          });
+        }, 1000);
+      }
+    };
+
+    window.addEventListener('ledgerDownloadStarted', handleLedgerDownloadStarted);
+    window.addEventListener('ledgerDownloadProgress', handleLedgerDownloadProgress);
+    window.addEventListener('ledgerCacheUpdated', handleLedgerCacheUpdated);
+
     return () => {
       clearTimeout(timer);
       unsubscribe();
       window.removeEventListener('companyChanged', handleCompanyChange);
+      window.removeEventListener('ledgerDownloadStarted', handleLedgerDownloadStarted);
+      window.removeEventListener('ledgerDownloadProgress', handleLedgerDownloadProgress);
+      window.removeEventListener('ledgerCacheUpdated', handleLedgerCacheUpdated);
     };
   }, []);
 
@@ -199,14 +362,25 @@ const CacheManagement = () => {
   useEffect(() => {
     if (selectedCompany) {
       loadCompanyProgress();
+      loadLedgerDownloadProgress();
 
       // Check for interrupted downloads when company changes
       const checkForInterrupted = async () => {
         try {
           const interrupted = await checkInterruptedDownload(selectedCompany);
           if (interrupted) {
-            setInterruptedProgress(interrupted);
-            setShowResumeModal(true);
+            // Create a unique key for this interruption
+            const interruptionKey = `${interrupted.companyGuid}_${interrupted.current}_${interrupted.total}`;
+
+            // Only show modal if this specific interruption hasn't been dismissed
+            if (!dismissedInterruptionsRef.current.has(interruptionKey)) {
+              setInterruptedProgress(interrupted);
+              setShowResumeModal(true);
+            } else {
+              // This interruption was already dismissed, don't show modal
+              setShowResumeModal(false);
+              setInterruptedProgress(null);
+            }
           } else {
             setShowResumeModal(false);
             setInterruptedProgress(null);
@@ -221,6 +395,7 @@ const CacheManagement = () => {
       // This ensures we show progress even when sync is happening in background
       const progressInterval = setInterval(async () => {
         await loadCompanyProgress();
+        loadLedgerDownloadProgress();
       }, 2000);
 
       return () => {
@@ -233,6 +408,10 @@ const CacheManagement = () => {
       downloadStartTimeRef.current = null;
       setShowResumeModal(false);
       setInterruptedProgress(null);
+      setLedgerDownloadProgress({
+        customers: { status: 'idle', progress: 0, count: 0, error: null },
+        items: { status: 'idle', progress: 0, count: 0, error: null }
+      });
     }
   }, [selectedCompany]);
 
@@ -371,7 +550,7 @@ const CacheManagement = () => {
         await loadSessionCacheStats().catch(err => {
           console.error('Error reloading cache stats after refresh:', err);
         });
-      }, 1500); // Increased delay to allow OPFS encryption/write to complete
+      }, 2000); // Increased delay to allow OPFS encryption/write to complete
     } catch (error) {
       console.error(`Error refreshing ${type}:`, error);
       setMessage({ type: 'error', text: `Failed to refresh ${type}: ${error.message}` });
@@ -438,6 +617,96 @@ const CacheManagement = () => {
     }
   };
 
+  // Check Google account configuration for Gmail fetch
+  useEffect(() => {
+    const checkGoogleConfig = async () => {
+      try {
+        const tallylocId = sessionStorage.getItem('tallyloc_id');
+        const coGuid = sessionStorage.getItem('selectedCompanyGuid');
+        const userEmail = isExternalUser() ? sessionStorage.getItem('email') : null;
+
+        if (!tallylocId || !coGuid) {
+          setGmailJsonConfigured(false);
+          return;
+        }
+
+        const token = await getValidGoogleTokenFromConfigs(tallylocId, coGuid, userEmail);
+        if (token) {
+          setGmailJsonConfigured(true);
+          const email = await getGoogleUserEmail(token);
+          setGoogleAccountEmail(email);
+        } else {
+          setGmailJsonConfigured(false);
+          setGoogleAccountEmail(null);
+        }
+      } catch (error) {
+        console.error('Error checking Google config:', error);
+        setGmailJsonConfigured(false);
+      }
+    };
+
+    if (selectedCompany) {
+      checkGoogleConfig();
+    }
+  }, [selectedCompany]);
+
+  // Handler for fetching JSON from Gmail
+  const handleFetchJsonFromGmail = async () => {
+    if (!selectedCompany) {
+      setGmailJsonStatus('Please select a company first');
+      setTimeout(() => setGmailJsonStatus(''), 3000);
+      return;
+    }
+
+    setFetchingGmailJson(true);
+    setGmailJsonStatus('Fetching JSON from Gmail...');
+
+    try {
+      // TODO: Replace SUBJECT_PATTERN_PLACEHOLDER with actual subject pattern when provided
+      const subjectPattern = 'SUBJECT_PATTERN_PLACEHOLDER'; // Will be replaced later
+      
+      if (subjectPattern === 'SUBJECT_PATTERN_PLACEHOLDER') {
+        setGmailJsonStatus('Subject pattern not configured. Please configure it in the code.');
+        setTimeout(() => setGmailJsonStatus(''), 5000);
+        setFetchingGmailJson(false);
+        return;
+      }
+
+      const userEmail = isExternalUser() ? sessionStorage.getItem('email') : null;
+      const result = await fetchJsonFromGmail(
+        subjectPattern,
+        selectedCompany.tallyloc_id,
+        selectedCompany.guid,
+        userEmail
+      );
+
+      if (result.success && result.downloaded) {
+        // Store in cache using gmailAutoSync service
+        await gmailAutoSync.storeJsonInCache(result.data, result.messageId);
+        setGmailJsonStatus(`✅ JSON file downloaded and cached successfully! Message ID: ${result.messageId.substring(0, 8)}...`);
+        setMessage({ type: 'success', text: 'JSON file fetched from Gmail and loaded into cache successfully!' });
+        setTimeout(() => {
+          setGmailJsonStatus('');
+          setMessage({ type: '', text: '' });
+        }, 5000);
+        // Reload cache stats
+        loadCacheStats();
+      } else if (result.success && !result.downloaded) {
+        setGmailJsonStatus('ℹ️ ' + (result.message || 'No new emails found'));
+        setTimeout(() => setGmailJsonStatus(''), 5000);
+      } else {
+        setGmailJsonStatus('❌ ' + (result.error || 'Failed to fetch JSON'));
+        setTimeout(() => setGmailJsonStatus(''), 5000);
+      }
+    } catch (error) {
+      console.error('Error fetching JSON from Gmail:', error);
+      setGmailJsonStatus('❌ Error: ' + error.message);
+      setTimeout(() => setGmailJsonStatus(''), 5000);
+    } finally {
+      setFetchingGmailJson(false);
+    }
+  };
+
   const loadCacheEntries = async () => {
     setLoadingEntries(true);
     try {
@@ -454,53 +723,70 @@ const CacheManagement = () => {
   };
 
   const clearAllCache = async () => {
-    if (!window.confirm('Are you sure you want to clear ALL cache? This will remove all cached sales data and dashboard cache for all companies.')) {
-      return;
-    }
-
     setLoading(true);
     setMessage({ type: '', text: '' });
 
     try {
-      // Clear all cache by clearing OPFS directories
-      const opfsRoot = await navigator.storage.getDirectory();
+      // Check which backend is being used
+      const cacheStats = await hybridCache.getCacheStats();
+      const isUsingIndexedDB = cacheStats.isUsingIndexedDB;
 
-      // Clear sales directory
-      try {
-        await opfsRoot.removeEntry('sales', { recursive: true });
-        await opfsRoot.getDirectoryHandle('sales', { create: true });
-      } catch (err) {
-        // Directory might not exist
+      if (isUsingIndexedDB) {
+        // Clear IndexedDB backend using hybridCache method
+        console.log('🧹 Clearing IndexedDB cache...');
+        try {
+          await hybridCache.clearAllCache();
+        } catch (indexedDBError) {
+          console.error('Error clearing IndexedDB:', indexedDBError);
+          // Continue with other cleanup steps
+        }
+      } else {
+        // Clear OPFS backend
+        console.log('🧹 Clearing OPFS cache...');
+        try {
+          const opfsRoot = await navigator.storage.getDirectory();
+
+          // Clear sales directory
+          try {
+            await opfsRoot.removeEntry('sales', { recursive: true });
+            await opfsRoot.getDirectoryHandle('sales', { create: true });
+          } catch (err) {
+            // Directory might not exist
+          }
+
+          // Clear dashboard directory
+          try {
+            await opfsRoot.removeEntry('dashboard', { recursive: true });
+            await opfsRoot.getDirectoryHandle('dashboard', { create: true });
+          } catch (err) {
+            // Directory might not exist
+          }
+
+          // Clear metadata (both sales and dashboard)
+          try {
+            const metadataDir = await opfsRoot.getDirectoryHandle('metadata', { create: true });
+
+            // Clear sales metadata
+            const salesFile = await metadataDir.getFileHandle('sales.json', { create: true });
+            const salesWritable = await salesFile.createWritable();
+            await salesWritable.write(JSON.stringify([]));
+            await salesWritable.close();
+
+            // Clear dashboard metadata
+            const dashboardFile = await metadataDir.getFileHandle('dashboard.json', { create: true });
+            const dashboardWritable = await dashboardFile.createWritable();
+            await dashboardWritable.write(JSON.stringify([]));
+            await dashboardWritable.close();
+          } catch (err) {
+            console.warn('Failed to clear metadata:', err);
+          }
+        } catch (opfsError) {
+          console.error('Error clearing OPFS:', opfsError);
+          // Continue with other cleanup steps
+        }
       }
 
-      // Clear dashboard directory
-      try {
-        await opfsRoot.removeEntry('dashboard', { recursive: true });
-        await opfsRoot.getDirectoryHandle('dashboard', { create: true });
-      } catch (err) {
-        // Directory might not exist
-      }
-
-      // Clear metadata (both sales and dashboard)
-      try {
-        const metadataDir = await opfsRoot.getDirectoryHandle('metadata', { create: true });
-
-        // Clear sales metadata
-        const salesFile = await metadataDir.getFileHandle('sales.json', { create: true });
-        const salesWritable = await salesFile.createWritable();
-        await salesWritable.write(JSON.stringify([]));
-        await salesWritable.close();
-
-        // Clear dashboard metadata
-        const dashboardFile = await metadataDir.getFileHandle('dashboard.json', { create: true });
-        const dashboardWritable = await dashboardFile.createWritable();
-        await dashboardWritable.write(JSON.stringify([]));
-        await dashboardWritable.close();
-      } catch (err) {
-        console.warn('Failed to clear metadata:', err);
-      }
-
-      // Clear session storage for items and customers
+      // Clear session storage for items and customers (including count keys)
       const keysToRemove = [];
       for (let i = 0; i < sessionStorage.length; i++) {
         const key = sessionStorage.key(i);
@@ -508,11 +794,23 @@ const CacheManagement = () => {
           keysToRemove.push(key);
         }
       }
-      keysToRemove.forEach(key => sessionStorage.removeItem(key));
-      setSessionCacheStats({ customers: 0, items: 0 });
+      keysToRemove.forEach(key => {
+        sessionStorage.removeItem(key);
+        // Also remove count keys
+        sessionStorage.removeItem(`${key}_count`);
+      });
 
-      // Note: We keep the keys directory as it contains user encryption keys
-      // Clearing it would prevent decryption of any remaining cached data
+      // Also clear download progress keys
+      const progressKeysToRemove = [];
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key && key.startsWith('download_progress_')) {
+          progressKeysToRemove.push(key);
+        }
+      }
+      progressKeysToRemove.forEach(key => sessionStorage.removeItem(key));
+
+      setSessionCacheStats({ customers: 0, items: 0 });
 
       // Clear in-memory metadata cache to ensure listAllCacheEntries shows updated data
       await hybridCache.clearMetadataCache();
@@ -525,6 +823,11 @@ const CacheManagement = () => {
       }
 
       await loadCacheStats();
+
+      // Reload session cache stats to update the UI
+      if (selectedCompany) {
+        await loadSessionCacheStats();
+      }
     } catch (error) {
       console.error('Error clearing all cache:', error);
       setMessage({ type: 'error', text: 'Failed to clear cache: ' + error.message });
@@ -552,11 +855,26 @@ const CacheManagement = () => {
       // Clear session storage for this company (backward compatibility with old sessionStorage data)
       if (selectedCompany) {
         const { tallyloc_id, company } = selectedCompany;
+        const customerKey = `ledgerlist-w-addrs_${tallyloc_id}_${company}`;
+        const itemKey = `stockitems_${tallyloc_id}_${company}`;
+
         try {
-          removeSessionStorageKey(`stockitems_${tallyloc_id}_${company}`);
-          removeSessionStorageKey(`ledgerlist-w-addrs_${tallyloc_id}_${company}`);
+          // Delete from OPFS/IndexedDB
+          await hybridCache.deleteCacheKey(customerKey);
+          await hybridCache.deleteCacheKey(itemKey);
+
+          // Remove from sessionStorage
+          removeSessionStorageKey(customerKey);
+          removeSessionStorageKey(itemKey);
+
+          // Also remove count keys
+          sessionStorage.removeItem(`${customerKey}_count`);
+          sessionStorage.removeItem(`${itemKey}_count`);
+
+          // Clear download progress for this company
+          sessionStorage.removeItem(`download_progress_${selectedCompany.guid}`);
         } catch (e) {
-          // Ignore
+          console.warn('Error clearing company cache keys:', e);
         }
 
         setSessionCacheStats({ customers: 0, items: 0 });
@@ -573,6 +891,11 @@ const CacheManagement = () => {
       }
 
       await loadCacheStats();
+
+      // Reload session cache stats to update the UI
+      if (selectedCompany) {
+        await loadSessionCacheStats();
+      }
     } catch (error) {
       console.error('Error clearing company cache:', error);
       setMessage({ type: 'error', text: 'Failed to clear company cache: ' + error.message });
@@ -584,10 +907,6 @@ const CacheManagement = () => {
   const clearSalesCache = async () => {
     if (!selectedCompany) {
       setMessage({ type: 'error', text: 'No company selected' });
-      return;
-    }
-
-    if (!window.confirm(`Are you sure you want to clear sales cache for "${selectedCompany.company}"? This will remove all cached sales data for this company.`)) {
       return;
     }
 
@@ -961,7 +1280,7 @@ const CacheManagement = () => {
 
     try {
       // syncSalesData will now use cacheSyncManager internally
-      const result = await syncSalesData(selectedCompany, () => {}, startFresh);
+      const result = await syncSalesData(selectedCompany, () => { }, startFresh);
 
       setMessage({
         type: 'success',
@@ -979,13 +1298,13 @@ const CacheManagement = () => {
       let errorMsg = error.message || 'Unknown error occurred';
 
       // Check for 500 errors or CORS errors - show retry message
-      const is500Error = error.message.includes('HTTP 500') || 
-                        error.message.includes('500') ||
-                        error.message.includes('Internal Server Error');
-      
-      const isCorsError = error.message.includes('CORS') || 
-                         error.message.includes('cors') ||
-                         error.message.includes('Access-Control');
+      const is500Error = error.message.includes('HTTP 500') ||
+        error.message.includes('500') ||
+        error.message.includes('Internal Server Error');
+
+      const isCorsError = error.message.includes('CORS') ||
+        error.message.includes('cors') ||
+        error.message.includes('Access-Control');
 
       if (is500Error || isCorsError) {
         errorMsg = 'Download stopped due to server error. Please retry the download.';
@@ -1009,12 +1328,109 @@ const CacheManagement = () => {
       }
 
       setMessage({ type: 'error', text: 'Failed to download data: ' + errorMsg });
-      
+
       // Reset download state so user can retry
       setDownloadingComplete(false);
       setDownloadProgress({ current: 0, total: 0, message: '' });
       setDownloadStartTime(null);
       downloadStartTimeRef.current = null;
+    }
+  };
+
+  // Download session cache for external users (date range specific)
+  const downloadSessionCacheForExternalUser = async () => {
+    if (!selectedCompany) {
+      setMessage({ type: 'error', text: 'No company selected' });
+      return;
+    }
+
+    if (!externalUserFromDate || !externalUserToDate) {
+      setMessage({ type: 'error', text: 'Please select both From Date and To Date' });
+      return;
+    }
+
+    // Validate date range
+    const fromDate = new Date(externalUserFromDate);
+    const toDate = new Date(externalUserToDate);
+    if (fromDate > toDate) {
+      setMessage({ type: 'error', text: 'From Date must be before or equal to To Date' });
+      return;
+    }
+
+    setDownloadingSessionCache(true);
+    setMessage({ type: '', text: '' });
+    setDownloadProgress({ current: 0, total: 1, message: 'Fetching data for selected date range...' });
+
+    try {
+      const { apiPost } = await import('../utils/apiUtils');
+      const { formatDateForAPI } = await import('../utils/cacheSyncManager');
+      
+      const payload = {
+        tallyloc_id: selectedCompany.tallyloc_id,
+        company: selectedCompany.company,
+        guid: selectedCompany.guid,
+        fromdate: formatDateForAPI(externalUserFromDate),
+        todate: formatDateForAPI(externalUserToDate),
+        serverslice: "No",
+        vouchertype: "$$isSales, $$IsCreditNote"
+      };
+
+      const salesextractUrl = `${(await import('../config')).getApiUrl('/api/reports/salesextract')}?ts=${Date.now()}`;
+      const token = sessionStorage.getItem('token');
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      };
+
+      setDownloadProgress({ current: 0, total: 1, message: 'Downloading data...' });
+
+      const response = await fetch(salesextractUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const responseText = await response.text();
+      const responseData = JSON.parse(responseText);
+
+      if (responseData && responseData.vouchers && Array.isArray(responseData.vouchers)) {
+        const vouchers = responseData.vouchers;
+        
+        // Store in session cache with special prefix
+        const sessionCacheKey = `session_cache_${selectedCompany.guid}_${selectedCompany.tallyloc_id}_${externalUserFromDate}_${externalUserToDate}`;
+        const sessionCacheData = {
+          vouchers: vouchers,
+          fromDate: externalUserFromDate,
+          toDate: externalUserToDate,
+          timestamp: Date.now()
+        };
+
+        // Store in OPFS/IndexedDB with session cache prefix
+        await hybridCache.setSessionCacheData(selectedCompany, sessionCacheData, sessionCacheKey);
+
+        setMessage({ 
+          type: 'success', 
+          text: `Successfully downloaded ${vouchers.length} vouchers for the selected date range. This cache will be cleared on logout.` 
+        });
+        setDownloadProgress({ current: 1, total: 1, message: 'Download complete!' });
+        
+        // Clear progress after 3 seconds
+        setTimeout(() => {
+          setDownloadProgress({ current: 0, total: 0, message: '' });
+        }, 3000);
+      } else {
+        throw new Error('Invalid response format from server');
+      }
+    } catch (error) {
+      console.error('Error downloading session cache:', error);
+      setMessage({ type: 'error', text: `Failed to download data: ${error.message}` });
+      setDownloadProgress({ current: 0, total: 0, message: '' });
+    } finally {
+      setDownloadingSessionCache(false);
     }
   };
 
@@ -1032,8 +1448,8 @@ const CacheManagement = () => {
       // Check if file was auto-deleted due to corruption
       if (error.message && error.message.includes('automatically deleted')) {
         // Show as info message, not error - the system handled it correctly
-        setMessage({ 
-          type: 'info', 
+        setMessage({
+          type: 'info',
           text: `✅ Corrupted cache file automatically deleted.\n\n` +
             `The cache file was corrupted (likely from an old write method) and has been automatically removed.\n\n` +
             `Please re-sync/download the data to create a new cache file. The new file will use the improved storage method.`
@@ -1056,13 +1472,95 @@ const CacheManagement = () => {
     }
   };
 
+  // Show access denied message if user doesn't have permission
+  if (checkingAccess) {
+    return (
+      <div
+        className="cache-management-wrapper"
+        style={{
+          padding: isMobile ? '16px 12px' : '24px',
+          maxWidth: '1200px',
+          margin: '0 auto',
+          fontFamily: 'Segoe UI, Roboto, Arial, sans-serif',
+          boxSizing: 'border-box',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '400px'
+        }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏳</div>
+          <p style={{ color: '#64748b', fontSize: '16px' }}>Checking access permissions...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasCacheAccess) {
+    return (
+      <div
+        className="cache-management-wrapper"
+        style={{
+          padding: isMobile ? '16px 12px' : '24px',
+          maxWidth: '1200px',
+          margin: '0 auto',
+          fontFamily: 'Segoe UI, Roboto, Arial, sans-serif',
+          boxSizing: 'border-box'
+        }}>
+        <div style={{
+          background: 'linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%)',
+          border: '2px solid #fca5a5',
+          borderRadius: '16px',
+          padding: '32px',
+          textAlign: 'center',
+          marginTop: '40px'
+        }}>
+          <span className="material-icons" style={{ fontSize: '64px', color: '#dc2626', marginBottom: '16px', display: 'block' }}>
+            block
+          </span>
+          <h2 style={{
+            fontSize: '24px',
+            fontWeight: 700,
+            color: '#991b1b',
+            margin: '0 0 12px 0'
+          }}>
+            Access Denied
+          </h2>
+          <p style={{
+            fontSize: '16px',
+            color: '#7f1d1d',
+            margin: '0 0 8px 0',
+            lineHeight: 1.6
+          }}>
+            Cache management is not available for your user type.
+          </p>
+          <p style={{
+            fontSize: '14px',
+            color: '#991b1b',
+            margin: '8px 0 0 0',
+            lineHeight: 1.5
+          }}>
+            {isExternalUser() 
+              ? 'External users do not have permission to manage cache. Please contact your administrator if you need this feature enabled.'
+              : 'Please contact your administrator for access to cache management features.'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div style={{
-      padding: isMobile ? '16px 12px' : '24px',
-      maxWidth: '1200px',
-      margin: '0 auto',
-      fontFamily: 'Segoe UI, Roboto, Arial, sans-serif'
-    }}>
+    <div
+      className="cache-management-wrapper"
+      style={{
+        padding: isMobile ? '16px 12px' : '24px',
+        maxWidth: '1200px',
+        margin: '0 auto',
+        fontFamily: 'Segoe UI, Roboto, Arial, sans-serif',
+        boxSizing: 'border-box',
+        overflowX: 'hidden',
+        width: '100%'
+      }}>
       <div style={{
         marginBottom: '32px',
         borderBottom: '2px solid #e5e7eb',
@@ -1103,7 +1601,9 @@ const CacheManagement = () => {
           marginBottom: '16px',
           display: 'flex',
           alignItems: 'flex-start',
-          gap: '10px'
+          gap: '10px',
+          boxSizing: 'border-box',
+          maxWidth: '100%'
         }}>
           <span className="material-icons" style={{
             fontSize: '20px',
@@ -1148,7 +1648,9 @@ const CacheManagement = () => {
           marginBottom: isMobile ? '16px' : '24px',
           display: 'flex',
           alignItems: 'center',
-          gap: isMobile ? '10px' : '12px'
+          gap: isMobile ? '10px' : '12px',
+          boxSizing: 'border-box',
+          maxWidth: '100%'
         }}>
           <span className="material-icons" style={{
             fontSize: isMobile ? '20px' : '24px',
@@ -1176,7 +1678,9 @@ const CacheManagement = () => {
           border: '1px solid #bae6fd',
           borderRadius: '12px',
           padding: isMobile ? '16px' : '20px',
-          marginBottom: isMobile ? '16px' : '24px'
+          marginBottom: isMobile ? '16px' : '24px',
+          boxSizing: 'border-box',
+          maxWidth: '100%'
         }}>
           <h3 style={{
             fontSize: isMobile ? '14px' : '16px',
@@ -1199,28 +1703,24 @@ const CacheManagement = () => {
         </div>
       )}
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(400px, 1fr))',
-        gap: isMobile ? '16px' : '24px',
-        marginBottom: isMobile ? '16px' : '24px'
-      }}>
-        {/* Download Complete Sales Data */}
+      {/* External User Session Cache Section */}
+      {isExternalUser() && (
         <div style={{
           background: '#fff',
           border: '1px solid #e2e8f0',
-          borderRadius: '12px',
+          borderRadius: '16px',
           padding: isMobile ? '16px' : '24px',
+          marginBottom: isMobile ? '16px' : '24px',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
         }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
             gap: '12px',
-            marginBottom: '16px'
+            marginBottom: isMobile ? '16px' : '20px'
           }}>
-            <span className="material-icons" style={{ fontSize: '28px', color: '#10b981' }}>
-              download
+            <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '28px', color: '#8b5cf6' }}>
+              cloud_download
             </span>
             <h3 style={{
               fontSize: isMobile ? '16px' : '18px',
@@ -1228,7 +1728,7 @@ const CacheManagement = () => {
               color: '#1e293b',
               margin: 0
             }}>
-              Complete Sales Data
+              Session Cache Download
             </h3>
           </div>
           <p style={{
@@ -1237,8 +1737,199 @@ const CacheManagement = () => {
             marginBottom: isMobile ? '16px' : '20px',
             lineHeight: '1.6'
           }}>
-            Download and cache complete sales data from the beginning of your books. Update to fetch only new records since last download.
+            Download data for a specific date range. This cache will be stored temporarily and automatically cleared when you logout.
           </p>
+
+          {/* Date Range Inputs */}
+          <div style={{
+            display: 'flex',
+            gap: isMobile ? '12px' : '16px',
+            flexWrap: 'wrap',
+            marginBottom: '16px',
+            flexDirection: isMobile ? 'column' : 'row'
+          }}>
+            <div style={{ flex: isMobile ? '1 1 100%' : '1 1 calc(50% - 8px)', minWidth: isMobile ? '100%' : '200px' }}>
+              <label style={{ 
+                display: 'block', 
+                fontSize: isMobile ? '13px' : '14px', 
+                fontWeight: 500, 
+                color: '#475569', 
+                marginBottom: '6px' 
+              }}>
+                From Date
+              </label>
+              <input
+                type="date"
+                value={externalUserFromDate}
+                onChange={(e) => setExternalUserFromDate(e.target.value)}
+                disabled={downloadingSessionCache || !selectedCompany}
+                style={{
+                  width: '100%',
+                  padding: isMobile ? '12px' : '10px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: isMobile ? '15px' : '14px',
+                  color: '#1e293b',
+                  outline: 'none',
+                  backgroundColor: (downloadingSessionCache || !selectedCompany) ? '#f1f5f9' : '#fff'
+                }}
+              />
+            </div>
+            <div style={{ flex: isMobile ? '1 1 100%' : '1 1 calc(50% - 8px)', minWidth: isMobile ? '100%' : '200px' }}>
+              <label style={{ 
+                display: 'block', 
+                fontSize: isMobile ? '13px' : '14px', 
+                fontWeight: 500, 
+                color: '#475569', 
+                marginBottom: '6px' 
+              }}>
+                To Date
+              </label>
+              <input
+                type="date"
+                value={externalUserToDate}
+                onChange={(e) => setExternalUserToDate(e.target.value)}
+                disabled={downloadingSessionCache || !selectedCompany}
+                style={{
+                  width: '100%',
+                  padding: isMobile ? '12px' : '10px',
+                  borderRadius: '8px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: isMobile ? '15px' : '14px',
+                  color: '#1e293b',
+                  outline: 'none',
+                  backgroundColor: (downloadingSessionCache || !selectedCompany) ? '#f1f5f9' : '#fff'
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Download Progress */}
+          {downloadingSessionCache && downloadProgress.message && (
+            <div style={{
+              marginBottom: '16px',
+              padding: '12px',
+              background: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              borderRadius: '8px'
+            }}>
+              <div style={{
+                fontSize: '13px',
+                color: '#0369a1',
+                marginBottom: '8px',
+                fontWeight: 500
+              }}>
+                {downloadProgress.message}
+              </div>
+              {downloadProgress.total > 0 && (
+                <div style={{
+                  width: '100%',
+                  height: '8px',
+                  background: '#e0f2fe',
+                  borderRadius: '4px',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{
+                    width: `${Math.min(100, Math.round((downloadProgress.current / downloadProgress.total) * 100))}%`,
+                    height: '100%',
+                    background: 'linear-gradient(90deg, #8b5cf6 0%, #7c3aed 100%)',
+                    transition: 'width 0.3s ease'
+                  }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Download Button */}
+          <button
+            onClick={downloadSessionCacheForExternalUser}
+            disabled={downloadingSessionCache || !selectedCompany || !externalUserFromDate || !externalUserToDate}
+            style={{
+              width: '100%',
+              padding: isMobile ? '14px 16px' : '12px 16px',
+              background: (downloadingSessionCache || !selectedCompany || !externalUserFromDate || !externalUserToDate) 
+                ? '#94a3b8' 
+                : 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: isMobile ? '15px' : '14px',
+              cursor: (downloadingSessionCache || !selectedCompany || !externalUserFromDate || !externalUserToDate) 
+                ? 'not-allowed' 
+                : 'pointer',
+              boxShadow: (downloadingSessionCache || !selectedCompany || !externalUserFromDate || !externalUserToDate) 
+                ? 'none' 
+                : '0 2px 8px rgba(139, 92, 246, 0.25)',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px'
+            }}
+          >
+            {downloadingSessionCache ? (
+              <>
+                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '18px', animation: 'spin 1s linear infinite' }}>
+                  refresh
+                </span>
+                <span>Downloading...</span>
+              </>
+            ) : (
+              <>
+                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '18px' }}>
+                  download
+                </span>
+                <span>Download Session Cache</span>
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(400px, 1fr))',
+        gap: isMobile ? '16px' : '24px',
+        marginBottom: isMobile ? '16px' : '24px',
+        boxSizing: 'border-box',
+        maxWidth: '100%'
+      }}>
+        {/* Download Complete Sales Data */}
+        {!isExternalUser() && (
+          <div style={{
+            background: '#fff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '12px',
+            padding: isMobile ? '16px' : '24px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              marginBottom: '16px'
+            }}>
+              <span className="material-icons" style={{ fontSize: '28px', color: '#10b981' }}>
+                download
+              </span>
+              <h3 style={{
+                fontSize: isMobile ? '16px' : '18px',
+                fontWeight: 600,
+                color: '#1e293b',
+                margin: 0
+              }}>
+                Complete Sales Data
+              </h3>
+            </div>
+            <p style={{
+              fontSize: isMobile ? '13px' : '14px',
+              color: '#64748b',
+              marginBottom: isMobile ? '16px' : '20px',
+              lineHeight: '1.6'
+            }}>
+              Download and cache complete sales data from the beginning of your books. Update to fetch only new records since last download.
+            </p>
 
           {(downloadingComplete || downloadProgress.total > 0 || downloadProgress.message) && (
             <div style={{
@@ -1515,6 +2206,7 @@ const CacheManagement = () => {
             </div>
           </div>
         </div>
+        )}
 
         {/* Ledger Cache */}
         <div style={{
@@ -1554,112 +2246,250 @@ const CacheManagement = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {/* Customers */}
             <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
               padding: '12px',
               background: '#f8fafc',
               borderRadius: '8px',
               border: '1px solid #e2e8f0'
             }}>
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>Customers</div>
-                <div style={{ fontSize: '12px', color: '#64748b' }}>
-                  {sessionCacheStats.customers} cached
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: ledgerDownloadProgress.customers.status === 'downloading' ? '8px' : '0'
+              }}>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>Customers</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>
+                    {ledgerDownloadProgress.customers.status === 'completed' && ledgerDownloadProgress.customers.count > 0
+                      ? `${ledgerDownloadProgress.customers.count} cached`
+                      : `${sessionCacheStats.customers} cached`}
+                  </div>
                 </div>
+                <button
+                  onClick={() => handleRefreshSessionCache('customers')}
+                  disabled={refreshingSession.customers || !selectedCompany || ledgerDownloadProgress.customers.status === 'downloading'}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    cursor: (refreshingSession.customers || !selectedCompany || ledgerDownloadProgress.customers.status === 'downloading') ? 'not-allowed' : 'pointer',
+                    color: '#475569',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!refreshingSession.customers && selectedCompany && ledgerDownloadProgress.customers.status !== 'downloading') {
+                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.borderColor = '#94a3b8';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!refreshingSession.customers && selectedCompany && ledgerDownloadProgress.customers.status !== 'downloading') {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = '#cbd5e1';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{
+                    fontSize: '16px',
+                    animation: (refreshingSession.customers || ledgerDownloadProgress.customers.status === 'downloading') ? 'spin 1s linear infinite' : 'none'
+                  }}>
+                    refresh
+                  </span>
+                  Refresh
+                </button>
               </div>
-              <button
-                onClick={() => handleRefreshSessionCache('customers')}
-                disabled={refreshingSession.customers || !selectedCompany}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #cbd5e1',
+              {/* Download Progress */}
+              {ledgerDownloadProgress.customers.status === 'downloading' && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#f0f9ff',
+                  border: '1px solid #bae6fd',
+                  borderRadius: '6px'
+                }}>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#0369a1',
+                    marginBottom: '4px',
+                    fontWeight: 500
+                  }}>
+                    Downloading customers...
+                  </div>
+                  <div style={{
+                    width: '100%',
+                    height: '6px',
+                    background: '#e0f2fe',
+                    borderRadius: '3px',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${ledgerDownloadProgress.customers.progress}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                </div>
+              )}
+              {ledgerDownloadProgress.customers.status === 'error' && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
                   borderRadius: '6px',
-                  padding: '6px 12px',
-                  cursor: (refreshingSession.customers || !selectedCompany) ? 'not-allowed' : 'pointer',
-                  color: '#475569',
-                  fontSize: '13px',
+                  fontSize: '12px',
+                  color: '#dc2626'
+                }}>
+                  ⚠️ Download failed: {ledgerDownloadProgress.customers.error || 'Unknown error'}
+                </div>
+              )}
+              {ledgerDownloadProgress.customers.status === 'completed' && ledgerDownloadProgress.customers.count > 0 && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  color: '#16a34a',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (!refreshingSession.customers && selectedCompany) {
-                    e.currentTarget.style.background = '#f1f5f9';
-                    e.currentTarget.style.borderColor = '#94a3b8';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!refreshingSession.customers && selectedCompany) {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.borderColor = '#cbd5e1';
-                  }
-                }}
-              >
-                <span className="material-icons" style={{
-                  fontSize: '16px',
-                  animation: refreshingSession.customers ? 'spin 1s linear infinite' : 'none'
+                  gap: '6px'
                 }}>
-                  refresh
-                </span>
-                Refresh
-              </button>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>check_circle</span>
+                  Successfully downloaded {ledgerDownloadProgress.customers.count} customers
+                </div>
+              )}
             </div>
 
             {/* Items */}
             <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
               padding: '12px',
               background: '#f8fafc',
               borderRadius: '8px',
               border: '1px solid #e2e8f0'
             }}>
-              <div>
-                <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>Items</div>
-                <div style={{ fontSize: '12px', color: '#64748b' }}>
-                  {sessionCacheStats.items} cached
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: ledgerDownloadProgress.items.status === 'downloading' ? '8px' : '0'
+              }}>
+                <div>
+                  <div style={{ fontSize: '14px', fontWeight: 600, color: '#1e293b' }}>Items</div>
+                  <div style={{ fontSize: '12px', color: '#64748b' }}>
+                    {ledgerDownloadProgress.items.status === 'completed' && ledgerDownloadProgress.items.count > 0
+                      ? `${ledgerDownloadProgress.items.count} cached`
+                      : `${sessionCacheStats.items} cached`}
+                  </div>
                 </div>
+                <button
+                  onClick={() => handleRefreshSessionCache('items')}
+                  disabled={refreshingSession.items || !selectedCompany || ledgerDownloadProgress.items.status === 'downloading'}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    cursor: (refreshingSession.items || !selectedCompany || ledgerDownloadProgress.items.status === 'downloading') ? 'not-allowed' : 'pointer',
+                    color: '#475569',
+                    fontSize: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!refreshingSession.items && selectedCompany && ledgerDownloadProgress.items.status !== 'downloading') {
+                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.borderColor = '#94a3b8';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!refreshingSession.items && selectedCompany && ledgerDownloadProgress.items.status !== 'downloading') {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.borderColor = '#cbd5e1';
+                    }
+                  }}
+                >
+                  <span className="material-icons" style={{
+                    fontSize: '16px',
+                    animation: (refreshingSession.items || ledgerDownloadProgress.items.status === 'downloading') ? 'spin 1s linear infinite' : 'none'
+                  }}>
+                    refresh
+                  </span>
+                  Refresh
+                </button>
               </div>
-              <button
-                onClick={() => handleRefreshSessionCache('items')}
-                disabled={refreshingSession.items || !selectedCompany}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid #cbd5e1',
+              {/* Download Progress */}
+              {ledgerDownloadProgress.items.status === 'downloading' && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#f0f9ff',
+                  border: '1px solid #bae6fd',
+                  borderRadius: '6px'
+                }}>
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#0369a1',
+                    marginBottom: '4px',
+                    fontWeight: 500
+                  }}>
+                    Downloading items...
+                  </div>
+                  <div style={{
+                    width: '100%',
+                    height: '6px',
+                    background: '#e0f2fe',
+                    borderRadius: '3px',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${ledgerDownloadProgress.items.progress}%`,
+                      height: '100%',
+                      background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                </div>
+              )}
+              {ledgerDownloadProgress.items.status === 'error' && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#fef2f2',
+                  border: '1px solid #fecaca',
                   borderRadius: '6px',
-                  padding: '6px 12px',
-                  cursor: (refreshingSession.items || !selectedCompany) ? 'not-allowed' : 'pointer',
-                  color: '#475569',
-                  fontSize: '13px',
+                  fontSize: '12px',
+                  color: '#dc2626'
+                }}>
+                  ⚠️ Download failed: {ledgerDownloadProgress.items.error || 'Unknown error'}
+                </div>
+              )}
+              {ledgerDownloadProgress.items.status === 'completed' && ledgerDownloadProgress.items.count > 0 && (
+                <div style={{
+                  marginTop: '8px',
+                  padding: '8px',
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  color: '#16a34a',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  transition: 'all 0.2s'
-                }}
-                onMouseEnter={(e) => {
-                  if (!refreshingSession.items && selectedCompany) {
-                    e.currentTarget.style.background = '#f1f5f9';
-                    e.currentTarget.style.borderColor = '#94a3b8';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!refreshingSession.items && selectedCompany) {
-                    e.currentTarget.style.background = 'transparent';
-                    e.currentTarget.style.borderColor = '#cbd5e1';
-                  }
-                }}
-              >
-                <span className="material-icons" style={{
-                  fontSize: '16px',
-                  animation: refreshingSession.items ? 'spin 1s linear infinite' : 'none'
+                  gap: '6px'
                 }}>
-                  refresh
-                </span>
-                Refresh
-              </button>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>check_circle</span>
+                  Successfully downloaded {ledgerDownloadProgress.items.count} items
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1673,14 +2503,17 @@ const CacheManagement = () => {
         border: '1px solid #e2e8f0',
         borderRadius: '12px',
         padding: isMobile ? '16px' : '24px',
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+        boxSizing: 'border-box',
+        maxWidth: '100%',
+        overflowX: 'hidden'
       }}>
         <div style={{
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
+          alignItems: isMobile ? 'flex-start' : 'center',
+          justifyContent: isMobile ? 'flex-start' : 'space-between',
           marginBottom: isMobile ? '16px' : '20px',
-          flexWrap: isMobile ? 'wrap' : 'nowrap',
+          flexDirection: isMobile ? 'column' : 'row',
           gap: isMobile ? '12px' : '0'
         }}>
           <h3 style={{
@@ -1691,7 +2524,8 @@ const CacheManagement = () => {
             display: 'flex',
             alignItems: 'center',
             gap: isMobile ? '8px' : '12px',
-            flex: isMobile ? '1 1 100%' : 'auto'
+            width: isMobile ? '100%' : 'auto',
+            flexShrink: 0
           }}>
             <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>
               folder_open
@@ -1716,7 +2550,8 @@ const CacheManagement = () => {
               alignItems: 'center',
               justifyContent: 'center',
               gap: '8px',
-              transition: 'all 0.2s'
+              transition: 'all 0.2s',
+              flexShrink: 0
             }}
             onMouseEnter={(e) => {
               if (!loadingEntries) {
@@ -1750,7 +2585,12 @@ const CacheManagement = () => {
         </div>
 
         {cacheEntries && showCacheViewer && (
-          <div>
+          <div style={{
+            width: '100%',
+            maxWidth: '100%',
+            boxSizing: 'border-box',
+            overflowX: 'hidden'
+          }}>
             {/* Summary */}
             <div style={{
               display: 'grid',
@@ -1804,26 +2644,149 @@ const CacheManagement = () => {
               </div>
             </div>
 
-            {/* Cache Entries Table */}
+            {/* Cache Entries - Card layout for mobile, Table for desktop */}
             {cacheEntries.entries.length > 0 ? (
-              <div style={{
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px',
-                overflow: 'hidden',
-                maxHeight: isMobile ? '400px' : '600px',
-                overflowY: 'auto',
-                overflowX: isMobile ? 'auto' : 'hidden',
-                WebkitOverflowScrolling: 'touch'
-              }}>
+              isMobile ? (
+                /* Mobile Card Layout */
                 <div style={{
-                  overflowX: 'auto',
-                  width: '100%'
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '12px',
+                  maxHeight: '500px',
+                  overflowY: 'auto',
+                  WebkitOverflowScrolling: 'touch',
+                  padding: '4px'
+                }}>
+                  {cacheEntries.entries.map((entry, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        background: '#fff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '10px',
+                        padding: '14px',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.08)'
+                      }}
+                    >
+                      {/* Header Row - Type and Actions */}
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        marginBottom: '12px'
+                      }}>
+                        <span style={{
+                          padding: '4px 10px',
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          background: entry.type === 'sales' ? '#dbeafe' : '#dcfce7',
+                          color: entry.type === 'sales' ? '#1e40af' : '#166534'
+                        }}>
+                          {entry.type === 'sales' ? 'Sales' : 'Dashboard'}
+                        </span>
+                        <button
+                          onClick={() => viewCacheAsJson(entry.cacheKey)}
+                          style={{
+                            padding: '6px 12px',
+                            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: '14px' }}>code</span>
+                          JSON
+                        </button>
+                      </div>
+
+                      {/* Cache Key */}
+                      <div style={{
+                        fontSize: '11px',
+                        fontFamily: 'monospace',
+                        color: '#475569',
+                        wordBreak: 'break-all',
+                        background: '#f8fafc',
+                        padding: '8px',
+                        borderRadius: '6px',
+                        marginBottom: '10px',
+                        lineHeight: '1.4'
+                      }}>
+                        {entry.cacheKey}
+                      </div>
+
+                      {/* Info Grid */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '10px',
+                        fontSize: '12px'
+                      }}>
+                        {/* Size */}
+                        <div>
+                          <div style={{ color: '#94a3b8', fontSize: '10px', marginBottom: '2px' }}>Size</div>
+                          <div style={{ color: '#1e293b', fontWeight: 600 }}>
+                            {entry.sizeMB} MB
+                            <span style={{ color: '#94a3b8', fontWeight: 400, marginLeft: '4px' }}>
+                              ({entry.sizeKB} KB)
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Age */}
+                        <div>
+                          <div style={{ color: '#94a3b8', fontSize: '10px', marginBottom: '2px' }}>Age</div>
+                          <div style={{ fontWeight: 500 }}>
+                            {entry.ageDays === 0 ? (
+                              <span style={{ color: '#10b981' }}>Today</span>
+                            ) : entry.ageDays === 1 ? (
+                              <span style={{ color: '#3b82f6' }}>1 day ago</span>
+                            ) : (
+                              <span style={{ color: '#64748b' }}>{entry.ageDays} days ago</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Date Range */}
+                        <div>
+                          <div style={{ color: '#94a3b8', fontSize: '10px', marginBottom: '2px' }}>Date Range</div>
+                          <div style={{ color: '#64748b' }}>
+                            {entry.startDate && entry.endDate ? (
+                              <span>{formatDateForDisplay(entry.startDate)} - {formatDateForDisplay(entry.endDate)}</span>
+                            ) : (
+                              <span style={{ color: '#cbd5e1' }}>—</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Cached Date */}
+                        <div>
+                          <div style={{ color: '#94a3b8', fontSize: '10px', marginBottom: '2px' }}>Cached</div>
+                          <div style={{ color: '#64748b' }}>{entry.date}</div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* Desktop Table Layout */
+                <div style={{
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  overflow: 'hidden',
+                  maxHeight: '600px',
+                  overflowY: 'auto'
                 }}>
                   <table style={{
                     width: '100%',
                     borderCollapse: 'collapse',
-                    fontSize: isMobile ? '12px' : '14px',
-                    minWidth: isMobile ? '600px' : 'auto'
+                    fontSize: '14px'
                   }}>
                     <thead style={{
                       background: '#f8fafc',
@@ -1833,60 +2796,53 @@ const CacheManagement = () => {
                     }}>
                       <tr>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Type</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Cache Key</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Date Range</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Size</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Age</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Cached Date</th>
                         <th style={{
-                          padding: isMobile ? '8px' : '12px',
+                          padding: '12px',
                           textAlign: 'left',
                           fontWeight: 600,
                           color: '#1e293b',
-                          borderBottom: '2px solid #e2e8f0',
-                          fontSize: isMobile ? '11px' : '14px'
+                          borderBottom: '2px solid #e2e8f0'
                         }}>Actions</th>
                       </tr>
                     </thead>
@@ -1899,11 +2855,11 @@ const CacheManagement = () => {
                             background: index % 2 === 0 ? '#fff' : '#f8fafc'
                           }}
                         >
-                          <td style={{ padding: isMobile ? '8px' : '12px' }}>
+                          <td style={{ padding: '12px' }}>
                             <span style={{
-                              padding: isMobile ? '3px 6px' : '4px 8px',
+                              padding: '4px 8px',
                               borderRadius: '4px',
-                              fontSize: isMobile ? '10px' : '12px',
+                              fontSize: '12px',
                               fontWeight: 600,
                               background: entry.type === 'sales' ? '#dbeafe' : '#dcfce7',
                               color: entry.type === 'sales' ? '#1e40af' : '#166534'
@@ -1912,16 +2868,16 @@ const CacheManagement = () => {
                             </span>
                           </td>
                           <td style={{
-                            padding: isMobile ? '8px' : '12px',
+                            padding: '12px',
                             fontFamily: 'monospace',
-                            fontSize: isMobile ? '10px' : '12px',
+                            fontSize: '12px',
                             color: '#475569',
                             wordBreak: 'break-all',
-                            maxWidth: isMobile ? '200px' : '400px'
+                            maxWidth: '400px'
                           }}>
                             {entry.cacheKey}
                           </td>
-                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '13px' }}>
+                          <td style={{ padding: '12px', color: '#64748b', fontSize: '13px' }}>
                             {entry.startDate && entry.endDate ? (
                               <div>
                                 <div>{formatDateForDisplay(entry.startDate)}</div>
@@ -1932,13 +2888,13 @@ const CacheManagement = () => {
                               <span style={{ color: '#cbd5e1' }}>—</span>
                             )}
                           </td>
-                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#1e293b', fontWeight: 500, fontSize: isMobile ? '11px' : '14px' }}>
+                          <td style={{ padding: '12px', color: '#1e293b', fontWeight: 500 }}>
                             {entry.sizeMB} MB
-                            <div style={{ fontSize: isMobile ? '10px' : '12px', color: '#94a3b8' }}>
+                            <div style={{ fontSize: '12px', color: '#94a3b8' }}>
                               ({entry.sizeKB} KB)
                             </div>
                           </td>
-                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '14px' }}>
+                          <td style={{ padding: '12px', color: '#64748b' }}>
                             {entry.ageDays === 0 ? (
                               <span style={{ color: '#10b981', fontWeight: 600 }}>Today</span>
                             ) : entry.ageDays === 1 ? (
@@ -1947,19 +2903,19 @@ const CacheManagement = () => {
                               <span>{entry.ageDays} days ago</span>
                             )}
                           </td>
-                          <td style={{ padding: isMobile ? '8px' : '12px', color: '#64748b', fontSize: isMobile ? '11px' : '13px' }}>
+                          <td style={{ padding: '12px', color: '#64748b', fontSize: '13px' }}>
                             {entry.date}
                           </td>
-                          <td style={{ padding: isMobile ? '8px' : '12px' }}>
+                          <td style={{ padding: '12px' }}>
                             <button
                               onClick={() => viewCacheAsJson(entry.cacheKey)}
                               style={{
-                                padding: isMobile ? '5px 8px' : '6px 12px',
+                                padding: '6px 12px',
                                 background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
                                 color: '#fff',
                                 border: 'none',
                                 borderRadius: '6px',
-                                fontSize: isMobile ? '11px' : '12px',
+                                fontSize: '12px',
                                 fontWeight: 600,
                                 cursor: 'pointer',
                                 display: 'flex',
@@ -1968,8 +2924,8 @@ const CacheManagement = () => {
                                 whiteSpace: 'nowrap'
                               }}
                             >
-                              <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>code</span>
-                              {isMobile ? 'JSON' : 'View JSON'}
+                              <span className="material-icons" style={{ fontSize: '16px' }}>code</span>
+                              View JSON
                             </button>
                           </td>
                         </tr>
@@ -1977,7 +2933,7 @@ const CacheManagement = () => {
                     </tbody>
                   </table>
                 </div>
-              </div>
+              )
             ) : (
               <div style={{
                 padding: '40px',
@@ -2196,6 +3152,134 @@ const CacheManagement = () => {
                   delete_sweep
                 </span>
                 Clear All Cache
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Fetch JSON from Gmail */}
+        <div style={{
+          background: '#fff',
+          border: '1px solid #e2e8f0',
+          borderRadius: '12px',
+          padding: isMobile ? '16px' : '24px',
+          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: isMobile ? '8px' : '12px',
+            marginBottom: isMobile ? '12px' : '16px'
+          }}>
+            <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '28px', color: '#3b82f6' }}>
+              email
+            </span>
+            <h3 style={{
+              fontSize: isMobile ? '16px' : '18px',
+              fontWeight: 600,
+              color: '#1e293b',
+              margin: 0
+            }}>
+              Fetch JSON from Gmail
+            </h3>
+          </div>
+          <p style={{
+            fontSize: isMobile ? '13px' : '14px',
+            color: '#64748b',
+            marginBottom: isMobile ? '16px' : '20px',
+            lineHeight: '1.6'
+          }}>
+            Search your Gmail for emails with JSON attachments matching a specific subject pattern and automatically load them into cache.
+          </p>
+          
+          {isExternalUser() && googleAccountEmail && (
+            <div style={{
+              padding: '10px 12px',
+              background: '#f0f9ff',
+              border: '1px solid #bae6fd',
+              borderRadius: '8px',
+              marginBottom: '16px',
+              fontSize: '13px',
+              color: '#0369a1'
+            }}>
+              <strong>Using your Google account:</strong> {googleAccountEmail}
+            </div>
+          )}
+
+          {!gmailJsonConfigured && (
+            <div style={{
+              padding: '10px 12px',
+              background: '#fef3c7',
+              border: '1px solid #fcd34d',
+              borderRadius: '8px',
+              marginBottom: '16px',
+              fontSize: '13px',
+              color: '#92400e'
+            }}>
+              ⚠️ Please configure your Google account in Link Account settings first.
+            </div>
+          )}
+
+          {gmailJsonStatus && (
+            <div style={{
+              padding: '10px 12px',
+              background: gmailJsonStatus.includes('✅') ? '#f0fdf4' : gmailJsonStatus.includes('❌') ? '#fef2f2' : '#f0f9ff',
+              border: `1px solid ${gmailJsonStatus.includes('✅') ? '#86efac' : gmailJsonStatus.includes('❌') ? '#fca5a5' : '#bae6fd'}`,
+              borderRadius: '8px',
+              marginBottom: '16px',
+              fontSize: '13px',
+              color: gmailJsonStatus.includes('✅') ? '#065f46' : gmailJsonStatus.includes('❌') ? '#991b1b' : '#0369a1'
+            }}>
+              {gmailJsonStatus}
+            </div>
+          )}
+
+          <button
+            onClick={handleFetchJsonFromGmail}
+            disabled={fetchingGmailJson || !gmailJsonConfigured || !selectedCompany}
+            style={{
+              width: '100%',
+              padding: '12px 20px',
+              background: (fetchingGmailJson || !gmailJsonConfigured || !selectedCompany) ? '#94a3b8' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: '15px',
+              cursor: (fetchingGmailJson || !gmailJsonConfigured || !selectedCompany) ? 'not-allowed' : 'pointer',
+              boxShadow: (fetchingGmailJson || !gmailJsonConfigured || !selectedCompany) ? 'none' : '0 2px 8px rgba(59, 130, 246, 0.25)',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '8px'
+            }}
+            onMouseEnter={(e) => {
+              if (!fetchingGmailJson && gmailJsonConfigured && selectedCompany) {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.35)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!fetchingGmailJson && gmailJsonConfigured && selectedCompany) {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(59, 130, 246, 0.25)';
+              }
+            }}
+          >
+            {fetchingGmailJson ? (
+              <>
+                <span className="material-icons" style={{ fontSize: '18px', animation: 'spin 1s linear infinite' }}>
+                  refresh
+                </span>
+                Fetching...
+              </>
+            ) : (
+              <>
+                <span className="material-icons" style={{ fontSize: '18px' }}>
+                  email
+                </span>
+                Fetch JSON from Gmail
               </>
             )}
           </button>
@@ -2474,6 +3558,19 @@ const CacheManagement = () => {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
+        /* Prevent horizontal overflow on mobile cache management */
+        .cache-management-wrapper {
+          width: 100%;
+          max-width: 100%;
+          overflow-x: hidden;
+          box-sizing: border-box;
+        }
+        @media (max-width: 768px) {
+          .cache-management-wrapper * {
+            max-width: 100%;
+            box-sizing: border-box;
+          }
+        }
       `}</style>
 
       {/* Resume Download Modal */}
@@ -2481,7 +3578,14 @@ const CacheManagement = () => {
         isOpen={showResumeModal}
         onContinue={handleResumeContinue}
         onStartFresh={handleResumeStartFresh}
-        onClose={() => setShowResumeModal(false)}
+        onClose={() => {
+          // Mark this interruption as dismissed so it won't show again
+          if (interruptedProgress) {
+            const interruptionKey = `${interruptedProgress.companyGuid}_${interruptedProgress.current}_${interruptedProgress.total}`;
+            dismissedInterruptionsRef.current.add(interruptionKey);
+          }
+          setShowResumeModal(false);
+        }}
         progress={interruptedProgress || { current: 0, total: 0 }}
         companyName={interruptedProgress?.companyName || selectedCompany?.company || 'this company'}
       />

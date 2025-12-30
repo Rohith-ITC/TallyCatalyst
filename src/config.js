@@ -5,19 +5,15 @@ const getBaseUrl = () => {
 
   // Use .env value for development mode
   if (process.env.NODE_ENV === 'development') {
-    // DISABLED: Proxy logic was causing timeouts
-    // Always use production URL even in development
-    /*
-    // Check if we're running from a local network IP (like 192.168.x.x)
-    // In this case, use relative paths to go through the proxy
+    // Check if we're running from localhost or local network IP
+    // In this case, use relative paths to go through the proxy (avoids CORS issues)
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
-      // If accessing from local network IP, use proxy (return empty string for relative paths)
-      if (hostname === '192.168.29.72' || hostname.startsWith('192.168.') || hostname === 'localhost' || hostname === '127.0.0.1') {
+      // If accessing from local network IP or localhost, use proxy (return empty string for relative paths)
+      if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname.startsWith('192.168.') || hostname.startsWith('10.') || hostname.startsWith('172.')) {
         return ''; // Empty string means use relative path, which will go through proxy
       }
     }
-    */
 
     const devUrl = process.env.REACT_APP_DEV_API_URL || '';
 
@@ -26,7 +22,7 @@ const getBaseUrl = () => {
       return devUrl;
     }
 
-    // Always use the production API URL to avoid proxy timeout issues
+    // Fallback to production API URL if not running locally
     return DEFAULT_API_URL;
   }
 
@@ -142,7 +138,7 @@ export const GOOGLE_DRIVE_CONFIG = {
   CLIENT_ID: (process.env.REACT_APP_GOOGLE_CLIENT_ID || '').trim(),
   API_KEY: (process.env.REACT_APP_GOOGLE_API_KEY || '').trim(),
   CLIENT_SECRET: (process.env.REACT_APP_GOOGLE_CLIENT_SECRET || '').trim(),
-  SCOPES: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly'
+  SCOPES: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly https://mail.google.com/'
 };
 
 // Check if all Google Drive credentials are available

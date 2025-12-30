@@ -214,6 +214,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [isInterrupted, setIsInterrupted] = useState(false);
   const [showResumeModal, setShowResumeModal] = useState(false);
   const [interruptedProgress, setInterruptedProgress] = useState(null);
+  // Track dismissed interruptions to prevent showing modal again after user closes it
+  const dismissedInterruptionsRef = useRef(new Set());
 
   // Helper function to get auth token
   const getAuthToken = () => {
@@ -1247,8 +1249,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
         const interrupted = await checkInterruptedDownload(companyInfo);
         if (interrupted) {
-          setInterruptedProgress(interrupted);
-          setShowResumeModal(true);
+          // Create a unique key for this interruption
+          const interruptionKey = `${interrupted.companyGuid}_${interrupted.current}_${interrupted.total}`;
+          
+          // Only show modal if this specific interruption hasn't been dismissed
+          if (!dismissedInterruptionsRef.current.has(interruptionKey)) {
+            setInterruptedProgress(interrupted);
+            setShowResumeModal(true);
+          }
         }
       } catch (error) {
         console.warn('Error checking for interrupted download:', error);
@@ -1269,8 +1277,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
         const interrupted = await checkInterruptedDownload(companyInfo);
         if (interrupted) {
-          setInterruptedProgress(interrupted);
-          setShowResumeModal(true);
+          // Create a unique key for this interruption
+          const interruptionKey = `${interrupted.companyGuid}_${interrupted.current}_${interrupted.total}`;
+          
+          // Only show modal if this specific interruption hasn't been dismissed
+          if (!dismissedInterruptionsRef.current.has(interruptionKey)) {
+            setInterruptedProgress(interrupted);
+            setShowResumeModal(true);
+          }
         } else {
           setShowResumeModal(false);
           setInterruptedProgress(null);
@@ -15218,7 +15232,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       isOpen={showResumeModal}
       onContinue={handleResumeContinue}
       onStartFresh={handleResumeStartFresh}
-      onClose={() => setShowResumeModal(false)}
+      onClose={() => {
+        // Mark this interruption as dismissed so it won't show again
+        if (interruptedProgress) {
+          const interruptionKey = `${interruptedProgress.companyGuid}_${interruptedProgress.current}_${interruptedProgress.total}`;
+          dismissedInterruptionsRef.current.add(interruptionKey);
+        }
+        setShowResumeModal(false);
+      }}
       progress={interruptedProgress || { current: 0, total: 0 }}
       companyName={interruptedProgress?.companyName || 'this company'}
     />

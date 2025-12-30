@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { apiPost } from '../utils/apiUtils';
 import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
-import { getCustomersFromOPFS } from '../utils/cacheSyncManager';
+import { getCustomersFromOPFS, syncCustomers } from '../utils/cacheSyncManager';
+import '../RecvDashboard/ReceivablesPage.css';
 
 
 function PlaceOrder() {
@@ -149,6 +150,58 @@ function PlaceOrder() {
 
   }, []);
 
+  // Listen for cache updates from Cache Management
+
+  useEffect(() => {
+
+    const handleCacheUpdate = (event) => {
+
+      const { type, company: updatedCompany } = event.detail || {};
+
+      if (type === 'customers') {
+
+        const currentCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+
+        // Read companies from sessionStorage inside the handler to avoid dependency issues
+
+        let companies = [];
+
+        try {
+
+          companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+
+        } catch (e) { }
+
+        const currentCompany = companies.find(c => c.guid === currentCompanyGuid);
+
+        // Only refresh if the update is for the current company
+
+        if (currentCompany && updatedCompany &&
+
+          (updatedCompany.guid === currentCompanyGuid ||
+
+            (updatedCompany.tallyloc_id === currentCompany.tallyloc_id &&
+
+              updatedCompany.company === currentCompany.company))) {
+
+          console.log('🔄 PlaceOrder: Customer cache updated, refreshing...');
+
+          setRefreshCustomers(prev => prev + 1);
+
+        }
+
+      }
+
+    };
+
+
+
+    window.addEventListener('ledgerCacheUpdated', handleCacheUpdate);
+
+    return () => window.removeEventListener('ledgerCacheUpdated', handleCacheUpdate);
+
+  }, []);
+
 
 
   // Auto-populate from E-commerce cart data
@@ -285,6 +338,8 @@ function PlaceOrder() {
 
   const [refreshCustomers, setRefreshCustomers] = useState(0);
 
+  const [refreshingCustomers, setRefreshingCustomers] = useState(false);
+
 
 
   // Auto-population state
@@ -310,6 +365,16 @@ function PlaceOrder() {
   const [showVoucherTypeDropdown, setShowVoucherTypeDropdown] = useState(false);
 
   const [voucherTypeFocused, setVoucherTypeFocused] = useState(false);
+
+  // Class Name state
+  const [selectedClassName, setSelectedClassName] = useState('');
+
+  const [showClassNameDropdown, setShowClassNameDropdown] = useState(false);
+
+  const [classNameFocused, setClassNameFocused] = useState(false);
+
+  // Ledger values state - stores user-defined values for ledgers
+  const [ledgerValues, setLedgerValues] = useState({});
 
 
 
@@ -4367,7 +4432,50 @@ function PlaceOrder() {
 
     // Use flexible columns to fit within container without scrolling
     // Item Name gets more space, other columns are compact but visible
+    // Note: Mobile uses card layout, this function is for desktop only
 
+    if (isMobile) {
+      // Mobile uses card layout, but keep this as fallback with minimal widths
+      if (canShowRateAmtColumn) {
+        let columns = 'minmax(80px, 1fr)'; // Item Name column (flexible)
+
+        columns += ' minmax(40px, 50px)'; // Qty column
+
+        if (canShowClosingStock) {
+          columns += ' minmax(30px, 35px)'; // Stock column
+        }
+
+        columns += ' minmax(40px, 45px)'; // Rate column
+
+        columns += ' minmax(40px, 50px)'; // Rate UOM column
+
+        if (canShowDiscColumn) {
+          columns += ' minmax(25px, 30px)'; // Disc % column
+        }
+
+        columns += ' minmax(25px, 30px)'; // GST % column
+
+        columns += ' minmax(50px, 55px)'; // Amount column
+
+        columns += ' minmax(50px, 55px)'; // Action column
+
+        return columns;
+      } else {
+        let columns = '1fr'; // Item Name column (flexible)
+
+        columns += ' minmax(40px, 50px)'; // Qty column
+
+        if (canShowClosingStock) {
+          columns += ' minmax(30px, 35px)'; // Stock column
+        }
+
+        columns += ' minmax(50px, 55px)'; // Action column
+
+        return columns;
+      }
+    }
+
+    // Desktop layout
     if (canShowRateAmtColumn) {
 
       let columns = 'minmax(200px, 2fr)'; // Item Name column (flexible)
@@ -4558,6 +4666,449 @@ function PlaceOrder() {
 
 
 
+  // Get available classes for selected voucher type
+  const availableClasses = useMemo(() => {
+    if (!selectedVoucherType || !voucherTypes.length) {
+      return [];
+    }
+    const selectedVoucher = voucherTypes.find(vt => vt.NAME === selectedVoucherType);
+    if (!selectedVoucher || !selectedVoucher.VOUCHERCLASSLIST || !Array.isArray(selectedVoucher.VOUCHERCLASSLIST)) {
+      return [];
+    }
+    return selectedVoucher.VOUCHERCLASSLIST.map(cls => cls.CLASSNAME).filter(Boolean);
+  }, [selectedVoucherType, voucherTypes]);
+
+  // Get ledgers for selected class
+  const selectedClassLedgers = useMemo(() => {
+    if (!selectedVoucherType || !selectedClassName || !voucherTypes.length) {
+      return [];
+    }
+    const selectedVoucher = voucherTypes.find(vt => vt.NAME === selectedVoucherType);
+    if (!selectedVoucher || !selectedVoucher.VOUCHERCLASSLIST || !Array.isArray(selectedVoucher.VOUCHERCLASSLIST)) {
+      return [];
+    }
+    const selectedClass = selectedVoucher.VOUCHERCLASSLIST.find(cls => cls.CLASSNAME === selectedClassName);
+    if (!selectedClass || !selectedClass.LEDGERENTRIESLIST || !Array.isArray(selectedClass.LEDGERENTRIESLIST)) {
+      return [];
+    }
+    return selectedClass.LEDGERENTRIESLIST;
+  }, [selectedVoucherType, selectedClassName, voucherTypes]);
+
+  // Reset or restore class selection when voucher type changes
+  useEffect(() => {
+    if (!selectedVoucherType || !voucherTypes.length) {
+      setSelectedClassName('');
+      setShowClassNameDropdown(false);
+      setLedgerValues({});
+      return;
+    }
+
+    const selectedVoucher = voucherTypes.find(vt => vt.NAME === selectedVoucherType);
+    if (!selectedVoucher || !selectedVoucher.VOUCHERCLASSLIST || !Array.isArray(selectedVoucher.VOUCHERCLASSLIST)) {
+      setSelectedClassName('');
+      setShowClassNameDropdown(false);
+      setLedgerValues({});
+      return;
+    }
+
+    // Try to restore saved class name if available for this voucher type
+    const savedClassName = sessionStorage.getItem('selectedClassName');
+    if (savedClassName && selectedVoucher.VOUCHERCLASSLIST.some(cls => cls.CLASSNAME === savedClassName)) {
+      setSelectedClassName(savedClassName);
+    } else {
+      setSelectedClassName('');
+      setLedgerValues({});
+    }
+    setShowClassNameDropdown(false);
+  }, [selectedVoucherType, voucherTypes]);
+
+  // Reset ledger values when class changes
+  useEffect(() => {
+    setLedgerValues({});
+  }, [selectedClassName]);
+
+  // Calculate all ledger amounts (shared between UI display and payload)
+  const calculatedLedgerAmounts = useMemo(() => {
+    // Return empty object if no class selected or no items
+    if (!selectedClassName || !selectedClassLedgers.length || orderItems.length === 0) {
+      return {
+        subtotal: 0,
+        ledgerAmounts: {},
+        gstAmounts: {},
+        flatRateAmounts: {},
+        basedOnQuantityAmounts: {},
+        onTotalSalesAmounts: {},
+        onCurrentSubTotalAmounts: {},
+        roundingAmounts: {}
+      };
+    }
+
+    // Get company and customer for state comparison
+    const currentCompany = filteredCompanies.find(c => c.guid === company);
+    const selectedCustomerObj = customerOptions.find(c => c.NAME === selectedCustomer);
+    const companyState = currentCompany?.statename || currentCompany?.STATENAME || currentCompany?.state || '';
+    const customerState = selectedCustomerObj?.STATENAME || editableState || '';
+    const isSameState = companyState && customerState && companyState.toLowerCase().trim() === customerState.toLowerCase().trim();
+
+    // Helper function to determine GSTDUTYHEAD from ledger name
+    const getGSTDUTYHEAD = (ledgerName) => {
+      const nameUpper = (ledgerName || '').toUpperCase();
+      if (nameUpper.includes('CGST')) return 'CGST';
+      if (nameUpper.includes('SGST') || nameUpper.includes('UTGST')) return 'SGST/UTGST';
+      if (nameUpper.includes('IGST')) return 'IGST';
+      return null;
+    };
+
+    // Helper function to check if ledger should be calculated based on state
+    const shouldCalculateLedger = (ledger) => {
+      const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
+      if (!gstDutyHead) return false;
+
+      if (isSameState) {
+        return gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST';
+      } else {
+        return gstDutyHead === 'IGST';
+      }
+    };
+
+    // Calculate subtotal directly (sum of all item amounts)
+    const subtotal = orderItems.reduce((sum, item) => sum + (parseFloat(item.amount || 0)), 0);
+
+    // Calculate GST for each GST ledger
+    const gstLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'GST' && shouldCalculateLedger(ledger)
+    );
+
+    const gstAmounts = {};
+    gstLedgers.forEach(ledger => {
+      const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
+      const rateOfTaxCalc = parseFloat(ledger.RATEOFTAXCALCULATION || '0');
+      let totalGST = 0;
+
+      orderItems.forEach(item => {
+        const itemGstPercent = parseFloat(item.gstPercent || 0);
+
+        if (itemGstPercent > 0) {
+          const itemTaxableAmount = parseFloat(item.amount || 0);
+
+          if (rateOfTaxCalc === 0) {
+            let effectiveGstRate = itemGstPercent;
+            if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+              effectiveGstRate = itemGstPercent / 2;
+            }
+            const itemGST = (itemTaxableAmount * effectiveGstRate) / 100;
+            totalGST += itemGST;
+          } else {
+            const matchingRate = rateOfTaxCalc;
+            if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+              if (Math.abs((itemGstPercent / 2) - matchingRate) < 0.01) {
+                const itemGST = (itemTaxableAmount * matchingRate) / 100;
+                totalGST += itemGST;
+              }
+            } else {
+              if (Math.abs(itemGstPercent - matchingRate) < 0.01) {
+                const itemGST = (itemTaxableAmount * matchingRate) / 100;
+                totalGST += itemGST;
+              }
+            }
+          }
+        }
+      });
+
+      gstAmounts[ledger.NAME] = totalGST;
+    });
+
+    // Calculate total ledger values (only user-defined ones that have values)
+    const totalLedgerValues = Object.values(ledgerValues).reduce((sum, value) => {
+      return sum + (parseFloat(value) || 0);
+    }, 0);
+
+    // Calculate flat rate ledger amounts
+    const flatRateLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'As Flat Rate'
+    );
+    const flatRateAmounts = {};
+    flatRateLedgers.forEach(ledger => {
+      const classRate = parseFloat(ledger.CLASSRATE || '0');
+      flatRateAmounts[ledger.NAME] = classRate;
+    });
+    const totalFlatRate = Object.values(flatRateAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+    // Calculate "Based on Quantity" ledger amounts
+    const basedOnQuantityLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'Based on Quantity'
+    );
+    const basedOnQuantityAmounts = {};
+    const totalQuantity = orderItems.reduce((sum, item) => sum + (parseFloat(item.quantity || 0)), 0);
+    basedOnQuantityLedgers.forEach(ledger => {
+      const classRate = parseFloat(ledger.CLASSRATE || '0');
+      basedOnQuantityAmounts[ledger.NAME] = totalQuantity * classRate;
+    });
+    const totalBasedOnQuantity = Object.values(basedOnQuantityAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+    // Calculate "On Total Sales" ledger amounts
+    const onTotalSalesLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'On Total Sales'
+    );
+    const onTotalSalesAmounts = {};
+    onTotalSalesLedgers.forEach(ledger => {
+      const classRate = parseFloat(ledger.CLASSRATE || '0');
+      onTotalSalesAmounts[ledger.NAME] = (subtotal * classRate) / 100;
+    });
+    const totalOnTotalSales = Object.values(onTotalSalesAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+    // Calculate "On Current SubTotal" ledger amounts
+    const onCurrentSubTotalLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'On Current SubTotal'
+    );
+    let cumulativeOnCurrentSubTotal = 0;
+    const onCurrentSubTotalAmounts = {};
+    onCurrentSubTotalLedgers.forEach(ledger => {
+      const classRate = parseFloat(ledger.CLASSRATE || '0');
+      const currentBase = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + cumulativeOnCurrentSubTotal;
+      const amount = (currentBase * classRate) / 100;
+      onCurrentSubTotalAmounts[ledger.NAME] = amount;
+      cumulativeOnCurrentSubTotal += amount;
+    });
+    const finalOnCurrentSubTotal = cumulativeOnCurrentSubTotal;
+
+    // Calculate GST on other ledgers
+    const gstOnOtherLedgers = {};
+    const calculateAverageGSTRate = () => {
+      let totalTaxableAmount = 0;
+      let weightedGstRate = 0;
+
+      orderItems.forEach(item => {
+        const itemGstPercent = parseFloat(item.gstPercent || 0);
+        const itemAmount = parseFloat(item.amount || 0);
+
+        if (itemGstPercent > 0 && itemAmount > 0) {
+          totalTaxableAmount += itemAmount;
+          weightedGstRate += itemAmount * itemGstPercent;
+        }
+      });
+
+      if (totalTaxableAmount > 0) {
+        return weightedGstRate / totalTaxableAmount;
+      }
+      return 0;
+    };
+
+    const avgGstRate = calculateAverageGSTRate();
+
+    selectedClassLedgers.forEach(ledger => {
+      if (ledger.METHODTYPE === 'GST' || ledger.METHODTYPE === 'As Total Amount Rounding') {
+        return;
+      }
+
+      let ledgerValue = 0;
+
+      if (ledger.METHODTYPE === 'As User Defined Value') {
+        ledgerValue = parseFloat(ledgerValues[ledger.NAME] || 0);
+      } else if (ledger.METHODTYPE === 'As Flat Rate') {
+        ledgerValue = parseFloat(ledger.CLASSRATE || '0');
+      } else if (ledger.METHODTYPE === 'Based on Quantity') {
+        ledgerValue = basedOnQuantityAmounts[ledger.NAME] || 0;
+      } else if (ledger.METHODTYPE === 'On Total Sales') {
+        ledgerValue = onTotalSalesAmounts[ledger.NAME] || 0;
+      } else if (ledger.METHODTYPE === 'On Current SubTotal') {
+        ledgerValue = onCurrentSubTotalAmounts[ledger.NAME] || 0;
+      }
+
+      if (ledgerValue !== 0) {
+        if (ledger.APPROPRIATEFOR === 'GST' && ledger.EXCISEALLOCTYPE === 'Based on Value') {
+          const totalItemValue = orderItems.reduce((sum, item) => sum + (parseFloat(item.amount || 0)), 0);
+
+          if (totalItemValue > 0) {
+            gstLedgers.forEach(gstLedger => {
+              const gstDutyHead = getGSTDUTYHEAD(gstLedger.NAME);
+              if (!gstDutyHead) return;
+
+              const shouldCalculate = (isSameState && (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST')) ||
+                (!isSameState && gstDutyHead === 'IGST');
+
+              if (!shouldCalculate) return;
+
+              let ledgerGstAmount = 0;
+
+              orderItems.forEach(item => {
+                const itemAmount = parseFloat(item.amount || 0);
+                const itemGstPercent = parseFloat(item.gstPercent || 0);
+
+                if (itemAmount > 0 && itemGstPercent > 0) {
+                  const itemDiscountPortion = (ledgerValue * itemAmount) / totalItemValue;
+                  let effectiveGstRate = itemGstPercent;
+
+                  if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+                    effectiveGstRate = itemGstPercent / 2;
+                  }
+
+                  const itemGstOnDiscount = (itemDiscountPortion * effectiveGstRate) / 100;
+                  ledgerGstAmount += itemGstOnDiscount;
+                }
+              });
+
+              // Allow negative GST amounts (for discounts) - remove the > 0 check
+              if (ledgerGstAmount !== 0) {
+                if (!gstAmounts[gstLedger.NAME]) {
+                  gstAmounts[gstLedger.NAME] = 0;
+                }
+                gstAmounts[gstLedger.NAME] += ledgerGstAmount;
+              }
+            });
+          }
+        } else if (ledger.GSTAPPLICABLE === 'Yes' && (ledger.APPROPRIATEFOR === '' || !ledger.APPROPRIATEFOR)) {
+          const gstRate = ledger.GSTRATE ? parseFloat(ledger.GSTRATE) : 0;
+          if (gstRate > 0) {
+            const gstAmount = (ledgerValue * gstRate) / 100;
+            gstOnOtherLedgers[ledger.NAME] = gstAmount;
+          }
+        }
+      }
+    });
+
+    const totalGST = Object.values(gstAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+    const totalGstOnOtherLedgers = Object.values(gstOnOtherLedgers).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+    // Calculate amount before rounding
+    const amountBeforeRounding = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + finalOnCurrentSubTotal + totalGST + totalGstOnOtherLedgers;
+
+    // Helper function to calculate rounding
+    const calculateRounding = (amount, roundType, roundLimit) => {
+      const limit = parseFloat(roundLimit) || 1;
+
+      if (roundType === 'Normal Rounding') {
+        return Math.round(amount / limit) * limit - amount;
+      } else if (roundType === 'Upward Rounding') {
+        return Math.ceil(amount / limit) * limit - amount;
+      } else if (roundType === 'Downward Rounding') {
+        return Math.floor(amount / limit) * limit - amount;
+      }
+      return 0;
+    };
+
+    // Calculate rounding amounts
+    const roundingLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'As Total Amount Rounding'
+    );
+
+    let cumulativeRounding = 0;
+    const roundingAmounts = {};
+    roundingLedgers.forEach(ledger => {
+      const amountToRound = amountBeforeRounding + cumulativeRounding;
+      const roundingAmount = calculateRounding(
+        amountToRound,
+        ledger.ROUNDTYPE || 'Normal Rounding',
+        ledger.ROUNDLIMIT || '1'
+      );
+      roundingAmounts[ledger.NAME] = roundingAmount;
+      cumulativeRounding += roundingAmount;
+    });
+
+    // Build ledger amounts map for easy lookup
+    const ledgerAmountsMap = {};
+    selectedClassLedgers.forEach(ledger => {
+      const isUserDefined = ledger.METHODTYPE === 'As User Defined Value';
+      const isRounding = ledger.METHODTYPE === 'As Total Amount Rounding';
+      const isGST = ledger.METHODTYPE === 'GST';
+      const isFlatRate = ledger.METHODTYPE === 'As Flat Rate';
+      const isBasedOnQuantity = ledger.METHODTYPE === 'Based on Quantity';
+      const isOnTotalSales = ledger.METHODTYPE === 'On Total Sales';
+      const isOnCurrentSubTotal = ledger.METHODTYPE === 'On Current SubTotal';
+
+      let amount = 0;
+
+      if (isUserDefined) {
+        amount = parseFloat(ledgerValues[ledger.NAME] || 0);
+      } else if (isRounding) {
+        amount = roundingAmounts[ledger.NAME] || 0;
+      } else if (isGST) {
+        amount = gstAmounts[ledger.NAME] || 0;
+      } else if (isFlatRate) {
+        amount = flatRateAmounts[ledger.NAME] || 0;
+      } else if (isBasedOnQuantity) {
+        amount = basedOnQuantityAmounts[ledger.NAME] || 0;
+      } else if (isOnTotalSales) {
+        amount = onTotalSalesAmounts[ledger.NAME] || 0;
+      } else if (isOnCurrentSubTotal) {
+        amount = onCurrentSubTotalAmounts[ledger.NAME] || 0;
+      }
+
+      ledgerAmountsMap[ledger.NAME] = amount;
+    });
+
+    return {
+      subtotal,
+      ledgerAmounts: ledgerAmountsMap,
+      gstAmounts,
+      flatRateAmounts,
+      basedOnQuantityAmounts,
+      onTotalSalesAmounts,
+      onCurrentSubTotalAmounts,
+      roundingAmounts
+    };
+  }, [
+    selectedClassName,
+    selectedClassLedgers,
+    orderItems,
+    ledgerValues,
+    company,
+    filteredCompanies,
+    selectedCustomer,
+    customerOptions,
+    editableState
+  ]);
+
+
+
+  // Handle customer cache refresh
+
+  const handleRefreshCustomers = async () => {
+
+    if (!company) return;
+
+    const currentCompany = companies.find(c => c.guid === company);
+
+    if (!currentCompany) return;
+
+    setRefreshingCustomers(true);
+
+    setCustomerError('');
+
+    try {
+
+      console.log('🔄 Refreshing customer cache...');
+
+      await syncCustomers(currentCompany);
+
+      console.log('✅ Customer cache refreshed successfully');
+
+      // Dispatch event to notify other components
+      window.dispatchEvent(new CustomEvent('ledgerCacheUpdated', {
+        detail: { type: 'customers', company: currentCompany }
+      }));
+
+      // Small delay to ensure cache is fully written and readable
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Trigger re-fetch by incrementing refreshCustomers
+
+      setRefreshCustomers(prev => prev + 1);
+
+    } catch (error) {
+
+      console.error('❌ Error refreshing customer cache:', error);
+
+      setCustomerError('Failed to refresh customer cache. Please try again.');
+
+    } finally {
+
+      setRefreshingCustomers(false);
+
+    }
+
+  };
+
   // Fetch customers with addresses when company changes or refreshCustomers increments
 
   useEffect(() => {
@@ -4612,53 +5163,56 @@ function PlaceOrder() {
 
       // Cache updates are handled by Cache Management page
 
-      try {
+      // Retry logic for reading cache (handles timing issues after cache write)
+      let cachedCustomers = null;
+      let retries = refreshCustomers > 0 ? 3 : 1; // Retry more times if we just refreshed
+      let attempt = 0;
 
-        const cachedCustomers = await getCustomersFromOPFS(cacheKey);
+      while (attempt < retries && !cachedCustomers) {
+        try {
+          attempt++;
+          console.log(`📖 Attempting to load customers from cache (attempt ${attempt}/${retries})...`);
 
-        if (cachedCustomers && Array.isArray(cachedCustomers) && cachedCustomers.length > 0) {
+          cachedCustomers = await getCustomersFromOPFS(cacheKey);
 
-          console.log(`✅ Loaded ${cachedCustomers.length} customers from cache`);
-
-          setCustomerOptions(cachedCustomers);
-
-          if (cachedCustomers.length === 1) setSelectedCustomer(cachedCustomers[0].NAME);
-
-          else setSelectedCustomer('');
-
-          setCustomerError('');
-
-          setCustomerLoading(false);
-
-        } else {
-
-          // No cache found - user needs to refresh from Cache Management
-
-          console.warn('No customer cache found. Please refresh from Cache Management.');
-
-          setCustomerOptions([]);
-
-          setSelectedCustomer('');
-
-          setCustomerError('No customer data found. Please use the refresh button in the top bar to load customer data.');
-
-          setCustomerLoading(false);
-
+          if (cachedCustomers && Array.isArray(cachedCustomers) && cachedCustomers.length > 0) {
+            console.log(`✅ Successfully loaded ${cachedCustomers.length} customers from cache`);
+            break;
+          } else {
+            cachedCustomers = null;
+            if (attempt < retries) {
+              console.log(`⚠️ No data found, retrying in 200ms...`);
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
+          }
+        } catch (cacheError) {
+          console.error(`❌ Error loading customers from cache (attempt ${attempt}):`, cacheError);
+          if (attempt < retries) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          } else {
+            setCustomerOptions([]);
+            setSelectedCustomer('');
+            setCustomerError('Error loading customer data. Please use the refresh button in the top bar.');
+            setCustomerLoading(false);
+            return;
+          }
         }
-
-      } catch (cacheError) {
-
-        console.error('Error loading customers from cache:', cacheError);
-
-        setCustomerOptions([]);
-
-        setSelectedCustomer('');
-
-        setCustomerError('Error loading customer data. Please use the refresh button in the top bar.');
-
-        setCustomerLoading(false);
-
       }
+
+      if (cachedCustomers && Array.isArray(cachedCustomers) && cachedCustomers.length > 0) {
+        setCustomerOptions(cachedCustomers);
+        if (cachedCustomers.length === 1) setSelectedCustomer(cachedCustomers[0].NAME);
+        else setSelectedCustomer('');
+        setCustomerError('');
+      } else {
+        // No data in cache after retries
+        console.warn('⚠️ No customer data found in cache after retries');
+        setCustomerOptions([]);
+        setSelectedCustomer('');
+        setCustomerError('No customer data found. Please use the refresh button in the top bar to load customer data.');
+      }
+
+      setCustomerLoading(false);
 
 
 
@@ -6173,15 +6727,15 @@ function PlaceOrder() {
 
     backgroundColor: '#fff',
 
-    borderRadius: '12px',
+    borderRadius: isMobile ? '16px' : '12px',
 
-    padding: '24px',
+    padding: isMobile ? '16px' : '24px',
 
-    maxWidth: '500px',
+    maxWidth: isMobile ? '95%' : '500px',
 
-    width: '90%',
+    width: isMobile ? '95%' : '90%',
 
-    maxHeight: '80vh',
+    maxHeight: isMobile ? '90vh' : '80vh',
 
     overflow: 'auto',
 
@@ -6199,9 +6753,9 @@ function PlaceOrder() {
 
     alignItems: 'center',
 
-    marginBottom: '20px',
+    marginBottom: isMobile ? '16px' : '20px',
 
-    paddingBottom: '16px',
+    paddingBottom: isMobile ? '12px' : '16px',
 
     borderBottom: '2px solid #3b82f6',
 
@@ -6215,7 +6769,7 @@ function PlaceOrder() {
 
     color: '#1f2937',
 
-    fontSize: '20px',
+    fontSize: isMobile ? '18px' : '20px',
 
     fontWeight: '600',
 
@@ -6229,13 +6783,13 @@ function PlaceOrder() {
 
     border: 'none',
 
-    fontSize: '24px',
+    fontSize: isMobile ? '22px' : '24px',
 
     cursor: 'pointer',
 
     color: '#6b7280',
 
-    padding: '4px',
+    padding: isMobile ? '6px' : '4px',
 
     borderRadius: '4px',
 
@@ -6247,7 +6801,7 @@ function PlaceOrder() {
 
   const formGroupStyle = {
 
-    marginBottom: '20px',
+    marginBottom: isMobile ? '16px' : '20px',
 
   };
 
@@ -6257,13 +6811,13 @@ function PlaceOrder() {
 
     display: 'block',
 
-    marginBottom: '8px',
+    marginBottom: isMobile ? '6px' : '8px',
 
     fontWeight: '600',
 
     color: '#374151',
 
-    fontSize: '14px',
+    fontSize: isMobile ? '13px' : '14px',
 
   };
 
@@ -6273,13 +6827,13 @@ function PlaceOrder() {
 
     width: '100%',
 
-    padding: '12px',
+    padding: isMobile ? '12px 14px' : '12px',
 
     border: '1px solid #d1d5db',
 
-    borderRadius: '8px',
+    borderRadius: isMobile ? '10px' : '8px',
 
-    fontSize: '14px',
+    fontSize: isMobile ? '15px' : '14px',
 
     boxSizing: 'border-box',
 
@@ -6293,9 +6847,13 @@ function PlaceOrder() {
 
     ...inputStyle,
 
-    minHeight: '80px',
+    minHeight: isMobile ? '100px' : '80px',
 
     resize: 'vertical',
+
+    height: 'auto',
+
+    padding: isMobile ? '12px 14px' : '12px',
 
   };
 
@@ -6317,11 +6875,13 @@ function PlaceOrder() {
 
     display: 'flex',
 
-    gap: '12px',
+    gap: isMobile ? '10px' : '12px',
 
     justifyContent: 'flex-end',
 
-    marginTop: '24px',
+    marginTop: isMobile ? '20px' : '24px',
+
+    flexDirection: isMobile ? 'column-reverse' : 'row',
 
   };
 
@@ -6329,19 +6889,21 @@ function PlaceOrder() {
 
   const buttonStyle = {
 
-    padding: '12px 24px',
+    padding: isMobile ? '14px 20px' : '12px 24px',
 
     border: 'none',
 
-    borderRadius: '8px',
+    borderRadius: isMobile ? '10px' : '8px',
 
-    fontSize: '14px',
+    fontSize: isMobile ? '15px' : '14px',
 
     fontWeight: '600',
 
     cursor: 'pointer',
 
     transition: 'all 0.2s',
+
+    width: isMobile ? '100%' : 'auto',
 
   };
 
@@ -6455,13 +7017,29 @@ function PlaceOrder() {
 
 
 
-      // Find the selected voucher type to get PREFIX and SUFFIX
+      // Find the selected voucher type to get PREFIX and SUFFIX, ISOUTENTRY, PERSISTEDVIEW
 
       const selectedVoucherTypeObj = voucherTypes.find(vt => vt.NAME === selectedVoucherType);
 
       const voucherNumber = selectedVoucherTypeObj
 
         ? `${selectedVoucherTypeObj.PREFIX}${timestamp}${selectedVoucherTypeObj.SUFFIX}`
+
+        : '';
+
+      // Get selected class object to access LEDGERFORINVENTORYLIST
+
+      const selectedClassObj = selectedVoucherTypeObj && selectedVoucherTypeObj.VOUCHERCLASSLIST
+
+        ? selectedVoucherTypeObj.VOUCHERCLASSLIST.find(cls => cls.CLASSNAME === selectedClassName)
+
+        : null;
+
+      // Get ledger name for inventory items from LEDGERFORINVENTORYLIST
+
+      const inventoryLedgerName = selectedClassObj && selectedClassObj.LEDGERFORINVENTORYLIST && selectedClassObj.LEDGERFORINVENTORYLIST.length > 0
+
+        ? selectedClassObj.LEDGERFORINVENTORYLIST[0].NAME
 
         : '';
 
@@ -6558,6 +7136,12 @@ function PlaceOrder() {
         ...(canShowDelvTerms && { basicorderterms: deliveryTerms || '' }),
 
         vouchertype: selectedVoucherType || '',
+
+        ...(selectedVoucherTypeObj?.ISOUTENTRY && { isoutentry: selectedVoucherTypeObj.ISOUTENTRY }),
+
+        ...(selectedVoucherTypeObj?.PERSISTEDVIEW && { persistedview: selectedVoucherTypeObj.PERSISTEDVIEW }),
+
+        ...(selectedClassName && { classname: selectedClassName }),
 
         vouchernumber: voucherNumber,
 
@@ -6697,11 +7281,12 @@ function PlaceOrder() {
           // Build payload item
           const payloadItem = {
             item: item.name,
+            ...(inventoryLedgerName && { ledgername: inventoryLedgerName }),
             qty: qtyString, // Always base quantity display
             rate: rateString,
             discount: item.discountPercent || 0,
             gst: item.gstPercent || 0,
-            amount: item.amount,
+            amount: Math.round(parseFloat(item.amount || 0) * 100) / 100,
             description: item.description || ''
           };
 
@@ -6749,7 +7334,27 @@ function PlaceOrder() {
           }*/
 
           return payloadItem;
-        })
+        }),
+
+        // Build ledgers array with all ledger entries that have values (use pre-calculated values)
+        ledgers: (() => {
+          const ledgersArray = [];
+
+          // Use the pre-calculated ledger amounts from useMemo
+          selectedClassLedgers.forEach(ledger => {
+            const ledgerAmount = calculatedLedgerAmounts.ledgerAmounts[ledger.NAME] || 0;
+
+            // Add ledger if it has a non-zero amount (including negative values)
+            if (ledgerAmount !== 0) {
+              ledgersArray.push({
+                ledgername: ledger.NAME,
+                amount: Math.round(parseFloat(ledgerAmount) * 100) / 100
+              });
+            }
+          });
+
+          return ledgersArray;
+        })()
 
       };
 
@@ -7699,19 +8304,30 @@ function PlaceOrder() {
 
 
 
+  // Get current company for display
+  const currentCompany = companies.find(c => c.guid === selectedCompanyGuid);
+
   return (
 
-    <div style={{
+    <div className="receivables-page" style={{
 
       width: '100%',
 
-      minHeight: '100%',
+      minHeight: '100vh',
 
       background: 'transparent',
 
-      padding: 0,
+      padding: isMobile ? '20px' : '24px',
 
       margin: 0,
+
+      maxWidth: '1400px',
+
+      marginLeft: 'auto',
+
+      marginRight: 'auto',
+
+      boxSizing: 'border-box',
 
     }}>
 
@@ -7839,973 +8455,384 @@ function PlaceOrder() {
 
 
 
-      {/* Company, Customer, and Place Order Section */}
-
-      <div style={{
-
-        background: '#fff',
-
-        margin: isMobile ? '12px 8px' : '24px 24px 16px 24px',
-
-        maxWidth: isMobile ? '100%' : '1400px',
-
-        width: isMobile ? 'calc(100% - 16px)' : 'auto',
-
-        borderRadius: isMobile ? '16px' : '16px',
-
-        boxShadow: isMobile ? '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.1)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-
-        overflow: 'visible',
-
-        border: isMobile ? '1px solid #e5e7eb' : '1px solid #e5e7eb',
-
-        position: 'relative'
-
+      {/* Page Header - Matching Receivables Dashboard */}
+      <div className="page-header" style={{
+        marginBottom: isMobile ? '0.75rem' : '2rem',
+        flexShrink: 0,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: '1.5rem',
+        flexWrap: isMobile ? 'wrap' : 'nowrap',
+        width: '100%',
       }}>
-
-        {/* Form - Place Order */}
-
-        <form onSubmit={handleSubmit} style={{ padding: isMobile ? '16px 12px' : '12px', width: isMobile ? '100%' : '98%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
-
-          {/* Header */}
-
-          <div style={{
-
-            display: 'flex',
-
-            flexDirection: isMobile ? 'column' : 'row',
-
-            alignItems: isMobile ? 'flex-start' : 'center',
-
-            justifyContent: 'space-between',
-
-            gap: isMobile ? '14px' : '0',
-
-            marginBottom: isMobile ? '8px' : '6px',
-
-            paddingBottom: isMobile ? '14px' : '16px',
-
-            borderBottom: '1px solid #f3f4f6',
-
-            position: 'relative'
-
-          }}>
-
-            <div style={{
-
-              display: 'flex',
-
-              alignItems: 'center',
-
-              gap: '12px'
-
+        <div className="page-header-left" style={{ width: isMobile ? '100%' : 'auto' }}>
+          <div className="page-header-titles">
+            <h1 style={{
+              fontSize: isMobile ? '1.375rem' : '2.5rem',
+              marginBottom: isMobile ? '0.25rem' : '0.5rem',
+              fontWeight: '700',
+              color: '#1a202c',
+              margin: 0,
             }}>
-
-              <div style={{
-
-                width: '40px',
-
-                height: '40px',
-
-                borderRadius: '50%',
-
-                background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
-
-                display: 'flex',
-
-                alignItems: 'center',
-
-                justifyContent: 'center',
-
-                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
-
-              }}>
-
-                <span className="material-icons" style={{ fontSize: '20px', color: '#fff' }}>
-
-                  business
-
-                </span>
-
-              </div>
-
-              <h3 style={{
-
-                margin: 0,
-
-                fontSize: isMobile ? '16px' : '20px',
-
-                fontWeight: '600',
-
-                color: '#1f2937'
-
-              }}>
-
-                Customer Details
-
-              </h3>
-
-            </div>
-
-
-
-            {/* Optional text centered between Customer Details and customer count */}
-
-            {canSaveOptional && !isMobile && (
-
-              <div style={{
-
-                position: 'absolute',
-
-                left: '50%',
-
-                transform: 'translateX(-50%)',
-
-                fontSize: '14px',
-
-                fontWeight: '400',
-
-                color: '#6b7280',
-
-                fontStyle: 'italic'
-
-              }}>
-
-                (Optional)
-
-              </div>
-
-            )}
-
-            {canSaveOptional && isMobile && (
-
-              <div style={{
-
-                fontSize: '12px',
-
-                fontWeight: '400',
-
-                color: '#6b7280',
-
-                fontStyle: 'italic'
-
-              }}>
-
-                (Optional)
-
-              </div>
-
-            )}
-
-
-
-            {/* Customer Count Display */}
-
-            <div style={{
-
-              display: 'flex',
-
-              alignItems: 'center',
-
-              gap: '12px',
-
-              width: isMobile ? '100%' : 'auto'
-
+              Place Order
+            </h1>
+            <p className="subtitle" style={{
+              fontSize: isMobile ? '0.875rem' : '1.1rem',
+              color: '#718096',
+              fontWeight: '600',
+              margin: 0,
             }}>
-
-              {/* Customer Count Display */}
-
-              <div style={{
-
-                fontSize: isMobile ? '12px' : '14px',
-
-                color: '#64748b',
-
-                fontWeight: '500',
-
-                padding: isMobile ? '8px 14px' : '8px 16px',
-
-                backgroundColor: '#f8fafc',
-
-                borderRadius: '20px',
-
-                border: '1px solid #e2e8f0',
-
-                display: 'flex',
-
-                alignItems: 'center',
-
-                gap: '8px',
-
-                position: 'relative',
-
-                zIndex: 1,
-
-                maxWidth: isMobile ? '100%' : '200px',
-
-                overflow: 'hidden',
-
-                textOverflow: 'ellipsis',
-
-                whiteSpace: 'nowrap',
-
-                flex: isMobile ? '1' : 'none'
-
-              }}>
-
-                <span style={{ fontSize: isMobile ? '14px' : '16px', flexShrink: 0 }}>👥</span>
-
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-
-                  {customerLoading ? 'Loading...' : customerError ? 'Error' : `${customerOptions.length.toLocaleString()} customers available`}
-
-                </span>
-
-              </div>
-
-            </div>
-
+              {currentCompany?.company || 'Select a company'}
+            </p>
           </div>
+        </div>
+        <div className="page-header-actions" style={{
+          width: isMobile ? '100%' : 'auto',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.75rem',
+          flexShrink: 0,
+        }}>
+          <button
+            onClick={() => {
+              setRefreshStockItems(prev => prev + 1);
+              setRefreshCustomers(prev => prev + 1);
+            }}
+            className="refresh-button"
+            title="Refresh data"
+            style={{
+              width: isMobile ? '100%' : 'auto',
+              padding: isMobile ? '12px 20px' : '12px 24px',
+              height: isMobile ? '44px' : '48px',
+              fontSize: isMobile ? '14px' : '15px',
+              borderRadius: '8px',
+              WebkitTapHighlightColor: 'transparent',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              border: 'none',
+              background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
+              color: '#fff',
+              fontWeight: '600',
+              boxShadow: '0 12px 20px rgba(37, 99, 235, 0.25)',
+              cursor: 'pointer',
+              transition: 'transform 0.2s, box-shadow 0.2s, background 0.2s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = 'translateY(-1px)';
+              e.currentTarget.style.boxShadow = '0 16px 24px rgba(37, 99, 235, 0.25)';
+              e.currentTarget.style.background = 'linear-gradient(135deg, #1d4ed8, #1e40af)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = '0 12px 20px rgba(37, 99, 235, 0.25)';
+              e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb, #1d4ed8)';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>refresh</span>
+            <span>Refresh Data</span>
+          </button>
+        </div>
+      </div>
 
+      {/* Company, Customer, and Place Order Section */}
+      <div className="receivables-content" style={{
+        display: isMobile ? 'block' : 'flex',
+        flexDirection: isMobile ? 'column' : 'row',
+        width: '100%',
+        boxSizing: 'border-box',
+        overflowX: 'hidden',
+        gap: '24px'
+      }}>
+        {/* Left Content Area */}
+        <div style={{
+          flex: isMobile ? 'none' : '1 1 0',
+          minWidth: 0,
+          width: isMobile ? '100%' : 'auto',
+          padding: isMobile ? '20px' : '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: isMobile ? '24px' : '32px',
+          boxSizing: 'border-box'
+        }}>
+          {/* Form - Place Order */}
+          <form id="order-form" onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
 
-
-          <div style={{
-
-            display: 'flex',
-
-            flexDirection: isMobile ? 'column' : 'row',
-
-            gap: isMobile ? '14px' : '16px',
-
-            alignItems: isMobile ? 'stretch' : 'end',
-
-            minHeight: '60px',
-
-            position: 'relative'
-
-          }}>
-
-            {/* VoucherType */}
-
+            {/* Customer Details Section */}
             <div style={{
+              background: '#ffffff',
+              borderRadius: '0.75rem',
+              padding: isMobile ? '20px' : '24px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+              transition: 'all 0.2s ease',
+            }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
+              }}>
+              <h2 style={{
+                margin: '0 0 4px 0',
+                fontSize: isMobile ? '18px' : '20px',
+                fontWeight: '600',
+                color: '#1f2937'
+              }}>
+                Customer Details
+              </h2>
+              <p style={{
+                margin: '0 0 16px 0',
+                fontSize: isMobile ? '13px' : '14px',
+                color: '#6b7280',
+                fontWeight: '400'
+              }}>
+                Select customer and order type
+              </p>
 
-              position: 'relative',
 
-              flex: isMobile ? '1 1 100%' : '0 0 280px',
 
-              width: isMobile ? '100%' : 'auto'
 
-            }}>
+
 
               <div style={{
-
+                display: 'flex',
+                flexDirection: isMobile ? 'column' : 'row',
+                gap: '16px',
+                alignItems: isMobile ? 'stretch' : 'flex-end',
                 position: 'relative',
-
-                background: 'white',
-
-                borderRadius: isMobile ? '10px' : '10px',
-
-                border: showVoucherTypeDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
-
-                transition: 'all 0.2s ease',
-
-                boxShadow: showVoucherTypeDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
-
-                zIndex: showVoucherTypeDropdown ? 1001 : 'auto'
-
+                width: '100%'
               }}>
 
-                <input
-
-                  type="text"
-
-                  value={selectedVoucherType}
-
-                  onChange={e => {
-
-                    const inputValue = e.target.value;
-
-                    setSelectedVoucherType(inputValue);
-
-                    setShowVoucherTypeDropdown(true);
-
-                    // Filter voucher types based on search
-
-                    if (!inputValue.trim()) {
-
-                      setVoucherTypes(voucherTypes);
-
-                    } else {
-
-                      const filtered = voucherTypes.filter(vt =>
-
-                        vt.NAME.toLowerCase().includes(inputValue.toLowerCase())
-
-                      );
-
-                      setVoucherTypes(filtered);
-
-                    }
-
-                  }}
-
-                  onFocus={() => {
-
-                    setVoucherTypeFocused(true);
-
-                    setShowVoucherTypeDropdown(true);
-
-                  }}
-
-                  onBlur={() => {
-
-                    setVoucherTypeFocused(false);
-
-                    // Delay hiding dropdown to allow click events
-
-                    setTimeout(() => setShowVoucherTypeDropdown(false), 200);
-
-                  }}
-
-                  onKeyDown={(e) => {
-
-                    if (e.key === 'Escape') {
-
-                      setShowVoucherTypeDropdown(false);
-
-                      e.target.blur();
-
-                    }
-
-                  }}
-
-                  required
-
-                  disabled={voucherTypesLoading}
-
-                  style={{
-
-                    width: '100%',
-
-                    padding: isMobile ? '14px 18px' : '15px 18px',
-
-                    border: 'none',
-
-                    borderRadius: '10px',
-
-                    fontSize: isMobile ? '14px' : '15px',
-
-                    color: '#1e293b',
-
-                    outline: 'none',
-
-                    background: 'transparent',
-
-                    cursor: voucherTypesLoading ? 'not-allowed' : 'text',
-
-                    height: isMobile ? '48px' : '52px',
-
-                    boxSizing: 'border-box'
-
-                  }}
-
-                  placeholder={voucherTypesLoading ? 'Loading voucher types...' : 'Select Voucher Type'}
-
-                />
-
-                <label style={{
-
-                  position: 'absolute',
-
-                  left: '20px',
-
-                  top: voucherTypeFocused || selectedVoucherType ? '-10px' : '16px',
-
-                  fontSize: voucherTypeFocused || selectedVoucherType ? '12px' : '15px',
-
-                  fontWeight: '600',
-
-                  color: '#3b82f6',
-
-                  backgroundColor: 'white',
-
-                  padding: '0 8px',
-
-                  transition: 'all 0.2s ease',
-
-                  pointerEvents: 'none'
-
+                {/* VoucherType */}
+                <div style={{
+                  position: 'relative',
+                  flex: isMobile ? '1 1 100%' : '1 1 0',
+                  width: isMobile ? '100%' : 'auto',
+                  minWidth: isMobile ? 'auto' : '200px',
+                  maxWidth: isMobile ? '100%' : '240px'
                 }}>
-
-                  Voucher Type
-
-                </label>
-
-                {selectedVoucherType && (
-
-                  <button
-
-                    type="button"
-
-                    onClick={() => {
-
-                      setSelectedVoucherType('');
-
-                      setShowVoucherTypeDropdown(false);
-
-                    }}
-
-                    style={{
-
-                      position: 'absolute',
-
-                      right: '12px',
-
-                      top: '50%',
-
-                      transform: 'translateY(-50%)',
-
-                      background: 'none',
-
-                      border: 'none',
-
-                      cursor: 'pointer',
-
-                      color: '#6b7280',
-
-                      fontSize: '18px',
-
-                      lineHeight: 1,
-
-                      padding: '4px'
-
-                    }}
-
-                    title="Clear selection"
-
-                  >
-
-                    ×
-
-                  </button>
-
-                )}
-
-                {voucherTypesLoading && (
 
                   <div style={{
 
-                    position: 'absolute',
+                    position: 'relative',
 
-                    right: '12px',
+                    background: 'white',
 
-                    top: '50%',
+                    borderRadius: '8px',
 
-                    transform: 'translateY(-50%)',
+                    border: showVoucherTypeDropdown ? '2px solid #7c3aed' : '1px solid #e2e8f0',
 
-                    color: '#6b7280',
+                    transition: 'all 0.2s ease',
 
-                    fontSize: '16px'
+                    boxShadow: showVoucherTypeDropdown ? '0 0 0 3px rgba(124, 58, 237, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+
+                    zIndex: showVoucherTypeDropdown ? 1001 : 'auto'
 
                   }}>
 
-                    ⟳
+                    <input
 
-                  </div>
+                      type="text"
 
-                )}
+                      value={selectedVoucherType}
 
-              </div>
+                      onChange={e => {
 
+                        const inputValue = e.target.value;
 
+                        setSelectedVoucherType(inputValue);
 
-              {/* VoucherType Dropdown */}
+                        setShowVoucherTypeDropdown(true);
 
-              {showVoucherTypeDropdown && voucherTypes.length > 0 && (
+                        // Filter voucher types based on search
 
-                <div style={{
+                        if (!inputValue.trim()) {
 
-                  position: 'absolute',
+                          setVoucherTypes(voucherTypes);
 
-                  top: '100%',
+                        } else {
 
-                  left: 0,
+                          const filtered = voucherTypes.filter(vt =>
 
-                  right: 0,
+                            vt.NAME.toLowerCase().includes(inputValue.toLowerCase())
 
-                  backgroundColor: 'white',
+                          );
 
-                  border: '1px solid #e2e8f0',
+                          setVoucherTypes(filtered);
 
-                  borderRadius: '12px',
-
-                  boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
-
-                  zIndex: 1002,
-
-                  maxHeight: '200px',
-
-                  overflowY: 'auto',
-
-                  marginTop: '4px'
-
-                }}>
-
-                  {voucherTypes.map((voucherType, index) => (
-
-                    <div
-
-                      key={voucherType.NAME}
-
-                      onClick={() => {
-
-                        setSelectedVoucherType(voucherType.NAME);
-
-                        setShowVoucherTypeDropdown(false);
-
-                        // Save the selected voucher type for future use
-
-                        sessionStorage.setItem('selectedVoucherType', voucherType.NAME);
+                        }
 
                       }}
+
+                      onFocus={() => {
+
+                        setVoucherTypeFocused(true);
+
+                        setShowVoucherTypeDropdown(true);
+
+                      }}
+
+                      onBlur={() => {
+
+                        setVoucherTypeFocused(false);
+
+                        // Delay hiding dropdown to allow click events
+
+                        setTimeout(() => setShowVoucherTypeDropdown(false), 200);
+
+                      }}
+
+                      onKeyDown={(e) => {
+
+                        if (e.key === 'Escape') {
+
+                          setShowVoucherTypeDropdown(false);
+
+                          e.target.blur();
+
+                        }
+
+                      }}
+
+                      required
+
+                      disabled={voucherTypesLoading}
 
                       style={{
 
-                        padding: '12px 16px',
+                        width: '100%',
 
-                        cursor: 'pointer',
+                        padding: isMobile ? '12px 16px' : '14px 16px',
 
-                        borderBottom: index < voucherTypes.length - 1 ? '1px solid #f1f5f9' : 'none',
+                        border: 'none',
 
-                        transition: 'background-color 0.2s ease'
+                        borderRadius: '8px',
+
+                        fontSize: isMobile ? '14px' : '15px',
+
+                        color: '#111827',
+
+                        outline: 'none',
+
+                        background: 'transparent',
+
+                        cursor: voucherTypesLoading ? 'not-allowed' : 'text',
+
+                        height: isMobile ? '44px' : '48px',
+
+                        boxSizing: 'border-box',
+
+                        fontWeight: '400'
 
                       }}
 
-                      onMouseEnter={(e) => {
+                      placeholder={voucherTypesLoading ? 'Loading voucher types...' : 'Select Voucher Type'}
 
-                        e.target.style.backgroundColor = '#f8fafc';
+                    />
 
-                      }}
-
-                      onMouseLeave={(e) => {
-
-                        e.target.style.backgroundColor = 'white';
-
-                      }}
-
-                    >
-
-                      <div style={{
-
-                        fontWeight: '600',
-
-                        color: '#1e293b',
-
-                        fontSize: '14px'
-
-                      }}>
-
-                        {voucherType.NAME}
-
-                      </div>
-
-                      <div style={{
-
-                        fontSize: '12px',
-
-                        color: '#64748b',
-
-                        marginTop: '2px'
-
-                      }}>
-
-                        {voucherType.PREFIX}{voucherType.SUFFIX}
-
-                      </div>
-
-                    </div>
-
-                  ))}
-
-                </div>
-
-              )}
-
-            </div>
-
-
-
-            {/* Customer */}
-
-            <div style={{
-
-              position: 'relative',
-
-              flex: isMobile ? '1 1 100%' : '1 1 450px',
-
-              width: isMobile ? '100%' : 'auto',
-
-              minWidth: isMobile ? '100%' : '350px'
-
-            }}>
-
-              <div style={{
-
-                position: 'relative',
-
-                background: 'white',
-
-                borderRadius: isMobile ? '10px' : '10px',
-
-                border: showCustomerDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
-
-                transition: 'all 0.2s ease',
-
-                boxShadow: showCustomerDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
-
-                zIndex: showCustomerDropdown ? 1001 : 'auto'
-
-              }}>
-
-                <input
-
-                  type="text"
-
-                  value={selectedCustomer || customerSearchTerm}
-
-                  onChange={e => {
-
-                    const inputValue = e.target.value;
-
-                    // Clear auto-population state when user manually types in customer field
-
-                    if (isAutoPopulating || autoPopulatingRef.current) {
-
-                      console.log('🔄 User manually typing in customer field - clearing auto-population state');
-
-                      setIsAutoPopulating(false);
-
-                      autoPopulatingRef.current = false;
-
-                    }
-
-                    setCustomerSearchTerm(inputValue);
-
-                    setSelectedCustomer('');
-
-                    setShowCustomerDropdown(true);
-
-                    // Clear filtered results immediately when clearing search or starting new search
-
-                    if (!inputValue.trim()) {
-
-                      // Always show all customers when no search term (like ecommerce)
-
-                      setFilteredCustomers(customerOptions);
-
-                    } else {
-
-                      // Clear previous results immediately when starting new search
-
-                      // The debounced search will populate new results
-
-                      setFilteredCustomers([]);
-
-                    }
-
-                  }}
-
-                  onFocus={() => {
-
-                    setCustomerFocused(true);
-
-                    setShowCustomerDropdown(true);
-
-                    // Always show all customers when focused (like ecommerce)
-
-                    setFilteredCustomers(customerOptions);
-
-                  }}
-
-                  onBlur={(e) => {
-
-                    console.log('👋 Customer input blur triggered');
-
-                    console.log('👋 Related target:', e.relatedTarget);
-
-                    console.log('👋 Active element:', document.activeElement);
-
-                    setCustomerFocused(false);
-
-                    // Delay hiding dropdown to allow click events
-
-                    setTimeout(() => {
-
-                      console.log('👋 Blur timeout - closing dropdown');
-
-                      setShowCustomerDropdown(false);
-
-                    }, 200);
-
-                  }}
-
-                  onKeyDown={(e) => {
-
-                    if (e.key === 'Escape') {
-
-                      setShowCustomerDropdown(false);
-
-                      e.target.blur();
-
-                    }
-
-                  }}
-
-                  required
-
-                  disabled={customerLoading}
-
-                  style={{
-
-                    width: '100%',
-
-                    padding: isMobile ? '14px 18px' : '15px 18px',
-
-                    paddingRight: selectedCustomer ? '50px' : '18px',
-
-                    border: 'none',
-
-                    borderRadius: '10px',
-
-                    fontSize: isMobile ? '14px' : '15px',
-
-                    color: '#374151',
-
-                    outline: 'none',
-
-                    background: 'transparent',
-
-                    cursor: customerLoading ? 'not-allowed' : 'text',
-
-                    height: isMobile ? '48px' : '52px',
-
-                    boxSizing: 'border-box'
-
-                  }}
-
-                  placeholder={customerLoading ? 'Loading...' : customerError ? customerError : ''}
-
-                />
-
-
-
-                {/* Search Icon or Dropdown Arrow */}
-
-                {!selectedCustomer && (
-
-                  <span
-
-                    className="material-icons"
-
-                    style={{
-
+                    <label style={{
                       position: 'absolute',
-
-                      right: '16px',
-
-                      top: '50%',
-
-                      transform: 'translateY(-50%)',
-
-                      color: showCustomerDropdown ? '#3b82f6' : '#9ca3af',
-
-                      fontSize: '20px',
-
+                      left: '16px',
+                      top: '-8px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      color: voucherTypeFocused || selectedVoucherType ? '#7c3aed' : '#6b7280',
+                      backgroundColor: 'white',
+                      padding: '0 6px',
+                      transition: 'all 0.2s ease',
                       pointerEvents: 'none',
+                      zIndex: 1
+                    }}>
+                      Order Type
+                    </label>
 
-                      transition: 'color 0.2s ease'
+                    {selectedVoucherType && (
 
-                    }}
+                      <button
 
-                  >
+                        type="button"
 
-                    {showCustomerDropdown ? 'expand_less' : 'search'}
+                        onClick={() => {
 
-                  </span>
+                          setSelectedVoucherType('');
 
-                )}
+                          setShowVoucherTypeDropdown(false);
 
+                        }}
 
+                        style={{
 
-                {/* Clear Button for Customer */}
+                          position: 'absolute',
 
-                {selectedCustomer && (
+                          right: '12px',
 
-                  <button
+                          top: '50%',
 
-                    type="button"
+                          transform: 'translateY(-50%)',
 
-                    onClick={() => {
+                          background: 'none',
 
-                      // Clear auto-population state when user manually clears customer
+                          border: 'none',
 
-                      if (isAutoPopulating || autoPopulatingRef.current) {
+                          cursor: 'pointer',
 
-                        console.log('🔄 User manually cleared customer - clearing auto-population state');
+                          color: '#6b7280',
 
-                        setIsAutoPopulating(false);
+                          fontSize: '18px',
 
-                        autoPopulatingRef.current = false;
+                          lineHeight: 1,
 
-                      }
+                          padding: '4px'
 
-                      setSelectedCustomer('');
+                        }}
 
-                      setCustomerSearchTerm('');
+                        title="Clear selection"
 
-                      setShowCustomerDropdown(false);
+                      >
 
-                      // Always show all customers when reopening (like ecommerce)
+                        ×
 
-                      setFilteredCustomers(customerOptions);
+                      </button>
 
-                    }}
+                    )}
 
-                    style={{
+                    {voucherTypesLoading && (
+
+                      <div style={{
+
+                        position: 'absolute',
+
+                        right: '12px',
+
+                        top: '50%',
+
+                        transform: 'translateY(-50%)',
+
+                        color: '#6b7280',
+
+                        fontSize: '16px'
+
+                      }}>
+
+                        ⟳
+
+                      </div>
+
+                    )}
+
+                  </div>
+
+                  {/* VoucherType Dropdown */}
+
+                  {showVoucherTypeDropdown && voucherTypes.length > 0 && (
+
+                    <div style={{
 
                       position: 'absolute',
 
-                      right: '8px',
-
-                      top: '50%',
-
-                      transform: 'translateY(-50%)',
-
-                      background: 'none',
-
-                      border: 'none',
-
-                      cursor: 'pointer',
-
-                      padding: '4px',
-
-                      borderRadius: '50%',
-
-                      color: '#64748b',
-
-                      fontSize: '18px',
-
-                      display: 'flex',
-
-                      alignItems: 'center',
-
-                      justifyContent: 'center',
-
-                      transition: 'color 0.2s ease'
-
-                    }}
-
-                    title="Clear customer"
-
-                  >
-
-                    ×
-
-                  </button>
-
-                )}
-
-
-
-                <label style={{
-
-                  position: 'absolute',
-
-                  left: '20px',
-
-                  top: '-10px',
-
-                  fontSize: '12px',
-
-                  fontWeight: '600',
-
-                  color: customerFocused || !!selectedCustomer ? '#3b82f6' : '#64748b',
-
-                  backgroundColor: 'white',
-
-                  padding: '0 8px',
-
-                  transition: 'all 0.2s ease',
-
-                  pointerEvents: 'none'
-
-                }}>
-
-                  Customer
-
-                </label>
-
-
-
-                {customerLoading && (
-
-                  <div style={{
-
-                    position: 'absolute',
-
-                    right: 60,
-
-                    top: '50%',
-
-                    transform: 'translateY(-50%)',
-
-                    width: 16,
-
-                    height: 16,
-
-                    border: '2px solid #e5e7eb',
-
-                    borderTop: '2px solid #3b82f6',
-
-                    borderRadius: '50%',
-
-                    animation: 'spin 1s linear infinite'
-
-                  }} />
-
-                )}
-
-
-
-                {/* Custom Customer Dropdown */}
-
-                {showCustomerDropdown && (
-
-                  <div
-
-                    className="dropdown-animation"
-
-                    onMouseDown={(e) => {
-
-                      console.log('🖱️ Dropdown container mousedown');
-
-                      // Don't prevent default here - let items handle it
-
-                    }}
-
-                    onClick={(e) => {
-
-                      console.log('🖱️ Dropdown container clicked');
-
-                      // Don't stop propagation - let items handle it
-
-                    }}
-
-                    style={{
-
-                      position: 'absolute',
-
-                      top: 'calc(100% + 8px)',
+                      top: '100%',
 
                       left: 0,
 
@@ -8813,1110 +8840,39 @@ function PlaceOrder() {
 
                       backgroundColor: 'white',
 
-                      border: '2px solid #3b82f6',
-
-                      borderRadius: '8px',
-
-                      maxHeight: '300px',
-
-                      overflowY: 'auto',
-
-                      zIndex: 9999,
-
-                      boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
-
-                      marginTop: '0',
-
-                      minHeight: '50px'
-
-                    }}
-
-                  >
-
-
-
-                    {/* Loading indicator */}
-
-                    {customerSearchTerm.trim() && filteredCustomers.length === 0 && (
-
-                      <div style={{
-
-                        padding: '16px',
-
-                        textAlign: 'center',
-
-                        color: '#64748b',
-
-                        fontSize: '14px'
-
-                      }}>
-
-                        <div style={{
-
-                          width: '20px',
-
-                          height: '20px',
-
-                          border: '2px solid #e2e8f0',
-
-                          borderTop: '2px solid #3b82f6',
-
-                          borderRadius: '50%',
-
-                          animation: 'spin 1s linear infinite',
-
-                          margin: '0 auto 8px auto'
-
-                        }} />
-
-                        Searching {customerOptions.length.toLocaleString()} customers...
-
-                      </div>
-
-                    )}
-
-
-
-
-
-
-
-                    {/* Results */}
-
-                    {filteredCustomers.map((customer, index) => (
-
-                      <div
-
-                        key={customer.NAME}
-
-                        onMouseDown={(e) => {
-
-                          console.log('🖱️ Customer item mousedown:', customer.NAME);
-
-                          console.log('🖱️ Event target:', e.target);
-
-                          console.log('🖱️ Event currentTarget:', e.currentTarget);
-
-                          e.preventDefault(); // Prevent blur from firing
-
-                          console.log('✅ preventDefault called on mousedown');
-
-                        }}
-
-                        onClick={(e) => {
-
-                          console.log('🖱️ Customer item clicked:', customer.NAME);
-
-                          console.log('🖱️ Click event target:', e.target);
-
-                          console.log('🖱️ Click event currentTarget:', e.currentTarget);
-
-                          console.log('📊 Before selection - selectedCustomer:', selectedCustomer);
-
-                          console.log('📊 Before selection - showCustomerDropdown:', showCustomerDropdown);
-
-                          e.preventDefault();
-
-                          e.stopPropagation();
-
-                          // Clear auto-population state when user manually changes customer
-
-                          if (isAutoPopulating || autoPopulatingRef.current) {
-
-                            console.log('🔄 User manually changed customer - clearing auto-population state');
-
-                            setIsAutoPopulating(false);
-
-                            autoPopulatingRef.current = false;
-
-                          }
-
-                          console.log('📝 Setting selected customer to:', customer.NAME);
-
-                          setSelectedCustomer(customer.NAME);
-
-                          setCustomerSearchTerm('');
-
-                          setShowCustomerDropdown(false);
-
-                          setFilteredCustomers([]);
-
-                          console.log('✅ Customer selection completed:', customer.NAME);
-
-                          console.log('📊 After selection - state should update on next render');
-
-                        }}
-
-                        style={{
-
-                          padding: '12px 16px',
-
-                          cursor: 'pointer',
-
-                          borderBottom: index < filteredCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
-
-                          transition: 'background-color 0.2s ease'
-
-                        }}
-
-                        onMouseEnter={(e) => {
-
-                          e.target.style.backgroundColor = '#f8fafc';
-
-                        }}
-
-                        onMouseLeave={(e) => {
-
-                          e.target.style.backgroundColor = 'white';
-
-                        }}
-
-                      >
-
-                        <div style={{
-
-                          fontWeight: '600',
-
-                          color: '#1e293b',
-
-                          fontSize: '14px'
-
-                        }}>
-
-                          {customer.NAME}
-
-                        </div>
-
-                        <div style={{
-
-                          fontSize: '12px',
-
-                          color: '#64748b',
-
-                          marginTop: '2px'
-
-                        }}>
-
-                          {customer.GSTNO && `GST No: ${customer.GSTNO} | `}Address: {customer.ADDRESS || 'N/A'}
-
-                        </div>
-
-                      </div>
-
-                    ))}
-
-
-
-                    {/* Show more results indicator */}
-
-                    {filteredCustomers.length === 50 && (
-
-                      <div style={{
-
-                        padding: '12px 16px',
-
-                        textAlign: 'center',
-
-                        color: '#64748b',
-
-                        fontSize: '12px',
-
-                        fontStyle: 'italic',
-
-                        borderTop: '1px solid #f1f5f9',
-
-                        backgroundColor: '#f8fafc'
-
-                      }}>
-
-                        Showing first 50 results. Refine your search for more specific results.
-
-                      </div>
-
-                    )}
-
-                  </div>
-
-                )}
-
-
-
-                {/* No Results Message */}
-
-                {showCustomerDropdown && customerSearchTerm.trim() && filteredCustomers.length === 0 && (
-
-                  <div style={{
-
-                    position: 'absolute',
-
-                    top: '100%',
-
-                    left: 0,
-
-                    right: 0,
-
-                    backgroundColor: 'white',
-
-                    border: '2px solid #e2e8f0',
-
-                    borderRadius: '8px',
-
-                    padding: '16px',
-
-                    textAlign: 'center',
-
-                    color: '#64748b',
-
-                    fontSize: '14px',
-
-                    zIndex: 1000,
-
-                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
-
-                    marginTop: '4px'
-
-                  }}>
-
-                    No customers found matching "{customerSearchTerm}"
-
-                  </div>
-
-                )}
-
-              </div>
-
-
-
-
-
-              {/* Edit Customer Button */}
-
-              {selectedCustomer && (
-
-                <button
-
-                  type="button"
-
-                  onClick={() => setShowEditModal(true)}
-
-                  style={{
-
-                    position: 'absolute',
-
-                    right: 36,
-
-                    top: '50%',
-
-                    transform: 'translateY(-50%)',
-
-                    background: 'none',
-
-                    border: 'none',
-
-                    cursor: 'pointer',
-
-                    padding: 0,
-
-                    margin: 0,
-
-                    fontSize: 16,
-
-                    color: '#3b82f6',
-
-                    zIndex: 2
-
-                  }}
-
-                  tabIndex={-1}
-
-                  aria-label="Party Details"
-
-                  title="Party Details"
-
-                >
-
-                  ✏️
-
-                </button>
-
-              )}
-
-            </div>
-
-
-
-            {/* Submit Button */}
-
-            <div style={{
-
-              display: 'flex',
-
-              alignItems: 'center',
-
-              gap: '10px',
-
-              flex: isMobile ? '1 1 100%' : '0 0 200px',
-
-              width: isMobile ? '100%' : 'auto'
-
-            }}>
-
-              <button
-
-                type="submit"
-
-                disabled={!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder}
-
-                style={{
-
-                  background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
-
-                  color: '#fff',
-
-                  border: 'none',
-
-                  borderRadius: '8px',
-
-                  padding: isMobile ? '14px 20px' : '14px 24px',
-
-                  cursor: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'not-allowed' : 'pointer',
-
-                  fontSize: isMobile ? '15px' : '16px',
-
-                  fontWeight: '600',
-
-                  boxShadow: '0 4px 6px rgba(59, 130, 246, 0.25)',
-
-                  display: 'flex',
-
-                  alignItems: 'center',
-
-                  justifyContent: 'center',
-
-                  gap: '8px',
-
-                  opacity: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 0.5 : 1,
-
-                  transition: 'all 0.2s ease',
-
-                  width: isMobile ? '100%' : 'auto'
-
-                }}
-
-              >
-
-                {isSubmittingOrder ? (
-
-                  <>
-
-                    <div style={{
-
-                      width: '18px',
-
-                      height: '18px',
-
-                      border: '2px solid #ffffff',
-
-                      borderTop: '2px solid transparent',
-
-                      borderRadius: '50%',
-
-                      animation: 'spin 1s linear infinite'
-
-                    }} />
-
-                    Processing...
-
-                  </>
-
-                ) : (
-
-                  <>
-
-                    <span className="material-icons" style={{ fontSize: '18px' }}>shopping_cart</span>
-
-                    Place Order
-
-                  </>
-
-                )}
-
-              </button>
-
-            </div>
-
-          </div>
-
-
-
-          {/* Credit Limit Information Line - Below the main row */}
-
-          {(canShowCreditLimit || canControlCreditLimit) && selectedCustomer && (
-
-            <div style={{
-
-              display: 'flex',
-
-              flexDirection: isMobile ? 'column' : 'row',
-
-              alignItems: isMobile ? 'flex-start' : 'center',
-
-              justifyContent: 'flex-start',
-
-              gap: isMobile ? '14px' : '20px',
-
-              padding: isMobile ? '10px 0' : '8px 0',
-
-              fontSize: isMobile ? '13px' : '14px',
-
-              fontWeight: '500'
-
-            }}>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-
-                <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px', color: '#6b7280' }}>
-
-                  account_balance_wallet
-
-                </span>
-
-                <span style={{ color: '#374151', fontWeight: '500' }}>Credit Info:</span>
-
-              </div>
-
-
-
-              {creditLimitLoading ? (
-
-                <span style={{ color: '#6b7280', fontSize: isMobile ? '12px' : '13px' }}>Loading...</span>
-
-              ) : creditLimitData ? (
-
-                <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '20px', width: isMobile ? '100%' : 'auto' }}>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-                    <span style={{ color: '#6b7280', fontSize: '13px' }}>Closing Balance:</span>
-
-                    <span style={{
-
-                      fontWeight: '600',
-
-                      color: creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? '#dc2626' : '#059669',
-
-                      fontSize: '13px'
-
-                    }}>
-
-                      ₹{Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-
-                      {creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? ' Dr' : ' Cr'}
-
-                    </span>
-
-                  </div>
-
-
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-
-                    <span style={{ color: '#6b7280', fontSize: '13px' }}>Credit Limit:</span>
-
-                    <span style={{
-
-                      fontWeight: '600',
-
-                      color: creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? '#dc2626' : '#059669',
-
-                      fontSize: '13px'
-
-                    }}>
-
-                      ₹{Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-
-                      {creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? ' Dr' : ' Cr'}
-
-                    </span>
-
-                  </div>
-
-
-
-                  <div
-
-                    style={{
-
-                      display: 'flex',
-
-                      alignItems: 'center',
-
-                      gap: '6px',
-
-                      cursor: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? 'pointer' : 'default',
-
-                      padding: '4px 8px',
-
-                      borderRadius: '4px',
-
-                      background: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '#fef2f2' : '#f0fdf4',
-
-                      border: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '1px solid #fecaca' : '1px solid #bbf7d0'
-
-                    }}
-
-                    onClick={() => {
-
-                      if (creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0) {
-
-                        setShowOverdueBills(!showOverdueBills);
-
-                      }
-
-                    }}
-
-                  >
-
-                    <span style={{ color: '#6b7280', fontSize: '13px' }}>Overdue:</span>
-
-                    <span style={{
-
-                      fontWeight: '600',
-
-                      color: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '#dc2626' : '#059669',
-
-                      fontSize: '13px'
-
-                    }}>
-
-                      {creditLimitData.overdueBills ? creditLimitData.overdueBills.length : 0}
-
-                    </span>
-
-                  </div>
-
-                </div>
-
-              ) : (
-
-                <span style={{ color: '#6b7280', fontSize: '13px' }}>No credit info</span>
-
-              )}
-
-            </div>
-
-          )}
-
-        </form>
-
-      </div>
-
-
-
-      {/* Order Items Section */}
-
-      <div style={{
-
-        background: '#fff',
-
-        margin: isMobile ? '0px 8px 16px 8px' : '0px 24px 24px 24px',
-
-        maxWidth: isMobile ? '100%' : '1400px',
-
-        width: isMobile ? 'calc(100% - 16px)' : 'auto',
-
-        borderRadius: isMobile ? '16px' : '16px',
-
-        boxShadow: isMobile ? '0 2px 8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.1)' : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-
-        overflow: 'visible',
-
-        border: '1px solid #e5e7eb'
-
-      }}>
-
-        {/* Add Item Form */}
-        <div data-item-entry-form>
-
-          <div style={{
-
-            padding: isMobile ? '16px 12px' : '16px 32px',
-
-            paddingBottom: isMobile ? '16px' : '24px',
-
-            borderBottom: '1px solid #f3f4f6',
-
-            background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
-
-            position: 'relative',
-
-            borderRadius: isMobile ? '16px 16px 0 0' : '0'
-
-          }}>
-
-            <div style={{
-
-              display: 'flex',
-
-              flexDirection: isMobile ? 'column' : 'row',
-
-              alignItems: isMobile ? 'flex-start' : 'center',
-
-              justifyContent: 'space-between',
-
-              gap: isMobile ? '14px' : '0',
-
-              marginBottom: isMobile ? '10px' : '6px'
-
-            }}>
-
-              <div style={{
-
-                display: 'flex',
-
-                alignItems: 'center',
-
-                gap: '12px'
-
-              }}>
-
-
-
-
-
-              </div>
-
-
-
-              {/* Total Items Counter */}
-
-              <div style={{
-
-                fontSize: isMobile ? '12px' : '14px',
-
-                color: '#64748b',
-
-                fontWeight: '500',
-
-                padding: isMobile ? '8px 14px' : '8px 16px',
-
-                backgroundColor: '#f8fafc',
-
-                borderRadius: '20px',
-
-                border: '1px solid #e2e8f0',
-
-                width: isMobile ? '100%' : 'auto'
-
-              }}>
-
-                📦 {stockItems.length.toLocaleString()} items available
-
-              </div>
-
-            </div>
-
-
-
-            <div style={{
-
-              display: 'flex',
-
-              flexDirection: isMobile ? 'column' : 'row',
-
-              flexWrap: isMobile ? 'nowrap' : 'wrap',
-
-              gap: isMobile ? '12px' : '14px',
-
-              alignItems: isMobile ? 'stretch' : 'flex-end',
-
-              position: 'relative',
-
-              minHeight: '30px',
-
-              padding: isMobile ? '16px 12px' : '18px',
-
-              background: '#f8fafc',
-
-              borderRadius: isMobile ? '12px' : '14px',
-
-              border: '1px solid #e2e8f0'
-
-            }}>
-
-              {/* Item Name */}
-
-              <div style={{
-
-                position: 'relative',
-
-                flex: isMobile ? '1 1 100%' : '1 1 320px',
-
-                minWidth: isMobile ? '100%' : '280px',
-
-                width: isMobile ? '100%' : 'auto'
-
-              }}>
-
-                <div style={{
-
-                  position: 'relative',
-
-                  background: 'white',
-
-                  borderRadius: isMobile ? '10px' : '10px',
-
-                  border: showItemDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
-
-                  transition: 'all 0.2s ease',
-
-                  boxShadow: showItemDropdown ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
-
-                  zIndex: showItemDropdown ? 1001 : 'auto'
-
-                }}>
-
-                  <input
-
-                    type="text"
-
-                    value={selectedItem || itemSearchTerm}
-
-                    onChange={(e) => {
-
-                      setItemSearchTerm(e.target.value);
-
-                      setSelectedItem('');
-
-                      setCustomConversion(null);
-                      setCustomAddlQty(null);
-                      setCompoundBaseQty(null);
-                      setCompoundAddlQty(null);
-                      setShowItemDropdown(true);
-
-                      // Clear filtered results when clearing search
-
-                      if (!e.target.value.trim()) {
-
-                        // Always show all items when no search term (like customer dropdown)
-
-                        setFilteredItems(stockItems);
-
-                      }
-
-                    }}
-
-                    onFocus={() => {
-
-                      setItemFocused(true);
-
-                      setShowItemDropdown(true);
-
-                      // Always show all items when focused (like customer dropdown)
-
-                      setFilteredItems(stockItems);
-
-                    }}
-
-                    onBlur={() => {
-
-                      setItemFocused(false);
-
-                      // Delay hiding dropdown to allow click events
-
-                      setTimeout(() => setShowItemDropdown(false), 200);
-
-                    }}
-
-                    onKeyDown={(e) => {
-
-                      if (e.key === 'Escape') {
-
-                        setShowItemDropdown(false);
-
-                        e.target.blur();
-
-                      }
-
-                    }}
-
-                    disabled={!selectedCustomer}
-
-                    style={{
-
-                      width: '100%',
-
-                      padding: '16px 20px',
-
-                      paddingRight: selectedItem ? '50px' : '20px',
-
-                      border: 'none',
+                      border: '1px solid #e2e8f0',
 
                       borderRadius: '12px',
 
-                      fontSize: '15px',
+                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
 
-                      color: selectedCustomer ? '#1e293b' : '#9ca3af',
+                      zIndex: 1002,
 
-                      outline: 'none',
+                      maxHeight: '200px',
 
-                      background: selectedCustomer ? 'transparent' : '#f1f5f9',
+                      overflowY: 'auto',
 
-                      cursor: selectedCustomer ? 'text' : 'not-allowed'
+                      marginTop: '4px'
 
-                    }}
+                    }}>
 
-                    placeholder=""
-
-                  />
-
-
-
-                  {/* Search Icon or Dropdown Arrow */}
-
-                  {!selectedItem && (
-
-                    <span
-
-                      className="material-icons"
-
-                      style={{
-
-                        position: 'absolute',
-
-                        right: '16px',
-
-                        top: '50%',
-
-                        transform: 'translateY(-50%)',
-
-                        color: showItemDropdown ? '#3b82f6' : '#9ca3af',
-
-                        fontSize: '20px',
-
-                        pointerEvents: 'none',
-
-                        transition: 'color 0.2s ease'
-
-                      }}
-
-                    >
-
-                      {showItemDropdown ? 'expand_less' : 'search'}
-
-                    </span>
-
-                  )}
-
-
-
-
-
-
-
-                  {/* Clear Button for Item */}
-
-                  {selectedItem && (
-
-                    <button
-
-                      type="button"
-
-                      onClick={() => {
-
-                        setSelectedItem('');
-
-                        setCustomConversion(null);
-                        setCustomAddlQty(null);
-                        setCompoundBaseQty(null);
-                        setCompoundAddlQty(null);
-                        setItemSearchTerm('');
-
-                        setShowItemDropdown(false);
-
-                        // Always show all items when reopening (like customer dropdown)
-
-                        setFilteredItems(stockItems);
-
-                      }}
-
-                      style={{
-
-                        position: 'absolute',
-
-                        right: '8px',
-
-                        top: '50%',
-
-                        transform: 'translateY(-50%)',
-
-                        background: 'none',
-
-                        border: 'none',
-
-                        cursor: 'pointer',
-
-                        padding: '4px',
-
-                        borderRadius: '50%',
-
-                        color: '#64748b',
-
-                        fontSize: '18px',
-
-                        display: 'flex',
-
-                        alignItems: 'center',
-
-                        justifyContent: 'center',
-
-                        transition: 'color 0.2s ease'
-
-                      }}
-
-                      title="Clear item"
-
-                    >
-
-                      ×
-
-                    </button>
-
-                  )}
-
-
-
-                  <label style={{
-
-                    position: 'absolute',
-
-                    left: '20px',
-
-                    top: '-10px',
-
-                    fontSize: '12px',
-
-                    fontWeight: '600',
-
-                    color: itemFocused || selectedItem ? '#3b82f6' : '#64748b',
-
-                    backgroundColor: 'white',
-
-                    padding: '0 8px',
-
-                    transition: 'all 0.2s ease',
-
-                    pointerEvents: 'none'
-
-                  }}>
-
-                    Item Name
-
-                  </label>
-
-
-
-                  {/* Custom Dropdown */}
-
-                  {showItemDropdown && (
-
-                    <div
-
-                      className="dropdown-animation"
-
-                      style={{
-
-                        position: 'absolute',
-
-                        top: 'calc(100% + 8px)',
-
-                        left: 0,
-
-                        right: 0,
-
-                        backgroundColor: 'white',
-
-                        border: '2px solid #3b82f6',
-
-                        borderRadius: '8px',
-
-                        maxHeight: '500px',
-
-                        overflowY: 'auto',
-
-                        zIndex: 9999,
-
-                        boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
-
-                        marginTop: '0',
-
-                        minHeight: '50px'
-
-                      }}
-
-                    >
-
-
-
-                      {/* Loading indicator */}
-
-                      {itemSearchTerm.trim() && filteredItems.length === 0 && (
-
-                        <div style={{
-
-                          padding: '16px',
-
-                          textAlign: 'center',
-
-                          color: '#64748b',
-
-                          fontSize: '14px'
-
-                        }}>
-
-                          <div style={{
-
-                            width: '20px',
-
-                            height: '20px',
-
-                            border: '2px solid #e2e8f0',
-
-                            borderTop: '2px solid #3b82f6',
-
-                            borderRadius: '50%',
-
-                            animation: 'spin 1s linear infinite',
-
-                            margin: '0 auto 8px auto'
-
-                          }} />
-
-                          Searching {stockItems.length.toLocaleString()} items...
-
-                        </div>
-
-                      )}
-
-
-
-                      {/* Results */}
-
-                      {filteredItems.map((item, index) => (
+                      {voucherTypes.map((voucherType, index) => (
 
                         <div
 
-                          key={item.NAME}
+                          key={voucherType.NAME}
 
                           onClick={() => {
 
-                            setSelectedItem(item.NAME);
+                            setSelectedVoucherType(voucherType.NAME);
 
-                            setItemSearchTerm('');
+                            setShowVoucherTypeDropdown(false);
 
-                            setShowItemDropdown(false);
+                            // Save the selected voucher type for future use
 
-                            setFilteredItems([]);
+                            sessionStorage.setItem('selectedVoucherType', voucherType.NAME);
+
+                            // Class name restoration is handled by useEffect
 
                           }}
 
@@ -9926,7 +8882,7 @@ function PlaceOrder() {
 
                             cursor: 'pointer',
 
-                            borderBottom: index < filteredItems.length - 1 ? '1px solid #f1f5f9' : 'none',
+                            borderBottom: index < voucherTypes.length - 1 ? '1px solid #f1f5f9' : 'none',
 
                             transition: 'background-color 0.2s ease'
 
@@ -9956,7 +8912,7 @@ function PlaceOrder() {
 
                           }}>
 
-                            {item.NAME}
+                            {voucherType.NAME}
 
                           </div>
 
@@ -9970,33 +8926,7 @@ function PlaceOrder() {
 
                           }}>
 
-                            {item.PARTNO && `Part No: ${item.PARTNO} | `}
-
-                            {canShowClosingStock && (
-
-                              <>
-
-                                Stock: {(() => {
-
-                                  const stockValue = item.CLOSINGSTOCK || 0;
-
-                                  // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
-
-                                  if (canShowClosingStockYesNo) {
-
-                                    return stockValue > 0 ? 'Yes' : 'No';
-
-                                  }
-
-                                  return stockValue;
-
-                                })()} |
-
-                              </>
-
-                            )}
-
-                            {canShowRateAmtColumn && `Rate: ₹${computeRateForItem(item)}`}
+                            {voucherType.PREFIX}{voucherType.SUFFIX}
 
                           </div>
 
@@ -10004,2299 +8934,5105 @@ function PlaceOrder() {
 
                       ))}
 
-
-
-                      {/* Show more results indicator */}
-
-                      {filteredItems.length === 100 && (
-
-                        <div style={{
-
-                          padding: '12px 16px',
-
-                          textAlign: 'center',
-
-                          color: '#64748b',
-
-                          fontSize: '12px',
-
-                          fontStyle: 'italic',
-
-                          borderTop: '1px solid #f1f5f9',
-
-                          backgroundColor: '#f8fafc'
-
-                        }}>
-
-                          Showing first 100 results. Refine your search for more specific results.
-
-                        </div>
-
-                      )}
-
-                    </div>
-
-                  )}
-
-
-
-                  {/* No Results Message */}
-
-                  {showItemDropdown && itemSearchTerm.trim() && filteredItems.length === 0 && (
-
-                    <div style={{
-
-                      position: 'absolute',
-
-                      top: '100%',
-
-                      left: 0,
-
-                      right: 0,
-
-                      backgroundColor: 'white',
-
-                      border: '2px solid #e2e8f0',
-
-                      borderRadius: '8px',
-
-                      padding: '16px',
-
-                      textAlign: 'center',
-
-                      color: '#64748b',
-
-                      fontSize: '14px',
-
-                      zIndex: 1000,
-
-                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
-
-                      marginTop: '4px'
-
-                    }}>
-
-                      No items found matching "{itemSearchTerm}"
-
                     </div>
 
                   )}
 
                 </div>
 
-              </div>
+                {/* Class Name */}
+                {availableClasses.length > 0 && (
+                  <div style={{
+                    position: 'relative',
+                    flex: isMobile ? '1 1 100%' : '1 1 0',
+                    width: isMobile ? '100%' : 'auto',
+                    minWidth: isMobile ? 'auto' : '200px',
+                    maxWidth: isMobile ? '100%' : '240px'
+                  }}>
+                    <div style={{
+                      position: 'relative',
+                      background: 'white',
+                      borderRadius: '8px',
+                      border: showClassNameDropdown ? '2px solid #7c3aed' : '1px solid #e2e8f0',
+                      transition: 'all 0.2s ease',
+                      boxShadow: showClassNameDropdown ? '0 0 0 3px rgba(124, 58, 237, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                      zIndex: showClassNameDropdown ? 1001 : 'auto'
+                    }}>
+                      <input
+                        type="text"
+                        value={selectedClassName}
+                        onChange={e => {
+                          const inputValue = e.target.value;
+                          setSelectedClassName(inputValue);
+                          setShowClassNameDropdown(true);
+                        }}
+                        onFocus={() => {
+                          setClassNameFocused(true);
+                          setShowClassNameDropdown(true);
+                        }}
+                        onBlur={() => {
+                          setClassNameFocused(false);
+                          // Delay hiding dropdown to allow click events
+                          setTimeout(() => setShowClassNameDropdown(false), 200);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            setShowClassNameDropdown(false);
+                            e.target.blur();
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: isMobile ? '12px 16px' : '14px 16px',
+                          border: 'none',
+                          borderRadius: '8px',
+                          fontSize: isMobile ? '14px' : '15px',
+                          color: '#111827',
+                          outline: 'none',
+                          background: 'transparent',
+                          cursor: 'text',
+                          height: isMobile ? '44px' : '48px',
+                          boxSizing: 'border-box',
+                          fontWeight: '400'
+                        }}
+                        placeholder=""
+                      />
+                      <label style={{
+                        position: 'absolute',
+                        left: '16px',
+                        top: '-8px',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        color: classNameFocused || selectedClassName ? '#7c3aed' : '#6b7280',
+                        backgroundColor: 'white',
+                        padding: '0 6px',
+                        transition: 'all 0.2s ease',
+                        pointerEvents: 'none',
+                        zIndex: 1
+                      }}>
+                        Class Name
+                      </label>
+                      {selectedClassName && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedClassName('');
+                            setShowClassNameDropdown(false);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            right: '12px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: '#6b7280',
+                            fontSize: '18px',
+                            lineHeight: 1,
+                            padding: '4px'
+                          }}
+                          title="Clear selection"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Class Name Dropdown */}
+                    {showClassNameDropdown && availableClasses.length > 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        backgroundColor: 'white',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '12px',
+                        boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+                        zIndex: 1002,
+                        maxHeight: '200px',
+                        overflowY: 'auto',
+                        marginTop: '4px'
+                      }}>
+                        {availableClasses
+                          .filter(className => !selectedClassName || className.toLowerCase().includes(selectedClassName.toLowerCase()))
+                          .map((className, index, filtered) => (
+                            <div
+                              key={className}
+                              onClick={() => {
+                                setSelectedClassName(className);
+                                setShowClassNameDropdown(false);
+                                // Save the selected class name for future use
+                                sessionStorage.setItem('selectedClassName', className);
+                              }}
+                              style={{
+                                padding: '12px 16px',
+                                cursor: 'pointer',
+                                borderBottom: index < filtered.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                transition: 'background-color 0.2s ease'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.backgroundColor = '#f8fafc';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.backgroundColor = 'white';
+                              }}
+                            >
+                              <div style={{
+                                fontWeight: '600',
+                                color: '#1e293b',
+                                fontSize: '14px'
+                              }}>
+                                {className}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                )}
 
 
 
-
-
-              {/* Simplified Quantity Input (Tally-style) */}
-              {selectedItemUnitConfig && (
+                {/* Customer */}
 
                 <div style={{
+
                   position: 'relative',
-                  flex: isMobile ? '1 1 100%' : '0 0 220px',
-                  minWidth: isMobile ? '100%' : '180px',
-                  maxWidth: isMobile ? '100%' : '240px',
-                  display: 'flex',
-                  alignItems: 'flex-end',
-                  gap: '8px'
+
+                  flex: isMobile ? '1 1 100%' : '1 1 0',
+
+                  minWidth: isMobile ? 'auto' : '250px',
+
+                  width: isMobile ? '100%' : 'auto'
+
                 }}>
+
                   <div style={{
 
                     position: 'relative',
 
                     background: 'white',
 
-                    borderRadius: isMobile ? '10px' : '10px',
-                    border: quantityFocused ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
+                    borderRadius: '8px',
+
+                    border: showCustomerDropdown ? '2px solid #7c3aed' : '1px solid #e2e8f0',
+
                     transition: 'all 0.2s ease',
 
-                    boxShadow: quantityFocused ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
-                    flex: '1 1 auto',
-                    minWidth: 0
+                    boxShadow: showCustomerDropdown ? '0 0 0 3px rgba(124, 58, 237, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+
+                    zIndex: showCustomerDropdown ? 1001 : 'auto'
+
                   }}>
+
                     <input
 
                       type="text"
 
-                      value={quantityInput}
-                      onChange={(e) => {
+                      value={selectedCustomer || customerSearchTerm}
+
+                      onChange={e => {
+
                         const inputValue = e.target.value;
-                        // Filter out only obviously invalid characters (special symbols, etc.)
-                        // Allow numbers, decimal point, spaces, letters (for unit names), and = (for custom conversion)
-                        const filtered = inputValue.replace(/[^0-9.\sA-Za-z=]/g, '');
-                        if (filtered !== inputValue) {
-                          // Invalid character entered, don't update
-                          return;
+
+                        // Clear auto-population state when user manually types in customer field
+
+                        if (isAutoPopulating || autoPopulatingRef.current) {
+
+                          console.log('🔄 User manually typing in customer field - clearing auto-population state');
+
+                          setIsAutoPopulating(false);
+
+                          autoPopulatingRef.current = false;
+
                         }
-                        // While typing, just update the input - don't validate yet
-                        // Validation will happen on blur
-                        setQuantityInput(filtered);
-                      }}
-                      onBlur={(e) => {
-                        // Final validation on blur - always round/format based on unit's decimal places
-                        const validated = validateQuantityInput(e.target.value, selectedItemUnitConfig, units, true);
 
-                        // Preserve customAddlQty and compoundAddlQty before conversion (in case it gets cleared during parsing)
-                        const preservedCustomAddlQty = customAddlQty;
-                        const preservedCustomConversion = customConversion;
-                        const preservedCompoundAddlQty = compoundAddlQty;
+                        setCustomerSearchTerm(inputValue);
 
-                        // Parse the original input first to check if it's a custom conversion or component unit input
-                        // Don't use validated here because validateQuantityInput might have converted it
-                        const originalParsedQty = parseQuantityInput(quantityInput, selectedItemUnitConfig, units);
+                        setSelectedCustomer('');
 
-                        // Always convert to BASEUNITS format, even for custom conversions
-                        if (validated && selectedItemUnitConfig) {
-                          const parsedQty = parseQuantityInput(validated, selectedItemUnitConfig, units);
+                        setShowCustomerDropdown(true);
 
-                          // If the original input was a custom conversion, preserve the customAddlQty
-                          if (originalParsedQty.isCustomConversion && originalParsedQty.customAddlQty !== undefined) {
-                            // The customAddlQty is set by parseQuantityInput, but we need to ensure it's preserved
-                            // Set it immediately to ensure it's available
-                            if (customAddlQty !== originalParsedQty.customAddlQty) {
-                              setCustomAddlQty(originalParsedQty.customAddlQty);
-                            }
-                            // Also ensure customConversion is set if not already
-                            if (!customConversion && originalParsedQty.isCustomConversion) {
-                              // Calculate the custom conversion ratio from the parsed quantity
-                              const baseQty = convertToPrimaryQty(originalParsedQty, selectedItemUnitConfig, null, units);
-                              setCustomConversion({
-                                baseQty: baseQty,
-                                addlQty: originalParsedQty.customAddlQty,
-                                denominator: baseQty,
-                                conversion: originalParsedQty.customAddlQty
-                              });
-                            }
-                          } else if (originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
-                            // Preserve customAddlQty even if it's not a custom conversion (e.g., "9 pkt 2 nos 3 box")
-                            if (customAddlQty !== originalParsedQty.customAddlQty) {
-                              setCustomAddlQty(originalParsedQty.customAddlQty);
-                            }
-                          } else if (originalParsedQty.compoundAddlQty !== undefined && originalParsedQty.compoundAddlQty !== null) {
-                            // Preserve compoundAddlQty when user entered component unit (e.g., "25 pkt" or "55 nos")
-                            console.log('🔢 Preserving compoundAddlQty from original input in onBlur:', {
-                              originalCompoundAddlQty: originalParsedQty.compoundAddlQty,
-                              originalCompoundAddlMainQty: originalParsedQty.compoundAddlMainQty,
-                              originalCompoundAddlSubQty: originalParsedQty.compoundAddlSubQty,
-                              currentCompoundAddlQty: compoundAddlQty,
-                              input: quantityInput,
-                              validated: validated
-                            });
-                            if (compoundAddlQty !== originalParsedQty.compoundAddlQty) {
-                              setCompoundAddlQty(originalParsedQty.compoundAddlQty);
-                            }
-                          } else if (parsedQty.isCustomConversion && parsedQty.customAddlQty !== undefined) {
-                            // Fallback: if validated version has custom conversion, use it
-                            if (customAddlQty !== parsedQty.customAddlQty) {
-                              setCustomAddlQty(parsedQty.customAddlQty);
-                            }
-                            if (!customConversion && parsedQty.isCustomConversion) {
-                              const baseQty = convertToPrimaryQty(parsedQty, selectedItemUnitConfig, null, units);
-                              setCustomConversion({
-                                baseQty: baseQty,
-                                addlQty: parsedQty.customAddlQty,
-                                denominator: baseQty,
-                                conversion: parsedQty.customAddlQty
-                              });
-                            }
-                          } else if (preservedCustomConversion && preservedCustomAddlQty !== null && preservedCustomAddlQty !== undefined) {
-                            // If we had a custom conversion before, and the parsed quantity matches, preserve it
-                            const primaryQty = convertToPrimaryQty(parsedQty, selectedItemUnitConfig, preservedCustomConversion, units);
-                            if (Math.abs(primaryQty - preservedCustomConversion.baseQty) < 0.0001) {
-                              // Quantity matches - preserve the custom conversion
-                              if (!customConversion || customConversion.baseQty !== preservedCustomConversion.baseQty) {
-                                setCustomConversion(preservedCustomConversion);
-                              }
-                              if (customAddlQty !== preservedCustomAddlQty) {
-                                setCustomAddlQty(preservedCustomAddlQty);
-                              }
-                            }
-                          } else if (preservedCompoundAddlQty !== null && preservedCompoundAddlQty !== undefined && originalParsedQty.isComponentUnit) {
-                            // If we had compoundAddlQty from component unit input (e.g., "25 pkt"), preserve it
-                            // This ensures the alternative quantity shows the user-entered value instead of recalculating
-                            console.log('🔢 Preserving compoundAddlQty from preserved state in onBlur:', {
-                              preservedCompoundAddlQty,
-                              originalIsComponentUnit: originalParsedQty.isComponentUnit,
-                              currentCompoundAddlQty: compoundAddlQty,
-                              input: quantityInput,
-                              validated: validated
-                            });
-                            if (compoundAddlQty !== preservedCompoundAddlQty) {
-                              setCompoundAddlQty(preservedCompoundAddlQty);
-                            }
-                          }
+                        // Clear filtered results immediately when clearing search or starting new search
 
-                          // Use originalParsedQty if it has compound structure, otherwise use parsedQty
-                          // This ensures we preserve the structure from the original input
-                          const qtyForCalculation = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
-                            ? originalParsedQty
-                            : parsedQty;
+                        if (!inputValue.trim()) {
 
-                          const primaryQty = convertToPrimaryQty(qtyForCalculation, selectedItemUnitConfig, customConversion || preservedCustomConversion, units);
+                          // Always show all customers when no search term (like ecommerce)
 
-                          // For display, use the base quantity (qty) if it's a custom conversion with totalQty
-                          // This ensures "1 box 5 pkt 3 nos" shows as "1 box" not "2 box"
-                          // Also use originalParsedQty if it has compound structure to preserve the structure
-                          let displayQty;
-                          if (originalParsedQty.isCustomConversion && originalParsedQty.totalQty !== undefined) {
-                            displayQty = originalParsedQty.qty;
-                          } else if (originalParsedQty && originalParsedQty.totalQty !== undefined && originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
-                            // Simple base + compound additional input (e.g., "1 box 9 pkt 2 nos")
-                            // Use only the base quantity (qty) for display, not the total
-                            displayQty = originalParsedQty.qty;
-                          } else if (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined) {
-                            // Preserve compound structure for display
-                            const baseUnitObj = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
-                            const conversion = baseUnitObj && baseUnitObj.CONVERSION ? parseFloat(baseUnitObj.CONVERSION) : 1;
-                            displayQty = originalParsedQty.qty + (originalParsedQty.subQty / conversion);
-                          } else {
+                          setFilteredCustomers(customerOptions);
 
-                            displayQty = primaryQty;
-                          }
-
-                          // Get decimal places for base unit
-                          let baseUnitDecimal = 0;
-                          if (units && units.length > 0) {
-                            const baseUnit = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
-                            if (baseUnit) {
-                              baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string'
-                                ? parseInt(baseUnit.DECIMALPLACES) || 0
-                                : (baseUnit.DECIMALPLACES || 0);
-                            }
-                          } else if (selectedItemUnitConfig.BASEUNIT_DECIMAL !== undefined) {
-                            baseUnitDecimal = typeof selectedItemUnitConfig.BASEUNIT_DECIMAL === 'string'
-                              ? parseInt(selectedItemUnitConfig.BASEUNIT_DECIMAL) || 0
-                              : (selectedItemUnitConfig.BASEUNIT_DECIMAL || 0);
-                          }
-
-                          // Format the quantity in BASEUNITS
-                          // If BASEUNITS is compound (like "LTR of 1000 ML"), format as "mainQty-subQty BASEUNIT" (e.g., "2-500.000 LTR")
-                          let baseUnitDisplay;
-
-                          // Check if originalParsedQty has preserved compound structure (e.g., from "9 pkt 2 nos 3 box")
-                          // Use originalParsedQty instead of parsedQty because validated string might have lost the structure
-                          const qtyToUse = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
-                            ? originalParsedQty
-                            : parsedQty;
-
-                          if (qtyToUse && qtyToUse.isCompound && qtyToUse.qty !== undefined && qtyToUse.subQty !== undefined) {
-                            // Use the preserved compound structure for display
-                            const baseUnitObj = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
-                            if (baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No') {
-                              // Get decimal places for sub unit
-                              let subDecimalPlaces = 0;
-                              if (baseUnitObj.ADDITIONALUNITS) {
-                                const subUnitObj = units.find(u => u.NAME === baseUnitObj.ADDITIONALUNITS);
-                                if (subUnitObj) {
-                                  subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
-                                    ? parseInt(subUnitObj.DECIMALPLACES) || 0
-                                    : (subUnitObj.DECIMALPLACES || 0);
-                                }
-                              }
-
-                              const formattedSubQty = subDecimalPlaces === 0
-                                ? Math.round(qtyToUse.subQty).toString()
-                                : parseFloat(qtyToUse.subQty).toFixed(subDecimalPlaces);
-
-                              // Use the base component unit (e.g., "pkt") instead of the full compound unit name
-                              const displayUnit = baseUnitObj.BASEUNITS || selectedItemUnitConfig.BASEUNITS;
-                              baseUnitDisplay = `${Math.round(qtyToUse.qty)}-${formattedSubQty} ${displayUnit}`;
-
-                              // Also preserve customAddlQty if it exists in the original parsed quantity
-                              if (originalParsedQty && originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
-                                setCustomAddlQty(originalParsedQty.customAddlQty);
-                              }
-                            } else {
-
-                              // Fallback to regular formatting
-                              const compoundFormat = formatCompoundBaseUnit(displayQty, selectedItemUnitConfig, units);
-                              if (compoundFormat) {
-                                baseUnitDisplay = compoundFormat;
-                              } else {
-                                const formattedQty = baseUnitDecimal === 0
-                                  ? Math.round(displayQty).toString()
-                                  : displayQty.toFixed(baseUnitDecimal);
-                                baseUnitDisplay = `${formattedQty} ${selectedItemUnitConfig.BASEUNITS}`;
-                              }
-                            }
-                          } else {
-
-                            // Use regular formatting (recalculate from total)
-                            const compoundFormat = formatCompoundBaseUnit(displayQty, selectedItemUnitConfig, units);
-                            if (compoundFormat) {
-                              baseUnitDisplay = compoundFormat;
-                            } else {
-                              const formattedQty = baseUnitDecimal === 0
-                                ? Math.round(displayQty).toString()
-                                : displayQty.toFixed(baseUnitDecimal);
-                              baseUnitDisplay = `${formattedQty} ${selectedItemUnitConfig.BASEUNITS}`;
-                            }
-                          }
-
-                          // Always display in BASEUNITS format (even for custom conversions)
-                          setQuantityInput(baseUnitDisplay);
                         } else {
 
-                          setQuantityInput(validated || '');
+                          // Clear previous results immediately when starting new search
+
+                          // The debounced search will populate new results
+
+                          setFilteredCustomers([]);
+
                         }
 
-
-                        setQuantityFocused(false);
                       }}
 
-                      onFocus={() => setQuantityFocused(true)}
+                      onFocus={() => {
 
-                      disabled={!selectedItem}
-                      style={{
+                        setCustomerFocused(true);
 
-                        width: '100%',
+                        setShowCustomerDropdown(true);
 
-                        padding: isMobile ? '14px 18px' : '15px 18px',
-                        border: 'none',
+                        // Always show all customers when focused (like ecommerce)
 
-                        borderRadius: isMobile ? '10px' : '10px',
-                        fontSize: isMobile ? '14px' : '15px',
-                        color: selectedItem ? '#1e293b' : '#9ca3af',
-                        outline: 'none',
+                        setFilteredCustomers(customerOptions);
 
-                        background: selectedItem ? 'transparent' : '#f1f5f9',
-                        textAlign: 'left',
-                        cursor: selectedItem ? 'text' : 'not-allowed',
-                        height: isMobile ? '48px' : '52px',
-                        boxSizing: 'border-box'
                       }}
 
-                      placeholder={selectedItemUnitConfig ? `${selectedItemUnitConfig.BASEUNITS || 'Qty'}${selectedItemUnitConfig.ADDITIONALUNITS ? ` or ${selectedItemUnitConfig.ADDITIONALUNITS}` : ''}` : 'Qty'}
-                    />
+                      onBlur={(e) => {
 
-                    <label style={{
+                        console.log('👋 Customer input blur triggered');
 
-                      position: 'absolute',
+                        console.log('👋 Related target:', e.relatedTarget);
 
-                      left: '20px',
+                        console.log('👋 Active element:', document.activeElement);
 
-                      top: '-10px',
-                      fontSize: '12px',
-                      fontWeight: '600',
+                        setCustomerFocused(false);
 
-                      color: quantityFocused || quantityInput ? '#3b82f6' : '#64748b',
+                        // Delay hiding dropdown to allow click events
 
-                      backgroundColor: 'white',
+                        setTimeout(() => {
 
-                      padding: '0 8px',
+                          console.log('👋 Blur timeout - closing dropdown');
 
-                      transition: 'all 0.2s ease',
-                      pointerEvents: 'none'
+                          setShowCustomerDropdown(false);
 
-                    }}>
+                        }, 200);
 
-                      Qty
-                    </label>
+                      }}
 
-                  </div>
+                      onKeyDown={(e) => {
 
-                  {/* Alternative unit quantity display (Tally-style) - inline next to quantity */}
-                  {selectedItemUnitConfig.ADDITIONALUNITS && (
-                    <div style={{
-                      flex: '0 0 auto',
-                      fontSize: '13px',
-                      color: '#64748b',
-                      fontStyle: 'italic',
-                      paddingBottom: isMobile ? '14px' : '16px',
-                      whiteSpace: 'nowrap',
-                      minWidth: itemQuantity > 0 ? 'auto' : '0',
-                      visibility: itemQuantity > 0 ? 'visible' : 'hidden'
-                    }}>
-                      {(() => {
-                        if (itemQuantity > 0) {
-                          // Always convert from BASEUNITS to ADDITIONALUNITS
-                          // Use custom conversion if available
-                          const altQty = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
-                          // If we have customAddlQty (from custom conversion OR compound base + simple additional), use it
-                          // This ensures "9 pkt 3 nos 2 box" shows "(2 box)" instead of converting from total
-                          // Also check compoundAddlQty (from component unit input like "25 pkt" or "55 nos")
-                          // Priority: customAddlQty > compoundAddlQty > calculated altQty
-                          const qtyToDisplay = customAddlQty !== null && customAddlQty !== undefined
-                            ? customAddlQty
-                            : (compoundAddlQty !== null && compoundAddlQty !== undefined ? compoundAddlQty : null);
+                        if (e.key === 'Escape') {
 
-                          // Debug log to trace the issue
-                          if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
-                            console.log('💰 Displaying alternative quantity:', {
-                              qtyToDisplay,
-                              customAddlQty,
-                              compoundAddlQty,
-                              itemQuantity,
-                              calculatedAltQty: altQty
-                            });
-                          }
+                          setShowCustomerDropdown(false);
 
-                          if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
-                            // Check if ADDITIONALUNITS is compound - if so, format in hyphenated format
-                            const addlUnitObj = units && units.length > 0
-                              ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
-                              : null;
-                            const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+                          e.target.blur();
 
-                            console.log('💰 Checking compound additional unit for display:', {
-                              qtyToDisplay,
-                              addlUnitObj: addlUnitObj ? { NAME: addlUnitObj.NAME, ISSIMPLEUNIT: addlUnitObj.ISSIMPLEUNIT } : null,
-                              hasCompoundAddlUnit,
-                              ADDITIONALUNITS: selectedItemUnitConfig.ADDITIONALUNITS
-                            });
-
-                            if (hasCompoundAddlUnit && addlUnitObj) {
-                              // ADDITIONALUNITS is compound - format in hyphenated format (e.g., "25-0 pkt")
-                              const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
-                              const mainQty = Math.floor(qtyToDisplay);
-                              const subQty = (qtyToDisplay - mainQty) * addlConversion;
-
-                              // Get decimal places for sub unit
-                              let subDecimalPlaces = 0;
-                              if (addlUnitObj.ADDITIONALUNITS) {
-                                const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
-                                if (subUnitObj) {
-                                  subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
-                                    ? parseInt(subUnitObj.DECIMALPLACES) || 0
-                                    : (subUnitObj.DECIMALPLACES || 0);
-                                }
-                              }
-
-                              const formattedSubQty = subDecimalPlaces === 0
-                                ? Math.round(subQty).toString()
-                                : subQty.toFixed(subDecimalPlaces);
-
-                              // Use the base component unit (e.g., "pkt") instead of the full compound unit name
-                              const displayUnit = addlUnitObj.BASEUNITS || selectedItemUnitConfig.ADDITIONALUNITS;
-
-                              const formattedDisplay = `(${mainQty}-${formattedSubQty} ${displayUnit})`;
-                              console.log('💰 Formatted compound additional quantity:', {
-                                qtyToDisplay,
-                                mainQty,
-                                subQty,
-                                formattedSubQty,
-                                displayUnit,
-                                formattedDisplay
-                              });
-
-                              return formattedDisplay;
-                            } else {
-                              // ADDITIONALUNITS is simple - use regular formatting
-                              let decimalPlaces = 0;
-                              if (units && units.length > 0) {
-                                const addlUnit = units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS);
-                                if (addlUnit) {
-                                  decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string'
-                                    ? parseInt(addlUnit.DECIMALPLACES) || 0
-                                    : (addlUnit.DECIMALPLACES || 0);
-                                }
-                              } else if (selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL !== undefined) {
-                                decimalPlaces = typeof selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL === 'string'
-                                  ? parseInt(selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL) || 0
-                                  : (selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL || 0);
-                              }
-                              const formattedQty = decimalPlaces === 0
-                                ? Math.round(qtyToDisplay).toString()
-                                : qtyToDisplay.toFixed(decimalPlaces);
-                              return `(${formattedQty} ${selectedItemUnitConfig.ADDITIONALUNITS})`;
-                            }
-                          }
-                          // Fallback: use calculated alternative quantity
-                          console.log('💰 Using fallback calculated alternative quantity:', {
-                            altQty,
-                            qtyToDisplay,
-                            customAddlQty,
-                            compoundAddlQty
-                          });
-                          return altQty ? `(${altQty.qty} ${altQty.unit})` : '';
                         }
-                        return '';
-                      })()}
-                    </div>
-                  )}
-                  {/* Helper text showing available units */}
-                  {selectedItemUnitConfig && quantityFocused && (
-                    <div style={{
 
-                      position: 'absolute',
+                      }}
 
-                      top: '100%',
-                      left: 0,
-                      right: 0,
-                      marginTop: '4px',
-                      padding: '8px 12px',
-                      backgroundColor: '#f8fafc',
-                      borderRadius: '8px',
-                      fontSize: '12px',
+                      required
 
-                      color: '#64748b',
-                      border: '1px solid #e2e8f0',
-                      zIndex: 1000
-                    }}>
-                      Examples: {selectedItemUnitConfig.BASEUNITS}{selectedItemUnitConfig.ADDITIONALUNITS ? ` or ${selectedItemUnitConfig.ADDITIONALUNITS}` : ''}{selectedItemUnitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes' ? `, ${selectedItemUnitConfig.BASEUNITCOMP_BASEUNIT} ${selectedItemUnitConfig.BASEUNITCOMP_ADDLUNIT}` : ''}
-                    </div>
-
-                  )}
-
-                </div>
-
-              )}
-
-
-
-              {/* Fallback - Old Quantity Input (when no item selected) */}
-
-              {!selectedItemUnitConfig && (
-
-                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : 'none' }}>
-
-                  <div style={{
-
-                    position: 'relative',
-
-                    background: 'white',
-
-                    borderRadius: isMobile ? '10px' : '10px',
-
-                    border: '1.5px solid #e2e8f0',
-
-                    transition: 'all 0.2s ease',
-
-                    boxShadow: isMobile ? '0 1px 2px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.08)'
-
-                  }}>
-
-                    <input
-
-                      type="number"
-
-                      value={itemQuantity}
-
-                      onChange={(e) => setItemQuantity(parseFloat(e.target.value) || 0)}
-
-                      onFocus={() => setQuantityFocused(true)}
-
-                      onBlur={() => setQuantityFocused(false)}
-
-                      disabled={!selectedItem}
-
-                      min="1"
+                      disabled={customerLoading}
 
                       style={{
 
                         width: '100%',
 
-                        padding: isMobile ? '14px 20px' : '16px 20px',
+                        padding: isMobile ? '12px 16px' : '14px 16px',
+
+                        paddingRight: selectedCustomer ? '50px' : '40px',
 
                         border: 'none',
 
-                        borderRadius: isMobile ? '10px' : '12px',
-
-                        fontSize: isMobile ? '15px' : '15px',
-
-                        color: selectedItem ? '#1e293b' : '#9ca3af',
-
-                        outline: 'none',
-
-                        background: selectedItem ? 'transparent' : '#f1f5f9',
-
-                        textAlign: 'left',
-
-                        cursor: selectedItem ? 'text' : 'not-allowed'
-
-                      }}
-
-                      placeholder="Qty"
-
-                    />
-
-                    <label style={{
-
-                      position: 'absolute',
-
-                      left: '20px',
-
-                      top: '-10px',
-
-                      fontSize: '12px',
-
-                      fontWeight: '600',
-
-                      color: quantityFocused || itemQuantity > 0 ? '#3b82f6' : '#64748b',
-
-                      backgroundColor: 'white',
-
-                      padding: '0 8px',
-
-                      transition: 'all 0.2s ease',
-
-                      pointerEvents: 'none'
-
-                    }}>
-
-                      Qty
-
-                    </label>
-
-                  </div>
-
-                </div>
-
-              )}
-
-
-
-              {/* Available Stock - Only show if user has show_clsstck_Column permission */}
-
-              {canShowClosingStock && (
-
-                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 140px' }}>
-
-                  <div style={{
-
-                    position: 'relative',
-
-                    background: '#f8fafc',
-
-                    borderRadius: isMobile ? '10px' : '12px',
-
-                    border: '2px solid #e2e8f0',
-
-                    boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
-
-                  }}>
-
-                    <input
-
-                      type="text"
-
-                      value={(() => {
-
-                        if (selectedItem && stockItems.length > 0) {
-
-                          const selectedStockItem = stockItems.find(item => item.NAME === selectedItem);
-
-                          if (selectedStockItem) {
-
-                            const stockValue = selectedStockItem.CLOSINGSTOCK || 0;
-
-                            // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
-
-                            if (canShowClosingStockYesNo) {
-
-                              return stockValue > 0 ? 'Yes' : 'No';
-
-                            }
-
-                            return stockValue;
-
-                          }
-
-                        }
-
-                        return '';
-
-                      })()}
-
-                      style={{
-
-                        width: '100%',
-
-                        padding: isMobile ? '14px 18px' : '15px 18px',
-
-                        border: 'none',
-
-                        borderRadius: isMobile ? '10px' : '10px',
+                        borderRadius: '8px',
 
                         fontSize: isMobile ? '14px' : '15px',
 
-                        color: '#64748b',
+                        color: '#111827',
 
                         outline: 'none',
 
                         background: 'transparent',
 
-                        textAlign: 'center',
+                        cursor: customerLoading ? 'not-allowed' : 'text',
 
-                        fontWeight: '600',
-
-                        cursor: canShowStockBreakdown ? 'pointer' : 'default',
-
-                        height: isMobile ? '48px' : '52px',
+                        height: isMobile ? '44px' : '48px',
 
                         boxSizing: 'border-box',
 
-                        textDecoration: canShowStockBreakdown ? 'underline' : 'none',
-
-                        textDecorationColor: canShowStockBreakdown ? '#3b82f6' : 'transparent',
-
-                        textUnderlineOffset: '2px'
+                        fontWeight: '400'
 
                       }}
 
-                      placeholder=""
-
-                      readOnly
-
-                      onClick={handleStockFieldClick}
+                      placeholder={customerLoading ? 'Loading...' : customerError ? customerError : 'Search customer...'}
 
                     />
+
+
+
+                    {/* Search Icon or Dropdown Arrow */}
+
+                    {!selectedCustomer && (
+
+                      <span
+
+                        className="material-icons"
+
+                        style={{
+
+                          position: 'absolute',
+
+                          right: '16px',
+
+                          top: '50%',
+
+                          transform: 'translateY(-50%)',
+
+                          color: showCustomerDropdown ? '#3b82f6' : '#9ca3af',
+
+                          fontSize: '20px',
+
+                          pointerEvents: 'none',
+
+                          transition: 'color 0.2s ease'
+
+                        }}
+
+                      >
+
+                        {showCustomerDropdown ? 'expand_less' : 'search'}
+
+                      </span>
+
+                    )}
+
+
+
+                    {/* Clear Button for Customer */}
+
+                    {selectedCustomer && (
+
+                      <button
+
+                        type="button"
+
+                        onClick={() => {
+
+                          // Clear auto-population state when user manually clears customer
+
+                          if (isAutoPopulating || autoPopulatingRef.current) {
+
+                            console.log('🔄 User manually cleared customer - clearing auto-population state');
+
+                            setIsAutoPopulating(false);
+
+                            autoPopulatingRef.current = false;
+
+                          }
+
+                          setSelectedCustomer('');
+
+                          setCustomerSearchTerm('');
+
+                          setShowCustomerDropdown(false);
+
+                          // Always show all customers when reopening (like ecommerce)
+
+                          setFilteredCustomers(customerOptions);
+
+                        }}
+
+                        style={{
+
+                          position: 'absolute',
+
+                          right: '8px',
+
+                          top: '50%',
+
+                          transform: 'translateY(-50%)',
+
+                          background: 'none',
+
+                          border: 'none',
+
+                          cursor: 'pointer',
+
+                          padding: '4px',
+
+                          borderRadius: '50%',
+
+                          color: '#64748b',
+
+                          fontSize: '18px',
+
+                          display: 'flex',
+
+                          alignItems: 'center',
+
+                          justifyContent: 'center',
+
+                          transition: 'color 0.2s ease'
+
+                        }}
+
+                        title="Clear customer"
+
+                      >
+
+                        ×
+
+                      </button>
+
+                    )}
+
+
 
                     <label style={{
 
                       position: 'absolute',
 
-                      left: '20px',
+                      left: isMobile ? '16px' : '16px',
 
-                      top: '-10px',
+                      top: '-8px',
 
                       fontSize: '12px',
 
-                      fontWeight: '600',
+                      fontWeight: '500',
 
-                      color: '#64748b',
+                      color: customerFocused || !!selectedCustomer ? '#7c3aed' : '#6b7280',
 
-                      backgroundColor: '#f8fafc',
+                      backgroundColor: 'white',
 
-                      padding: '0 8px',
+                      padding: '0 6px',
 
-                      pointerEvents: 'none'
+                      transition: 'all 0.2s ease',
+
+                      pointerEvents: 'none',
+
+                      zIndex: 1
 
                     }}>
 
-                      Stock
+                      Customer
 
                     </label>
 
+
+
+                    {customerLoading && (
+
+                      <div style={{
+
+                        position: 'absolute',
+
+                        right: 60,
+
+                        top: '50%',
+
+                        transform: 'translateY(-50%)',
+
+                        width: 16,
+
+                        height: 16,
+
+                        border: '2px solid #e5e7eb',
+
+                        borderTop: '2px solid #3b82f6',
+
+                        borderRadius: '50%',
+
+                        animation: 'spin 1s linear infinite'
+
+                      }} />
+
+                    )}
+
+
+
+                    {/* Custom Customer Dropdown */}
+
+                    {showCustomerDropdown && (
+
+                      <div
+
+                        className="dropdown-animation"
+
+                        onMouseDown={(e) => {
+
+                          console.log('🖱️ Dropdown container mousedown');
+
+                          // Don't prevent default here - let items handle it
+
+                        }}
+
+                        onClick={(e) => {
+
+                          console.log('🖱️ Dropdown container clicked');
+
+                          // Don't stop propagation - let items handle it
+
+                        }}
+
+                        style={{
+
+                          position: 'absolute',
+
+                          top: 'calc(100% + 8px)',
+
+                          left: 0,
+
+                          right: 0,
+
+                          backgroundColor: 'white',
+
+                          border: '2px solid #3b82f6',
+
+                          borderRadius: '8px',
+
+                          maxHeight: '300px',
+
+                          overflowY: 'auto',
+
+                          zIndex: 9999,
+
+                          boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
+
+                          marginTop: '0',
+
+                          minHeight: '50px'
+
+                        }}
+
+                      >
+
+
+
+                        {/* Loading indicator */}
+
+                        {customerSearchTerm.trim() && filteredCustomers.length === 0 && (
+
+                          <div style={{
+
+                            padding: '16px',
+
+                            textAlign: 'center',
+
+                            color: '#64748b',
+
+                            fontSize: '14px'
+
+                          }}>
+
+                            <div style={{
+
+                              width: '20px',
+
+                              height: '20px',
+
+                              border: '2px solid #e2e8f0',
+
+                              borderTop: '2px solid #3b82f6',
+
+                              borderRadius: '50%',
+
+                              animation: 'spin 1s linear infinite',
+
+                              margin: '0 auto 8px auto'
+
+                            }} />
+
+                            Searching {customerOptions.length.toLocaleString()} customers...
+
+                          </div>
+
+                        )}
+
+
+
+
+
+
+
+                        {/* Results */}
+
+                        {filteredCustomers.map((customer, index) => (
+
+                          <div
+
+                            key={customer.NAME}
+
+                            onMouseDown={(e) => {
+
+                              console.log('🖱️ Customer item mousedown:', customer.NAME);
+
+                              console.log('🖱️ Event target:', e.target);
+
+                              console.log('🖱️ Event currentTarget:', e.currentTarget);
+
+                              e.preventDefault(); // Prevent blur from firing
+
+                              console.log('✅ preventDefault called on mousedown');
+
+                            }}
+
+                            onClick={(e) => {
+
+                              console.log('🖱️ Customer item clicked:', customer.NAME);
+
+                              console.log('🖱️ Click event target:', e.target);
+
+                              console.log('🖱️ Click event currentTarget:', e.currentTarget);
+
+                              console.log('📊 Before selection - selectedCustomer:', selectedCustomer);
+
+                              console.log('📊 Before selection - showCustomerDropdown:', showCustomerDropdown);
+
+                              e.preventDefault();
+
+                              e.stopPropagation();
+
+                              // Clear auto-population state when user manually changes customer
+
+                              if (isAutoPopulating || autoPopulatingRef.current) {
+
+                                console.log('🔄 User manually changed customer - clearing auto-population state');
+
+                                setIsAutoPopulating(false);
+
+                                autoPopulatingRef.current = false;
+
+                              }
+
+                              console.log('📝 Setting selected customer to:', customer.NAME);
+
+                              setSelectedCustomer(customer.NAME);
+
+                              setCustomerSearchTerm('');
+
+                              setShowCustomerDropdown(false);
+
+                              setFilteredCustomers([]);
+
+                              console.log('✅ Customer selection completed:', customer.NAME);
+
+                              console.log('📊 After selection - state should update on next render');
+
+                            }}
+
+                            style={{
+
+                              padding: '12px 16px',
+
+                              cursor: 'pointer',
+
+                              borderBottom: index < filteredCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
+
+                              transition: 'background-color 0.2s ease'
+
+                            }}
+
+                            onMouseEnter={(e) => {
+
+                              e.target.style.backgroundColor = '#f8fafc';
+
+                            }}
+
+                            onMouseLeave={(e) => {
+
+                              e.target.style.backgroundColor = 'white';
+
+                            }}
+
+                          >
+
+                            <div style={{
+
+                              fontWeight: '600',
+
+                              color: '#1e293b',
+
+                              fontSize: '14px'
+
+                            }}>
+
+                              {customer.NAME}
+
+                            </div>
+
+                            <div style={{
+
+                              fontSize: '12px',
+
+                              color: '#64748b',
+
+                              marginTop: '2px'
+
+                            }}>
+
+                              {customer.GSTNO && `GST No: ${customer.GSTNO} | `}Address: {customer.ADDRESS || 'N/A'}
+
+                            </div>
+
+                          </div>
+
+                        ))}
+
+
+
+                        {/* Show more results indicator */}
+
+                        {filteredCustomers.length === 50 && (
+
+                          <div style={{
+
+                            padding: '12px 16px',
+
+                            textAlign: 'center',
+
+                            color: '#64748b',
+
+                            fontSize: '12px',
+
+                            fontStyle: 'italic',
+
+                            borderTop: '1px solid #f1f5f9',
+
+                            backgroundColor: '#f8fafc'
+
+                          }}>
+
+                            Showing first 50 results. Refine your search for more specific results.
+
+                          </div>
+
+                        )}
+
+                      </div>
+
+                    )}
+
+
+
+                    {/* No Results Message */}
+
+                    {showCustomerDropdown && customerSearchTerm.trim() && filteredCustomers.length === 0 && (
+
+                      <div style={{
+
+                        position: 'absolute',
+
+                        top: '100%',
+
+                        left: 0,
+
+                        right: 0,
+
+                        backgroundColor: 'white',
+
+                        border: '2px solid #e2e8f0',
+
+                        borderRadius: '8px',
+
+                        padding: '16px',
+
+                        textAlign: 'center',
+
+                        color: '#64748b',
+
+                        fontSize: '14px',
+
+                        zIndex: 1000,
+
+                        boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+
+                        marginTop: '4px'
+
+                      }}>
+
+                        No customers found matching "{customerSearchTerm}"
+
+                      </div>
+
+                    )}
+
                   </div>
+
+
+
+
+
+                  {/* Edit Customer Button */}
+
+                  {selectedCustomer && (
+
+                    <button
+
+                      type="button"
+
+                      onClick={() => setShowEditModal(true)}
+
+                      style={{
+
+                        position: 'absolute',
+
+                        right: 36,
+
+                        top: '50%',
+
+                        transform: 'translateY(-50%)',
+
+                        background: 'none',
+
+                        border: 'none',
+
+                        cursor: 'pointer',
+
+                        padding: 0,
+
+                        margin: 0,
+
+                        fontSize: 16,
+
+                        color: '#3b82f6',
+
+                        zIndex: 2
+
+                      }}
+
+                      tabIndex={-1}
+
+                      aria-label="Party Details"
+
+                      title="Party Details"
+
+                    >
+
+                      ✏️
+
+                    </button>
+
+                  )}
+
+                </div>
+
+                {/* Submit Button */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  flex: isMobile ? '1 1 100%' : '0 0 auto',
+                  width: isMobile ? '100%' : 'auto',
+                  flexShrink: 0,
+                  marginLeft: isMobile ? '0' : 'auto'
+                }}>
+
+                  <button
+
+                    type="submit"
+
+                    disabled={!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder}
+
+                    style={{
+
+                      background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+
+                      color: '#fff',
+
+                      border: 'none',
+
+                      borderRadius: '8px',
+
+                      padding: isMobile ? '12px 20px' : '12px 24px',
+
+                      height: isMobile ? '44px' : '48px',
+
+                      cursor: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'not-allowed' : 'pointer',
+
+                      fontSize: isMobile ? '14px' : '15px',
+
+                      fontWeight: '600',
+
+                      boxShadow: '0 4px 6px rgba(59, 130, 246, 0.25)',
+
+                      display: 'flex',
+
+                      alignItems: 'center',
+
+                      justifyContent: 'center',
+
+                      gap: '8px',
+
+                      opacity: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 0.5 : 1,
+
+                      transition: 'all 0.2s ease',
+
+                      width: isMobile ? '100%' : 'auto',
+
+                      boxSizing: 'border-box'
+
+                    }}
+
+                  >
+
+                    {isSubmittingOrder ? (
+
+                      <>
+
+                        <div style={{
+
+                          width: '18px',
+
+                          height: '18px',
+
+                          border: '2px solid #ffffff',
+
+                          borderTop: '2px solid transparent',
+
+                          borderRadius: '50%',
+
+                          animation: 'spin 1s linear infinite'
+
+                        }} />
+
+                        Processing...
+
+                      </>
+
+                    ) : (
+
+                      <>
+
+                        <span className="material-icons" style={{ fontSize: '18px' }}>shopping_cart</span>
+
+                        Place Order
+
+                      </>
+
+                    )}
+
+                  </button>
+
+                </div>
+
+              </div>
+
+              {/* Credit Limit Information Line - Below the main row */}
+
+              {(canShowCreditLimit || canControlCreditLimit) && selectedCustomer && (
+
+                <div style={{
+
+                  display: 'flex',
+
+                  flexDirection: isMobile ? 'column' : 'row',
+
+                  alignItems: isMobile ? 'flex-start' : 'center',
+
+                  justifyContent: 'flex-start',
+
+                  gap: isMobile ? '14px' : '20px',
+
+                  padding: isMobile ? '10px 0' : '8px 0',
+
+                  fontSize: isMobile ? '13px' : '14px',
+
+                  fontWeight: '500'
+
+                }}>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+
+                    <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px', color: '#6b7280' }}>
+
+                      account_balance_wallet
+
+                    </span>
+
+                    <span style={{ color: '#374151', fontWeight: '500' }}>Credit Info:</span>
+
+                  </div>
+
+
+
+                  {creditLimitLoading ? (
+
+                    <span style={{ color: '#6b7280', fontSize: isMobile ? '12px' : '13px' }}>Loading...</span>
+
+                  ) : creditLimitData ? (
+
+                    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? '8px' : '20px', width: isMobile ? '100%' : 'auto' }}>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+
+                        <span style={{ color: '#6b7280', fontSize: '13px' }}>Closing Balance:</span>
+
+                        <span style={{
+
+                          fontWeight: '600',
+
+                          color: creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? '#dc2626' : '#059669',
+
+                          fontSize: '13px'
+
+                        }}>
+
+                          ₹{Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+
+                          {creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? ' Dr' : ' Cr'}
+
+                        </span>
+
+                      </div>
+
+
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+
+                        <span style={{ color: '#6b7280', fontSize: '13px' }}>Credit Limit:</span>
+
+                        <span style={{
+
+                          fontWeight: '600',
+
+                          color: creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? '#dc2626' : '#059669',
+
+                          fontSize: '13px'
+
+                        }}>
+
+                          ₹{Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+
+                          {creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? ' Dr' : ' Cr'}
+
+                        </span>
+
+                      </div>
+
+
+
+                      <div
+
+                        style={{
+
+                          display: 'flex',
+
+                          alignItems: 'center',
+
+                          gap: '6px',
+
+                          cursor: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? 'pointer' : 'default',
+
+                          padding: '4px 8px',
+
+                          borderRadius: '4px',
+
+                          background: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '#fef2f2' : '#f0fdf4',
+
+                          border: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '1px solid #fecaca' : '1px solid #bbf7d0'
+
+                        }}
+
+                        onClick={() => {
+
+                          if (creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0) {
+
+                            setShowOverdueBills(!showOverdueBills);
+
+                          }
+
+                        }}
+
+                      >
+
+                        <span style={{ color: '#6b7280', fontSize: '13px' }}>Overdue:</span>
+
+                        <span style={{
+
+                          fontWeight: '600',
+
+                          color: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '#dc2626' : '#059669',
+
+                          fontSize: '13px'
+
+                        }}>
+
+                          {creditLimitData.overdueBills ? creditLimitData.overdueBills.length : 0}
+
+                        </span>
+
+                      </div>
+
+                    </div>
+
+                  ) : (
+
+                    <span style={{ color: '#6b7280', fontSize: '13px' }}>No credit info</span>
+
+                  )}
 
                 </div>
 
               )}
 
+              {/* Order Items Section - Table Container */}
+              <div style={{
+                width: '100%',
+                boxSizing: 'border-box'
+              }}>
+
+                {/* Add Item Form */}
+                <div data-item-entry-form style={{
+                  width: '100%',
+                  maxWidth: '100%',
+                  boxSizing: 'border-box',
+                  overflow: 'visible',
+                  position: 'relative'
+                }}>
+
+                  {/* End of Customer Details Section */}
 
 
-              {/* Rate with UOM Selector */}
-              {canShowRateAmtColumn && (
 
-                <>
-                  <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 140px' }}>
+
+
+                  {/* Order Items Section */}
+                  <div style={{
+                    background: '#ffffff',
+                    borderRadius: '0.75rem',
+                    padding: isMobile ? '20px' : '24px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+                    transition: 'all 0.2s ease',
+                    overflow: 'visible',
+                    position: 'relative',
+                    zIndex: 1
+                  }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
+                    }}>
+                    <h2 style={{
+                      margin: '0 0 4px 0',
+                      fontSize: isMobile ? '18px' : '20px',
+                      fontWeight: '600',
+                      color: '#1f2937'
+                    }}>
+                      Order Items
+                    </h2>
+                    <p style={{
+                      margin: '0 0 16px 0',
+                      fontSize: isMobile ? '13px' : '14px',
+                      color: '#6b7280',
+                      fontWeight: '400'
+                    }}>
+                      Add products to the order
+                    </p>
+
                     <div style={{
+
+                      display: 'flex',
+
+                      flexDirection: isMobile ? 'column' : 'row',
+
+                      flexWrap: isMobile ? 'nowrap' : 'wrap',
+
+                      gap: '16px',
+
+                      rowGap: '16px',
+
+                      alignItems: isMobile ? 'stretch' : 'flex-start',
 
                       position: 'relative',
 
-                      background: canEditRate ? 'white' : '#f8fafc',
+                      padding: isMobile ? '20px' : '24px',
 
-                      borderRadius: isMobile ? '10px' : '12px',
+                      background: '#f9fafb',
 
-                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
 
-                      boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
+                      border: '1px solid #e2e8f0',
+
+                      width: '100%',
+                      maxWidth: '100%',
+                      boxSizing: 'border-box',
+                      overflow: 'visible'
 
                     }}>
 
-                      <input
+                      {/* Item Name */}
 
-                        type="number"
-
-                        value={itemRate}
-
-                        onChange={canEditRate ? (e) => setItemRate(parseFloat(e.target.value) || 0) : undefined}
-
-                        readOnly={!canEditRate}
-
-                        style={{
-
-                          width: '100%',
-
-                          padding: isMobile ? '14px 18px' : '15px 18px',
-
-                          border: 'none',
-
-                          borderRadius: isMobile ? '10px' : '10px',
-
-                          fontSize: isMobile ? '14px' : '15px',
-
-                          color: canEditRate ? '#1e293b' : '#64748b',
-
-                          outline: 'none',
-
-                          background: 'transparent',
-
-                          textAlign: 'center',
-
-                          fontWeight: '600',
-
-                          cursor: canEditRate ? 'text' : 'not-allowed',
-
-                          height: isMobile ? '48px' : '52px',
-
-                          boxSizing: 'border-box'
-
-                        }}
-
-                        placeholder="Rate"
-
-                      />
-
-                      <label style={{
-
-                        position: 'absolute',
-
-                        left: '20px',
-
-                        top: '-10px',
-
-                        fontSize: '12px',
-
-                        fontWeight: '600',
-
-                        color: '#64748b',
-
-                        backgroundColor: 'white',
-
-                        padding: '0 8px',
-
-                        pointerEvents: 'none'
-
+                      <div style={{
+                        position: 'relative',
+                        flex: isMobile ? '1 1 100%' : '1 1 300px',
+                        minWidth: isMobile ? '100%' : '250px',
+                        maxWidth: isMobile ? '100%' : '400px',
+                        width: isMobile ? '100%' : 'auto',
+                        boxSizing: 'border-box',
+                        overflow: 'visible',
+                        zIndex: 10
                       }}>
 
-                        Rate
-
-                      </label>
-
-                    </div>
-
-                  </div>
-
-                  {/* Rate UOM Selector - Always show, readonly if only one unit */}
-                  {selectedItemUnitConfig && (() => {
-                    // Check if BASEUNITS is compound and has component units
-                    const baseUnitObj = units && units.length > 0
-                      ? units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS)
-                      : null;
-                    const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-                    const hasMultipleUnits = selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit;
-
-                    return (
-                      <div style={{ position: 'relative', width: isMobile ? '100%' : '150px', flex: isMobile ? '1 1 100%' : 'none' }}>
                         <div style={{
                           position: 'relative',
                           background: 'white',
-                          borderRadius: isMobile ? '10px' : '10px',
-                          border: showRateUOMDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
+                          borderRadius: '8px',
+                          border: showItemDropdown ? '2px solid #7c3aed' : '1px solid #e2e8f0',
                           transition: 'all 0.2s ease',
-                          boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
-                          cursor: hasMultipleUnits ? 'pointer' : 'default'
-                        }}
-                          onClick={() => {
-                            if (hasMultipleUnits) {
-                              setShowRateUOMDropdown(!showRateUOMDropdown);
-                            }
-                          }}
-                        >
+                          boxShadow: showItemDropdown ? '0 0 0 3px rgba(124, 58, 237, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                          zIndex: showItemDropdown ? 1001 : 'auto',
+                          overflow: 'visible'
+                        }}>
+
                           <input
+
                             type="text"
-                            value={(() => {
-                              // For compound base units, default to main component if not set
-                              if (hasCompoundBaseUnit && baseUnitObj) {
-                                if (rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
-                                if (rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
-                                // Default to main component for compound units
-                                if (!rateUOM || rateUOM === 'base') {
-                                  setRateUOM('component-main');
-                                  return baseUnitObj.BASEUNITS;
-                                }
+
+                            value={selectedItem || itemSearchTerm}
+
+                            onChange={(e) => {
+
+                              setItemSearchTerm(e.target.value);
+
+                              setSelectedItem('');
+
+                              setCustomConversion(null);
+                              setCustomAddlQty(null);
+                              setCompoundBaseQty(null);
+                              setCompoundAddlQty(null);
+                              setShowItemDropdown(true);
+
+                              // Clear filtered results when clearing search
+
+                              if (!e.target.value.trim()) {
+
+                                // Always show all items when no search term (like customer dropdown)
+
+                                setFilteredItems(stockItems);
+
                               }
 
-                              // Check if ADDITIONALUNITS is compound
-                              const addlUnitObj = units && units.length > 0 && selectedItemUnitConfig.ADDITIONALUNITS
-                                ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
-                                : null;
-                              const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+                            }}
 
-                              if (hasCompoundAddlUnit && addlUnitObj) {
-                                // Show component units for compound additional unit
-                                if (rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
-                                if (rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
-                                // If rateUOM is 'additional' but ADDITIONALUNITS is compound, default to main component
-                                if (rateUOM === 'additional') {
-                                  setRateUOM('additional-component-main');
-                                  return addlUnitObj.BASEUNITS;
-                                }
-                              }
-
-                              // For non-compound units
-                              if (rateUOM === 'base') return selectedItemUnitConfig.BASEUNITS;
-                              return (selectedItemUnitConfig.ADDITIONALUNITS || selectedItemUnitConfig.BASEUNITS);
-                            })()}
-                            readOnly
                             onFocus={() => {
-                              if (hasMultipleUnits) {
-                                setRateUOMFocused(true);
+
+                              setItemFocused(true);
+
+                              setShowItemDropdown(true);
+
+                              // Always show all items when focused (like customer dropdown)
+
+                              setFilteredItems(stockItems);
+
+                            }}
+
+                            onBlur={() => {
+
+                              setItemFocused(false);
+
+                              // Delay hiding dropdown to allow click events
+
+                              setTimeout(() => setShowItemDropdown(false), 200);
+
+                            }}
+
+                            onKeyDown={(e) => {
+
+                              if (e.key === 'Escape') {
+
+                                setShowItemDropdown(false);
+
+                                e.target.blur();
+
                               }
+
                             }}
-                            onBlur={() => setTimeout(() => setRateUOMFocused(false), 200)}
+
+                            disabled={!selectedCustomer}
+
                             style={{
+
                               width: '100%',
-                              padding: isMobile ? '14px 36px 14px 16px' : '15px 36px 15px 16px',
+
+                              padding: isMobile ? '12px 16px' : '14px 16px',
+
+                              paddingRight: selectedItem ? (isMobile ? '45px' : '50px') : (isMobile ? '40px' : '40px'),
+
                               border: 'none',
-                              borderRadius: isMobile ? '10px' : '10px',
-                              fontSize: isMobile ? '14px' : '14px',
-                              color: '#1e293b',
+
+                              borderRadius: '8px',
+
+                              fontSize: isMobile ? '14px' : '15px',
+
+                              color: selectedCustomer ? '#111827' : '#9ca3af',
+
                               outline: 'none',
-                              background: hasMultipleUnits ? 'transparent' : '#f8fafc',
-                              cursor: hasMultipleUnits ? 'pointer' : 'default',
-                              pointerEvents: 'none',
-                              fontWeight: '500',
-                              height: isMobile ? '48px' : '52px',
-                              boxSizing: 'border-box'
+
+                              background: selectedCustomer ? 'transparent' : '#f9fafb',
+
+                              cursor: selectedCustomer ? 'text' : 'not-allowed',
+
+                              height: isMobile ? '44px' : '48px',
+
+                              boxSizing: 'border-box',
+
+                              fontWeight: '400'
+
                             }}
+
+                            placeholder="Search and add items..."
+
                           />
-                          {hasMultipleUnits && (
-                            <span className="material-icons" style={{
-                              position: 'absolute',
-                              right: '10px',
-                              top: '50%',
-                              transform: 'translateY(-50%)',
-                              fontSize: '18px',
-                              color: showRateUOMDropdown ? '#3b82f6' : '#64748b',
-                              transition: 'color 0.2s ease',
-                              pointerEvents: 'none'
-                            }}>
-                              {showRateUOMDropdown ? 'expand_less' : 'expand_more'}
+
+
+
+                          {/* Search Icon or Dropdown Arrow */}
+
+                          {!selectedItem && (
+
+                            <span
+
+                              className="material-icons"
+
+                              style={{
+
+                                position: 'absolute',
+
+                                right: isMobile ? '14px' : '16px',
+
+                                top: '50%',
+
+                                transform: 'translateY(-50%)',
+
+                                color: showItemDropdown ? '#3b82f6' : '#9ca3af',
+
+                                fontSize: isMobile ? '18px' : '20px',
+
+                                pointerEvents: 'none',
+
+                                transition: 'color 0.2s ease'
+
+                              }}
+
+                            >
+
+                              {showItemDropdown ? 'expand_less' : 'search'}
+
                             </span>
+
                           )}
+
+
+
+
+
+
+
+                          {/* Clear Button for Item */}
+
+                          {selectedItem && (
+
+                            <button
+
+                              type="button"
+
+                              onClick={() => {
+
+                                setSelectedItem('');
+
+                                setCustomConversion(null);
+                                setCustomAddlQty(null);
+                                setCompoundBaseQty(null);
+                                setCompoundAddlQty(null);
+                                setItemSearchTerm('');
+
+                                setShowItemDropdown(false);
+
+                                // Always show all items when reopening (like customer dropdown)
+
+                                setFilteredItems(stockItems);
+
+                              }}
+
+                              style={{
+
+                                position: 'absolute',
+
+                                right: '8px',
+
+                                top: '50%',
+
+                                transform: 'translateY(-50%)',
+
+                                background: 'none',
+
+                                border: 'none',
+
+                                cursor: 'pointer',
+
+                                padding: '4px',
+
+                                borderRadius: '50%',
+
+                                color: '#64748b',
+
+                                fontSize: '18px',
+
+                                display: 'flex',
+
+                                alignItems: 'center',
+
+                                justifyContent: 'center',
+
+                                transition: 'color 0.2s ease'
+
+                              }}
+
+                              title="Clear item"
+
+                            >
+
+                              ×
+
+                            </button>
+
+                          )}
+
+
+
                           <label style={{
+
                             position: 'absolute',
-                            left: '16px',
-                            top: '-9px',
-                            fontSize: '11px',
-                            fontWeight: '600',
-                            color: '#3b82f6',
+
+                            left: isMobile ? '16px' : '16px',
+
+                            top: '-8px',
+
+                            fontSize: '12px',
+
+                            fontWeight: '500',
+
+                            color: itemFocused || selectedItem ? '#7c3aed' : '#6b7280',
+
                             backgroundColor: 'white',
+
                             padding: '0 6px',
+
+                            transition: 'all 0.2s ease',
+
                             pointerEvents: 'none',
-                            letterSpacing: '0.3px'
+
+                            zIndex: 1
+
                           }}>
-                            Rate UOM
+
+                            Item Name
+
                           </label>
 
-                          {/* Rate UOM Dropdown Menu - Only show if multiple units exist */}
-                          {showRateUOMDropdown && hasMultipleUnits && (
+
+
+                          {/* Custom Dropdown */}
+
+                          {showItemDropdown && (
+
                             <div
+
                               className="dropdown-animation"
+
                               style={{
+
                                 position: 'absolute',
+
                                 top: 'calc(100% + 8px)',
+
                                 left: 0,
+
                                 right: 0,
+
                                 backgroundColor: 'white',
+
                                 border: '2px solid #3b82f6',
+
                                 borderRadius: '8px',
-                                maxHeight: '200px',
+
+                                maxHeight: isMobile ? '300px' : '400px',
+
                                 overflowY: 'auto',
-                                zIndex: 9999,
-                                boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)'
+
+                                overflowX: 'hidden',
+
+                                zIndex: 10000,
+
+                                boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
+
+                                marginTop: '0',
+
+                                minHeight: '50px',
+                                width: '100%',
+                                maxWidth: '100%',
+                                boxSizing: 'border-box'
+
                               }}
+
                             >
-                              {/* Base Unit Option - Only show if BASEUNITS is NOT compound */}
-                              {!hasCompoundBaseUnit && (
-                                <div
-                                  onMouseDown={(e) => e.preventDefault()}
-                                  onClick={() => {
-                                    setRateUOM('base');
-                                    setShowRateUOMDropdown(false);
-                                  }}
-                                  style={{
-                                    padding: '12px 16px',
-                                    cursor: 'pointer',
-                                    borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit) ? '1px solid #f1f5f9' : 'none',
-                                    transition: 'background-color 0.2s ease',
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    alignItems: 'center',
-                                    backgroundColor: rateUOM === 'base' ? '#eff6ff' : 'white'
-                                  }}
-                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'base' ? '#eff6ff' : 'white'}
-                                >
-                                  <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                    {selectedItemUnitConfig.BASEUNITS}
-                                  </span>
-                                  <span style={{
-                                    fontSize: '11px',
-                                    fontWeight: '600',
-                                    padding: '2px 8px',
-                                    borderRadius: '4px',
-                                    backgroundColor: '#dbeafe',
-                                    color: '#1e40af'
-                                  }}>
-                                    Base
-                                  </span>
+
+
+
+                              {/* Loading indicator */}
+
+                              {itemSearchTerm.trim() && filteredItems.length === 0 && (
+
+                                <div style={{
+
+                                  padding: '16px',
+
+                                  textAlign: 'center',
+
+                                  color: '#64748b',
+
+                                  fontSize: '14px'
+
+                                }}>
+
+                                  <div style={{
+
+                                    width: '20px',
+
+                                    height: '20px',
+
+                                    border: '2px solid #e2e8f0',
+
+                                    borderTop: '2px solid #3b82f6',
+
+                                    borderRadius: '50%',
+
+                                    animation: 'spin 1s linear infinite',
+
+                                    margin: '0 auto 8px auto'
+
+                                  }} />
+
+                                  Searching {stockItems.length.toLocaleString()} items...
+
                                 </div>
+
                               )}
 
-                              {/* Component Units for Compound Base Unit (if BASEUNITS is compound) */}
-                              {hasCompoundBaseUnit && baseUnitObj && (
-                                <>
-                                  <div
-                                    onMouseDown={(e) => e.preventDefault()}
-                                    onClick={() => {
-                                      setRateUOM('component-main');
-                                      setShowRateUOMDropdown(false);
-                                    }}
-                                    style={{
-                                      padding: '12px 16px',
-                                      cursor: 'pointer',
-                                      borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || baseUnitObj.ADDITIONALUNITS) ? '1px solid #f1f5f9' : 'none',
-                                      transition: 'background-color 0.2s ease',
-                                      display: 'flex',
-                                      justifyContent: 'space-between',
-                                      alignItems: 'center',
-                                      backgroundColor: rateUOM === 'component-main' ? '#eff6ff' : 'white'
-                                    }}
-                                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-main' ? '#eff6ff' : 'white'}
-                                  >
-                                    <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                      {baseUnitObj.BASEUNITS}
-                                    </span>
-                                    <span style={{
-                                      fontSize: '11px',
-                                      fontWeight: '600',
-                                      padding: '2px 8px',
-                                      borderRadius: '4px',
-                                      backgroundColor: '#fef3c7',
-                                      color: '#92400e'
-                                    }}>
-                                      Component
-                                    </span>
+
+
+                              {/* Results */}
+
+                              {filteredItems.map((item, index) => (
+
+                                <div
+
+                                  key={item.NAME}
+
+                                  onClick={() => {
+
+                                    setSelectedItem(item.NAME);
+
+                                    setItemSearchTerm('');
+
+                                    setShowItemDropdown(false);
+
+                                    setFilteredItems([]);
+
+                                  }}
+
+                                  style={{
+
+                                    padding: '12px 16px',
+
+                                    cursor: 'pointer',
+
+                                    borderBottom: index < filteredItems.length - 1 ? '1px solid #f1f5f9' : 'none',
+
+                                    transition: 'background-color 0.2s ease'
+
+                                  }}
+
+                                  onMouseEnter={(e) => {
+
+                                    e.target.style.backgroundColor = '#f8fafc';
+
+                                  }}
+
+                                  onMouseLeave={(e) => {
+
+                                    e.target.style.backgroundColor = 'white';
+
+                                  }}
+
+                                >
+
+                                  <div style={{
+
+                                    fontWeight: '600',
+
+                                    color: '#1e293b',
+
+                                    fontSize: '14px'
+
+                                  }}>
+
+                                    {item.NAME}
+
                                   </div>
-                                  {baseUnitObj.ADDITIONALUNITS && (
-                                    <div
-                                      onMouseDown={(e) => e.preventDefault()}
-                                      onClick={() => {
-                                        setRateUOM('component-sub');
-                                        setShowRateUOMDropdown(false);
-                                      }}
-                                      style={{
-                                        padding: '12px 16px',
-                                        cursor: 'pointer',
-                                        borderBottom: selectedItemUnitConfig.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
-                                        transition: 'background-color 0.2s ease',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        backgroundColor: rateUOM === 'component-sub' ? '#eff6ff' : 'white'
-                                      }}
-                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-sub' ? '#eff6ff' : 'white'}
-                                    >
-                                      <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                        {baseUnitObj.ADDITIONALUNITS}
-                                      </span>
-                                      <span style={{
-                                        fontSize: '11px',
-                                        fontWeight: '600',
-                                        padding: '2px 8px',
-                                        borderRadius: '4px',
-                                        backgroundColor: '#fef3c7',
-                                        color: '#92400e'
-                                      }}>
-                                        Component
-                                      </span>
-                                    </div>
-                                  )}
-                                </>
+
+                                  <div style={{
+
+                                    fontSize: '12px',
+
+                                    color: '#64748b',
+
+                                    marginTop: '2px'
+
+                                  }}>
+
+                                    {item.PARTNO && `Part No: ${item.PARTNO} | `}
+
+                                    {canShowClosingStock && (
+
+                                      <>
+
+                                        Stock: {(() => {
+
+                                          const stockValue = item.CLOSINGSTOCK || 0;
+
+                                          // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
+
+                                          if (canShowClosingStockYesNo) {
+
+                                            return stockValue > 0 ? 'Yes' : 'No';
+
+                                          }
+
+                                          return stockValue;
+
+                                        })()} |
+
+                                      </>
+
+                                    )}
+
+                                    {canShowRateAmtColumn && `Rate: ₹${computeRateForItem(item)}`}
+
+                                  </div>
+
+                                </div>
+
+                              ))}
+
+
+
+                              {/* Show more results indicator */}
+
+                              {filteredItems.length === 100 && (
+
+                                <div style={{
+
+                                  padding: '12px 16px',
+
+                                  textAlign: 'center',
+
+                                  color: '#64748b',
+
+                                  fontSize: '12px',
+
+                                  fontStyle: 'italic',
+
+                                  borderTop: '1px solid #f1f5f9',
+
+                                  backgroundColor: '#f8fafc'
+
+                                }}>
+
+                                  Showing first 100 results. Refine your search for more specific results.
+
+                                </div>
+
                               )}
 
-                              {/* Additional Unit Option (if exists) */}
-                              {selectedItemUnitConfig.ADDITIONALUNITS && (() => {
-                                // Check if ADDITIONALUNITS is compound
-                                const addlUnitObj = units && units.length > 0
-                                  ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
-                                  : null;
-                                const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+                            </div>
 
-                                if (hasCompoundAddlUnit && addlUnitObj) {
-                                  // ADDITIONALUNITS is compound - show component options
-                                  return (
-                                    <>
-                                      <div
-                                        onMouseDown={(e) => e.preventDefault()}
-                                        onClick={() => {
+                          )}
+
+
+
+                          {/* No Results Message */}
+
+                          {showItemDropdown && itemSearchTerm.trim() && filteredItems.length === 0 && (
+
+                            <div style={{
+
+                              position: 'absolute',
+
+                              top: '100%',
+
+                              left: 0,
+
+                              right: 0,
+
+                              backgroundColor: 'white',
+
+                              border: '2px solid #e2e8f0',
+
+                              borderRadius: '8px',
+
+                              padding: '16px',
+
+                              textAlign: 'center',
+
+                              color: '#64748b',
+
+                              fontSize: '14px',
+
+                              zIndex: 1000,
+
+                              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+
+                              marginTop: '4px'
+
+                            }}>
+
+                              No items found matching "{itemSearchTerm}"
+
+                            </div>
+
+                          )}
+
+                        </div>
+
+                      </div>
+
+
+
+
+
+                      {/* Simplified Quantity Input (Tally-style) */}
+                      {selectedItemUnitConfig && (
+
+                        <div style={{
+                          position: 'relative',
+                          flex: isMobile ? '1 1 100%' : '0 0 auto',
+                          minWidth: isMobile ? '100%' : '140px',
+                          maxWidth: isMobile ? '100%' : '220px',
+                          width: isMobile ? '100%' : 'auto',
+                          display: 'flex',
+                          alignItems: isMobile ? 'stretch' : 'flex-start',
+                          gap: isMobile ? '10px' : '8px',
+                          flexDirection: isMobile ? 'column' : 'row',
+                          boxSizing: 'border-box'
+                        }}>
+                          <div style={{
+
+                            position: 'relative',
+
+                            background: 'white',
+
+                            borderRadius: '8px',
+                            border: quantityFocused ? '2px solid #3b82f6' : '1px solid #e2e8f0',
+                            transition: 'all 0.2s ease',
+
+                            boxShadow: quantityFocused ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
+                            flex: '1 1 auto',
+                            minWidth: 0
+                          }}>
+                            <input
+
+                              type="text"
+
+                              value={quantityInput}
+                              onChange={(e) => {
+                                const inputValue = e.target.value;
+                                // Filter out only obviously invalid characters (special symbols, etc.)
+                                // Allow numbers, decimal point, spaces, letters (for unit names), and = (for custom conversion)
+                                const filtered = inputValue.replace(/[^0-9.\sA-Za-z=]/g, '');
+                                if (filtered !== inputValue) {
+                                  // Invalid character entered, don't update
+                                  return;
+                                }
+                                // While typing, just update the input - don't validate yet
+                                // Validation will happen on blur
+                                setQuantityInput(filtered);
+                              }}
+                              onBlur={(e) => {
+                                // Final validation on blur - always round/format based on unit's decimal places
+                                const validated = validateQuantityInput(e.target.value, selectedItemUnitConfig, units, true);
+
+                                // Preserve customAddlQty and compoundAddlQty before conversion (in case it gets cleared during parsing)
+                                const preservedCustomAddlQty = customAddlQty;
+                                const preservedCustomConversion = customConversion;
+                                const preservedCompoundAddlQty = compoundAddlQty;
+
+                                // Parse the original input first to check if it's a custom conversion or component unit input
+                                // Don't use validated here because validateQuantityInput might have converted it
+                                const originalParsedQty = parseQuantityInput(quantityInput, selectedItemUnitConfig, units);
+
+                                // Always convert to BASEUNITS format, even for custom conversions
+                                if (validated && selectedItemUnitConfig) {
+                                  const parsedQty = parseQuantityInput(validated, selectedItemUnitConfig, units);
+
+                                  // If the original input was a custom conversion, preserve the customAddlQty
+                                  if (originalParsedQty.isCustomConversion && originalParsedQty.customAddlQty !== undefined) {
+                                    // The customAddlQty is set by parseQuantityInput, but we need to ensure it's preserved
+                                    // Set it immediately to ensure it's available
+                                    if (customAddlQty !== originalParsedQty.customAddlQty) {
+                                      setCustomAddlQty(originalParsedQty.customAddlQty);
+                                    }
+                                    // Also ensure customConversion is set if not already
+                                    if (!customConversion && originalParsedQty.isCustomConversion) {
+                                      // Calculate the custom conversion ratio from the parsed quantity
+                                      const baseQty = convertToPrimaryQty(originalParsedQty, selectedItemUnitConfig, null, units);
+                                      setCustomConversion({
+                                        baseQty: baseQty,
+                                        addlQty: originalParsedQty.customAddlQty,
+                                        denominator: baseQty,
+                                        conversion: originalParsedQty.customAddlQty
+                                      });
+                                    }
+                                  } else if (originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
+                                    // Preserve customAddlQty even if it's not a custom conversion (e.g., "9 pkt 2 nos 3 box")
+                                    if (customAddlQty !== originalParsedQty.customAddlQty) {
+                                      setCustomAddlQty(originalParsedQty.customAddlQty);
+                                    }
+                                  } else if (originalParsedQty.compoundAddlQty !== undefined && originalParsedQty.compoundAddlQty !== null) {
+                                    // Preserve compoundAddlQty when user entered component unit (e.g., "25 pkt" or "55 nos")
+                                    console.log('🔢 Preserving compoundAddlQty from original input in onBlur:', {
+                                      originalCompoundAddlQty: originalParsedQty.compoundAddlQty,
+                                      originalCompoundAddlMainQty: originalParsedQty.compoundAddlMainQty,
+                                      originalCompoundAddlSubQty: originalParsedQty.compoundAddlSubQty,
+                                      currentCompoundAddlQty: compoundAddlQty,
+                                      input: quantityInput,
+                                      validated: validated
+                                    });
+                                    if (compoundAddlQty !== originalParsedQty.compoundAddlQty) {
+                                      setCompoundAddlQty(originalParsedQty.compoundAddlQty);
+                                    }
+                                  } else if (parsedQty.isCustomConversion && parsedQty.customAddlQty !== undefined) {
+                                    // Fallback: if validated version has custom conversion, use it
+                                    if (customAddlQty !== parsedQty.customAddlQty) {
+                                      setCustomAddlQty(parsedQty.customAddlQty);
+                                    }
+                                    if (!customConversion && parsedQty.isCustomConversion) {
+                                      const baseQty = convertToPrimaryQty(parsedQty, selectedItemUnitConfig, null, units);
+                                      setCustomConversion({
+                                        baseQty: baseQty,
+                                        addlQty: parsedQty.customAddlQty,
+                                        denominator: baseQty,
+                                        conversion: parsedQty.customAddlQty
+                                      });
+                                    }
+                                  } else if (preservedCustomConversion && preservedCustomAddlQty !== null && preservedCustomAddlQty !== undefined) {
+                                    // If we had a custom conversion before, and the parsed quantity matches, preserve it
+                                    const primaryQty = convertToPrimaryQty(parsedQty, selectedItemUnitConfig, preservedCustomConversion, units);
+                                    if (Math.abs(primaryQty - preservedCustomConversion.baseQty) < 0.0001) {
+                                      // Quantity matches - preserve the custom conversion
+                                      if (!customConversion || customConversion.baseQty !== preservedCustomConversion.baseQty) {
+                                        setCustomConversion(preservedCustomConversion);
+                                      }
+                                      if (customAddlQty !== preservedCustomAddlQty) {
+                                        setCustomAddlQty(preservedCustomAddlQty);
+                                      }
+                                    }
+                                  } else if (preservedCompoundAddlQty !== null && preservedCompoundAddlQty !== undefined && originalParsedQty.isComponentUnit) {
+                                    // If we had compoundAddlQty from component unit input (e.g., "25 pkt"), preserve it
+                                    // This ensures the alternative quantity shows the user-entered value instead of recalculating
+                                    console.log('🔢 Preserving compoundAddlQty from preserved state in onBlur:', {
+                                      preservedCompoundAddlQty,
+                                      originalIsComponentUnit: originalParsedQty.isComponentUnit,
+                                      currentCompoundAddlQty: compoundAddlQty,
+                                      input: quantityInput,
+                                      validated: validated
+                                    });
+                                    if (compoundAddlQty !== preservedCompoundAddlQty) {
+                                      setCompoundAddlQty(preservedCompoundAddlQty);
+                                    }
+                                  }
+
+                                  // Use originalParsedQty if it has compound structure, otherwise use parsedQty
+                                  // This ensures we preserve the structure from the original input
+                                  const qtyForCalculation = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
+                                    ? originalParsedQty
+                                    : parsedQty;
+
+                                  const primaryQty = convertToPrimaryQty(qtyForCalculation, selectedItemUnitConfig, customConversion || preservedCustomConversion, units);
+
+                                  // For display, use the base quantity (qty) if it's a custom conversion with totalQty
+                                  // This ensures "1 box 5 pkt 3 nos" shows as "1 box" not "2 box"
+                                  // Also use originalParsedQty if it has compound structure to preserve the structure
+                                  let displayQty;
+                                  if (originalParsedQty.isCustomConversion && originalParsedQty.totalQty !== undefined) {
+                                    displayQty = originalParsedQty.qty;
+                                  } else if (originalParsedQty && originalParsedQty.totalQty !== undefined && originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
+                                    // Simple base + compound additional input (e.g., "1 box 9 pkt 2 nos")
+                                    // Use only the base quantity (qty) for display, not the total
+                                    displayQty = originalParsedQty.qty;
+                                  } else if (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined) {
+                                    // Preserve compound structure for display
+                                    const baseUnitObj = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
+                                    const conversion = baseUnitObj && baseUnitObj.CONVERSION ? parseFloat(baseUnitObj.CONVERSION) : 1;
+                                    displayQty = originalParsedQty.qty + (originalParsedQty.subQty / conversion);
+                                  } else {
+
+                                    displayQty = primaryQty;
+                                  }
+
+                                  // Get decimal places for base unit
+                                  let baseUnitDecimal = 0;
+                                  if (units && units.length > 0) {
+                                    const baseUnit = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
+                                    if (baseUnit) {
+                                      baseUnitDecimal = typeof baseUnit.DECIMALPLACES === 'string'
+                                        ? parseInt(baseUnit.DECIMALPLACES) || 0
+                                        : (baseUnit.DECIMALPLACES || 0);
+                                    }
+                                  } else if (selectedItemUnitConfig.BASEUNIT_DECIMAL !== undefined) {
+                                    baseUnitDecimal = typeof selectedItemUnitConfig.BASEUNIT_DECIMAL === 'string'
+                                      ? parseInt(selectedItemUnitConfig.BASEUNIT_DECIMAL) || 0
+                                      : (selectedItemUnitConfig.BASEUNIT_DECIMAL || 0);
+                                  }
+
+                                  // Format the quantity in BASEUNITS
+                                  // If BASEUNITS is compound (like "LTR of 1000 ML"), format as "mainQty-subQty BASEUNIT" (e.g., "2-500.000 LTR")
+                                  let baseUnitDisplay;
+
+                                  // Check if originalParsedQty has preserved compound structure (e.g., from "9 pkt 2 nos 3 box")
+                                  // Use originalParsedQty instead of parsedQty because validated string might have lost the structure
+                                  const qtyToUse = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
+                                    ? originalParsedQty
+                                    : parsedQty;
+
+                                  if (qtyToUse && qtyToUse.isCompound && qtyToUse.qty !== undefined && qtyToUse.subQty !== undefined) {
+                                    // Use the preserved compound structure for display
+                                    const baseUnitObj = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
+                                    if (baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No') {
+                                      // Get decimal places for sub unit
+                                      let subDecimalPlaces = 0;
+                                      if (baseUnitObj.ADDITIONALUNITS) {
+                                        const subUnitObj = units.find(u => u.NAME === baseUnitObj.ADDITIONALUNITS);
+                                        if (subUnitObj) {
+                                          subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
+                                            ? parseInt(subUnitObj.DECIMALPLACES) || 0
+                                            : (subUnitObj.DECIMALPLACES || 0);
+                                        }
+                                      }
+
+                                      const formattedSubQty = subDecimalPlaces === 0
+                                        ? Math.round(qtyToUse.subQty).toString()
+                                        : parseFloat(qtyToUse.subQty).toFixed(subDecimalPlaces);
+
+                                      // Use the base component unit (e.g., "pkt") instead of the full compound unit name
+                                      const displayUnit = baseUnitObj.BASEUNITS || selectedItemUnitConfig.BASEUNITS;
+                                      baseUnitDisplay = `${Math.round(qtyToUse.qty)}-${formattedSubQty} ${displayUnit}`;
+
+                                      // Also preserve customAddlQty if it exists in the original parsed quantity
+                                      if (originalParsedQty && originalParsedQty.customAddlQty !== undefined && originalParsedQty.customAddlQty !== null) {
+                                        setCustomAddlQty(originalParsedQty.customAddlQty);
+                                      }
+                                    } else {
+
+                                      // Fallback to regular formatting
+                                      const compoundFormat = formatCompoundBaseUnit(displayQty, selectedItemUnitConfig, units);
+                                      if (compoundFormat) {
+                                        baseUnitDisplay = compoundFormat;
+                                      } else {
+                                        const formattedQty = baseUnitDecimal === 0
+                                          ? Math.round(displayQty).toString()
+                                          : displayQty.toFixed(baseUnitDecimal);
+                                        baseUnitDisplay = `${formattedQty} ${selectedItemUnitConfig.BASEUNITS}`;
+                                      }
+                                    }
+                                  } else {
+
+                                    // Use regular formatting (recalculate from total)
+                                    const compoundFormat = formatCompoundBaseUnit(displayQty, selectedItemUnitConfig, units);
+                                    if (compoundFormat) {
+                                      baseUnitDisplay = compoundFormat;
+                                    } else {
+                                      const formattedQty = baseUnitDecimal === 0
+                                        ? Math.round(displayQty).toString()
+                                        : displayQty.toFixed(baseUnitDecimal);
+                                      baseUnitDisplay = `${formattedQty} ${selectedItemUnitConfig.BASEUNITS}`;
+                                    }
+                                  }
+
+                                  // Always display in BASEUNITS format (even for custom conversions)
+                                  setQuantityInput(baseUnitDisplay);
+                                } else {
+
+                                  setQuantityInput(validated || '');
+                                }
+
+
+                                setQuantityFocused(false);
+                              }}
+
+                              onFocus={() => setQuantityFocused(true)}
+
+                              disabled={!selectedItem}
+                              style={{
+
+                                width: '100%',
+
+                                padding: isMobile ? '12px 16px' : '14px 16px',
+                                border: 'none',
+
+                                borderRadius: '8px',
+                                fontSize: isMobile ? '14px' : '15px',
+                                color: selectedItem ? '#1e293b' : '#9ca3af',
+                                outline: 'none',
+
+                                background: selectedItem ? 'transparent' : '#f1f5f9',
+                                textAlign: 'left',
+                                cursor: selectedItem ? 'text' : 'not-allowed',
+                                height: isMobile ? '44px' : '48px',
+                                boxSizing: 'border-box',
+                                minHeight: isMobile ? '48px' : 'auto'
+                              }}
+
+                              placeholder={selectedItemUnitConfig ? `${selectedItemUnitConfig.BASEUNITS || 'Qty'}${selectedItemUnitConfig.ADDITIONALUNITS ? ` or ${selectedItemUnitConfig.ADDITIONALUNITS}` : ''}` : 'Qty'}
+                            />
+
+                            <label style={{
+
+                              position: 'absolute',
+
+                              left: isMobile ? '18px' : '20px',
+
+                              top: '-10px',
+                              fontSize: isMobile ? '11px' : '12px',
+                              fontWeight: '600',
+
+                              color: quantityFocused || quantityInput ? '#3b82f6' : '#64748b',
+
+                              backgroundColor: 'white',
+
+                              padding: '0 8px',
+
+                              transition: 'all 0.2s ease',
+                              pointerEvents: 'none',
+                              zIndex: 1
+
+                            }}>
+
+                              Qty
+                            </label>
+
+                          </div>
+
+                          {/* Alternative unit quantity display (Tally-style) - inline next to quantity */}
+                          {selectedItemUnitConfig.ADDITIONALUNITS && (
+                            <div style={{
+                              flex: isMobile ? '0 0 auto' : '0 0 auto',
+                              fontSize: isMobile ? '12px' : '13px',
+                              color: '#64748b',
+                              fontStyle: 'italic',
+                              paddingBottom: isMobile ? '0' : '16px',
+                              paddingTop: isMobile ? '4px' : '0',
+                              whiteSpace: isMobile ? 'normal' : 'nowrap',
+                              minWidth: itemQuantity > 0 ? 'auto' : '0',
+                              visibility: itemQuantity > 0 ? 'visible' : 'hidden',
+                              width: isMobile ? '100%' : 'auto',
+                              textAlign: isMobile ? 'left' : 'left'
+                            }}>
+                              {(() => {
+                                if (itemQuantity > 0) {
+                                  // Always convert from BASEUNITS to ADDITIONALUNITS
+                                  // Use custom conversion if available
+                                  const altQty = convertToAlternativeQty(itemQuantity, selectedItemUnitConfig, units, customConversion);
+                                  // If we have customAddlQty (from custom conversion OR compound base + simple additional), use it
+                                  // This ensures "9 pkt 3 nos 2 box" shows "(2 box)" instead of converting from total
+                                  // Also check compoundAddlQty (from component unit input like "25 pkt" or "55 nos")
+                                  // Priority: customAddlQty > compoundAddlQty > calculated altQty
+                                  const qtyToDisplay = customAddlQty !== null && customAddlQty !== undefined
+                                    ? customAddlQty
+                                    : (compoundAddlQty !== null && compoundAddlQty !== undefined ? compoundAddlQty : null);
+
+                                  // Debug log to trace the issue
+                                  if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
+                                    console.log('💰 Displaying alternative quantity:', {
+                                      qtyToDisplay,
+                                      customAddlQty,
+                                      compoundAddlQty,
+                                      itemQuantity,
+                                      calculatedAltQty: altQty
+                                    });
+                                  }
+
+                                  if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
+                                    // Check if ADDITIONALUNITS is compound - if so, format in hyphenated format
+                                    const addlUnitObj = units && units.length > 0
+                                      ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
+                                      : null;
+                                    const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+
+                                    console.log('💰 Checking compound additional unit for display:', {
+                                      qtyToDisplay,
+                                      addlUnitObj: addlUnitObj ? { NAME: addlUnitObj.NAME, ISSIMPLEUNIT: addlUnitObj.ISSIMPLEUNIT } : null,
+                                      hasCompoundAddlUnit,
+                                      ADDITIONALUNITS: selectedItemUnitConfig.ADDITIONALUNITS
+                                    });
+
+                                    if (hasCompoundAddlUnit && addlUnitObj) {
+                                      // ADDITIONALUNITS is compound - format in hyphenated format (e.g., "25-0 pkt")
+                                      const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
+                                      const mainQty = Math.floor(qtyToDisplay);
+                                      const subQty = (qtyToDisplay - mainQty) * addlConversion;
+
+                                      // Get decimal places for sub unit
+                                      let subDecimalPlaces = 0;
+                                      if (addlUnitObj.ADDITIONALUNITS) {
+                                        const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
+                                        if (subUnitObj) {
+                                          subDecimalPlaces = typeof subUnitObj.DECIMALPLACES === 'string'
+                                            ? parseInt(subUnitObj.DECIMALPLACES) || 0
+                                            : (subUnitObj.DECIMALPLACES || 0);
+                                        }
+                                      }
+
+                                      const formattedSubQty = subDecimalPlaces === 0
+                                        ? Math.round(subQty).toString()
+                                        : subQty.toFixed(subDecimalPlaces);
+
+                                      // Use the base component unit (e.g., "pkt") instead of the full compound unit name
+                                      const displayUnit = addlUnitObj.BASEUNITS || selectedItemUnitConfig.ADDITIONALUNITS;
+
+                                      const formattedDisplay = `(${mainQty}-${formattedSubQty} ${displayUnit})`;
+                                      console.log('💰 Formatted compound additional quantity:', {
+                                        qtyToDisplay,
+                                        mainQty,
+                                        subQty,
+                                        formattedSubQty,
+                                        displayUnit,
+                                        formattedDisplay
+                                      });
+
+                                      return formattedDisplay;
+                                    } else {
+                                      // ADDITIONALUNITS is simple - use regular formatting
+                                      let decimalPlaces = 0;
+                                      if (units && units.length > 0) {
+                                        const addlUnit = units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS);
+                                        if (addlUnit) {
+                                          decimalPlaces = typeof addlUnit.DECIMALPLACES === 'string'
+                                            ? parseInt(addlUnit.DECIMALPLACES) || 0
+                                            : (addlUnit.DECIMALPLACES || 0);
+                                        }
+                                      } else if (selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL !== undefined) {
+                                        decimalPlaces = typeof selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL === 'string'
+                                          ? parseInt(selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL) || 0
+                                          : (selectedItemUnitConfig.ADDITIONALUNITS_DECIMAL || 0);
+                                      }
+                                      const formattedQty = decimalPlaces === 0
+                                        ? Math.round(qtyToDisplay).toString()
+                                        : qtyToDisplay.toFixed(decimalPlaces);
+                                      return `(${formattedQty} ${selectedItemUnitConfig.ADDITIONALUNITS})`;
+                                    }
+                                  }
+                                  // Fallback: use calculated alternative quantity
+                                  console.log('💰 Using fallback calculated alternative quantity:', {
+                                    altQty,
+                                    qtyToDisplay,
+                                    customAddlQty,
+                                    compoundAddlQty
+                                  });
+                                  return altQty ? `(${altQty.qty} ${altQty.unit})` : '';
+                                }
+                                return '';
+                              })()}
+                            </div>
+                          )}
+                          {/* Helper text showing available units */}
+                          {selectedItemUnitConfig && quantityFocused && (
+                            <div style={{
+
+                              position: 'absolute',
+
+                              top: '100%',
+                              left: 0,
+                              right: 0,
+                              marginTop: '4px',
+                              padding: '8px 12px',
+                              backgroundColor: '#f8fafc',
+                              borderRadius: '8px',
+                              fontSize: '12px',
+
+                              color: '#64748b',
+                              border: '1px solid #e2e8f0',
+                              zIndex: 1000
+                            }}>
+                              Examples: {selectedItemUnitConfig.BASEUNITS}{selectedItemUnitConfig.ADDITIONALUNITS ? ` or ${selectedItemUnitConfig.ADDITIONALUNITS}` : ''}{selectedItemUnitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes' ? `, ${selectedItemUnitConfig.BASEUNITCOMP_BASEUNIT} ${selectedItemUnitConfig.BASEUNITCOMP_ADDLUNIT}` : ''}
+                            </div>
+
+                          )}
+
+                        </div>
+
+                      )}
+
+
+
+                      {/* Fallback - Old Quantity Input (when no item selected) */}
+
+                      {!selectedItemUnitConfig && (
+
+                        <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 120px', minWidth: isMobile ? '100%' : '100px' }}>
+
+                          <div style={{
+
+                            position: 'relative',
+
+                            background: 'white',
+
+                            borderRadius: '8px',
+
+                            border: '1px solid #e2e8f0',
+
+                            transition: 'all 0.2s ease',
+
+                            boxShadow: isMobile ? '0 1px 2px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.08)'
+
+                          }}>
+
+                            <input
+
+                              type="number"
+
+                              value={itemQuantity}
+
+                              onChange={(e) => setItemQuantity(parseFloat(e.target.value) || 0)}
+
+                              onFocus={() => setQuantityFocused(true)}
+
+                              onBlur={() => setQuantityFocused(false)}
+
+                              disabled={!selectedItem}
+
+                              min="1"
+
+                              style={{
+
+                                width: '100%',
+
+                                padding: isMobile ? '12px 16px' : '14px 16px',
+
+                                border: 'none',
+
+                                borderRadius: '8px',
+
+                                fontSize: isMobile ? '14px' : '15px',
+
+                                color: selectedItem ? '#111827' : '#9ca3af',
+
+                                outline: 'none',
+
+                                background: selectedItem ? 'transparent' : '#f9fafb',
+
+                                textAlign: 'left',
+
+                                cursor: selectedItem ? 'text' : 'not-allowed',
+
+                                height: isMobile ? '44px' : '48px',
+
+                                boxSizing: 'border-box',
+
+                                fontWeight: '400'
+
+                              }}
+
+                              placeholder="Qty"
+
+                            />
+
+                            <label style={{
+
+                              position: 'absolute',
+
+                              left: isMobile ? '16px' : '16px',
+
+                              top: quantityFocused || itemQuantity > 0 ? '-8px' : '14px',
+
+                              fontSize: quantityFocused || itemQuantity > 0 ? '12px' : (isMobile ? '14px' : '15px'),
+
+                              fontWeight: '500',
+
+                              color: quantityFocused || itemQuantity > 0 ? '#7c3aed' : '#6b7280',
+
+                              backgroundColor: 'white',
+
+                              padding: '0 6px',
+
+                              transition: 'all 0.2s ease',
+
+                              pointerEvents: 'none'
+
+                            }}>
+
+                              Qty
+
+                            </label>
+
+                          </div>
+
+                        </div>
+
+                      )}
+
+
+
+                      {/* Available Stock - Only show if user has show_clsstck_Column permission */}
+
+                      {canShowClosingStock && (
+
+                        <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 100px', minWidth: isMobile ? '100%' : '80px', maxWidth: isMobile ? '100%' : '120px', boxSizing: 'border-box' }}>
+
+                          <div style={{
+
+                            position: 'relative',
+
+                            background: '#f8fafc',
+
+                            borderRadius: '8px',
+
+                            border: '1px solid #e2e8f0',
+
+                            boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
+
+                          }}>
+
+                            <input
+
+                              type="text"
+
+                              value={(() => {
+
+                                if (selectedItem && stockItems.length > 0) {
+
+                                  const selectedStockItem = stockItems.find(item => item.NAME === selectedItem);
+
+                                  if (selectedStockItem) {
+
+                                    const stockValue = selectedStockItem.CLOSINGSTOCK || 0;
+
+                                    // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
+
+                                    if (canShowClosingStockYesNo) {
+
+                                      return stockValue > 0 ? 'Yes' : 'No';
+
+                                    }
+
+                                    return stockValue;
+
+                                  }
+
+                                }
+
+                                return '';
+
+                              })()}
+
+                              style={{
+
+                                width: '100%',
+
+                                padding: isMobile ? '12px 16px' : '14px 16px',
+
+                                border: 'none',
+
+                                borderRadius: '8px',
+
+                                fontSize: isMobile ? '14px' : '15px',
+
+                                color: '#374151',
+
+                                outline: 'none',
+
+                                background: 'transparent',
+
+                                textAlign: 'center',
+
+                                fontWeight: '500',
+
+                                cursor: canShowStockBreakdown ? 'pointer' : 'default',
+
+                                height: isMobile ? '44px' : '48px',
+
+                                boxSizing: 'border-box',
+
+                                textDecoration: canShowStockBreakdown ? 'underline' : 'none',
+
+                                textDecorationColor: canShowStockBreakdown ? '#7c3aed' : 'transparent',
+
+                                textUnderlineOffset: '2px'
+
+                              }}
+
+                              placeholder=""
+
+                              readOnly
+
+                              onClick={handleStockFieldClick}
+
+                            />
+
+                            <label style={{
+
+                              position: 'absolute',
+
+                              left: isMobile ? '16px' : '16px',
+
+                              top: '-8px',
+
+                              fontSize: '12px',
+
+                              fontWeight: '500',
+
+                              color: '#6b7280',
+
+                              backgroundColor: '#f9fafb',
+
+                              padding: '0 6px',
+
+                              pointerEvents: 'none',
+
+                              zIndex: 1
+
+                            }}>
+
+                              Stock
+
+                            </label>
+
+                          </div>
+
+                        </div>
+
+                      )}
+
+
+
+                      {/* Rate with UOM Selector */}
+                      {canShowRateAmtColumn && (
+
+                        <>
+                          <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 100px', minWidth: isMobile ? '100%' : '80px', maxWidth: isMobile ? '100%' : '120px', boxSizing: 'border-box' }}>
+                            <div style={{
+
+                              position: 'relative',
+
+                              background: canEditRate ? 'white' : '#f9fafb',
+
+                              borderRadius: '8px',
+
+                              border: '1px solid #d1d5db',
+
+                              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+
+                            }}>
+
+                              <input
+
+                                type="number"
+
+                                value={itemRate}
+
+                                onChange={canEditRate ? (e) => setItemRate(parseFloat(e.target.value) || 0) : undefined}
+
+                                readOnly={!canEditRate}
+
+                                style={{
+
+                                  width: '100%',
+
+                                  padding: isMobile ? '12px 16px' : '14px 16px',
+
+                                  border: 'none',
+
+                                  borderRadius: '8px',
+
+                                  fontSize: isMobile ? '14px' : '15px',
+
+                                  color: canEditRate ? '#111827' : '#6b7280',
+
+                                  outline: 'none',
+
+                                  background: 'transparent',
+
+                                  textAlign: 'center',
+
+                                  fontWeight: '500',
+
+                                  cursor: canEditRate ? 'text' : 'not-allowed',
+
+                                  height: isMobile ? '44px' : '48px',
+
+                                  boxSizing: 'border-box'
+
+                                }}
+
+                                placeholder="Rate"
+
+                              />
+
+                              <label style={{
+
+                                position: 'absolute',
+
+                                left: isMobile ? '16px' : '16px',
+
+                                top: '-8px',
+
+                                fontSize: '12px',
+
+                                fontWeight: '500',
+
+                                color: '#6b7280',
+
+                                backgroundColor: canEditRate ? 'white' : '#f9fafb',
+
+                                padding: '0 6px',
+
+                                pointerEvents: 'none',
+
+                                zIndex: 1
+
+                              }}>
+
+                                Rate
+
+                              </label>
+
+                            </div>
+
+                          </div>
+
+                          {/* Rate UOM Selector - Always show, readonly if only one unit */}
+                          {selectedItemUnitConfig && (() => {
+                            // Check if BASEUNITS is compound and has component units
+                            const baseUnitObj = units && units.length > 0
+                              ? units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS)
+                              : null;
+                            const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
+                            const hasMultipleUnits = selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit;
+
+                            return (
+                              <div style={{ position: 'relative', width: isMobile ? '100%' : '120px', flex: isMobile ? '1 1 100%' : '0 0 120px', minWidth: isMobile ? '100%' : '100px', maxWidth: isMobile ? '100%' : '140px', boxSizing: 'border-box' }}>
+                                <div style={{
+                                  position: 'relative',
+                                  background: 'white',
+                                  borderRadius: '8px',
+                                  border: showRateUOMDropdown ? '2px solid #3b82f6' : '1px solid #e2e8f0',
+                                  transition: 'all 0.2s ease',
+                                  boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                                  cursor: hasMultipleUnits ? 'pointer' : 'default'
+                                }}
+                                  onClick={() => {
+                                    if (hasMultipleUnits) {
+                                      setShowRateUOMDropdown(!showRateUOMDropdown);
+                                    }
+                                  }}
+                                >
+                                  <input
+                                    type="text"
+                                    value={(() => {
+                                      // For compound base units, default to main component if not set
+                                      if (hasCompoundBaseUnit && baseUnitObj) {
+                                        if (rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
+                                        if (rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
+                                        // Default to main component for compound units
+                                        if (!rateUOM || rateUOM === 'base') {
+                                          setRateUOM('component-main');
+                                          return baseUnitObj.BASEUNITS;
+                                        }
+                                      }
+
+                                      // Check if ADDITIONALUNITS is compound
+                                      const addlUnitObj = units && units.length > 0 && selectedItemUnitConfig.ADDITIONALUNITS
+                                        ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
+                                        : null;
+                                      const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+
+                                      if (hasCompoundAddlUnit && addlUnitObj) {
+                                        // Show component units for compound additional unit
+                                        if (rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
+                                        if (rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
+                                        // If rateUOM is 'additional' but ADDITIONALUNITS is compound, default to main component
+                                        if (rateUOM === 'additional') {
                                           setRateUOM('additional-component-main');
-                                          setShowRateUOMDropdown(false);
-                                        }}
-                                        style={{
-                                          padding: '12px 16px',
-                                          cursor: 'pointer',
-                                          borderBottom: addlUnitObj.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
-                                          transition: 'background-color 0.2s ease',
-                                          display: 'flex',
-                                          justifyContent: 'space-between',
-                                          alignItems: 'center',
-                                          backgroundColor: rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'
-                                        }}
-                                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'}
-                                      >
-                                        <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                          {addlUnitObj.BASEUNITS}
-                                        </span>
-                                        <span style={{
-                                          fontSize: '11px',
-                                          fontWeight: '600',
-                                          padding: '2px 8px',
-                                          borderRadius: '4px',
-                                          backgroundColor: '#fef3c7',
-                                          color: '#92400e'
-                                        }}>
-                                          Component
-                                        </span>
-                                      </div>
-                                      {addlUnitObj.ADDITIONALUNITS && (
+                                          return addlUnitObj.BASEUNITS;
+                                        }
+                                      }
+
+                                      // For non-compound units
+                                      if (rateUOM === 'base') return selectedItemUnitConfig.BASEUNITS;
+                                      return (selectedItemUnitConfig.ADDITIONALUNITS || selectedItemUnitConfig.BASEUNITS);
+                                    })()}
+                                    readOnly
+                                    onFocus={() => {
+                                      if (hasMultipleUnits) {
+                                        setRateUOMFocused(true);
+                                      }
+                                    }}
+                                    onBlur={() => setTimeout(() => setRateUOMFocused(false), 200)}
+                                    style={{
+                                      width: '100%',
+                                      padding: isMobile ? '14px 36px 14px 16px' : '15px 36px 15px 16px',
+                                      border: 'none',
+                                      borderRadius: '8px',
+                                      fontSize: isMobile ? '14px' : '15px',
+                                      color: '#1e293b',
+                                      outline: 'none',
+                                      background: hasMultipleUnits ? 'transparent' : '#f8fafc',
+                                      cursor: hasMultipleUnits ? 'pointer' : 'default',
+                                      pointerEvents: 'none',
+                                      fontWeight: '500',
+                                      height: isMobile ? '44px' : '48px',
+                                      padding: isMobile ? '12px 36px 12px 16px' : '14px 36px 14px 16px',
+                                      boxSizing: 'border-box'
+                                    }}
+                                  />
+                                  {hasMultipleUnits && (
+                                    <span className="material-icons" style={{
+                                      position: 'absolute',
+                                      right: '10px',
+                                      top: '50%',
+                                      transform: 'translateY(-50%)',
+                                      fontSize: '18px',
+                                      color: showRateUOMDropdown ? '#3b82f6' : '#64748b',
+                                      transition: 'color 0.2s ease',
+                                      pointerEvents: 'none'
+                                    }}>
+                                      {showRateUOMDropdown ? 'expand_less' : 'expand_more'}
+                                    </span>
+                                  )}
+                                  <label style={{
+                                    position: 'absolute',
+                                    left: isMobile ? '14px' : '16px',
+                                    top: '-9px',
+                                    fontSize: isMobile ? '10px' : '11px',
+                                    fontWeight: '600',
+                                    color: '#3b82f6',
+                                    backgroundColor: 'white',
+                                    padding: '0 6px',
+                                    pointerEvents: 'none',
+                                    letterSpacing: '0.3px',
+                                    zIndex: 1
+                                  }}>
+                                    Rate UOM
+                                  </label>
+
+                                  {/* Rate UOM Dropdown Menu - Only show if multiple units exist */}
+                                  {showRateUOMDropdown && hasMultipleUnits && (
+                                    <div
+                                      className="dropdown-animation"
+                                      style={{
+                                        position: 'absolute',
+                                        top: 'calc(100% + 8px)',
+                                        left: 0,
+                                        right: 0,
+                                        backgroundColor: 'white',
+                                        border: '2px solid #3b82f6',
+                                        borderRadius: '8px',
+                                        maxHeight: '200px',
+                                        overflowY: 'auto',
+                                        zIndex: 9999,
+                                        boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)'
+                                      }}
+                                    >
+                                      {/* Base Unit Option - Only show if BASEUNITS is NOT compound */}
+                                      {!hasCompoundBaseUnit && (
                                         <div
                                           onMouseDown={(e) => e.preventDefault()}
                                           onClick={() => {
-                                            setRateUOM('additional-component-sub');
+                                            setRateUOM('base');
                                             setShowRateUOMDropdown(false);
                                           }}
                                           style={{
                                             padding: '12px 16px',
                                             cursor: 'pointer',
-                                            borderBottom: '1px solid #f1f5f9',
+                                            borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || hasCompoundBaseUnit) ? '1px solid #f1f5f9' : 'none',
                                             transition: 'background-color 0.2s ease',
                                             display: 'flex',
                                             justifyContent: 'space-between',
                                             alignItems: 'center',
-                                            backgroundColor: rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'
+                                            backgroundColor: rateUOM === 'base' ? '#eff6ff' : 'white'
                                           }}
                                           onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'}
+                                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'base' ? '#eff6ff' : 'white'}
                                         >
                                           <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                            {addlUnitObj.ADDITIONALUNITS}
+                                            {selectedItemUnitConfig.BASEUNITS}
                                           </span>
                                           <span style={{
                                             fontSize: '11px',
                                             fontWeight: '600',
                                             padding: '2px 8px',
                                             borderRadius: '4px',
-                                            backgroundColor: '#fef3c7',
-                                            color: '#92400e'
+                                            backgroundColor: '#dbeafe',
+                                            color: '#1e40af'
                                           }}>
-                                            Component
+                                            Base
                                           </span>
                                         </div>
                                       )}
-                                    </>
-                                  );
-                                } else {
-                                  // ADDITIONALUNITS is simple - show full unit
-                                  return (
-                                    <div
-                                      onMouseDown={(e) => e.preventDefault()}
-                                      onClick={() => {
-                                        setRateUOM('additional');
-                                        setShowRateUOMDropdown(false);
-                                      }}
-                                      style={{
-                                        padding: '12px 16px',
-                                        cursor: 'pointer',
-                                        transition: 'background-color 0.2s ease',
-                                        display: 'flex',
-                                        justifyContent: 'space-between',
-                                        alignItems: 'center',
-                                        backgroundColor: rateUOM === 'additional' ? '#eff6ff' : 'white'
-                                      }}
-                                      onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
-                                      onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional' ? '#eff6ff' : 'white'}
-                                    >
-                                      <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
-                                        {selectedItemUnitConfig.ADDITIONALUNITS}
-                                      </span>
-                                      <span style={{
-                                        fontSize: '11px',
-                                        fontWeight: '600',
-                                        padding: '2px 8px',
-                                        borderRadius: '4px',
-                                        backgroundColor: '#dbeafe',
-                                        color: '#1e40af'
-                                      }}>
-                                        Additional
-                                      </span>
+
+                                      {/* Component Units for Compound Base Unit (if BASEUNITS is compound) */}
+                                      {hasCompoundBaseUnit && baseUnitObj && (
+                                        <>
+                                          <div
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => {
+                                              setRateUOM('component-main');
+                                              setShowRateUOMDropdown(false);
+                                            }}
+                                            style={{
+                                              padding: '12px 16px',
+                                              cursor: 'pointer',
+                                              borderBottom: (selectedItemUnitConfig.ADDITIONALUNITS || baseUnitObj.ADDITIONALUNITS) ? '1px solid #f1f5f9' : 'none',
+                                              transition: 'background-color 0.2s ease',
+                                              display: 'flex',
+                                              justifyContent: 'space-between',
+                                              alignItems: 'center',
+                                              backgroundColor: rateUOM === 'component-main' ? '#eff6ff' : 'white'
+                                            }}
+                                            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-main' ? '#eff6ff' : 'white'}
+                                          >
+                                            <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                              {baseUnitObj.BASEUNITS}
+                                            </span>
+                                            <span style={{
+                                              fontSize: '11px',
+                                              fontWeight: '600',
+                                              padding: '2px 8px',
+                                              borderRadius: '4px',
+                                              backgroundColor: '#fef3c7',
+                                              color: '#92400e'
+                                            }}>
+                                              Component
+                                            </span>
+                                          </div>
+                                          {baseUnitObj.ADDITIONALUNITS && (
+                                            <div
+                                              onMouseDown={(e) => e.preventDefault()}
+                                              onClick={() => {
+                                                setRateUOM('component-sub');
+                                                setShowRateUOMDropdown(false);
+                                              }}
+                                              style={{
+                                                padding: '12px 16px',
+                                                cursor: 'pointer',
+                                                borderBottom: selectedItemUnitConfig.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
+                                                transition: 'background-color 0.2s ease',
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                backgroundColor: rateUOM === 'component-sub' ? '#eff6ff' : 'white'
+                                              }}
+                                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'component-sub' ? '#eff6ff' : 'white'}
+                                            >
+                                              <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                                {baseUnitObj.ADDITIONALUNITS}
+                                              </span>
+                                              <span style={{
+                                                fontSize: '11px',
+                                                fontWeight: '600',
+                                                padding: '2px 8px',
+                                                borderRadius: '4px',
+                                                backgroundColor: '#fef3c7',
+                                                color: '#92400e'
+                                              }}>
+                                                Component
+                                              </span>
+                                            </div>
+                                          )}
+                                        </>
+                                      )}
+
+                                      {/* Additional Unit Option (if exists) */}
+                                      {selectedItemUnitConfig.ADDITIONALUNITS && (() => {
+                                        // Check if ADDITIONALUNITS is compound
+                                        const addlUnitObj = units && units.length > 0
+                                          ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
+                                          : null;
+                                        const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+
+                                        if (hasCompoundAddlUnit && addlUnitObj) {
+                                          // ADDITIONALUNITS is compound - show component options
+                                          return (
+                                            <>
+                                              <div
+                                                onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => {
+                                                  setRateUOM('additional-component-main');
+                                                  setShowRateUOMDropdown(false);
+                                                }}
+                                                style={{
+                                                  padding: '12px 16px',
+                                                  cursor: 'pointer',
+                                                  borderBottom: addlUnitObj.ADDITIONALUNITS ? '1px solid #f1f5f9' : 'none',
+                                                  transition: 'background-color 0.2s ease',
+                                                  display: 'flex',
+                                                  justifyContent: 'space-between',
+                                                  alignItems: 'center',
+                                                  backgroundColor: rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'
+                                                }}
+                                                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-main' ? '#eff6ff' : 'white'}
+                                              >
+                                                <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                                  {addlUnitObj.BASEUNITS}
+                                                </span>
+                                                <span style={{
+                                                  fontSize: '11px',
+                                                  fontWeight: '600',
+                                                  padding: '2px 8px',
+                                                  borderRadius: '4px',
+                                                  backgroundColor: '#fef3c7',
+                                                  color: '#92400e'
+                                                }}>
+                                                  Component
+                                                </span>
+                                              </div>
+                                              {addlUnitObj.ADDITIONALUNITS && (
+                                                <div
+                                                  onMouseDown={(e) => e.preventDefault()}
+                                                  onClick={() => {
+                                                    setRateUOM('additional-component-sub');
+                                                    setShowRateUOMDropdown(false);
+                                                  }}
+                                                  style={{
+                                                    padding: '12px 16px',
+                                                    cursor: 'pointer',
+                                                    borderBottom: '1px solid #f1f5f9',
+                                                    transition: 'background-color 0.2s ease',
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
+                                                    alignItems: 'center',
+                                                    backgroundColor: rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'
+                                                  }}
+                                                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional-component-sub' ? '#eff6ff' : 'white'}
+                                                >
+                                                  <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                                    {addlUnitObj.ADDITIONALUNITS}
+                                                  </span>
+                                                  <span style={{
+                                                    fontSize: '11px',
+                                                    fontWeight: '600',
+                                                    padding: '2px 8px',
+                                                    borderRadius: '4px',
+                                                    backgroundColor: '#fef3c7',
+                                                    color: '#92400e'
+                                                  }}>
+                                                    Component
+                                                  </span>
+                                                </div>
+                                              )}
+                                            </>
+                                          );
+                                        } else {
+                                          // ADDITIONALUNITS is simple - show full unit
+                                          return (
+                                            <div
+                                              onMouseDown={(e) => e.preventDefault()}
+                                              onClick={() => {
+                                                setRateUOM('additional');
+                                                setShowRateUOMDropdown(false);
+                                              }}
+                                              style={{
+                                                padding: '12px 16px',
+                                                cursor: 'pointer',
+                                                transition: 'background-color 0.2s ease',
+                                                display: 'flex',
+                                                justifyContent: 'space-between',
+                                                alignItems: 'center',
+                                                backgroundColor: rateUOM === 'additional' ? '#eff6ff' : 'white'
+                                              }}
+                                              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#f8fafc'}
+                                              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = rateUOM === 'additional' ? '#eff6ff' : 'white'}
+                                            >
+                                              <span style={{ fontWeight: '600', color: '#1e293b', fontSize: '14px' }}>
+                                                {selectedItemUnitConfig.ADDITIONALUNITS}
+                                              </span>
+                                              <span style={{
+                                                fontSize: '11px',
+                                                fontWeight: '600',
+                                                padding: '2px 8px',
+                                                borderRadius: '4px',
+                                                backgroundColor: '#dbeafe',
+                                                color: '#1e40af'
+                                              }}>
+                                                Additional
+                                              </span>
+                                            </div>
+                                          );
+                                        }
+                                      })()}
                                     </div>
-                                  );
-                                }
-                              })()}
-                            </div>
-                          )}
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
+                        </>
+                      )}
+
+
+
+                      {/* Discount */}
+
+                      {canShowRateAmtColumn && canShowDiscColumn && (
+
+                        <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 80px', minWidth: isMobile ? '100%' : '70px', maxWidth: isMobile ? '100%' : '100px' }}>
+
+                          <div style={{
+
+                            position: 'relative',
+
+                            background: canEditDiscount ? 'white' : '#f9fafb',
+
+                            borderRadius: '8px',
+
+                            border: '1px solid #e2e8f0',
+
+                            boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+
+                          }}>
+
+                            <input
+
+                              type="number"
+
+                              value={itemDiscountPercent}
+
+                              onChange={canEditDiscount ? (e) => setItemDiscountPercent(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))) : undefined}
+
+                              readOnly={!canEditDiscount}
+
+                              style={{
+
+                                width: '100%',
+
+                                padding: isMobile ? '12px 16px' : '14px 16px',
+
+                                border: 'none',
+
+                                borderRadius: '8px',
+
+                                fontSize: isMobile ? '14px' : '15px',
+
+                                color: canEditDiscount ? '#111827' : '#6b7280',
+
+                                outline: 'none',
+
+                                background: 'transparent',
+
+                                textAlign: 'center',
+
+                                fontWeight: '500',
+
+                                cursor: canEditDiscount ? 'text' : 'not-allowed',
+
+                                height: isMobile ? '44px' : '48px',
+
+                                boxSizing: 'border-box'
+
+                              }}
+
+                              placeholder="Disc %"
+
+                            />
+
+                            <label style={{
+
+                              position: 'absolute',
+
+                              left: isMobile ? '16px' : '16px',
+
+                              top: '-8px',
+
+                              fontSize: '12px',
+
+                              fontWeight: '500',
+
+                              color: '#6b7280',
+
+                              backgroundColor: canEditDiscount ? 'white' : '#f9fafb',
+
+                              padding: '0 6px',
+
+                              pointerEvents: 'none',
+
+                              zIndex: 1
+
+                            }}>
+
+                              Disc %
+
+                            </label>
+
+                          </div>
+
                         </div>
-                      </div>
-                    );
-                  })()}
-                </>
-              )}
 
+                      )}
 
 
-              {/* Discount */}
 
-              {canShowRateAmtColumn && canShowDiscColumn && (
+                      {/* GST */}
 
-                <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 120px' }}>
+                      {canShowRateAmtColumn && (
 
-                  <div style={{
+                        <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 80px', minWidth: isMobile ? '100%' : '70px', maxWidth: isMobile ? '100%' : '100px' }}>
 
-                    position: 'relative',
+                          <div style={{
 
-                    background: canEditDiscount ? 'white' : '#f8fafc',
+                            position: 'relative',
 
-                    borderRadius: isMobile ? '10px' : '12px',
+                            background: '#f8fafc',
 
-                    border: '2px solid #e2e8f0',
+                            borderRadius: '8px',
 
-                    boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
+                            border: '1px solid #e2e8f0',
 
-                  }}>
+                            boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
 
-                    <input
+                          }}>
 
-                      type="number"
+                            <input
 
-                      value={itemDiscountPercent}
+                              type="number"
 
-                      onChange={canEditDiscount ? (e) => setItemDiscountPercent(Math.max(0, Math.min(100, parseFloat(e.target.value) || 0))) : undefined}
+                              value={itemGstPercent}
 
-                      readOnly={!canEditDiscount}
+                              style={{
 
-                      style={{
+                                width: '100%',
 
-                        width: '100%',
+                                padding: isMobile ? '12px 16px' : '14px 16px',
 
-                        padding: isMobile ? '14px 18px' : '15px 18px',
+                                border: 'none',
 
-                        border: 'none',
+                                borderRadius: '8px',
 
-                        borderRadius: isMobile ? '10px' : '10px',
+                                fontSize: isMobile ? '14px' : '15px',
 
-                        fontSize: isMobile ? '14px' : '15px',
+                                color: '#374151',
 
-                        color: canEditDiscount ? '#1e293b' : '#64748b',
+                                outline: 'none',
 
-                        outline: 'none',
+                                background: 'transparent',
 
-                        background: 'transparent',
+                                textAlign: 'center',
 
-                        textAlign: 'center',
+                                fontWeight: '500',
 
-                        fontWeight: '600',
+                                height: isMobile ? '44px' : '48px',
 
-                        cursor: canEditDiscount ? 'text' : 'not-allowed',
+                                boxSizing: 'border-box'
 
-                        height: isMobile ? '48px' : '52px',
+                              }}
 
-                        boxSizing: 'border-box'
+                              placeholder="GST %"
 
-                      }}
+                              readOnly
 
-                      placeholder="Disc %"
+                            />
 
-                    />
+                            <label style={{
 
-                    <label style={{
+                              position: 'absolute',
 
-                      position: 'absolute',
+                              left: isMobile ? '16px' : '16px',
 
-                      left: '20px',
+                              top: '-8px',
 
-                      top: '-10px',
+                              fontSize: '12px',
 
-                      fontSize: '12px',
+                              fontWeight: '500',
 
-                      fontWeight: '600',
+                              color: '#6b7280',
 
-                      color: '#64748b',
+                              backgroundColor: '#f9fafb',
 
-                      backgroundColor: 'white',
+                              padding: '0 6px',
 
-                      padding: '0 8px',
+                              pointerEvents: 'none',
 
-                      pointerEvents: 'none'
+                              zIndex: 1
 
-                    }}>
+                            }}>
 
-                      Disc %
+                              GST %
 
-                    </label>
+                            </label>
 
-                  </div>
+                          </div>
 
-                </div>
+                        </div>
 
-              )}
+                      )}
 
 
 
-              {/* GST */}
+                      {/* Amount Display */}
 
-              {canShowRateAmtColumn && (
+                      {canShowRateAmtColumn && (
 
-                <div style={{ position: 'relative' }}>
+                        <div style={{
 
-                  <div style={{
+                          padding: isMobile ? '14px 20px' : '16px 20px',
 
-                    position: 'relative',
+                          background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
 
-                    background: '#f8fafc',
+                          borderRadius: '8px',
 
-                    borderRadius: isMobile ? '10px' : '12px',
+                          border: '1px solid #0ea5e9',
 
-                    border: '2px solid #e2e8f0',
+                          fontSize: isMobile ? '15px' : '16px',
 
-                    boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
+                          fontWeight: '700',
 
-                  }}>
+                          color: '#0369a1',
 
-                    <input
+                          textAlign: 'center',
 
-                      type="number"
+                          width: isMobile ? '100%' : 'auto',
 
-                      value={itemGstPercent}
+                          minWidth: isMobile ? '100%' : '110px',
 
-                      style={{
+                          boxSizing: 'border-box',
 
-                        width: '100%',
+                          boxShadow: isMobile ? '0 2px 6px rgba(14, 165, 233, 0.25)' : '0 2px 4px rgba(14, 165, 233, 0.2)'
 
-                        padding: isMobile ? '14px 18px' : '15px 18px',
+                        }}>
 
-                        border: 'none',
+                          ₹{itemAmount.toFixed(2)}
 
-                        borderRadius: isMobile ? '10px' : '10px',
+                        </div>
 
-                        fontSize: isMobile ? '14px' : '15px',
+                      )}
 
-                        color: '#64748b',
 
-                        outline: 'none',
 
-                        background: 'transparent',
+                      {/* Add Button */}
 
-                        textAlign: 'center',
+                      <button
 
-                        fontWeight: '600',
+                        type="button"
 
-                        height: isMobile ? '48px' : '52px',
+                        onClick={addOrderItem}
 
-                        boxSizing: 'border-box'
-
-                      }}
-
-                      placeholder="GST %"
-
-                      readOnly
-
-                    />
-
-                    <label style={{
-
-                      position: 'absolute',
-
-                      left: '20px',
-
-                      top: '-10px',
-
-                      fontSize: '12px',
-
-                      fontWeight: '600',
-
-                      color: '#64748b',
-
-                      backgroundColor: '#f8fafc',
-
-                      padding: '0 8px',
-
-                      pointerEvents: 'none'
-
-                    }}>
-
-                      GST %
-
-                    </label>
-
-                  </div>
-
-                </div>
-
-              )}
-
-
-
-              {/* Amount Display */}
-
-              {canShowRateAmtColumn && (
-
-                <div style={{
-
-                  padding: isMobile ? '14px 20px' : '16px 20px',
-
-                  background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-
-                  borderRadius: isMobile ? '10px' : '12px',
-
-                  border: '2px solid #0ea5e9',
-
-                  fontSize: isMobile ? '15px' : '16px',
-
-                  fontWeight: '700',
-
-                  color: '#0369a1',
-
-                  textAlign: 'center',
-
-                  minWidth: isMobile ? '100%' : '110px',
-
-                  boxShadow: isMobile ? '0 2px 6px rgba(14, 165, 233, 0.25)' : '0 2px 4px rgba(14, 165, 233, 0.2)'
-
-                }}>
-
-                  ₹{itemAmount.toFixed(2)}
-
-                </div>
-
-              )}
-
-
-
-              {/* Add Button */}
-
-              <button
-
-                type="button"
-
-                onClick={addOrderItem}
-
-                disabled={!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)}
-
-                style={{
-
-                  background: editingItemId ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-
-                  color: 'white',
-
-                  border: 'none',
-
-                  borderRadius: isMobile ? '10px' : '12px',
-
-                  padding: isMobile ? '16px 24px' : '16px 28px',
-
-                  cursor: 'pointer',
-
-                  fontSize: isMobile ? '15px' : '15px',
-
-                  fontWeight: '700',
-
-                  transition: 'all 0.3s ease',
-
-                  opacity: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)) ? 0.5 : 1,
-
-                  boxShadow: '0 4px 6px rgba(16, 185, 129, 0.25)',
-
-                  display: 'flex',
-
-                  alignItems: 'center',
-
-                  gap: '8px',
-
-                  minWidth: isMobile ? '100%' : '140px',
-
-                  width: isMobile ? '100%' : 'auto',
-
-                  justifyContent: 'center'
-
-                }}
-
-              >
-
-                <span className="material-icons" style={{ fontSize: '18px' }}>
-
-                  {editingItemId ? 'edit' : 'add_shopping_cart'}
-
-                </span>
-
-                {editingItemId ? 'Update Item' : 'Add Item'}
-
-              </button>
-
-            </div>
-
-
-
-            {/* Description Field - Below the entire item line */}
-
-            {selectedItem && (
-
-              <div style={{
-
-                marginTop: '16px',
-
-                display: 'flex',
-
-                alignItems: 'center',
-
-                gap: '12px'
-
-              }}>
-
-                {/* Toggle Switch - Only show if user doesn't have show_itemdesc permission */}
-
-                {!canShowItemDesc && (
-
-                  <div style={{
-
-                    display: 'flex',
-
-                    alignItems: 'center',
-
-                    gap: '8px',
-
-                    padding: '8px 12px',
-
-                    background: '#f8fafc',
-
-                    borderRadius: '8px',
-
-                    border: '1px solid #e2e8f0',
-
-                    cursor: 'pointer',
-
-                    transition: 'all 0.2s ease'
-
-                  }}
-
-                    onClick={() => setShowDescription(!showDescription)}
-
-                    onMouseEnter={(e) => {
-
-                      e.currentTarget.style.background = '#f1f5f9';
-
-                    }}
-
-                    onMouseLeave={(e) => {
-
-                      e.currentTarget.style.background = '#f8fafc';
-
-                    }}>
-
-                    <div style={{
-
-                      width: '20px',
-
-                      height: '12px',
-
-                      background: showDescription ? '#3b82f6' : '#cbd5e1',
-
-                      borderRadius: '6px',
-
-                      position: 'relative',
-
-                      transition: 'all 0.2s ease'
-
-                    }}>
-
-                      <div style={{
-
-                        width: '10px',
-
-                        height: '10px',
-
-                        background: 'white',
-
-                        borderRadius: '50%',
-
-                        position: 'absolute',
-
-                        top: '1px',
-
-                        left: showDescription ? '9px' : '1px',
-
-                        transition: 'all 0.2s ease',
-
-                        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.2)'
-
-                      }} />
-
-                    </div>
-
-                    <span style={{
-
-                      fontSize: '14px',
-
-                      fontWeight: '500',
-
-                      color: '#374151',
-
-                      userSelect: 'none'
-
-                    }}>
-
-                      Add Description
-
-                    </span>
-
-                  </div>
-
-                )}
-
-
-
-                {/* Description Field - Show always if permission exists, or when toggle is on */}
-
-                {(canShowItemDesc || showDescription) && (
-
-                  <div style={{
-
-                    width: '34%',
-
-                    maxWidth: '600px'
-
-                  }}>
-
-                    <div style={{
-
-                      position: 'relative',
-
-                      background: 'white',
-
-                      borderRadius: '12px',
-
-                      border: '2px solid #e2e8f0',
-
-                      transition: 'all 0.2s ease',
-
-                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-
-                    }}>
-
-                      <textarea
-
-                        value={itemDescription}
-
-                        onChange={(e) => setItemDescription(e.target.value)}
-
-                        onFocus={() => setDescriptionFocused(true)}
-
-                        onBlur={() => setDescriptionFocused(false)}
+                        disabled={!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)}
 
                         style={{
 
-                          width: '100%',
+                          background: editingItemId ? 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
 
-                          padding: '16px 20px',
+                          color: 'white',
 
                           border: 'none',
 
-                          borderRadius: '12px',
+                          borderRadius: '8px',
 
-                          fontSize: '15px',
+                          padding: isMobile ? '12px 20px' : '12px 24px',
 
-                          color: '#1e293b',
+                          height: isMobile ? '44px' : '48px',
 
-                          outline: 'none',
+                          cursor: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)) ? 'not-allowed' : 'pointer',
 
-                          background: 'transparent',
+                          fontSize: isMobile ? '14px' : '15px',
 
-                          resize: 'vertical',
+                          fontWeight: '600',
 
-                          minHeight: '60px',
+                          transition: 'all 0.2s ease',
 
-                          fontFamily: 'inherit'
+                          opacity: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)) ? 0.5 : 1,
+
+                          boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)',
+
+                          display: 'flex',
+
+                          alignItems: 'center',
+
+                          gap: '8px',
+
+                          minWidth: isMobile ? '100%' : '120px',
+
+                          width: isMobile ? '100%' : 'auto',
+
+                          justifyContent: 'center',
+
+                          boxSizing: 'border-box'
 
                         }}
 
-                        placeholder="Enter item description (optional)"
+                      >
 
-                      />
+                        <span className="material-icons" style={{ fontSize: '18px' }}>
 
-                      <label style={{
+                          {editingItemId ? 'edit' : 'add'}
 
-                        position: 'absolute',
+                        </span>
 
-                        left: '20px',
+                        {editingItemId ? 'Update Item' : 'Add Item'}
 
-                        top: descriptionFocused || itemDescription ? '-10px' : '16px',
-
-                        fontSize: descriptionFocused || itemDescription ? '12px' : '15px',
-
-                        fontWeight: '600',
-
-                        color: descriptionFocused || itemDescription ? '#3b82f6' : '#6b7280',
-
-                        backgroundColor: 'white',
-
-                        padding: '0 8px',
-
-                        transition: 'all 0.2s ease',
-
-                        pointerEvents: 'none'
-
-                      }}>
-
-                        Item Description
-
-                      </label>
+                      </button>
 
                     </div>
 
-                  </div>
 
-                )}
 
-              </div>
+                    {/* Description Field - Below the entire item line */}
 
-            )}
-
-          </div>
-        </div>
-
-
-
-        {/* Order Items Table */}
-
-        {orderItems.length > 0 && (
-
-          <div style={{ padding: isMobile ? '0' : '2px 2px' }}>
-
-            <div style={{
-
-              background: 'white',
-
-              borderRadius: isMobile ? '0 0 16px 16px' : '2px',
-
-              border: '1px solid #e2e8f0',
-
-              overflow: 'hidden',
-
-              boxShadow: isMobile ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.1)',
-
-              maxWidth: '100%'
-
-            }}>
-
-              {/* Table Header */}
-
-              <div style={{
-
-                display: 'grid',
-
-                gridTemplateColumns: getGridTemplateColumns(),
-
-                gap: isMobile ? '8px' : '12px',
-
-                padding: isMobile ? '12px 12px 12px 16px' : '10px 8px 10px 16px',
-
-                backgroundColor: '#f8fafc',
-
-                borderBottom: '2px solid #e2e8f0',
-
-                fontWeight: '700',
-
-                color: '#475569',
-
-                fontSize: isMobile ? '13px' : '14px',
-
-                letterSpacing: '0.025em'
-
-              }}>
-
-                <div>Item Name</div>
-
-                <div style={{ textAlign: 'center' }}>Qty</div>
-
-                {canShowClosingStock && <div style={{ textAlign: 'center' }}>Stock</div>}
-
-                {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>Rate</div>}
-
-                {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>Rate UOM</div>}
-
-                {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center' }}>Disc %</div>}
-
-                {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>GST %</div>}
-
-                {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>Amount</div>}
-
-                <div style={{ textAlign: 'center' }}>Actions</div>
-
-              </div>
-
-
-
-              {/* Table Rows */}
-
-              {orderItems.map((item, index) => (
-
-                <div key={item.id} style={{
-
-                  display: 'grid',
-
-                  gridTemplateColumns: getGridTemplateColumns(),
-
-                  gap: isMobile ? '8px' : '12px',
-
-                  padding: isMobile ? '14px 12px 14px 16px' : '12px 8px 12px 16px',
-
-                  borderBottom: '1px solid #f1f5f9',
-
-                  alignItems: 'center',
-
-                  fontSize: isMobile ? '13px' : '14px',
-
-                  color: '#1e293b',
-
-                  transition: 'background-color 0.2s ease'
-
-                }}
-
-                  onMouseEnter={(e) => {
-
-                    e.currentTarget.style.backgroundColor = '#f8fafc';
-
-                  }}
-
-                  onMouseLeave={(e) => {
-
-                    e.currentTarget.style.backgroundColor = 'transparent';
-
-                  }}
-
-                >
-
-                  <div style={{
-
-                    fontWeight: '600',
-
-                    color: '#1e293b',
-
-                    fontSize: isMobile ? '14px' : '15px',
-
-                    overflow: 'hidden',
-
-                    wordBreak: 'break-word',
-
-                    lineHeight: '1.4'
-
-                  }}>
-
-                    {item.name}
-
-                    {item.description && (
+                    {selectedItem && (
 
                       <div style={{
 
-                        fontSize: '12px',
+                        marginTop: '16px',
 
-                        color: '#64748b',
+                        display: 'flex',
 
-                        fontWeight: '400',
+                        alignItems: 'center',
 
-                        marginTop: '4px',
-
-                        fontStyle: 'italic',
-
-                        lineHeight: '1.3'
+                        gap: '12px'
 
                       }}>
 
-                        {item.description}
+                        {/* Toggle Switch - Only show if user doesn't have show_itemdesc permission */}
+
+                        {!canShowItemDesc && (
+
+                          <div style={{
+
+                            display: 'flex',
+
+                            alignItems: 'center',
+
+                            gap: '8px',
+
+                            padding: '8px 12px',
+
+                            background: '#f8fafc',
+
+                            borderRadius: '8px',
+
+                            border: '1px solid #e2e8f0',
+
+                            cursor: 'pointer',
+
+                            transition: 'all 0.2s ease'
+
+                          }}
+
+                            onClick={() => setShowDescription(!showDescription)}
+
+                            onMouseEnter={(e) => {
+
+                              e.currentTarget.style.background = '#f1f5f9';
+
+                            }}
+
+                            onMouseLeave={(e) => {
+
+                              e.currentTarget.style.background = '#f8fafc';
+
+                            }}>
+
+                            <div style={{
+
+                              width: '20px',
+
+                              height: '12px',
+
+                              background: showDescription ? '#3b82f6' : '#cbd5e1',
+
+                              borderRadius: '6px',
+
+                              position: 'relative',
+
+                              transition: 'all 0.2s ease'
+
+                            }}>
+
+                              <div style={{
+
+                                width: '10px',
+
+                                height: '10px',
+
+                                background: 'white',
+
+                                borderRadius: '50%',
+
+                                position: 'absolute',
+
+                                top: '1px',
+
+                                left: showDescription ? '9px' : '1px',
+
+                                transition: 'all 0.2s ease',
+
+                                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.2)'
+
+                              }} />
+
+                            </div>
+
+                            <span style={{
+
+                              fontSize: '14px',
+
+                              fontWeight: '500',
+
+                              color: '#374151',
+
+                              userSelect: 'none'
+
+                            }}>
+
+                              Add Description
+
+                            </span>
+
+                          </div>
+
+                        )}
+
+
+
+                        {/* Description Field - Show always if permission exists, or when toggle is on */}
+
+                        {(canShowItemDesc || showDescription) && (
+
+                          <div style={{
+
+                            width: isMobile ? '100%' : '34%',
+
+                            maxWidth: isMobile ? '100%' : '600px',
+                            boxSizing: 'border-box',
+                            minWidth: isMobile ? '0' : 'auto'
+
+                          }}>
+
+                            <div style={{
+
+                              position: 'relative',
+
+                              background: 'white',
+
+                              borderRadius: isMobile ? '10px' : '12px',
+
+                              border: '2px solid #e2e8f0',
+
+                              transition: 'all 0.2s ease',
+
+                              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                              width: '100%',
+                              maxWidth: '100%',
+                              boxSizing: 'border-box'
+
+                            }}>
+
+                              <textarea
+
+                                value={itemDescription}
+
+                                onChange={(e) => setItemDescription(e.target.value)}
+
+                                onFocus={() => setDescriptionFocused(true)}
+
+                                onBlur={() => setDescriptionFocused(false)}
+
+                                style={{
+
+                                  width: '100%',
+
+                                  padding: isMobile ? '14px 18px' : '16px 20px',
+
+                                  border: 'none',
+
+                                  borderRadius: isMobile ? '10px' : '12px',
+
+                                  fontSize: isMobile ? '14px' : '15px',
+
+                                  color: '#1e293b',
+
+                                  outline: 'none',
+
+                                  background: 'transparent',
+
+                                  resize: 'vertical',
+
+                                  minHeight: isMobile ? '80px' : '60px',
+
+                                  fontFamily: 'inherit',
+                                  boxSizing: 'border-box',
+                                  maxWidth: '100%'
+
+                                }}
+
+                                placeholder="Enter item description (optional)"
+
+                              />
+
+                              <label style={{
+
+                                position: 'absolute',
+
+                                left: isMobile ? '18px' : '20px',
+
+                                top: descriptionFocused || itemDescription ? '-10px' : (isMobile ? '14px' : '16px'),
+
+                                fontSize: descriptionFocused || itemDescription ? '12px' : (isMobile ? '14px' : '15px'),
+
+                                fontWeight: '600',
+
+                                color: descriptionFocused || itemDescription ? '#3b82f6' : '#6b7280',
+
+                                backgroundColor: 'white',
+
+                                padding: '0 8px',
+
+                                transition: 'all 0.2s ease',
+
+                                pointerEvents: 'none'
+
+                              }}>
+
+                                Item Description
+
+                              </label>
+
+                            </div>
+
+                          </div>
+
+                        )}
 
                       </div>
 
                     )}
 
                   </div>
-
-                  <div style={{
-
-                    textAlign: 'center',
-
-                    fontWeight: '600',
-
-                    color: '#059669',
-
-                    display: 'flex',
-
-                    flexDirection: 'column',
-
-                    alignItems: 'center',
-
-                    gap: '4px'
-
-                  }}>
-
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontWeight: '600', color: '#1e293b' }}>
-                        {item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`}
-                      </div>
-                      {item.altQtyDisplay && (
-                        <div style={{
-                          fontSize: '12px',
-                          color: '#64748b',
-                          fontStyle: 'italic',
-                          marginTop: '2px'
-                        }}>
-                          ({item.altQtyDisplay})
-                        </div>
-                      )}
-                    </div>
-
-                  </div>
-
-                  {canShowClosingStock && (
-
-                    <div style={{
-
-                      textAlign: 'center',
-
-                      fontWeight: '600',
-
-                      color: '#7c3aed'
-
-                    }}>
-
-                      {(() => {
-
-                        const selectedStockItem = stockItems.find(stockItem => stockItem.NAME === item.name);
-
-                        if (selectedStockItem) {
-
-                          const stockValue = selectedStockItem.CLOSINGSTOCK || 0;
-
-                          // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
-
-                          if (canShowClosingStockYesNo) {
-
-                            return stockValue > 0 ? 'Yes' : 'No';
-
-                          }
-
-                          return stockValue;
-
-                        }
-
-                        return '';
-
-                      })()}
-
-                    </div>
-
-                  )}
-
-                  {canShowRateAmtColumn && (
-
-                    <div style={{
-
-                      textAlign: 'right',
-
-                      fontWeight: '600',
-
-                      color: '#dc2626'
-
-                    }}>
-
-                      ₹{item.rate.toFixed(2)}
-
-                    </div>
-
-                  )}
-
-                  {canShowRateAmtColumn && (
-
-                    <div style={{
-
-                      textAlign: 'center',
-
-                      fontWeight: '500',
-
-                      color: '#64748b',
-
-                      fontSize: '13px',
-
-                      position: 'relative'
-
-                    }}>
-
-                      {(() => {
-                        if (!item.unitConfig || !item.rateUOM) return '';
-
-                        const baseUnitObj = units && units.length > 0
-                          ? units.find(u => u.NAME === item.unitConfig.BASEUNITS)
-                          : null;
-                        const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-
-                        if (hasCompoundBaseUnit && baseUnitObj) {
-                          if (item.rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
-                          if (item.rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
-                        }
-
-                        const addlUnitObj = units && units.length > 0 && item.unitConfig.ADDITIONALUNITS
-                          ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
-                          : null;
-                        const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
-                        if (hasCompoundAddlUnit && addlUnitObj) {
-                          if (item.rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
-                          if (item.rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
-                        }
-
-                        if (item.rateUOM === 'base') return item.unitConfig.BASEUNITS;
-                        if (item.rateUOM === 'additional') return item.unitConfig.ADDITIONALUNITS;
-
-                        return item.unitConfig.BASEUNITS || '';
-                      })()}
-                    </div>
-
-                  )}
-
-                  {canShowRateAmtColumn && canShowDiscColumn && (
-
-                    <div style={{
-
-                      textAlign: 'center',
-
-                      fontWeight: '600',
-
-                      color: '#0ea5e9'
-
-                    }}>
-
-                      {item.discountPercent || 0}%
-
-                    </div>
-
-                  )}
-
-                  {canShowRateAmtColumn && (
-
-                    <div style={{
-
-                      textAlign: 'center',
-
-                      fontWeight: '600',
-
-                      color: '#ea580c'
-
-                    }}>
-
-                      {item.gstPercent}%
-
-                    </div>
-
-                  )}
-
-                  {canShowRateAmtColumn && (
-
-                    <div style={{
-
-                      textAlign: 'right',
-
-                      fontWeight: '700',
-
-                      color: '#059669',
-
-                      fontSize: '15px'
-
-                    }}>
-
-                      ₹{item.amount.toFixed(2)}
-
-                    </div>
-
-                  )}
-
-                  <div style={{
-                    textAlign: 'center',
-                    display: 'flex',
-                    gap: '6px',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    width: '100%'
-                  }}>
-
-                    <>
-
-                      <button
-
-                        type="button"
-
-                        onClick={() => startEditItem(index)}
-
-                        style={{
-
-                          background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-
-                          color: 'white',
-
-                          border: 'none',
-
-                          borderRadius: '6px',
-
-                          padding: '4px 6px',
-
-                          cursor: 'pointer',
-
-                          fontSize: '11px',
-
-                          fontWeight: '600',
-
-                          transition: 'all 0.2s ease',
-
-                          boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)'
-
-                        }}
-
-                        title="Edit item"
-
-                      >
-
-                        <span className="material-icons" style={{ fontSize: '16px' }}>
-
-                          edit
-
-                        </span>
-
-                      </button>
-
-                      <button
-
-                        type="button"
-
-                        onClick={() => removeOrderItem(item.id)}
-
-                        style={{
-
-                          background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-
-                          color: 'white',
-
-                          border: 'none',
-
-                          borderRadius: '6px',
-
-                          padding: '4px 6px',
-
-                          cursor: 'pointer',
-
-                          fontSize: '11px',
-
-                          fontWeight: '600',
-
-                          transition: 'all 0.2s ease',
-
-                          boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)'
-
-                        }}
-
-                        title="Remove item"
-
-                      >
-
-                        <span className="material-icons" style={{ fontSize: '16px' }}>
-
-                          delete_outline
-
-                        </span>
-
-                      </button>
-
-                    </>
-
-                  </div>
-
                 </div>
+              </div>
+            </div>
+            {/* End of Order Items Section Header */}
 
-              ))}
+          </form>
 
+          {/* Order Items Table */}
 
+          {orderItems.length === 0 && (
+            <div style={{
+              border: '2px dashed #e5e7eb',
+              borderRadius: '12px',
+              padding: isMobile ? '40px 20px' : '60px 40px',
+              textAlign: 'center',
+              backgroundColor: '#fafafa',
+              marginTop: '16px'
+            }}>
+              <div style={{
+                width: '64px',
+                height: '64px',
+                margin: '0 auto 16px',
+                backgroundColor: '#f3f4f6',
+                borderRadius: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '32px',
+                color: '#9ca3af'
+              }}>
+                📦
+              </div>
+              <p style={{
+                margin: '0 0 8px 0',
+                fontSize: isMobile ? '16px' : '18px',
+                fontWeight: '600',
+                color: '#374151'
+              }}>
+                No items added yet
+              </p>
+              <p style={{
+                margin: 0,
+                fontSize: isMobile ? '14px' : '15px',
+                color: '#6b7280'
+              }}>
+                Search and add items to start creating your order.
+              </p>
+            </div>
+          )}
 
-              {/* Totals Row */}
+          {orderItems.length > 0 && (
 
-              {(() => {
+            <div className="table-container" style={{
+              padding: isMobile ? '0' : '2px 2px',
+              width: '100%',
+              maxWidth: '100%',
+              boxSizing: 'border-box',
+              overflowX: 'auto',
+              overflowY: 'visible',
+              position: 'relative',
+              background: 'white',
+              borderRadius: '0.75rem',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+              marginTop: '1rem',
+            }}>
 
-                const totals = calculateTotals();
+              <div style={{
 
-                return (
+                background: 'white',
 
+                borderRadius: isMobile ? '0 0 16px 16px' : '2px',
+
+                border: '1px solid #e2e8f0',
+
+                overflow: 'hidden',
+
+                boxShadow: isMobile ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.1)',
+
+                width: '100%',
+                maxWidth: '100%',
+                boxSizing: 'border-box',
+                position: 'relative'
+
+              }}>
+
+                {/* Table Header - Hidden on mobile, shown on desktop */}
+                {!isMobile && (
                   <div style={{
 
                     display: 'grid',
 
                     gridTemplateColumns: getGridTemplateColumns(),
 
-                    gap: isMobile ? '8px' : '12px',
+                    gap: '12px',
 
-                    padding: isMobile ? '14px 12px 14px 16px' : '12px 8px 12px 16px',
+                    padding: '10px 8px 10px 16px',
 
-                    background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
+                    backgroundColor: '#f8fafc',
 
-                    color: 'white',
+                    borderBottom: '2px solid #e2e8f0',
 
                     fontWeight: '700',
 
-                    fontSize: isMobile ? '13px' : '12px',
+                    color: '#475569',
 
-                    borderTop: '2px solid #3b82f6',
+                    fontSize: '14px',
 
-                    borderRadius: isMobile ? '0 0 16px 16px' : '0'
+                    letterSpacing: '0.025em',
+
+                    minWidth: 0,
+                    width: '100%',
+                    boxSizing: 'border-box'
 
                   }}>
 
-                    <div style={{ fontSize: isMobile ? '16px' : '18px' }}>OrderTotal ({orderItems.length} items selected)</div>
+                    <div style={{
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      minWidth: 0,
+                      maxWidth: isMobile ? '90px' : 'none'
+                    }}>Item Name</div>
 
-                    <div style={{ textAlign: 'center', fontSize: isMobile ? '16px' : '18px' }}>
-                      {totals.canShowQuantityTotal ? totals.totalQuantity : '-'}
-                    </div>
+                    <div style={{ textAlign: 'center', minWidth: 0 }}>Qty</div>
 
-                    {canShowClosingStock && <div style={{ textAlign: 'center' }}>-</div>}
+                    {canShowClosingStock && <div style={{ textAlign: 'center', minWidth: 0 }}>Stock</div>}
 
-                    {canShowRateAmtColumn && <div style={{ textAlign: 'right' }}>-</div>}
+                    {canShowRateAmtColumn && <div style={{ textAlign: 'right', minWidth: 0 }}>Rate</div>}
 
-                    {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>-</div>}
+                    {canShowRateAmtColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>Rate UOM</div>}
 
-                    {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center' }}>-</div>}
+                    {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>Disc %</div>}
 
-                    {canShowRateAmtColumn && <div style={{ textAlign: 'center' }}>-</div>}
+                    {canShowRateAmtColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>GST %</div>}
 
-                    {canShowRateAmtColumn && (
+                    {canShowRateAmtColumn && <div style={{ textAlign: 'right', minWidth: 0 }}>Amount</div>}
 
-                      <div style={{ textAlign: 'right', fontSize: isMobile ? '18px' : '20px', color: '#fbbf24', fontWeight: '700' }}>
+                    <div style={{ textAlign: 'center', minWidth: 0 }}>Actions</div>
 
-                        ₹{totals.totalAmount.toFixed(2)}
+                  </div>
+                )}
+
+                {/* Mobile Header - Simple title with item count */}
+                {isMobile && (
+                  <div style={{
+                    padding: '12px 16px',
+                    backgroundColor: '#f8fafc',
+                    borderBottom: '2px solid #e2e8f0',
+                    fontWeight: '700',
+                    color: '#475569',
+                    fontSize: '14px'
+                  }}>
+                    Order Items ({orderItems.length})
+                  </div>
+                )}
+
+                {/* Table Rows (Desktop) / Card Layout (Mobile) */}
+
+                {orderItems.map((item, index) => {
+                  // Get stock value for display
+                  const selectedStockItem = stockItems.find(stockItem => stockItem.NAME === item.name);
+                  const stockValue = selectedStockItem ? (canShowClosingStockYesNo ? (selectedStockItem.CLOSINGSTOCK || 0) > 0 ? 'Yes' : 'No' : selectedStockItem.CLOSINGSTOCK || 0) : '';
+
+                  // Get rate UOM display
+                  const getRateUOMDisplay = () => {
+                    if (!item.unitConfig || !item.rateUOM) return '';
+                    const baseUnitObj = units && units.length > 0
+                      ? units.find(u => u.NAME === item.unitConfig.BASEUNITS)
+                      : null;
+                    const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
+
+                    if (hasCompoundBaseUnit && baseUnitObj) {
+                      if (item.rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
+                      if (item.rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
+                    }
+
+                    const addlUnitObj = units && units.length > 0 && item.unitConfig.ADDITIONALUNITS
+                      ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
+                      : null;
+                    const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
+
+                    if (hasCompoundAddlUnit && addlUnitObj) {
+                      if (item.rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
+                      if (item.rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
+                    }
+
+                    if (item.rateUOM === 'base') return item.unitConfig.BASEUNITS;
+                    if (item.rateUOM === 'additional') return item.unitConfig.ADDITIONALUNITS;
+                    return item.unitConfig.BASEUNITS || '';
+                  };
+
+                  // Mobile Card Layout
+                  if (isMobile) {
+                    return (
+                      <div
+                        key={item.id}
+                        style={{
+                          padding: '12px',
+                          margin: '8px',
+                          backgroundColor: '#ffffff',
+                          borderRadius: '12px',
+                          border: '1px solid #e2e8f0',
+                          boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                          width: 'calc(100% - 16px)',
+                          boxSizing: 'border-box'
+                        }}
+                      >
+                        {/* Primary Row: Item Name + Amount */}
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'flex-start',
+                          marginBottom: '8px',
+                          gap: '8px'
+                        }}>
+                          <div style={{
+                            flex: 1,
+                            minWidth: 0
+                          }}>
+                            <div style={{
+                              fontWeight: '700',
+                              color: '#1e293b',
+                              fontSize: '15px',
+                              marginBottom: item.description ? '4px' : '0',
+                              wordBreak: 'break-word',
+                              lineHeight: '1.3'
+                            }}>
+                              {item.name}
+                            </div>
+                            {item.description && (
+                              <div style={{
+                                fontSize: '12px',
+                                color: '#64748b',
+                                fontWeight: '400',
+                                fontStyle: 'italic',
+                                lineHeight: '1.3',
+                                marginTop: '4px'
+                              }}>
+                                {item.description}
+                              </div>
+                            )}
+                          </div>
+                          {canShowRateAmtColumn && (
+                            <div style={{
+                              fontWeight: '700',
+                              color: '#059669',
+                              fontSize: '18px',
+                              whiteSpace: 'nowrap',
+                              flexShrink: 0
+                            }}>
+                              ₹{item.amount.toFixed(2)}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Secondary Row: Qty, Rate, GST */}
+                        <div style={{
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: '12px',
+                          marginBottom: '8px',
+                          fontSize: '13px',
+                          color: '#475569'
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                            <span style={{ fontWeight: '600', color: '#64748b' }}>Qty:</span>
+                            <span style={{ fontWeight: '600', color: '#059669' }}>
+                              {item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`}
+                            </span>
+                            {item.altQtyDisplay && (
+                              <span style={{ fontSize: '11px', color: '#94a3b8', fontStyle: 'italic' }}>
+                                ({item.altQtyDisplay})
+                              </span>
+                            )}
+                          </div>
+                          {canShowRateAmtColumn && (
+                            <>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontWeight: '600', color: '#64748b' }}>Rate:</span>
+                                <span style={{ fontWeight: '600', color: '#dc2626' }}>₹{item.rate.toFixed(2)}</span>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontWeight: '600', color: '#64748b' }}>GST:</span>
+                                <span style={{ fontWeight: '600', color: '#ea580c' }}>{item.gstPercent}%</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Tertiary Row: Stock, Rate UOM, Disc % */}
+                        {(canShowClosingStock || (canShowRateAmtColumn && getRateUOMDisplay()) || (canShowRateAmtColumn && canShowDiscColumn && item.discountPercent)) && (
+                          <div style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: '12px',
+                            marginBottom: '8px',
+                            fontSize: '12px',
+                            color: '#64748b'
+                          }}>
+                            {canShowClosingStock && stockValue !== '' && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontWeight: '500' }}>Stock:</span>
+                                <span style={{ fontWeight: '600', color: '#7c3aed' }}>{stockValue}</span>
+                              </div>
+                            )}
+                            {canShowRateAmtColumn && getRateUOMDisplay() && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontWeight: '500' }}>UOM:</span>
+                                <span style={{ fontWeight: '600' }}>{getRateUOMDisplay()}</span>
+                              </div>
+                            )}
+                            {canShowRateAmtColumn && canShowDiscColumn && item.discountPercent > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                <span style={{ fontWeight: '500' }}>Disc:</span>
+                                <span style={{ fontWeight: '600', color: '#0ea5e9' }}>{item.discountPercent || 0}%</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Actions Row */}
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'flex-end',
+                          gap: '8px',
+                          marginTop: '8px',
+                          paddingTop: '8px',
+                          borderTop: '1px solid #f1f5f9'
+                        }}>
+                          <button
+                            type="button"
+                            onClick={() => startEditItem(index)}
+                            style={{
+                              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '8px',
+                              padding: '8px 16px',
+                              cursor: 'pointer',
+                              fontSize: '13px',
+                              fontWeight: '600',
+                              transition: 'all 0.2s ease',
+                              boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              minHeight: '44px'
+                            }}
+                            title="Edit item"
+                          >
+                            <span className="material-icons" style={{ fontSize: '18px' }}>edit</span>
+                            <span>Edit</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => removeOrderItem(item.id)}
+                            style={{
+                              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '8px',
+                              padding: '8px 16px',
+                              cursor: 'pointer',
+                              fontSize: '13px',
+                              fontWeight: '600',
+                              transition: 'all 0.2s ease',
+                              boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              minHeight: '44px'
+                            }}
+                            title="Remove item"
+                          >
+                            <span className="material-icons" style={{ fontSize: '18px' }}>delete_outline</span>
+                            <span>Delete</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // Desktop Grid Table Layout
+                  return (
+                    <div key={item.id} style={{
+
+                      display: 'grid',
+
+                      gridTemplateColumns: getGridTemplateColumns(),
+
+                      gap: '12px',
+
+                      padding: '12px 8px 12px 16px',
+
+                      borderBottom: '1px solid #f1f5f9',
+
+                      alignItems: 'center',
+
+                      fontSize: '14px',
+
+                      color: '#1e293b',
+
+                      transition: 'background-color 0.2s ease',
+
+                      minWidth: 0,
+                      width: '100%',
+                      boxSizing: 'border-box'
+
+                    }}
+
+                      onMouseEnter={(e) => {
+
+                        e.currentTarget.style.backgroundColor = '#f8fafc';
+
+                      }}
+
+                      onMouseLeave={(e) => {
+
+                        e.currentTarget.style.backgroundColor = 'transparent';
+
+                      }}
+
+                    >
+
+                      <div style={{
+
+                        fontWeight: '600',
+
+                        color: '#1e293b',
+
+                        fontSize: '15px',
+
+                        overflow: 'hidden',
+
+                        wordBreak: 'break-word',
+
+                        lineHeight: '1.2',
+
+                        minWidth: 0
+
+                      }}>
+
+                        {item.name}
+
+                        {item.description && (
+
+                          <div style={{
+
+                            fontSize: '12px',
+
+                            color: '#64748b',
+
+                            fontWeight: '400',
+
+                            marginTop: '4px',
+
+                            fontStyle: 'italic',
+
+                            lineHeight: '1.3'
+
+                          }}>
+
+                            {item.description}
+
+                          </div>
+
+                        )}
 
                       </div>
 
-                    )}
+                      <div style={{
 
-                    <div></div>
+                        textAlign: 'center',
 
-                  </div>
+                        fontWeight: '600',
 
-                );
+                        color: '#059669',
 
-              })()}
+                        display: 'flex',
+
+                        flexDirection: 'column',
+
+                        alignItems: 'center',
+
+                        gap: '2px',
+                        minWidth: 0
+
+                      }}>
+
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontWeight: '600', color: '#1e293b' }}>
+                            {item.quantityDisplay || `${item.quantity} ${item.unitConfig?.BASEUNITS || ''}`}
+                          </div>
+                          {item.altQtyDisplay && (
+                            <div style={{
+                              fontSize: '12px',
+                              color: '#64748b',
+                              fontStyle: 'italic',
+                              marginTop: '2px'
+                            }}>
+                              ({item.altQtyDisplay})
+                            </div>
+                          )}
+                        </div>
+
+                      </div>
+
+                      {canShowClosingStock && (
+
+                        <div style={{
+
+                          textAlign: 'center',
+
+                          fontWeight: '600',
+
+                          color: '#7c3aed',
+                          minWidth: 0
+
+                        }}>
+
+                          {stockValue !== '' ? stockValue : ''}
+
+                        </div>
+
+                      )}
+
+                      {canShowRateAmtColumn && (
+
+                        <div style={{
+
+                          textAlign: 'right',
+
+                          fontWeight: '600',
+
+                          color: '#dc2626',
+                          minWidth: 0
+
+                        }}>
+
+                          ₹{item.rate.toFixed(2)}
+
+                        </div>
+
+                      )}
+
+                      {canShowRateAmtColumn && (
+
+                        <div style={{
+
+                          textAlign: 'center',
+
+                          fontWeight: '500',
+
+                          color: '#64748b',
+
+                          fontSize: '13px',
+
+                          position: 'relative',
+                          minWidth: 0
+
+                        }}>
+
+                          {getRateUOMDisplay()}
+
+                        </div>
+
+                      )}
+
+                      {canShowRateAmtColumn && canShowDiscColumn && (
+
+                        <div style={{
+
+                          textAlign: 'center',
+
+                          fontWeight: '600',
+
+                          color: '#0ea5e9',
+                          minWidth: 0
+
+                        }}>
+
+                          {item.discountPercent || 0}%
+
+                        </div>
+
+                      )}
+
+                      {canShowRateAmtColumn && (
+
+                        <div style={{
+
+                          textAlign: 'center',
+
+                          fontWeight: '600',
+
+                          color: '#ea580c',
+                          minWidth: 0
+
+                        }}>
+
+                          {item.gstPercent}%
+
+                        </div>
+
+                      )}
+
+                      {canShowRateAmtColumn && (
+
+                        <div style={{
+
+                          textAlign: 'right',
+
+                          fontWeight: '700',
+
+                          color: '#059669',
+
+                          fontSize: '15px',
+                          minWidth: 0
+
+                        }}>
+
+                          ₹{item.amount.toFixed(2)}
+
+                        </div>
+
+                      )}
+
+                      <div style={{
+                        textAlign: 'center',
+                        display: 'flex',
+                        gap: '6px',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        minWidth: '80px',
+                        maxWidth: '80px',
+                        padding: '4px 0'
+                      }}>
+                        <button
+                          type="button"
+                          onClick={() => startEditItem(index)}
+                          style={{
+                            background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            padding: '6px',
+                            height: '32px',
+                            width: '32px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxSizing: 'border-box',
+                            flexShrink: 0
+                          }}
+                          title="Edit item"
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.boxShadow = '0 4px 6px rgba(59, 130, 246, 0.3)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2)';
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: '16px' }}>edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeOrderItem(item.id)}
+                          style={{
+                            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            padding: '6px',
+                            height: '32px',
+                            width: '32px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxSizing: 'border-box',
+                            flexShrink: 0
+                          }}
+                          title="Remove item"
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.boxShadow = '0 4px 6px rgba(239, 68, 68, 0.3)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(239, 68, 68, 0.2)';
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: '16px' }}>delete_outline</span>
+                        </button>
+                      </div>
+
+                    </div>
+                  );
+                })}
+
+                {/* Totals Row */}
+
+                {(() => {
+
+                  const totals = calculateTotals();
+
+                  // Mobile Card Style Totals
+                  if (isMobile) {
+                    return (
+                      <div style={{
+                        padding: '16px',
+                        margin: '8px',
+                        background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
+                        borderRadius: '12px',
+                        color: 'white',
+                        boxShadow: '0 2px 8px rgba(30, 64, 175, 0.3)'
+                      }}>
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          marginBottom: '8px'
+                        }}>
+                          <div style={{
+                            fontSize: '16px',
+                            fontWeight: '700'
+                          }}>
+                            Total ({orderItems.length} {orderItems.length === 1 ? 'item' : 'items'})
+                          </div>
+                          {canShowRateAmtColumn && (
+                            <div style={{
+                              fontSize: '24px',
+                              fontWeight: '700'
+                            }}>
+                              ₹{totals.totalAmount.toFixed(2)}
+                            </div>
+                          )}
+                        </div>
+                        {totals.canShowQuantityTotal && (
+                          <div style={{
+                            fontSize: '14px',
+                            opacity: 0.9,
+                            marginTop: '4px'
+                          }}>
+                            Total Qty: {totals.totalQuantity}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // Desktop Grid Totals
+                  return (
+                    <div style={{
+
+                      display: 'grid',
+
+                      gridTemplateColumns: getGridTemplateColumns(),
+
+                      gap: '12px',
+
+                      padding: '12px 8px 12px 16px',
+
+                      background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
+
+                      color: 'white',
+
+                      fontWeight: '700',
+
+                      fontSize: '12px',
+
+                      borderTop: '2px solid #3b82f6',
+
+                      borderRadius: '0',
+                      minWidth: 0,
+                      width: '100%',
+                      boxSizing: 'border-box'
+
+                    }}>
+
+                      <div style={{
+                        fontSize: '18px',
+                        minWidth: 0,
+                        overflow: 'hidden',
+                        wordBreak: 'break-word',
+                        whiteSpace: 'nowrap',
+                        textOverflow: 'ellipsis'
+                      }}>OrderTotal ({orderItems.length} items selected)</div>
+
+                      <div style={{
+                        textAlign: 'center',
+                        fontSize: '18px',
+                        minWidth: 0
+                      }}>
+                        {totals.canShowQuantityTotal ? totals.totalQuantity : '-'}
+                      </div>
+
+                      {canShowClosingStock && <div style={{ textAlign: 'center', minWidth: 0 }}>-</div>}
+
+                      {canShowRateAmtColumn && <div style={{ textAlign: 'right', minWidth: 0 }}>-</div>}
+
+                      {canShowRateAmtColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>-</div>}
+
+                      {canShowRateAmtColumn && canShowDiscColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>-</div>}
+
+                      {canShowRateAmtColumn && <div style={{ textAlign: 'center', minWidth: 0 }}>-</div>}
+
+                      {canShowRateAmtColumn && (
+
+                        <div style={{
+                          textAlign: 'right',
+                          fontSize: '20px',
+                          color: '#fbbf24',
+                          fontWeight: '700',
+                          minWidth: 0
+                        }}>
+
+                          ₹{totals.totalAmount.toFixed(2)}
+
+                        </div>
+
+                      )}
+
+                      <div style={{ minWidth: 0 }}></div>
+
+                    </div>
+
+                  );
+
+                })()}
+
+              </div>
 
             </div>
 
+          )}
+
+        </div>
+        {/* End of Left Content Area */}
+
+        {/* Right Sidebar */}
+        <div style={{
+          flex: isMobile ? 'none' : '0 0 380px',
+          width: isMobile ? '100%' : '380px',
+          position: isMobile ? 'relative' : 'sticky',
+          top: isMobile ? 'auto' : '24px',
+          alignSelf: isMobile ? 'auto' : 'flex-start',
+          maxHeight: isMobile ? 'none' : 'calc(100vh - 48px)',
+          overflowY: isMobile ? 'visible' : 'auto',
+          padding: isMobile ? '20px' : '24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '20px',
+          boxSizing: 'border-box'
+        }}>
+          {/* Order Summary */}
+          <div style={{
+            background: '#fff',
+            borderRadius: '0.75rem',
+            border: '1px solid #e2e8f0',
+            padding: isMobile ? '20px' : '24px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+            transition: 'all 0.2s ease',
+          }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
+            }}>
+            <h3 style={{
+              margin: '0 0 16px 0',
+              fontSize: '18px',
+              fontWeight: '600',
+              color: '#1f2937'
+            }}>
+              Order Summary
+            </h3>
+            {(() => {
+              const totals = calculateTotals();
+              const subtotal = totals.totalAmount;
+
+              // Get current company and customer for state comparison
+              const currentCompany = filteredCompanies.find(c => c.guid === company);
+              const selectedCustomerObj = customerOptions.find(c => c.NAME === selectedCustomer);
+              // Company state from user-connections API response (statename field, lowercase)
+              const companyState = currentCompany?.statename || currentCompany?.STATENAME || currentCompany?.state || '';
+              // Customer state from customer options (STATENAME field, uppercase)
+              const customerState = selectedCustomerObj?.STATENAME || editableState || '';
+              const isSameState = companyState && customerState && companyState.toLowerCase().trim() === customerState.toLowerCase().trim();
+
+              // Helper function to determine GSTDUTYHEAD from ledger name
+              const getGSTDUTYHEAD = (ledgerName) => {
+                const nameUpper = (ledgerName || '').toUpperCase();
+                if (nameUpper.includes('CGST')) return 'CGST';
+                if (nameUpper.includes('SGST') || nameUpper.includes('UTGST')) return 'SGST/UTGST';
+                if (nameUpper.includes('IGST')) return 'IGST';
+                return null;
+              };
+
+              // Helper function to check if ledger should be calculated based on state
+              const shouldCalculateLedger = (ledger) => {
+                const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
+                if (!gstDutyHead) return false;
+
+                if (isSameState) {
+                  // Same state: Calculate CGST and SGST/UTGST
+                  return gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST';
+                } else {
+                  // Different states: Calculate IGST
+                  return gstDutyHead === 'IGST';
+                }
+              };
+
+              // Calculate GST for each GST ledger
+              const gstLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'GST' && shouldCalculateLedger(ledger)
+              );
+
+              const gstAmounts = {};
+              gstLedgers.forEach(ledger => {
+                const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
+                const rateOfTaxCalc = parseFloat(ledger.RATEOFTAXCALCULATION || '0');
+                let totalGST = 0;
+
+                orderItems.forEach(item => {
+                  const itemGstPercent = parseFloat(item.gstPercent || 0);
+
+                  if (itemGstPercent > 0) {
+                    // Item amount is already calculated as: rate * quantity * (1 - discount%)
+                    // This is the taxable amount (after discount, before GST)
+                    const itemTaxableAmount = parseFloat(item.amount || 0);
+
+                    if (rateOfTaxCalc === 0) {
+                      // RATEOFTAXCALCULATION = 0: Take all item tax
+                      let effectiveGstRate = itemGstPercent;
+
+                      // For CGST/SGST, split the rate (18% -> 9% each)
+                      // For IGST, use full rate (18% -> 18%)
+                      if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+                        effectiveGstRate = itemGstPercent / 2;
+                      }
+                      // For IGST, use full rate (no division)
+
+                      const itemGST = (itemTaxableAmount * effectiveGstRate) / 100;
+                      totalGST += itemGST;
+                    } else {
+                      // RATEOFTAXCALCULATION != 0: Only items with matching rate
+                      // RATEOFTAXCALCULATION stores the split rate (e.g., 9 for CGST/SGST, 18 for IGST)
+                      const matchingRate = rateOfTaxCalc;
+
+                      // Check if item's GST rate matches
+                      // For CGST/SGST, compare split rate (item 18% should match ledger 9%)
+                      // For IGST, compare full rate (item 18% should match ledger 18%)
+                      if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+                        // For CGST/SGST, ledger rate is split, so compare with item rate / 2
+                        if (Math.abs((itemGstPercent / 2) - matchingRate) < 0.01) {
+                          const itemGST = (itemTaxableAmount * matchingRate) / 100;
+                          totalGST += itemGST;
+                        }
+                      } else {
+                        // For IGST, compare full rates
+                        if (Math.abs(itemGstPercent - matchingRate) < 0.01) {
+                          const itemGST = (itemTaxableAmount * matchingRate) / 100;
+                          totalGST += itemGST;
+                        }
+                      }
+                    }
+                  }
+                });
+
+                gstAmounts[ledger.NAME] = totalGST;
+              });
+
+              // Calculate total ledger values (only user-defined ones that have values)
+              const totalLedgerValues = Object.values(ledgerValues).reduce((sum, value) => {
+                return sum + (parseFloat(value) || 0);
+              }, 0);
+
+              // Calculate flat rate ledger amounts (METHODTYPE = "As Flat Rate")
+              const flatRateLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'As Flat Rate'
+              );
+              const flatRateAmounts = {};
+              flatRateLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                flatRateAmounts[ledger.NAME] = classRate;
+              });
+              const totalFlatRate = Object.values(flatRateAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate "Based on Quantity" ledger amounts (METHODTYPE = "Based on Quantity")
+              // Value = Total qty * CLASSRATE
+              const basedOnQuantityLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'Based on Quantity'
+              );
+              const basedOnQuantityAmounts = {};
+              const totalQuantity = orderItems.reduce((sum, item) => sum + (parseFloat(item.quantity || 0)), 0);
+              basedOnQuantityLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                basedOnQuantityAmounts[ledger.NAME] = totalQuantity * classRate;
+              });
+              const totalBasedOnQuantity = Object.values(basedOnQuantityAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate "On Total Sales" ledger amounts (METHODTYPE = "On Total Sales")
+              // Value = total item value (subtotal) * CLASSRATE/100
+              const onTotalSalesLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'On Total Sales'
+              );
+              const onTotalSalesAmounts = {};
+              onTotalSalesLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                onTotalSalesAmounts[ledger.NAME] = (subtotal * classRate) / 100;
+              });
+              const totalOnTotalSales = Object.values(onTotalSalesAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate "On Current SubTotal" ledger amounts (METHODTYPE = "On Current SubTotal")
+              // Value = (total item value + additional ledger value excluding certain types) * CLASSRATE
+              // Exclude: "As Total Amount Rounding", "GST", and "On Current SubTotal"
+              const onCurrentSubTotalLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'On Current SubTotal'
+              );
+
+              // Calculate base amount for "On Current SubTotal" excluding: "As Total Amount Rounding", "GST", and "On Current SubTotal"
+              // Include: subtotal + user-defined + flat rate + based on quantity + on total sales
+              // Note: GST and rounding are explicitly excluded, and "On Current SubTotal" ledgers are calculated sequentially
+              let cumulativeOnCurrentSubTotal = 0;
+              const recalculatedOnCurrentSubTotalAmounts = {};
+
+              onCurrentSubTotalLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                // Base includes: subtotal + user-defined + flat rate + based on quantity + on total sales + previous "On Current SubTotal" amounts
+                // Excludes: GST, rounding, and other "On Current SubTotal" ledgers (handled sequentially)
+                const currentBase = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + cumulativeOnCurrentSubTotal;
+                const amount = (currentBase * classRate) / 100;
+                recalculatedOnCurrentSubTotalAmounts[ledger.NAME] = amount;
+                cumulativeOnCurrentSubTotal += amount;
+              });
+              const finalOnCurrentSubTotal = cumulativeOnCurrentSubTotal;
+
+              // Calculate GST on other ledgers (excluding GST and rounding ledgers)
+              // Logic: Calculate GST if APPROPRIATEFOR = "GST" and EXCISEALLOCTYPE = "Based on Value" (regardless of GSTAPPLICABLE)
+              // OR if GSTAPPLICABLE = "Yes" and APPROPRIATEFOR is empty
+              const gstOnOtherLedgers = {};
+
+              // Helper function to calculate average GST rate from items
+              const calculateAverageGSTRate = () => {
+                let totalTaxableAmount = 0;
+                let weightedGstRate = 0;
+
+                orderItems.forEach(item => {
+                  const itemGstPercent = parseFloat(item.gstPercent || 0);
+                  const itemAmount = parseFloat(item.amount || 0);
+
+                  if (itemGstPercent > 0 && itemAmount > 0) {
+                    totalTaxableAmount += itemAmount;
+                    weightedGstRate += itemAmount * itemGstPercent;
+                  }
+                });
+
+                if (totalTaxableAmount > 0) {
+                  return weightedGstRate / totalTaxableAmount;
+                }
+                return 0;
+              };
+
+              const avgGstRate = calculateAverageGSTRate();
+
+              // Calculate GST for each non-GST, non-rounding ledger
+              selectedClassLedgers.forEach(ledger => {
+                // Skip GST and rounding ledgers
+                if (ledger.METHODTYPE === 'GST' || ledger.METHODTYPE === 'As Total Amount Rounding') {
+                  return;
+                }
+
+                let ledgerValue = 0;
+
+                // Get the ledger value based on METHODTYPE
+                if (ledger.METHODTYPE === 'As User Defined Value') {
+                  ledgerValue = parseFloat(ledgerValues[ledger.NAME] || 0);
+                } else if (ledger.METHODTYPE === 'As Flat Rate') {
+                  ledgerValue = parseFloat(ledger.CLASSRATE || '0');
+                } else if (ledger.METHODTYPE === 'Based on Quantity') {
+                  ledgerValue = basedOnQuantityAmounts[ledger.NAME] || 0;
+                } else if (ledger.METHODTYPE === 'On Total Sales') {
+                  ledgerValue = onTotalSalesAmounts[ledger.NAME] || 0;
+                } else if (ledger.METHODTYPE === 'On Current SubTotal') {
+                  ledgerValue = recalculatedOnCurrentSubTotalAmounts[ledger.NAME] || 0;
+                }
+
+                if (ledgerValue !== 0) {
+                  let gstAmount = 0;
+
+                  // Check if APPROPRIATEFOR = "GST" and EXCISEALLOCTYPE = "Based on Value"
+                  // This should calculate GST even if GSTAPPLICABLE = "No"
+                  if (ledger.APPROPRIATEFOR === 'GST' && ledger.EXCISEALLOCTYPE === 'Based on Value') {
+                    // Allocate discount proportionally to items based on their values
+                    // Then calculate GST on each item's discount portion using that item's GST rate
+                    const totalItemValue = orderItems.reduce((sum, item) => sum + (parseFloat(item.amount || 0)), 0);
+
+                    if (totalItemValue > 0) {
+                      // Calculate GST for each GST ledger (CGST, SGST, IGST)
+                      gstLedgers.forEach(gstLedger => {
+                        const gstDutyHead = getGSTDUTYHEAD(gstLedger.NAME);
+                        if (!gstDutyHead) return;
+
+                        let ledgerGstAmount = 0;
+
+                        // Allocate discount to each item proportionally
+                        orderItems.forEach(item => {
+                          const itemAmount = parseFloat(item.amount || 0);
+                          const itemGstPercent = parseFloat(item.gstPercent || 0);
+
+                          if (itemAmount > 0 && itemGstPercent > 0) {
+                            // Calculate this item's portion of the discount
+                            const itemDiscountPortion = (ledgerValue * itemAmount) / totalItemValue;
+
+                            // Calculate GST on this item's discount portion
+                            let effectiveGstRate = itemGstPercent;
+
+                            // For CGST/SGST, split the rate (12% -> 6% each, 5% -> 2.5% each)
+                            // For IGST, use full rate
+                            if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+                              effectiveGstRate = itemGstPercent / 2;
+                            }
+
+                            // Only add if this GST ledger matches the state requirement
+                            if ((isSameState && (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST')) ||
+                              (!isSameState && gstDutyHead === 'IGST')) {
+                              const itemGstOnDiscount = (itemDiscountPortion * effectiveGstRate) / 100;
+                              ledgerGstAmount += itemGstOnDiscount;
+                            }
+                          }
+                        });
+
+                        // Add GST on discount to the GST ledger amount (allow negative values for discounts)
+                        if (ledgerGstAmount !== 0) {
+                          // Add to gstAmounts so it's included in the displayed GST amounts
+                          if (!gstAmounts[gstLedger.NAME]) {
+                            gstAmounts[gstLedger.NAME] = 0;
+                          }
+                          gstAmounts[gstLedger.NAME] += ledgerGstAmount;
+                        }
+                      });
+                    }
+                  } else if (ledger.GSTAPPLICABLE === 'Yes' && (ledger.APPROPRIATEFOR === '' || !ledger.APPROPRIATEFOR)) {
+                    // GST = ledger value * GSTRATE/100
+                    // Only calculate if GSTRATE is provided (not empty)
+                    const gstRate = ledger.GSTRATE ? parseFloat(ledger.GSTRATE) : 0;
+                    if (gstRate > 0) {
+                      const gstAmount = (ledgerValue * gstRate) / 100;
+                      gstOnOtherLedgers[ledger.NAME] = gstAmount;
+                    }
+                    // If GSTRATE is empty, no GST calculation required
+                  }
+                }
+              });
+
+              // Calculate totalGST after adding GST on discount (which was added to gstAmounts)
+              let totalGST = Object.values(gstAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              const totalGstOnOtherLedgers = Object.values(gstOnOtherLedgers).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate amount before rounding (subtotal + user-defined ledgers + flat rate + based on quantity + on total sales + on current subtotal + GST + GST on other ledgers)
+              const amountBeforeRounding = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + finalOnCurrentSubTotal + totalGST + totalGstOnOtherLedgers;
+
+              // Helper function to calculate rounding based on ROUNDTYPE and ROUNDLIMIT
+              const calculateRounding = (amount, roundType, roundLimit) => {
+                const limit = parseFloat(roundLimit) || 1;
+
+                if (roundType === 'Normal Rounding') {
+                  // Round to nearest limit (e.g., if limit is 1, round to nearest rupee)
+                  return Math.round(amount / limit) * limit - amount;
+                } else if (roundType === 'Upward Rounding') {
+                  // Round up to next limit
+                  return Math.ceil(amount / limit) * limit - amount;
+                } else if (roundType === 'Downward Rounding') {
+                  // Round down to previous limit
+                  return Math.floor(amount / limit) * limit - amount;
+                }
+                return 0;
+              };
+
+              // Calculate rounding amounts for each rounding ledger
+              const roundingLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'As Total Amount Rounding'
+              );
+
+              let cumulativeRounding = 0;
+              const roundingAmounts = {};
+
+              // Process rounding ledgers in order (they might be cumulative)
+              roundingLedgers.forEach(ledger => {
+                const amountToRound = amountBeforeRounding + cumulativeRounding;
+                const roundingAmount = calculateRounding(
+                  amountToRound,
+                  ledger.ROUNDTYPE || 'Normal Rounding',
+                  ledger.ROUNDLIMIT || '1'
+                );
+                roundingAmounts[ledger.NAME] = roundingAmount;
+                cumulativeRounding += roundingAmount;
+              });
+
+              // Calculate total rounding
+              const totalRounding = cumulativeRounding;
+
+              // Final total = subtotal + user-defined ledgers + rounding
+              const total = amountBeforeRounding + totalRounding;
+
+              return (
+                <>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    marginBottom: '12px',
+                    fontSize: '14px',
+                    color: '#374151'
+                  }}>
+                    <span>Subtotal:</span>
+                    <span>₹{subtotal.toFixed(2)}</span>
+                  </div>
+
+                  {/* Ledger entries - show all, but only user-defined ones are editable */}
+                  {selectedClassLedgers.map((ledger, index) => {
+                    const isUserDefined = ledger.METHODTYPE === 'As User Defined Value';
+                    const isRounding = ledger.METHODTYPE === 'As Total Amount Rounding';
+                    const isGST = ledger.METHODTYPE === 'GST';
+                    const isFlatRate = ledger.METHODTYPE === 'As Flat Rate';
+                    const isBasedOnQuantity = ledger.METHODTYPE === 'Based on Quantity';
+                    const isOnTotalSales = ledger.METHODTYPE === 'On Total Sales';
+                    const isOnCurrentSubTotal = ledger.METHODTYPE === 'On Current SubTotal';
+                    const ledgerValue = ledgerValues[ledger.NAME] || '';
+                    const ledgerAmount = parseFloat(ledgerValue) || 0;
+
+                    // Get rounding amount if it's a rounding ledger
+                    const roundingAmount = isRounding ? (roundingAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get GST amount if it's a GST ledger
+                    const gstAmount = isGST ? (gstAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get flat rate amount if it's a flat rate ledger
+                    const flatRateAmount = isFlatRate ? (flatRateAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get based on quantity amount if it's a based on quantity ledger
+                    const basedOnQuantityAmount = isBasedOnQuantity ? (basedOnQuantityAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get on total sales amount if it's an on total sales ledger
+                    const onTotalSalesAmount = isOnTotalSales ? (onTotalSalesAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get on current subtotal amount if it's an on current subtotal ledger
+                    const onCurrentSubTotalAmount = isOnCurrentSubTotal ? (recalculatedOnCurrentSubTotalAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get GST on this ledger if applicable (for non-GST, non-rounding ledgers)
+                    const gstOnThisLedger = (!isGST && !isRounding && ledger.GSTAPPLICABLE === 'Yes') ? (gstOnOtherLedgers[ledger.NAME] || 0) : 0;
+
+                    return (
+                      <div key={`${ledger.NAME}-${index}`} style={{
+                        marginBottom: '12px'
+                      }}>
+                        {isUserDefined ? (
+                          <>
+                            <div style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: '8px'
+                            }}>
+                              <span style={{
+                                fontSize: '14px',
+                                color: '#374151',
+                                flex: '1 1 auto',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}>
+                                {ledger.NAME}:
+                              </span>
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                flexShrink: 0
+                              }}>
+                                <span style={{ fontSize: '14px', color: '#374151' }}>₹</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={ledgerValue}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setLedgerValues(prev => ({
+                                      ...prev,
+                                      [ledger.NAME]: value
+                                    }));
+                                  }}
+                                  onBlur={(e) => {
+                                    // Ensure value is a valid number
+                                    const numValue = parseFloat(e.target.value) || 0;
+                                    setLedgerValues(prev => ({
+                                      ...prev,
+                                      [ledger.NAME]: numValue === 0 ? '' : numValue.toString()
+                                    }));
+                                  }}
+                                  placeholder="0.00"
+                                  style={{
+                                    width: '80px',
+                                    padding: '6px 8px',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '6px',
+                                    fontSize: '14px',
+                                    textAlign: 'right',
+                                    color: '#374151'
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            {gstOnThisLedger > 0 && (
+                              <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                fontSize: '12px',
+                                color: '#6b7280',
+                                marginTop: '4px',
+                                paddingLeft: '12px'
+                              }}>
+                                <span>GST on {ledger.NAME}:</span>
+                                <span>₹{gstOnThisLedger.toFixed(2)}</span>
+                              </div>
+                            )}
+                          </>
+                        ) : isRounding ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{roundingAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isGST ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{gstAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isFlatRate ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{flatRateAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isBasedOnQuantity ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{basedOnQuantityAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isOnTotalSales ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{onTotalSalesAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isOnCurrentSubTotal ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{onCurrentSubTotalAmount.toFixed(2)}</span>
+                          </div>
+                        ) : (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹0.00</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    paddingTop: '16px',
+                    borderTop: '1px solid #e5e7eb',
+                    marginBottom: '20px'
+                  }}>
+                    <span style={{
+                      fontSize: '18px',
+                      fontWeight: '600',
+                      color: '#1f2937'
+                    }}>
+                      Total:
+                    </span>
+                    <span style={{
+                      fontSize: '24px',
+                      fontWeight: '700',
+                      color: '#7c3aed'
+                    }}>
+                      ₹{total.toFixed(2)}
+                    </span>
+                  </div>
+                </>
+              );
+            })()}
+
+            {/* Action Buttons */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              marginBottom: '16px'
+            }}>
+              <button
+                type="submit"
+                form="order-form"
+                onClick={(e) => {
+                  e.preventDefault();
+                  const form = document.querySelector('form');
+                  if (form) {
+                    form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                  }
+                }}
+                disabled={!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder}
+                style={{
+                  background: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder)
+                    ? '#d1d5db'
+                    : 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px 24px',
+                  height: '48px',
+                  cursor: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'not-allowed' : 'pointer',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s ease',
+                  opacity: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 0.6 : 1,
+                  boxShadow: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'none' : '0 2px 4px rgba(124, 58, 237, 0.2)',
+                  boxSizing: 'border-box'
+                }}
+              >
+                {isSubmittingOrder ? (
+                  <>
+                    <div style={{
+                      width: '18px',
+                      height: '18px',
+                      border: '2px solid #ffffff',
+                      borderTop: '2px solid transparent',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite'
+                    }} />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <span className="material-icons" style={{ fontSize: '18px' }}>shopping_cart</span>
+                    Place Order
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  // Save as Draft functionality
+                  console.log('Save as Draft');
+                }}
+                style={{
+                  background: '#fff',
+                  color: '#374151',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  padding: '12px 24px',
+                  height: '48px',
+                  cursor: 'pointer',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                  boxSizing: 'border-box'
+                }}
+              >
+                Save as Draft
+              </button>
+            </div>
+
+            {/* Info Message */}
+            {(!selectedCustomer || orderItems.length === 0) && (
+              <div style={{
+                background: '#fef3c7',
+                border: '1px solid #fde68a',
+                borderRadius: '8px',
+                padding: '12px',
+                fontSize: '14px',
+                color: '#92400e'
+              }}>
+                Select a customer and add items to place order
+              </div>
+            )}
           </div>
 
-        )}
-
+          {/* Order Information */}
+          <div style={{
+            background: '#fff',
+            borderRadius: '0.75rem',
+            border: '1px solid #e2e8f0',
+            padding: isMobile ? '20px' : '24px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+            transition: 'all 0.2s ease',
+          }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
+            }}>
+            <h3 style={{
+              margin: '0 0 16px 0',
+              fontSize: '18px',
+              fontWeight: '600',
+              color: '#1f2937'
+            }}>
+              Order Information
+            </h3>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '14px'
+              }}>
+                <span style={{ color: '#6b7280' }}>Order Date:</span>
+                <span style={{ color: '#1f2937', fontWeight: '500' }}>
+                  {new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}
+                </span>
+              </div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '14px'
+              }}>
+                <span style={{ color: '#6b7280' }}>Order Type:</span>
+                <span style={{
+                  color: '#fff',
+                  backgroundColor: '#7c3aed',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontWeight: '600'
+                }}>
+                  {selectedVoucherType || 'Sales Order'}
+                </span>
+              </div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '14px'
+              }}>
+                <span style={{ color: '#6b7280' }}>Items Count:</span>
+                <span style={{ color: '#1f2937', fontWeight: '500' }}>{orderItems.length}</span>
+              </div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '14px'
+              }}>
+                <span style={{ color: '#6b7280' }}>Total Quantity:</span>
+                <span style={{ color: '#1f2937', fontWeight: '500' }}>
+                  {(() => {
+                    const totals = calculateTotals();
+                    return totals.canShowQuantityTotal ? totals.totalQuantity : 0;
+                  })()}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        {/* End of Right Sidebar */}
       </div>
-
-
+      {/* End of receivables-content */}
 
       {/* Edit Customer Modal */}
 

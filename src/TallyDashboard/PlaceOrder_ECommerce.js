@@ -102,6 +102,8 @@ function PlaceOrder_ECommerce() {
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [filteredCustomers, setFilteredCustomers] = useState([]);
   const [customerFocused, setCustomerFocused] = useState(false);
+  const customerInputRef = useRef(null);
+  const [customerDropdownPosition, setCustomerDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
 
   const [stockItems, setStockItems] = useState([]);
   const [stockItemsLoading, setStockItemsLoading] = useState(false);
@@ -118,6 +120,7 @@ function PlaceOrder_ECommerce() {
   // Customer refresh state
   const [refreshCustomers, setRefreshCustomers] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshingCustomers, setRefreshingCustomers] = useState(false);
 
   // User permissions state
   const [userModules, setUserModules] = useState([]);
@@ -837,6 +840,28 @@ function PlaceOrder_ECommerce() {
     return () => window.removeEventListener('globalRefresh', handleGlobalRefresh);
   }, []);
 
+  // Listen for cache updates from Cache Management
+  useEffect(() => {
+    const handleCacheUpdate = (event) => {
+      const { type, company: updatedCompany } = event.detail || {};
+      if (type === 'customers') {
+        const currentCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+        const currentCompany = companies.find(c => c.guid === currentCompanyGuid);
+        // Only refresh if the update is for the current company
+        if (currentCompany && updatedCompany && 
+            (updatedCompany.guid === currentCompanyGuid || 
+             (updatedCompany.tallyloc_id === currentCompany.tallyloc_id && 
+              updatedCompany.company === currentCompany.company))) {
+          console.log('🔄 PlaceOrder_ECommerce: Customer cache updated, refreshing...');
+          setRefreshCustomers(prev => prev + 1);
+        }
+      }
+    };
+
+    window.addEventListener('ledgerCacheUpdated', handleCacheUpdate);
+    return () => window.removeEventListener('ledgerCacheUpdated', handleCacheUpdate);
+  }, [companies]);
+
   // Product search and filters
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('');
@@ -1255,6 +1280,39 @@ function PlaceOrder_ECommerce() {
     fetchVoucherTypes();
   }, [company]);
 
+  // Handle customer cache refresh
+  const handleRefreshCustomers = async () => {
+    if (!company) return;
+
+    const currentCompany = companies.find(c => c.guid === company);
+    if (!currentCompany) return;
+
+    setRefreshingCustomers(true);
+
+    try {
+      console.log('🔄 Refreshing customer cache...');
+      const { syncCustomers } = await import('../utils/cacheSyncManager');
+      await syncCustomers(currentCompany);
+      console.log('✅ Customer cache refreshed successfully');
+      
+      // Dispatch event to notify other components
+      window.dispatchEvent(new CustomEvent('ledgerCacheUpdated', { 
+        detail: { type: 'customers', company: currentCompany } 
+      }));
+      
+      // Small delay to ensure cache is fully written and readable
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Trigger re-fetch by incrementing refreshCustomers
+      setRefreshCustomers(prev => prev + 1);
+    } catch (error) {
+      console.error('❌ Error refreshing customer cache:', error);
+      // Error is logged, user can see it in console
+    } finally {
+      setRefreshingCustomers(false);
+    }
+  };
+
   useEffect(() => {
     const fetchCustomers = async () => {
       console.log('Customer useEffect triggered - company:', company, 'refreshCustomers:', refreshCustomers);
@@ -1299,31 +1357,58 @@ function PlaceOrder_ECommerce() {
 
       // Only read from cache - do not fetch from API
       // Cache updates are handled by Cache Management page
-      try {
-        const { getCustomersFromOPFS } = await import('../utils/cacheSyncManager');
-        const customers = await getCustomersFromOPFS(cacheKey);
+      
+      // Retry logic for reading cache (handles timing issues after cache write)
+      let customers = null;
+      let retries = refreshCustomers > 0 ? 3 : 1; // Retry more times if we just refreshed
+      let attempt = 0;
 
-        if (customers && Array.isArray(customers) && customers.length > 0) {
-          console.log(`✅ Loaded ${customers.length} customers from cache`);
-          setCustomerOptions(customers);
-          // Don't auto-select customer if we're auto-populating from cart
-          if (!isAutoPopulating) {
-            if (customers.length === 1) setSelectedCustomer(customers[0].NAME);
-            else setSelectedCustomer('');
+      while (attempt < retries && !customers) {
+        try {
+          attempt++;
+          console.log(`📖 Attempting to load customers from cache (attempt ${attempt}/${retries})...`);
+          
+          const { getCustomersFromOPFS } = await import('../utils/cacheSyncManager');
+          customers = await getCustomersFromOPFS(cacheKey);
+
+          if (customers && Array.isArray(customers) && customers.length > 0) {
+            console.log(`✅ Successfully loaded ${customers.length} customers from cache`);
+            break;
+          } else {
+            customers = null;
+            if (attempt < retries) {
+              console.log(`⚠️ No data found, retrying in 200ms...`);
+              await new Promise(resolve => setTimeout(resolve, 200));
+            }
           }
-        } else {
-          // No cache found - user needs to refresh from Cache Management
-          console.warn('No customer cache found. Please refresh from Cache Management.');
-          setCustomerOptions([]);
-          setSelectedCustomer('');
+        } catch (err) {
+          console.error(`❌ Error loading customers from cache (attempt ${attempt}):`, err);
+          if (attempt < retries) {
+            await new Promise(resolve => setTimeout(resolve, 200));
+          } else {
+            setCustomerOptions([]);
+            setSelectedCustomer('');
+            setCustomerLoading(false);
+            return;
+          }
         }
-      } catch (err) {
-        console.error('Error loading customers from cache:', err);
+      }
+
+      if (customers && Array.isArray(customers) && customers.length > 0) {
+        setCustomerOptions(customers);
+        // Don't auto-select customer if we're auto-populating from cart
+        if (!isAutoPopulating) {
+          if (customers.length === 1) setSelectedCustomer(customers[0].NAME);
+          else setSelectedCustomer('');
+        }
+      } else {
+        // No data in cache after retries
+        console.warn('⚠️ No customer data found in cache after retries');
         setCustomerOptions([]);
         setSelectedCustomer('');
-      } finally {
-        setCustomerLoading(false);
       }
+
+      setCustomerLoading(false);
     };
 
     fetchCustomers();
@@ -1649,6 +1734,48 @@ function PlaceOrder_ECommerce() {
       setFilteredCustomers(customerOptions);
     }
   }, [showCustomerDropdown, customerSearchTerm, customerOptions]);
+
+  // Update dropdown position when it opens or window resizes
+  useEffect(() => {
+    const updateCustomerDropdownPosition = () => {
+      if (customerInputRef.current) {
+        const rect = customerInputRef.current.getBoundingClientRect();
+        const dropdownMaxHeight = 400;
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        const minRequiredSpace = 200; // Minimum space needed for dropdown to be useful
+        
+        // Position dropdown above if there's not enough space below but more space above
+        const shouldPositionAbove = spaceBelow < minRequiredSpace && spaceAbove > spaceBelow;
+        
+        setCustomerDropdownPosition({
+          top: shouldPositionAbove ? Math.max(8, rect.top - dropdownMaxHeight - 8) : rect.bottom + 8,
+          left: Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8)), // Keep within viewport
+          width: Math.min(rect.width, window.innerWidth - 16) // Ensure it fits in viewport
+        });
+      }
+    };
+
+    if (showCustomerDropdown && customerInputRef.current) {
+      updateCustomerDropdownPosition();
+      
+      const handleResize = () => {
+        updateCustomerDropdownPosition();
+      };
+      
+      const handleScroll = () => {
+        updateCustomerDropdownPosition();
+      };
+      
+      window.addEventListener('resize', handleResize);
+      window.addEventListener('scroll', handleScroll, true);
+      
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('scroll', handleScroll, true);
+      };
+    }
+  }, [showCustomerDropdown, filteredCustomers.length]);
 
   // Add item to cart
   const addToCart = (item) => {
@@ -4176,12 +4303,13 @@ function PlaceOrder_ECommerce() {
       width: '100%',
       minHeight: '100%',
       background: 'transparent',
-      padding: isMobile ? '8px 0' : 0,
+      padding: isMobile ? '8px 0 16px 0' : 0,
       margin: 0,
       display: 'flex',
       flexDirection: 'column',
       alignItems: isMobile ? 'center' : 'stretch',
-      boxSizing: 'border-box'
+      boxSizing: 'border-box',
+      overflowX: 'hidden'
     }}>
       <style>
         {`
@@ -4222,7 +4350,7 @@ function PlaceOrder_ECommerce() {
       }}>
         {/* Form */}
         <div style={{
-          padding: isMobile ? '14px 12px' : '20px',
+          padding: isMobile ? '16px 12px' : '20px',
           width: '100%',
           overflow: 'visible',
           position: 'relative',
@@ -4286,31 +4414,66 @@ function PlaceOrder_ECommerce() {
               </div>
             )}
 
-            {/* Customer Count Display */}
+            {/* Customer Count Display with Refresh Button */}
             <div style={{
-              fontSize: isMobile ? '11px' : '14px',
-              color: '#64748b',
-              fontWeight: '500',
-              padding: isMobile ? '5px 10px' : '8px 16px',
-              backgroundColor: '#f8fafc',
-              borderRadius: '20px',
-              border: '1px solid #e2e8f0',
               display: 'flex',
               alignItems: 'center',
-              gap: isMobile ? '5px' : '8px',
+              gap: isMobile ? '6px' : '8px',
               position: 'relative',
-              zIndex: 1,
-              maxWidth: isMobile ? '100%' : '200px',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-              whiteSpace: 'nowrap',
-              flexShrink: 1,
-              minWidth: 0
+              zIndex: 1
             }}>
-              <span style={{ fontSize: isMobile ? '14px' : '16px', flexShrink: 0 }}>👥</span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {customerLoading ? 'Loading...' : `${customerOptions.length.toLocaleString()} customers available`}
-              </span>
+              <div style={{
+                fontSize: isMobile ? '11px' : '14px',
+                color: '#64748b',
+                fontWeight: '500',
+                padding: isMobile ? '5px 10px' : '8px 16px',
+                backgroundColor: '#f8fafc',
+                borderRadius: '20px',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                gap: isMobile ? '5px' : '8px',
+                maxWidth: isMobile ? '100%' : '200px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                flexShrink: 1,
+                minWidth: 0
+              }}>
+                <span style={{ fontSize: isMobile ? '14px' : '16px', flexShrink: 0 }}>👥</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {customerLoading ? 'Loading...' : `${customerOptions.length.toLocaleString()} customers available`}
+                </span>
+              </div>
+              {/* Refresh Button */}
+              <button
+                onClick={handleRefreshCustomers}
+                disabled={refreshingCustomers || !company || customerLoading}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: isMobile ? '6px' : '8px',
+                  backgroundColor: refreshingCustomers ? '#e2e8f0' : '#3b82f6',
+                  color: refreshingCustomers ? '#94a3b8' : 'white',
+                  border: 'none',
+                  borderRadius: '50%',
+                  cursor: refreshingCustomers || !company || customerLoading ? 'not-allowed' : 'pointer',
+                  transition: 'all 0.2s ease',
+                  minWidth: isMobile ? '28px' : '32px',
+                  height: isMobile ? '28px' : '32px',
+                  flexShrink: 0,
+                  opacity: refreshingCustomers || !company || customerLoading ? 0.6 : 1
+                }}
+                title="Refresh customer cache"
+              >
+                <span className="material-icons" style={{ 
+                  fontSize: isMobile ? '16px' : '18px',
+                  animation: refreshingCustomers ? 'spin 1s linear infinite' : 'none'
+                }}>
+                  {refreshingCustomers ? 'sync' : 'refresh'}
+                </span>
+              </button>
             </div>
           </div>
 
@@ -4318,11 +4481,12 @@ function PlaceOrder_ECommerce() {
           <div style={{
             display: 'flex',
             flexDirection: isMobile ? 'column' : 'row',
-            gap: isMobile ? '12px' : '16px',
+            gap: isMobile ? '14px' : '16px',
             alignItems: isMobile ? 'stretch' : 'end',
             minHeight: '60px',
             position: 'relative',
-            marginTop: isMobile ? '8px' : '0'
+            marginTop: isMobile ? '8px' : '0',
+            width: '100%'
           }}>
             {/* VoucherType */}
             <div style={{
@@ -4515,6 +4679,7 @@ function PlaceOrder_ECommerce() {
                 zIndex: showCustomerDropdown ? 1001 : 'auto'
               }}>
                 <input
+                  ref={customerInputRef}
                   type="text"
                   value={selectedCustomer || customerSearchTerm}
                   onChange={e => {
@@ -4651,16 +4816,16 @@ function PlaceOrder_ECommerce() {
                   <div
                     className="dropdown-animation"
                     style={{
-                      position: 'absolute',
-                      top: 'calc(100% + 8px)',
-                      left: 0,
-                      right: 0,
+                      position: 'fixed',
+                      top: customerDropdownPosition.top || (customerInputRef.current ? customerInputRef.current.getBoundingClientRect().bottom + 8 : 0),
+                      left: customerDropdownPosition.left || (customerInputRef.current ? customerInputRef.current.getBoundingClientRect().left : 0),
+                      width: customerDropdownPosition.width || (customerInputRef.current ? customerInputRef.current.getBoundingClientRect().width : 'auto'),
                       backgroundColor: 'white',
                       border: '2px solid #3b82f6',
                       borderRadius: '8px',
-                      maxHeight: '300px',
+                      maxHeight: '400px',
                       overflowY: 'auto',
-                      zIndex: 9999,
+                      zIndex: 10000,
                       boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
                       marginTop: '0',
                       minHeight: '50px'
@@ -4755,10 +4920,12 @@ function PlaceOrder_ECommerce() {
               flexDirection: isMobile ? 'column' : 'row',
               alignItems: isMobile ? 'flex-start' : 'center',
               justifyContent: 'flex-start',
-              gap: isMobile ? '12px' : '20px',
-              padding: isMobile ? '12px 0' : '8px 0',
+              gap: isMobile ? '10px' : '20px',
+              padding: isMobile ? '12px 0 8px 0' : '8px 0',
               fontSize: isMobile ? '12px' : '14px',
-              fontWeight: '500'
+              fontWeight: '500',
+              marginTop: isMobile ? '4px' : '0',
+              width: '100%'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span className="material-icons" style={{ fontSize: '16px', color: '#6b7280' }}>
@@ -4834,14 +5001,15 @@ function PlaceOrder_ECommerce() {
       {selectedCustomer && (
         <div style={{
           background: '#fff',
-          margin: isMobile ? '0px 8px 12px 8px' : '10px 24px 24px 24px',
+          margin: isMobile ? '0px 8px 16px 8px' : '10px 24px 24px 24px',
           width: isMobile ? 'calc(100% - 16px)' : '1400px',
           borderRadius: isMobile ? '12px' : '16px',
           boxSizing: 'border-box',
           boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)',
           border: '1px solid #e5e7eb',
-          padding: isMobile ? '10px' : '24px',
-          boxSizing: 'border-box'
+          padding: isMobile ? '16px 12px' : '24px',
+          boxSizing: 'border-box',
+          overflow: 'visible'
         }}>
           <div style={{
             display: 'flex',
@@ -4849,9 +5017,10 @@ function PlaceOrder_ECommerce() {
             alignItems: isMobile ? 'flex-start' : 'center',
             justifyContent: 'space-between',
             marginBottom: isMobile ? '16px' : '24px',
-            gap: isMobile ? '12px' : '12px'
+            gap: isMobile ? '12px' : '12px',
+            width: '100%'
           }}>
-            <h2 style={{ margin: 0, fontSize: isMobile ? '16px' : '24px', fontWeight: '600', color: '#1f2937', lineHeight: '1.3' }}>
+            <h2 style={{ margin: 0, fontSize: isMobile ? '18px' : '24px', fontWeight: '600', color: '#1f2937', lineHeight: '1.3', width: isMobile ? '100%' : 'auto' }}>
               Available Products ({filteredStockItems.length.toLocaleString()})
             </h2>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: isMobile ? '100%' : 'auto' }}>
@@ -4862,10 +5031,10 @@ function PlaceOrder_ECommerce() {
                 placeholder="Search item or part no..."
                 style={{
                   width: isMobile ? '100%' : 340,
-                  padding: isMobile ? '8px 32px 8px 12px' : '10px 36px 10px 14px',
+                  padding: isMobile ? '10px 32px 10px 12px' : '10px 36px 10px 14px',
                   border: '1px solid #e2e8f0',
                   borderRadius: 8,
-                  fontSize: isMobile ? 13 : 14
+                  fontSize: isMobile ? 14 : 14
                 }}
               />
               {productSearchTerm && (
@@ -5032,11 +5201,12 @@ function PlaceOrder_ECommerce() {
             width: '100%',
             display: 'grid',
             gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)',
-            gap: isMobile ? '20px' : '60px',
-            padding: isMobile ? '8px 0' : '16px 0',
-            maxHeight: isMobile ? '600px' : '800px',
-            overflowY: 'auto',
-            boxSizing: 'border-box'
+            gap: isMobile ? '16px' : '60px',
+            padding: isMobile ? '4px 0' : '16px 0',
+            maxHeight: isMobile ? 'none' : '800px',
+            overflowY: isMobile ? 'visible' : 'auto',
+            boxSizing: 'border-box',
+            overflowX: 'hidden'
           }}>
             {filteredStockItems.map((item, index) => {
               const cartItem = cart.find(cartItem => cartItem.NAME === item.NAME);

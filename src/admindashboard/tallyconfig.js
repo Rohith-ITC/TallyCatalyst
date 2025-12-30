@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { apiGet, apiPost, apiPut } from '../utils/apiUtils';
-import { getValidGoogleTokenFromConfigs, refreshGoogleTokenAndUpdateBackend } from '../utils/googleDriveUtils';
+import { getValidGoogleTokenFromConfigs, refreshGoogleTokenAndUpdateBackend, saveGoogleTokenToConfigs } from '../utils/googleDriveUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
+import { isExternalUser } from '../utils/cacheUtils';
+import { useIsMobile } from './MobileViewConfig';
 
 function TallyConfig() {
+  const isMobile = useIsMobile();
   const [connections, setConnections] = useState([]);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({ 
@@ -501,14 +504,58 @@ function TallyConfig() {
   };
 
   // Update Link Account configurations with Google data
-  const updateLinkAccountConfigs = async (displayName, token) => {
+  const updateLinkAccountConfigs = async (displayName, token, userEmail = null) => {
     if (!selectedConnection || configCompanies.length === 0) return;
     
     const activeCompany = configCompanies[activeConfigTab];
     if (!activeCompany) return;
 
     const companyConfig = configurations[activeCompany.guid];
-    if (!companyConfig || !companyConfig.configs) return;
+    if (!companyConfig) return;
+
+    const isExternal = isExternalUser();
+    if (isExternal) {
+      userEmail = userEmail || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null);
+      if (!userEmail) {
+        console.error('External user but no email provided');
+        setGoogleConfigStatus({ 
+          type: 'error', 
+          message: 'User email not found. Cannot save configuration.' 
+        });
+        return;
+      }
+    }
+
+    // For external users, use saveGoogleTokenToConfigs which handles per-user tokens
+    if (isExternal && token) {
+      try {
+        await saveGoogleTokenToConfigs(
+          companyConfig.tallyloc_id,
+          companyConfig.co_guid,
+          token,
+          displayName,
+          userEmail
+        );
+        
+        // Refresh configurations
+        await fetchCompanyConfig(activeCompany, selectedConnection, false);
+        setGoogleConfigStatus({ 
+          type: 'success', 
+          message: 'Google account linked and saved successfully!' 
+        });
+        return;
+      } catch (error) {
+        console.error('Error saving Link Account configs:', error);
+        setGoogleConfigStatus({ 
+          type: 'error', 
+          message: error.message || 'Failed to save configurations' 
+        });
+        return;
+      }
+    }
+
+    // For non-external users, use existing company-wide logic
+    if (!companyConfig.configs) return;
 
     // Find google_display_name and google_token configs
     // If displayName/token is explicitly provided (even if empty string), use it; otherwise keep existing value
@@ -619,12 +666,47 @@ function TallyConfig() {
             localStorage.setItem('google_access_token', response.access_token);
             localStorage.setItem('google_access_token_timestamp', Date.now().toString());
             
-            // Fetch user display name
+            // Fetch user display name and email
             const displayName = await fetchGoogleUserDisplayName(response.access_token);
             setGoogleUserDisplayName(displayName);
             
+            // For external users, verify Google account email matches logged-in user email
+            const isExternal = isExternalUser();
+            if (isExternal) {
+              try {
+                const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                  headers: { 'Authorization': `Bearer ${response.access_token}` }
+                });
+                if (userInfoResponse.ok) {
+                  const userInfo = await userInfoResponse.json();
+                  const googleEmail = userInfo.email;
+                  const loggedInEmail = sessionStorage.getItem('email');
+                  
+                  if (googleEmail && loggedInEmail && googleEmail.toLowerCase() !== loggedInEmail.toLowerCase()) {
+                    setGoogleConfigStatus({ 
+                      type: 'error', 
+                      message: `Email mismatch. Please sign in with your registered email: ${loggedInEmail}. You signed in with: ${googleEmail}` 
+                    });
+                    setIsGoogleLoading(false);
+                    return;
+                  }
+                }
+              } catch (err) {
+                console.error('Error verifying email:', err);
+                setGoogleConfigStatus({ 
+                  type: 'error', 
+                  message: 'Failed to verify Google account email' 
+                });
+                setIsGoogleLoading(false);
+                return;
+              }
+            }
+            
+            // Get user email for external users
+            const userEmail = isExternal ? sessionStorage.getItem('email') : null;
+            
             // Update configurations
-            await updateLinkAccountConfigs(displayName, response.access_token);
+            await updateLinkAccountConfigs(displayName, response.access_token, userEmail);
             
             // Also update the config object in state immediately so it displays in the input field
             const activeCompany = configCompanies[activeConfigTab];
@@ -830,6 +912,21 @@ function TallyConfig() {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
+        .tallyconfig-desktop-table {
+          overflow-x: hidden !important;
+          width: 100% !important;
+          max-width: 100% !important;
+          box-sizing: border-box !important;
+        }
+        .tallyconfig-desktop-table table {
+          table-layout: fixed !important;
+          width: 100% !important;
+        }
+        .tallyconfig-desktop-table th,
+        .tallyconfig-desktop-table td {
+          overflow: hidden !important;
+          text-overflow: ellipsis !important;
+        }
         @media (max-width: 700px) {
           body, html, #root, .adminhome-container {
             max-width: 100vw !important;
@@ -837,51 +934,47 @@ function TallyConfig() {
           }
           .tallyconfig-mobile-form {
             flex-direction: column !important;
-            gap: 0 !important;
+            gap: 16px !important;
             align-items: stretch !important;
-            max-width: 100vw !important;
+            max-width: 100% !important;
             box-sizing: border-box !important;
-            margin-top: 80px !important;
           }
-          .tallyconfig-mobile-form > div,
-          .tallyconfig-mobile-form button {
+          .tallyconfig-mobile-form > div {
             min-width: 0 !important;
-            width: 92vw !important;
-            max-width: 92vw !important;
+            width: 100% !important;
+            max-width: 100% !important;
             margin-right: 0 !important;
-            margin-bottom: 10px !important;
+            margin-bottom: 0 !important;
             box-sizing: border-box !important;
             display: block !important;
-            padding-left: 0 !important;
-            padding-right: 0 !important;
+            flex: 1 1 100% !important;
           }
           .tallyconfig-mobile-form button {
-            width: 90vw !important;
-            max-width: 90vw !important;
-          }
-          .tallyconfig-mobile-form input {
             width: 100% !important;
             min-width: 0 !important;
-            font-size: 15px !important;
-            padding: 8px 8px !important;
+            max-width: 100% !important;
+            margin-right: 0 !important;
+            margin-bottom: 0 !important;
+            box-sizing: border-box !important;
+            flex: 1 1 100% !important;
+          }
+          .tallyconfig-mobile-form input,
+          .tallyconfig-mobile-form select {
+            width: 100% !important;
+            min-width: 0 !important;
+            font-size: 16px !important;
+            padding: 14px 16px !important;
             box-sizing: border-box !important;
           }
           .tallyconfig-mobile-form label {
-            margin-bottom: 2px !important;
-            font-size: 13px !important;
-          }
-          .tallyconfig-mobile-form button {
-            width: 100% !important;
-            min-width: 0 !important;
-            font-size: 15px !important;
-            padding: 10px 0 !important;
-            margin-bottom: 0 !important;
+            margin-bottom: 8px !important;
+            font-size: 14px !important;
           }
           .tallyconfig-mobile-table, .tallyconfig-mobile-stacked-table {
-            padding: 2px !important;
+            padding: 16px !important;
             min-width: 0 !important;
-            width: 100vw !important;
-            max-width: 100vw !important;
+            width: 100% !important;
+            max-width: 100% !important;
             box-sizing: border-box !important;
             overflow-x: hidden !important;
           }
@@ -908,50 +1001,57 @@ function TallyConfig() {
           .tallyconfig-mobile-stacked-table td {
             max-width: 90px !important;
           }
-          .tallyconfig-mobile-form > div,
-          .tallyconfig-mobile-form input {
-            min-width: 0 !important;
-            width: 100% !important;
-            box-sizing: border-box !important;
-          }
-          .tallyconfig-mobile-form {
-            margin-bottom: 0 !important;
-          }
-          .tallyconfig-mobile-table, .tallyconfig-mobile-stacked-table {
-            margin-bottom: 0 !important;
-          }
-          .tallyconfig-mobile-table th:nth-child(1), .tallyconfig-mobile-table td:nth-child(1),
-          .tallyconfig-mobile-stacked-table th:nth-child(1), .tallyconfig-mobile-stacked-table td:nth-child(1) {
-            max-width: 70px !important;
-          }
-          .tallyconfig-mobile-table th:nth-child(2), .tallyconfig-mobile-table td:nth-child(2),
-          .tallyconfig-mobile-stacked-table th:nth-child(2), .tallyconfig-mobile-stacked-table td:nth-child(2) {
-            max-width: 60px !important;
-          }
         }
       `}</style>
-      <div style={{ margin: '0 auto', padding: 0, width: window.innerWidth <= 700 ? '76vw' : '90vw', maxWidth: 1200, boxSizing: 'border-box' }}>
+      <div style={{ 
+        margin: '0 auto', 
+        padding: isMobile ? '12px' : 0, 
+        paddingTop: isMobile ? '72px' : 0,
+        width: isMobile ? '100%' : '90vw', 
+        maxWidth: 1200, 
+        boxSizing: 'border-box' 
+      }}>
         {/* Header Section */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 32, marginTop: 50 }}>
-          <div>
-            <h2 style={{ color: '#1e40af', fontWeight: 700, fontSize: 28, margin: 0, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span className="material-icons" style={{ fontSize: 32, color: '#1e40af' }}>settings</span>
-              Tally Access Settings
+        <div style={{ 
+          display: 'flex', 
+          flexDirection: isMobile ? 'column' : 'row',
+          alignItems: isMobile ? 'flex-start' : 'center', 
+          justifyContent: 'space-between', 
+          marginBottom: isMobile ? 20 : 32, 
+          marginTop: isMobile ? 0 : 50,
+          gap: isMobile ? 16 : 0
+        }}>
+          <div style={{ width: isMobile ? '100%' : 'auto' }}>
+            <h2 style={{ 
+              color: '#1e40af', 
+              fontWeight: 700, 
+              fontSize: isMobile ? 20 : 28, 
+              margin: 0, 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: isMobile ? 8 : 12,
+              flexWrap: 'wrap'
+            }}>
+              <span className="material-icons" style={{ fontSize: isMobile ? 24 : 32, color: '#1e40af' }}>settings</span>
+              <span>Tally Access Settings</span>
             </h2>
-            <div style={{ color: '#64748b', fontSize: 16, marginTop: 4 }}>Manage Tally Server Connection</div>
+            <div style={{ color: '#64748b', fontSize: isMobile ? 13 : 16, marginTop: 4 }}>Manage Tally Server Connection</div>
           </div>
           <div style={{ 
             background: '#f0f9ff', 
             color: '#0369a1', 
-            padding: '8px 16px', 
+            padding: isMobile ? '8px 14px' : '8px 16px', 
             borderRadius: 20, 
-            fontSize: 14, 
+            fontSize: isMobile ? 12 : 14, 
             fontWeight: 600,
             display: 'flex',
             alignItems: 'center',
-            gap: 8
+            gap: 8,
+            width: isMobile ? '100%' : 'auto',
+            justifyContent: isMobile ? 'center' : 'flex-start',
+            marginTop: isMobile ? 4 : 0
           }}>
-            <span className="material-icons" style={{ fontSize: 18 }}>account_tree</span>
+            <span className="material-icons" style={{ fontSize: isMobile ? 16 : 18 }}>account_tree</span>
             {connections.length} connections configured
           </div>
         </div>
@@ -960,8 +1060,8 @@ function TallyConfig() {
           background: '#fff', 
           borderRadius: 16, 
           boxShadow: '0 4px 24px 0 rgba(31,38,135,0.08)', 
-          padding: window.innerWidth <= 700 ? 16 : 32, 
-          marginBottom: 24, 
+          padding: isMobile ? 16 : 32, 
+          marginBottom: isMobile ? 20 : 24, 
           width: '100%', 
           margin: '0 auto', 
           boxSizing: 'border-box' 
@@ -970,42 +1070,100 @@ function TallyConfig() {
             display: 'flex', 
             alignItems: 'center', 
             gap: 12, 
-            marginBottom: 24,
-            paddingBottom: 16,
+            marginBottom: isMobile ? 20 : 24,
+            paddingBottom: isMobile ? 12 : 16,
             borderBottom: '1px solid #f1f5f9'
           }}>
-            <span className="material-icons" style={{ fontSize: 24, color: '#3b82f6' }}>add_circle</span>
-            <h3 style={{ color: '#1e293b', fontWeight: 700, margin: 0, fontSize: 20 }}>Create New Connection</h3>
+            <span className="material-icons" style={{ fontSize: isMobile ? 20 : 24, color: '#3b82f6' }}>add_circle</span>
+            <h3 style={{ color: '#1e293b', fontWeight: 700, margin: 0, fontSize: isMobile ? 18 : 20 }}>Create New Connection</h3>
         </div>
-          <form onSubmit={handleCreate} className="tallyconfig-mobile-form" style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end', width: '100%' }}>
-            <div style={{ flex: 0.6, minWidth: 200, marginRight: 2 }}>
-              <label style={{ fontWeight: 600, color: '#1e293b', marginBottom: 6, display: 'block' }}>Tally Access Type</label>
+          <form onSubmit={handleCreate} className="tallyconfig-mobile-form" style={{ 
+            display: 'flex', 
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? 16 : 16, 
+            alignItems: isMobile ? 'stretch' : 'flex-end', 
+            width: '100%' 
+          }}>
+            <div style={{ 
+              flex: isMobile ? '1 1 100%' : '0.6', 
+              minWidth: isMobile ? '100%' : 200, 
+              width: isMobile ? '100%' : 'auto',
+              marginRight: isMobile ? 0 : 2
+            }}>
+              <label style={{ 
+                fontWeight: 600, 
+                color: '#1e293b', 
+                marginBottom: 8, 
+                display: 'block',
+                fontSize: isMobile ? 14 : 16
+              }}>Tally Access Type</label>
               <select 
                 name="accessType" 
                 value={form.accessType} 
                 onChange={() => {}}
                 disabled
                 style={{ 
-                  padding: '12px 14px', 
+                  padding: isMobile ? '14px 16px' : '12px 14px', 
                   borderRadius: 8, 
                   border: '1.5px solid #cbd5e1', 
-                  width: '95%', 
-                  fontSize: 16, 
+                  width: '100%', 
+                  fontSize: isMobile ? 16 : 16, 
                   background: '#f1f5f9', 
                   marginBottom: 0,
                   cursor: 'not-allowed',
-                  opacity: 0.8
+                  opacity: 0.8,
+                  boxSizing: 'border-box',
+                  WebkitAppearance: 'none',
+                  appearance: 'none'
                 }}
               >
                 <option value="Tally">Tally</option>
               </select>
             </div>
-            <div style={{ flex: 0.6, minWidth: 180, marginRight: 12 }}>
-              <label style={{ fontWeight: 600, color: '#1e293b', marginBottom: 6, display: 'block' }}>Site ID</label>
-              <input name="connectionName" value={form.connectionName} onChange={handleInput} required style={{ padding: '12px 14px', borderRadius: 8, border: '1.5px solid #cbd5e1', width: '95%', fontSize: 16, background: '#f8fafc', marginBottom: 0 }} placeholder="Myoffice" />
+            <div style={{ 
+              flex: isMobile ? '1 1 100%' : '0.6', 
+              minWidth: isMobile ? '100%' : 180, 
+              width: isMobile ? '100%' : 'auto',
+              marginRight: isMobile ? 0 : 12
+            }}>
+              <label style={{ 
+                fontWeight: 600, 
+                color: '#1e293b', 
+                marginBottom: 8, 
+                display: 'block',
+                fontSize: isMobile ? 14 : 16
+              }}>Site ID</label>
+              <input 
+                name="connectionName" 
+                value={form.connectionName} 
+                onChange={handleInput} 
+                required 
+                style={{ 
+                  padding: isMobile ? '14px 16px' : '12px 14px', 
+                  borderRadius: 8, 
+                  border: '1.5px solid #cbd5e1', 
+                  width: '100%', 
+                  fontSize: isMobile ? 16 : 16, 
+                  background: '#f8fafc', 
+                  marginBottom: 0,
+                  boxSizing: 'border-box'
+                }} 
+                placeholder="Myoffice" 
+              />
             </div>
-            <div style={{ flex: 0.8, minWidth: 300, marginRight: 12 }}>
-              <label style={{ fontWeight: 600, color: form.accessType === 'TallyDex' ? '#94a3b8' : '#1e293b', marginBottom: 6, display: 'block' }}>IP Address or Hostname</label>
+            <div style={{ 
+              flex: isMobile ? '1 1 100%' : '0.8', 
+              minWidth: isMobile ? '100%' : 300, 
+              width: isMobile ? '100%' : 'auto',
+              marginRight: isMobile ? 0 : 12
+            }}>
+              <label style={{ 
+                fontWeight: 600, 
+                color: form.accessType === 'TallyDex' ? '#94a3b8' : '#1e293b', 
+                marginBottom: 8, 
+                display: 'block',
+                fontSize: isMobile ? 14 : 16
+              }}>IP Address or Hostname</label>
               <input 
                 name="ip" 
                 value={form.ip} 
@@ -1013,21 +1171,33 @@ function TallyConfig() {
                 required={form.accessType !== 'TallyDex'}
                 disabled={form.accessType === 'TallyDex'}
                 style={{ 
-                  padding: '12px 14px', 
+                  padding: isMobile ? '14px 16px' : '12px 14px', 
                   borderRadius: 8, 
                   border: '1.5px solid #cbd5e1', 
-                  width: '95%', 
-                  fontSize: 16, 
+                  width: '100%', 
+                  fontSize: isMobile ? 16 : 16, 
                   background: form.accessType === 'TallyDex' ? '#f1f5f9' : '#f8fafc', 
                   marginBottom: 0,
                   opacity: form.accessType === 'TallyDex' ? 0.6 : 1,
-                  cursor: form.accessType === 'TallyDex' ? 'not-allowed' : 'text'
+                  cursor: form.accessType === 'TallyDex' ? 'not-allowed' : 'text',
+                  boxSizing: 'border-box'
                 }} 
                 placeholder={form.accessType === 'TallyDex' ? 'Not required for TallyDex' : '192.168.1.100 or example.com'} 
               />
             </div>
-            <div style={{ flex: 0.4, minWidth: 90, marginRight: 12 }}>
-              <label style={{ fontWeight: 600, color: form.accessType === 'TallyDex' ? '#94a3b8' : '#1e293b', marginBottom: 6, display: 'block' }}>Port</label>
+            <div style={{ 
+              flex: isMobile ? '1 1 100%' : '0.4', 
+              minWidth: isMobile ? '100%' : 90, 
+              width: isMobile ? '100%' : 'auto',
+              marginRight: isMobile ? 0 : 12
+            }}>
+              <label style={{ 
+                fontWeight: 600, 
+                color: form.accessType === 'TallyDex' ? '#94a3b8' : '#1e293b', 
+                marginBottom: 8, 
+                display: 'block',
+                fontSize: isMobile ? 14 : 16
+              }}>Port</label>
               <input 
                 name="port" 
                 value={form.port} 
@@ -1035,15 +1205,16 @@ function TallyConfig() {
                 required={false}
                 disabled={form.accessType === 'TallyDex'}
                 style={{ 
-                  padding: '12px 14px', 
+                  padding: isMobile ? '14px 16px' : '12px 14px', 
                   borderRadius: 8, 
                   border: '1.5px solid #cbd5e1', 
-                  width: '90%', 
-                  fontSize: 16, 
+                  width: '100%', 
+                  fontSize: isMobile ? 16 : 16, 
                   background: form.accessType === 'TallyDex' ? '#f1f5f9' : '#f8fafc', 
                   marginBottom: 0,
                   opacity: form.accessType === 'TallyDex' ? 0.6 : 1,
-                  cursor: form.accessType === 'TallyDex' ? 'not-allowed' : 'text'
+                  cursor: form.accessType === 'TallyDex' ? 'not-allowed' : 'text',
+                  boxSizing: 'border-box'
                 }} 
                 placeholder={form.accessType === 'TallyDex' ? 'Not required' : '9009'} 
               />
@@ -1052,14 +1223,15 @@ function TallyConfig() {
               type="submit" 
               disabled={formLoading} 
               style={{ 
-                padding: '14px 24px', 
+                padding: isMobile ? '16px 24px' : '14px 24px', 
                 background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)', 
                 color: '#fff', 
                 border: 'none', 
                 borderRadius: 8, 
                 fontWeight: 700, 
-                fontSize: 16, 
-                minWidth: 140, 
+                fontSize: isMobile ? 16 : 16, 
+                minWidth: isMobile ? '100%' : 140, 
+                width: isMobile ? '100%' : 'auto',
                 cursor: 'pointer', 
                 opacity: formLoading ? 0.7 : 1, 
                 boxShadow: '0 2px 8px 0 rgba(59,130,246,0.20)', 
@@ -1067,7 +1239,10 @@ function TallyConfig() {
                 transition: 'transform 0.2s, box-shadow 0.2s',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8
+                justifyContent: 'center',
+                gap: 8,
+                minHeight: isMobile ? 48 : 'auto',
+                boxSizing: 'border-box'
               }}
               onMouseEnter={(e) => {
                 if (!formLoading) {
@@ -1081,8 +1256,20 @@ function TallyConfig() {
                   e.target.style.boxShadow = '0 2px 8px 0 rgba(59,130,246,0.20)';
                 }
               }}
+              onTouchStart={(e) => {
+                if (!formLoading) {
+                  e.currentTarget.style.transform = 'scale(0.98)';
+                  e.currentTarget.style.opacity = '0.9';
+                }
+              }}
+              onTouchEnd={(e) => {
+                if (!formLoading) {
+                  e.currentTarget.style.transform = 'scale(1)';
+                  e.currentTarget.style.opacity = '1';
+                }
+              }}
             >
-              <span className="material-icons" style={{ fontSize: 18 }}>
+              <span className="material-icons" style={{ fontSize: isMobile ? 20 : 18 }}>
                 {formLoading ? 'sync' : 'add'}
               </span>
               {formLoading ? 'Creating...' : 'Create Connection'}
@@ -1094,14 +1281,14 @@ function TallyConfig() {
               background: '#fef2f2', 
               border: '1px solid #fecaca',
               borderRadius: 8, 
-              padding: 16, 
-              marginTop: 16,
+              padding: isMobile ? 14 : 16, 
+              marginTop: isMobile ? 14 : 16,
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               gap: 12
             }}>
-              <span className="material-icons" style={{ color: '#dc2626', fontSize: 20 }}>error</span>
-              <div style={{ color: '#dc2626', fontSize: 14, fontWeight: 500 }}>{formError}</div>
+              <span className="material-icons" style={{ color: '#dc2626', fontSize: isMobile ? 18 : 20, flexShrink: 0 }}>error</span>
+              <div style={{ color: '#dc2626', fontSize: isMobile ? 13 : 14, fontWeight: 500, lineHeight: 1.5 }}>{formError}</div>
             </div>
           )}
           {formSuccess && (
@@ -1109,14 +1296,14 @@ function TallyConfig() {
               background: '#f0fdf4', 
               border: '1px solid #bbf7d0',
               borderRadius: 8, 
-              padding: 16, 
-              marginTop: 16,
+              padding: isMobile ? 14 : 16, 
+              marginTop: isMobile ? 14 : 16,
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               gap: 12
             }}>
-              <span className="material-icons" style={{ color: '#16a34a', fontSize: 20 }}>check_circle</span>
-              <div style={{ color: '#16a34a', fontSize: 14, fontWeight: 500 }}>{formSuccess}</div>
+              <span className="material-icons" style={{ color: '#16a34a', fontSize: isMobile ? 18 : 20, flexShrink: 0 }}>check_circle</span>
+              <div style={{ color: '#16a34a', fontSize: isMobile ? 13 : 14, fontWeight: 500, lineHeight: 1.5 }}>{formSuccess}</div>
             </div>
           )}
                        {(form.accessType === 'TallyDex' || form.accessType === 'Tally+TallyDex') && (
@@ -1124,58 +1311,60 @@ function TallyConfig() {
               background: '#f0fdf4', 
               border: '1px solid #bbf7d0',
               borderRadius: 8, 
-              padding: 16, 
-              marginTop: 16,
+              padding: isMobile ? 14 : 16, 
+              marginTop: isMobile ? 14 : 16,
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               gap: 12
             }}>
-              <span className="material-icons" style={{ color: '#16a34a', fontSize: 20 }}>info</span>
-              <div style={{ color: '#16a34a', fontSize: 14, fontWeight: 500 }}>
+              <span className="material-icons" style={{ color: '#16a34a', fontSize: isMobile ? 18 : 20, flexShrink: 0 }}>info</span>
+              <div style={{ color: '#16a34a', fontSize: isMobile ? 13 : 14, fontWeight: 500, lineHeight: 1.5 }}>
                 <strong>Note:</strong> TallyDex data will be stored in MySQLDB
               </div>
               </div>
             )}
          </div>
 
-        <div style={{ height: 32 }} />
+        <div style={{ height: isMobile ? 20 : 32 }} />
 
         {/* Connections Table */}
         <div className="tallyconfig-mobile-table" style={{ 
           background: '#fff', 
           borderRadius: 16, 
           boxShadow: '0 4px 24px 0 rgba(31,38,135,0.08)', 
-          padding: window.innerWidth <= 700 ? 16 : 32, 
+          padding: isMobile ? 16 : 32, 
           marginTop: 0, 
-          width: window.innerWidth <= 700 ? '76vw' : '100%', 
+          width: '100%', 
           margin: '0 auto', 
-          minHeight: 360, 
-          boxSizing: 'border-box' 
+          minHeight: isMobile ? 'auto' : 360, 
+          boxSizing: 'border-box',
+          overflowX: 'hidden',
+          maxWidth: '100%'
         }}>
           <div style={{ 
             display: 'flex', 
             alignItems: 'center', 
             gap: 12, 
-            marginBottom: 24,
-            paddingBottom: 16,
+            marginBottom: isMobile ? 16 : 24,
+            paddingBottom: isMobile ? 12 : 16,
             borderBottom: '1px solid #f1f5f9'
           }}>
-            <span className="material-icons" style={{ fontSize: 24, color: '#3b82f6' }}>list_alt</span>
-            <h3 style={{ color: '#1e293b', fontWeight: 700, margin: 0, fontSize: 20 }}>Tally Connections</h3>
+            <span className="material-icons" style={{ fontSize: isMobile ? 20 : 24, color: '#3b82f6' }}>list_alt</span>
+            <h3 style={{ color: '#1e293b', fontWeight: 700, margin: 0, fontSize: isMobile ? 18 : 20 }}>Tally Connections</h3>
           </div>
           
           {/* Loading State */}
           {loading && (
             <div style={{ 
               textAlign: 'center', 
-              padding: 60, 
+              padding: isMobile ? 40 : 60, 
               color: '#64748b',
               background: '#f8fafc',
               borderRadius: 12,
-              margin: '16px 0'
+              margin: isMobile ? '12px 0' : '16px 0'
             }}>
-              <span className="material-icons" style={{ fontSize: 48, color: '#3b82f6', marginBottom: 16, display: 'block' }}>sync</span>
-              <div style={{ fontSize: 16, fontWeight: 500 }}>Loading connections...</div>
+              <span className="material-icons" style={{ fontSize: isMobile ? 40 : 48, color: '#3b82f6', marginBottom: 16, display: 'block' }}>sync</span>
+              <div style={{ fontSize: isMobile ? 14 : 16, fontWeight: 500 }}>Loading connections...</div>
             </div>
           )}
 
@@ -1185,14 +1374,14 @@ function TallyConfig() {
               background: '#fef2f2', 
               border: '1px solid #fecaca',
               borderRadius: 8, 
-              padding: 20, 
+              padding: isMobile ? 14 : 20, 
               marginBottom: 16,
               display: 'flex',
-              alignItems: 'center',
+              alignItems: 'flex-start',
               gap: 12
             }}>
-              <span className="material-icons" style={{ color: '#dc2626', fontSize: 24 }}>error</span>
-              <div style={{ color: '#dc2626', fontSize: 14, fontWeight: 500 }}>{tableError}</div>
+              <span className="material-icons" style={{ color: '#dc2626', fontSize: isMobile ? 20 : 24, flexShrink: 0 }}>error</span>
+              <div style={{ color: '#dc2626', fontSize: isMobile ? 13 : 14, fontWeight: 500, lineHeight: 1.5 }}>{tableError}</div>
             </div>
           )}
 
@@ -1200,23 +1389,23 @@ function TallyConfig() {
           {!loading && connections.length === 0 && !tableError && (
             <div style={{ 
               textAlign: 'center', 
-              padding: 60, 
+              padding: isMobile ? 40 : 60, 
               color: '#64748b',
               background: '#f8fafc',
               borderRadius: 12,
-              margin: '16px 0'
+              margin: isMobile ? '12px 0' : '16px 0'
             }}>
-              <span className="material-icons" style={{ fontSize: 64, color: '#cbd5e1', marginBottom: 16, display: 'block' }}>account_tree</span>
-              <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>No connections found</div>
-              <div style={{ fontSize: 14 }}>Create your first connection above to get started</div>
+              <span className="material-icons" style={{ fontSize: isMobile ? 48 : 64, color: '#cbd5e1', marginBottom: 16, display: 'block' }}>account_tree</span>
+              <div style={{ fontSize: isMobile ? 16 : 18, fontWeight: 600, marginBottom: 8 }}>No connections found</div>
+              <div style={{ fontSize: isMobile ? 13 : 14 }}>Create your first connection above to get started</div>
             </div>
           )}
 
           {!loading && connections.length > 0 && (
             <>
               {/* Desktop Table */}
-              <div className="tallyconfig-desktop-table" style={{ display: window.innerWidth > 700 ? 'block' : 'none', overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <div className="tallyconfig-desktop-table" style={{ display: !isMobile ? 'block' : 'none', overflowX: 'hidden', width: '100%', boxSizing: 'border-box' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14, tableLayout: 'fixed' }}>
                   <thead>
                     <tr style={{ background: 'linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)' }}>
                       <th style={{ 
@@ -1227,7 +1416,8 @@ function TallyConfig() {
                         fontSize: 14,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
-                        borderBottom: '2px solid #e2e8f0'
+                        borderBottom: '2px solid #e2e8f0',
+                        width: '12%'
                       }}>Site ID</th>
                       <th style={{ 
                         padding: '10px 12px', 
@@ -1237,7 +1427,8 @@ function TallyConfig() {
                         fontSize: 14,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
-                        borderBottom: '2px solid #e2e8f0'
+                        borderBottom: '2px solid #e2e8f0',
+                        width: '28%'
                       }}>IP Address</th>
                       <th style={{ 
                         padding: '10px 12px', 
@@ -1247,7 +1438,8 @@ function TallyConfig() {
                         fontSize: 14,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
-                        borderBottom: '2px solid #e2e8f0'
+                        borderBottom: '2px solid #e2e8f0',
+                        width: '8%'
                       }}>Port</th>
                       <th style={{ 
                         padding: '10px 12px', 
@@ -1257,7 +1449,8 @@ function TallyConfig() {
                         fontSize: 14,
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
-                        borderBottom: '2px solid #e2e8f0'
+                        borderBottom: '2px solid #e2e8f0',
+                        width: '12%'
                       }}>Access Type</th>
                       <th style={{ 
                         padding: '10px 12px', 
@@ -1268,7 +1461,7 @@ function TallyConfig() {
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
                         borderBottom: '2px solid #e2e8f0',
-                        width: 300 
+                        width: '20%'
                       }}>Status</th>
                       <th style={{ 
                         padding: '10px 12px', 
@@ -1279,7 +1472,7 @@ function TallyConfig() {
                         textTransform: 'uppercase',
                         letterSpacing: '0.5px',
                         borderBottom: '2px solid #e2e8f0',
-                        width: 120 
+                        width: '20%'
                       }}>Actions</th>
                     </tr>
                   </thead>
@@ -1292,7 +1485,8 @@ function TallyConfig() {
                           key={connection.id} 
                           style={{ 
                             borderBottom: '1px solid #f1f5f9', 
-                            height: '60px',
+                            height: 'auto',
+                            minHeight: '60px',
                             background: idx % 2 === 0 ? '#fff' : '#f8fafc',
                             transition: 'all 0.2s ease'
                           }}
@@ -1307,19 +1501,19 @@ function TallyConfig() {
                             e.target.style.boxShadow = 'none';
                           }}
                         >
-                          <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1e293b' }}>{connection.name}</td>
-                          <td style={{ padding: '10px 12px', color: '#64748b' }}>
-                            <div style={{ fontFamily: 'monospace', marginBottom: 4 }}>{connection.ip}</div>
+                          <td style={{ padding: '10px 12px', fontWeight: 600, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{connection.name}</td>
+                          <td style={{ padding: '10px 12px', color: '#64748b', overflow: 'hidden', verticalAlign: 'top' }}>
+                            <div style={{ fontFamily: 'monospace', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{connection.ip}</div>
                             <div style={{
                               fontSize: 12,
                               color: '#475569',
                               display: 'flex',
-                              alignItems: 'center',
+                              alignItems: 'flex-start',
+                              flexWrap: 'wrap',
                               gap: 6,
-                              whiteSpace: 'nowrap',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              width: '100%'
+                              width: '100%',
+                              maxWidth: '100%',
+                              lineHeight: 1.5
                             }}
                               title={activeCompanies.length > 0 ? activeCompanies.map((company) => `${company.company}${company.accessType ? ` (${company.accessType})` : ''}`).join(', ') : (companiesLoading ? 'Checking companies…' : 'No active companies')}>
                               {companiesLoading ? (
@@ -1328,10 +1522,10 @@ function TallyConfig() {
                                 <>
                                   {activeCompanies.map((company, idx) => (
                                     <React.Fragment key={company.guid}>
-                                      {idx > 0 && <span style={{ color: '#cbd5f5' }}>•</span>}
-                                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                      {idx > 0 && <span style={{ color: '#cbd5f5', marginRight: 2 }}>•</span>}
+                                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                                         <span className="material-icons" style={{ fontSize: 12, color: '#3b82f6' }}>apartment</span>
-                                        <span style={{ color: '#0f172a', fontWeight: 600 }}>{company.company}</span>
+                                        <span style={{ color: '#0f172a', fontWeight: 600, wordBreak: 'break-word' }}>{company.company}</span>
                                       </span>
                                     </React.Fragment>
                                   ))}
@@ -1341,8 +1535,8 @@ function TallyConfig() {
                               )}
                             </div>
                           </td>
-                          <td style={{ padding: '10px 12px', color: '#64748b', fontFamily: 'monospace' }}>{connection.port}</td>
-                          <td style={{ padding: '10px 12px' }}>
+                          <td style={{ padding: '10px 12px', color: '#64748b', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'top' }}>{connection.port}</td>
+                          <td style={{ padding: '10px 12px', overflow: 'hidden', verticalAlign: 'top' }}>
                             <span style={{
                               padding: '3px 6px',
                               borderRadius: '8px',
@@ -1350,10 +1544,14 @@ function TallyConfig() {
                               fontWeight: 600,
                               background: '#e0f2fe',
                               color: '#0c4a6e',
-                              display: 'inline-block'
+                              display: 'inline-block',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              maxWidth: '100%'
                             }}>{connection.accessType || 'Tally'}</span>
                           </td>
-                          <td style={{ padding: '10px 12px', width: 300 }}>
+                          <td style={{ padding: '10px 12px', overflow: 'hidden', verticalAlign: 'top' }}>
                             <span style={{
                               padding: '3px 6px',
                               borderRadius: '8px',
@@ -1368,7 +1566,7 @@ function TallyConfig() {
                                      connection.status === 'rejected' ? '#dc2626' : 
                                      connection.status === 'approved' ? '#166534' : '#64748b',
                               display: 'inline-block',
-                              maxWidth: '280px',
+                              maxWidth: '100%',
                               whiteSpace: 'nowrap',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis'
@@ -1376,7 +1574,7 @@ function TallyConfig() {
                               {connection.statusMessage || connection.status}
                             </span>
                           </td>
-                          <td style={{ padding: '10px 12px', verticalAlign: 'middle' }}>
+                          <td style={{ padding: '10px 12px', verticalAlign: 'top', overflow: 'hidden' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                               {(connection.status === 'active' || connection.status === 'approved' || connection.status === 'inactive') ? (
                                 <>
@@ -1463,156 +1661,327 @@ function TallyConfig() {
                   </tbody>
                 </table>
               </div>
-              {/* Mobile Stacked Table */}
-              <div className="tallyconfig-mobile-stacked-table" style={{ display: window.innerWidth <= 700 ? 'block' : 'none', width: window.innerWidth <= 700 ? '76vw' : '100%' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
-                      <th style={{ padding: '8px 8px', textAlign: 'left', fontWeight: 600, color: '#1e293b' }}>Site ID/IP</th>
-                      <th style={{ padding: '8px 8px', textAlign: 'left', fontWeight: 600, color: '#1e293b', whiteSpace: 'normal' }}>Port<br/>Access Type</th>
-                      <th style={{ padding: '8px 8px', textAlign: 'left', fontWeight: 600, color: '#1e293b' }}>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {connections.map((connection) => {
-                      const connectionKey = connection.connectionName || connection.name || connection.conn_name || connection.ip || '';
-                      const activeCompanies = connectionCompanies[connectionKey] || [];
-                      return (
-                      <React.Fragment key={connection.id}>
-                        <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
-                          <td style={{ padding: '8px 8px', fontWeight: 500, color: '#1e293b' }}>{connection.name}</td>
-                          <td style={{ padding: '8px 8px', color: '#475569', fontFamily: 'monospace', maxWidth: window.innerWidth <= 700 ? 80 : undefined, width: window.innerWidth <= 700 ? 80 : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{connection.port}</td>
-                          <td style={{ padding: '8px 8px' }} rowSpan={3}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center' }}>
-                              <button
-                                onClick={() => handleToggle(connection.id, !connection.isActive)}
-                                style={{
-                                  borderRadius: '50%',
-                                  border: 'none',
-                                  fontSize: '28px',
-                                  cursor: 'pointer',
-                                  background: 'transparent',
-                                  color: connection.isActive ? '#3b82f6' : '#64748b',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  transition: 'color 0.2s',
-                                  width: 44,
-                                  height: 36
-                                }}
-                                title={connection.isActive ? 'Deactivate' : 'Activate'}
-                              >
-                                <span className="material-icons">
-                                  {connection.isActive ? 'toggle_on' : 'toggle_off'}
-                                </span>
-                              </button>
-                              {activeCompanies.length > 0 && (connection.status === 'active' || connection.status === 'approved' || connection.status === 'inactive') && (
-                                <button
-                                  onClick={() => handleOpenConfig(connection)}
-                                  style={{
-                                    background: '#f0f9ff',
-                                    border: '1px solid #0ea5e9',
-                                    borderRadius: '6px',
-                                    padding: '6px 10px',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    transition: 'all 0.2s',
-                                    color: '#0369a1',
-                                    fontSize: '11px',
-                                    fontWeight: 600,
-                                    whiteSpace: 'nowrap'
-                                  }}
-                                  title="Configure company settings"
-                                  onMouseEnter={(e) => {
-                                    e.target.style.background = '#0ea5e9';
-                                    e.target.style.color = '#fff';
-                                  }}
-                                  onMouseLeave={(e) => {
-                                    e.target.style.background = '#f0f9ff';
-                                    e.target.style.color = '#0369a1';
-                                  }}
-                                >
-                                  <span className="material-icons" style={{ fontSize: '14px' }}>settings</span>
-                                  Config
-                                </button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                        <tr style={{ borderBottom: '1px solid #e2e8f0' }}>
-                          <td style={{ padding: '8px 8px', color: '#475569' }}>
-                            <div style={{ fontFamily: 'monospace', marginBottom: 4 }}>{connection.ip}</div>
-                            <div style={{
-                              fontSize: 11,
-                              color: '#475569',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4,
-                              whiteSpace: 'nowrap',
+              {/* Mobile Card View */}
+              <div style={{ display: isMobile ? 'block' : 'none', width: '100%' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {connections.map((connection) => {
+                    const connectionKey = connection.connectionName || connection.name || connection.conn_name || connection.ip || '';
+                    const activeCompanies = connectionCompanies[connectionKey] || [];
+                    const isActive = connection.isActive;
+                    const status = connection.status || (isActive ? 'active' : 'inactive');
+                    
+                    return (
+                      <div
+                        key={connection.id}
+                        style={{
+                          background: '#fff',
+                          borderRadius: 16,
+                          boxShadow: '0 2px 12px 0 rgba(31,38,135,0.08)',
+                          padding: 16,
+                          border: '1px solid #f1f5f9',
+                          transition: 'all 0.2s ease',
+                          WebkitTapHighlightColor: 'transparent'
+                        }}
+                        onTouchStart={(e) => {
+                          e.currentTarget.style.transform = 'scale(0.99)';
+                          e.currentTarget.style.boxShadow = '0 4px 16px 0 rgba(31,38,135,0.12)';
+                        }}
+                        onTouchEnd={(e) => {
+                          e.currentTarget.style.transform = 'scale(1)';
+                          e.currentTarget.style.boxShadow = '0 2px 12px 0 rgba(31,38,135,0.08)';
+                        }}
+                      >
+                        {/* Header Row */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ 
+                              fontWeight: 700, 
+                              fontSize: 16, 
+                              color: '#1e293b',
+                              marginBottom: 6,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
-                              width: '100%'
-                            }}
-                              title={activeCompanies.length > 0 ? activeCompanies.map((company) => `${company.company}${company.accessType ? ` (${company.accessType})` : ''}`).join(', ') : (companiesLoading ? 'Checking companies…' : 'No active companies')}>
+                              whiteSpace: 'nowrap',
+                              lineHeight: 1.3
+                            }}>
+                              {connection.name}
+                            </div>
+                            <div style={{ 
+                              fontSize: 12, 
+                              color: '#64748b',
+                              fontFamily: 'monospace',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              lineHeight: 1.4
+                            }}>
+                              {connection.ip}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                            <span style={{
+                              padding: '8px 12px',
+                              borderRadius: '16px',
+                              fontSize: '12px',
+                              fontWeight: 600,
+                              background: status === 'active' || status === 'approved' ? '#dcfce7' : 
+                                        status === 'pending' ? '#fef3c7' :
+                                        status === 'rejected' ? '#fef2f2' : '#f1f5f9',
+                              color: status === 'active' || status === 'approved' ? '#166534' : 
+                                     status === 'pending' ? '#92400e' :
+                                     status === 'rejected' ? '#dc2626' : '#64748b',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              whiteSpace: 'nowrap',
+                              boxShadow: status === 'active' || status === 'approved' ? '0 1px 3px rgba(22, 101, 52, 0.2)' : 'none'
+                            }}>
+                              <span className="material-icons" style={{ fontSize: 16 }}>
+                                {status === 'active' || status === 'approved' ? 'check_circle' : 
+                                 status === 'rejected' ? 'cancel' : 'help_outline'}
+                              </span>
+                              <span style={{ maxWidth: '80px', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {connection.statusMessage || status}
+                              </span>
+                            </span>
+                            <button
+                              onClick={() => handleToggle(connection.id, !connection.isActive)}
+                              style={{
+                                borderRadius: '50%',
+                                border: 'none',
+                                fontSize: '36px',
+                                cursor: 'pointer',
+                                background: 'transparent',
+                                color: connection.isActive ? '#3b82f6' : '#64748b',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                transition: 'all 0.2s',
+                                width: 44,
+                                height: 44,
+                                padding: 0,
+                                minWidth: 44,
+                                minHeight: 44
+                              }}
+                              title={connection.isActive ? 'Deactivate' : 'Activate'}
+                              onTouchStart={(e) => {
+                                e.currentTarget.style.transform = 'scale(0.85)';
+                                e.currentTarget.style.opacity = '0.8';
+                              }}
+                              onTouchEnd={(e) => {
+                                e.currentTarget.style.transform = 'scale(1)';
+                                e.currentTarget.style.opacity = '1';
+                              }}
+                            >
+                              <span className="material-icons" style={{ fontSize: 32 }}>
+                                {connection.isActive ? 'toggle_on' : 'toggle_off'}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Details Row */}
+                        <div style={{ 
+                          display: 'flex', 
+                          flexDirection: 'column',
+                          gap: 14,
+                          padding: '14px 0',
+                          borderTop: '1px solid #f1f5f9'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+                            <div style={{ flex: 1, minWidth: '120px' }}>
+                              <div style={{ 
+                                fontSize: 11, 
+                                color: '#64748b', 
+                                fontWeight: 600, 
+                                marginBottom: 6, 
+                                textTransform: 'uppercase', 
+                                letterSpacing: '0.5px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4
+                              }}>
+                                <span className="material-icons" style={{ fontSize: 14, color: '#94a3b8' }}>dns</span>
+                                Port
+                              </div>
+                              <div style={{ 
+                                fontSize: 14, 
+                                color: '#475569',
+                                fontFamily: 'monospace',
+                                fontWeight: 600,
+                                padding: '6px 10px',
+                                background: '#f8fafc',
+                                borderRadius: 8,
+                                display: 'inline-block',
+                                border: '1px solid #e2e8f0'
+                              }}>
+                                {connection.port || 'N/A'}
+                              </div>
+                            </div>
+                            <div style={{ flex: 1, minWidth: '120px' }}>
+                              <div style={{ 
+                                fontSize: 11, 
+                                color: '#64748b', 
+                                fontWeight: 600, 
+                                marginBottom: 6, 
+                                textTransform: 'uppercase', 
+                                letterSpacing: '0.5px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4
+                              }}>
+                                <span className="material-icons" style={{ fontSize: 14, color: '#94a3b8' }}>category</span>
+                                Access Type
+                              </div>
+                              <span style={{
+                                padding: '6px 12px',
+                                borderRadius: '10px',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                                background: 'linear-gradient(135deg, #e0f2fe 0%, #bae6fd 100%)',
+                                color: '#0c4a6e',
+                                display: 'inline-block',
+                                border: '1px solid #7dd3fc',
+                                boxShadow: '0 1px 3px rgba(14, 165, 233, 0.2)'
+                              }}>
+                                {connection.accessType || 'Tally'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Companies List */}
+                          <div>
+                            <div style={{ 
+                              fontSize: 11, 
+                              color: '#64748b', 
+                              fontWeight: 600, 
+                              marginBottom: 8, 
+                              textTransform: 'uppercase', 
+                              letterSpacing: '0.5px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}>
+                              <span className="material-icons" style={{ fontSize: 14, color: '#94a3b8' }}>apartment</span>
+                              Companies {activeCompanies.length > 0 && `(${activeCompanies.length})`}
+                            </div>
+                            <div style={{
+                              fontSize: 12,
+                              color: '#475569',
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              alignItems: 'center',
+                              gap: 8,
+                              minHeight: 24
+                            }}>
                               {companiesLoading ? (
-                                <span style={{ color: '#94a3b8' }}>Checking companies…</span>
+                                <div style={{ 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  gap: 6,
+                                  color: '#94a3b8',
+                                  padding: '6px 12px',
+                                  background: '#f8fafc',
+                                  borderRadius: 8
+                                }}>
+                                  <span className="material-icons" style={{ fontSize: 16, animation: 'spin 1s linear infinite' }}>sync</span>
+                                  <span>Checking companies…</span>
+                                </div>
                               ) : activeCompanies.length > 0 ? (
                                 <>
                                   {activeCompanies.map((company, idx) => (
                                     <React.Fragment key={company.guid}>
-                                      {idx > 0 && <span style={{ color: '#cbd5f5' }}>•</span>}
-                                      <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                        <span className="material-icons" style={{ fontSize: 11, color: '#3b82f6' }}>apartment</span>
-                                        <span style={{ color: '#0f172a', fontWeight: 600 }}>{company.company}</span>
+                                      <span style={{ 
+                                        display: 'inline-flex', 
+                                        alignItems: 'center', 
+                                        gap: 6,
+                                        padding: '6px 12px',
+                                        borderRadius: '10px',
+                                        background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
+                                        border: '1px solid #bae6fd',
+                                        boxShadow: '0 1px 3px rgba(14, 165, 233, 0.15)',
+                                        maxWidth: '100%',
+                                        boxSizing: 'border-box'
+                                      }}>
+                                        <span className="material-icons" style={{ fontSize: 14, color: '#3b82f6', flexShrink: 0 }}>apartment</span>
+                                        <span style={{ 
+                                          color: '#0f172a', 
+                                          fontWeight: 600, 
+                                          fontSize: 12,
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap',
+                                          maxWidth: '150px'
+                                        }}>{company.company}</span>
                                       </span>
                                     </React.Fragment>
                                   ))}
                                 </>
                               ) : (
-                                <span style={{ color: '#94a3b8' }}>No active companies</span>
+                                <div style={{ 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  gap: 6,
+                                  color: '#94a3b8',
+                                  padding: '8px 12px',
+                                  background: '#f8fafc',
+                                  borderRadius: 8,
+                                  fontSize: 12,
+                                  fontStyle: 'italic'
+                                }}>
+                                  <span className="material-icons" style={{ fontSize: 16 }}>info</span>
+                                  <span>No active companies</span>
+                                </div>
                               )}
                             </div>
-                          </td>
-                          <td style={{ padding: '8px 8px', maxWidth: window.innerWidth <= 700 ? 80 : undefined, width: window.innerWidth <= 700 ? 80 : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            <span style={{
-                              padding: '4px 8px',
-                              borderRadius: '12px',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              background: '#e0f2fe',
-                              color: '#0c4a6e',
-                              display: 'inline-block',
-                              maxWidth: 80,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }}>{connection.accessType || 'Tally'}</span>
-                          </td>
-                        </tr>
-                        <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
-                          <td style={{ padding: '8px 8px', color: '#475569', fontFamily: 'monospace' }} colSpan={2}>
-                            <span style={{
-                              padding: '4px 8px',
-                              borderRadius: '12px',
-                              fontSize: '12px',
-                              fontWeight: 600,
-                              background: connection.isActive ? '#dcfce7' : '#fef2f2',
-                              color: connection.isActive ? '#166534' : '#dc2626',
-                              display: 'inline-block',
-                              maxWidth: 80,
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }}>{connection.isActive ? 'Active' : 'Inactive'}</span>
-                          </td>
-                        </tr>
-                      </React.Fragment>
+                          </div>
+
+                          {/* Actions */}
+                          {(connection.status === 'active' || connection.status === 'approved' || connection.status === 'inactive') && activeCompanies.length > 0 && (
+                            <div style={{ marginTop: 4 }}>
+                              <button
+                                onClick={() => handleOpenConfig(connection)}
+                                style={{
+                                  background: 'linear-gradient(135deg, #F27020 0%, #ea580c 100%)',
+                                  border: 'none',
+                                  borderRadius: '12px',
+                                  padding: '14px 18px',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  gap: 8,
+                                  transition: 'all 0.2s',
+                                  color: '#fff',
+                                  fontSize: '14px',
+                                  fontWeight: 600,
+                                  width: '100%',
+                                  WebkitTapHighlightColor: 'transparent',
+                                  boxShadow: '0 2px 8px rgba(242, 112, 32, 0.3)',
+                                  minHeight: 48
+                                }}
+                                title="Configure company settings"
+                                onTouchStart={(e) => {
+                                  e.currentTarget.style.transform = 'scale(0.97)';
+                                  e.currentTarget.style.opacity = '0.9';
+                                  e.currentTarget.style.boxShadow = '0 1px 4px rgba(242, 112, 32, 0.4)';
+                                }}
+                                onTouchEnd={(e) => {
+                                  e.currentTarget.style.transform = 'scale(1)';
+                                  e.currentTarget.style.opacity = '1';
+                                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(242, 112, 32, 0.3)';
+                                }}
+                              >
+                                <span className="material-icons" style={{ fontSize: '20px' }}>settings</span>
+                                <span>Configure Company Settings</span>
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
                     );
-                    })}
-                  </tbody>
-                </table>
+                  })}
+                </div>
               </div>
             </>
           )}
@@ -2466,6 +2835,23 @@ function TallyConfig() {
                       }}>
                         Connect your Google account to enable document upload and Google Drive integration
                       </p>
+                      {isExternalUser() && (
+                        <p style={{
+                          fontSize: '13px',
+                          color: '#dc2626',
+                          marginTop: '8px',
+                          padding: '8px 12px',
+                          background: '#fef2f2',
+                          border: '1px solid #fecaca',
+                          borderRadius: '6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}>
+                          <span className="material-icons" style={{ fontSize: '16px' }}>info</span>
+                          You are configuring your personal Google account. Only you can access this account. Email must match: {sessionStorage.getItem('email') || 'your registered email'}
+                        </p>
+                      )}
                     </div>
                   </div>
                   {googleAccessToken && (

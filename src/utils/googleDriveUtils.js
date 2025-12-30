@@ -1,6 +1,7 @@
 // Google Drive utility functions for image display
 import { apiGet, apiPost } from './apiUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
+import { isExternalUser } from './cacheUtils';
 
 // Cache for Google tokens to avoid repeated API calls
 const tokenCache = new Map(); // key: `${tallyloc_id}_${co_guid}`, value: { token, timestamp }
@@ -84,11 +85,20 @@ const refreshGoogleToken = async () => {
 };
 
 // Enhanced refresh function that updates backend
-export const refreshGoogleTokenAndUpdateBackend = async (tallylocId, coGuid, displayName = null) => {
+export const refreshGoogleTokenAndUpdateBackend = async (tallylocId, coGuid, displayName = null, userEmail = null) => {
   return new Promise((resolve, reject) => {
     if (!isGoogleDriveFullyConfigured().configured) {
       reject(new Error('Google API credentials not configured'));
       return;
+    }
+
+    const isExternal = isExternalUser();
+    if (isExternal) {
+      userEmail = userEmail || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null);
+      if (!userEmail) {
+        reject(new Error('External users must provide their email address'));
+        return;
+      }
     }
 
     loadGoogleIdentityServices().then(() => {
@@ -104,67 +114,24 @@ export const refreshGoogleTokenAndUpdateBackend = async (tallylocId, coGuid, dis
             // Update backend if company info is available
             if (tallylocId && coGuid) {
               try {
-                // Get display_name from existing config if not provided
+                // Get display name from Google if not provided
                 let userDisplayName = displayName;
                 if (!userDisplayName) {
-                  const configs = await apiGet(`/api/cmpconfig/list?tallyloc_id=${tallylocId}&co_guid=${coGuid}`);
-                  if (configs && configs.data) {
-                    const displayNameConfig = Array.isArray(configs.data) 
-                      ? configs.data.find(c => c.config_key === 'google_display_name')
-                      : null;
-                    userDisplayName = displayNameConfig?.permission_value || '';
+                  try {
+                    const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                      headers: { 'Authorization': `Bearer ${response.access_token}` }
+                    });
+                    if (userInfoResponse.ok) {
+                      const userInfo = await userInfoResponse.json();
+                      userDisplayName = userInfo.name || userInfo.displayName || userInfo.email || '';
+                    }
+                  } catch (err) {
+                    console.warn('Failed to fetch display name:', err);
                   }
                 }
                 
-                // Get existing configs to preserve other settings
-                const existingConfigs = await apiGet(`/api/cmpconfig/list?tallyloc_id=${tallylocId}&co_guid=${coGuid}`);
-                let allConfigs = [];
-                if (existingConfigs && existingConfigs.data) {
-                  allConfigs = Array.isArray(existingConfigs.data) 
-                    ? existingConfigs.data 
-                    : (existingConfigs.data.configurations || existingConfigs.data.configs || []);
-                }
-                
-                // Update or add google_token and google_display_name configs
-                const updatedConfigs = allConfigs.map(config => {
-                  if (config.config_key === 'google_token') {
-                    return { ...config, permission_value: response.access_token };
-                  }
-                  if (config.config_key === 'google_display_name' && userDisplayName) {
-                    return { ...config, permission_value: userDisplayName };
-                  }
-                  return config;
-                });
-                
-                // Add configs if they don't exist
-                if (!updatedConfigs.find(c => c.config_key === 'google_token')) {
-                  updatedConfigs.push({
-                    config_key: 'google_token',
-                    permission_value: response.access_token
-                  });
-                }
-                if (userDisplayName && !updatedConfigs.find(c => c.config_key === 'google_display_name')) {
-                  updatedConfigs.push({
-                    config_key: 'google_display_name',
-                    permission_value: userDisplayName
-                  });
-                }
-                
-                // Update backend with all configs
-                const payload = {
-                  tallyloc_id: tallylocId,
-                  co_guid: coGuid,
-                  configurations: updatedConfigs.map(config => ({
-                    config_id: config.config_id || config.id,
-                    is_enabled: config.is_enabled === true || config.is_enabled === 1,
-                    permission_value: config.permission_value || config.config_value || ''
-                  }))
-                };
-                await apiPost('/api/cmpconfig/update', payload);
-                
-                // Clear cache to force fresh fetch
-                clearTokenCache(tallylocId, coGuid);
-                console.log('✅ Refreshed token saved to backend');
+                // Save token with user-specific support
+                await saveGoogleTokenToConfigs(tallylocId, coGuid, response.access_token, userDisplayName, userEmail);
               } catch (err) {
                 console.warn('⚠️ Failed to update backend with refreshed token:', err);
                 // Continue anyway - token is still valid
@@ -185,17 +152,26 @@ export const refreshGoogleTokenAndUpdateBackend = async (tallylocId, coGuid, dis
 };
 
 // Get and validate token from backend, auto-refresh if expired
-export const getValidGoogleTokenFromConfigs = async (tallylocId, coGuid) => {
-  console.log('🔑 getValidGoogleTokenFromConfigs called:', { tallylocId, coGuid });
+export const getValidGoogleTokenFromConfigs = async (tallylocId, coGuid, userEmail = null) => {
+  console.log('🔑 getValidGoogleTokenFromConfigs called:', { tallylocId, coGuid, userEmail });
   
   if (!tallylocId || !coGuid) {
     console.log('❌ Missing tallylocId or coGuid');
     return null;
   }
 
+  const isExternal = isExternalUser();
+  if (isExternal) {
+    userEmail = userEmail || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null);
+    if (!userEmail) {
+      console.log('⚠️ External user but no email provided');
+      return null;
+    }
+  }
+
   try {
-    // First, get the stored token
-    const storedToken = await getGoogleTokenFromConfigs(tallylocId, coGuid);
+    // First, get the stored token (now with user-specific support)
+    const storedToken = await getGoogleTokenFromConfigs(tallylocId, coGuid, userEmail);
     
     if (!storedToken) {
       console.log('⚠️ No stored token found');
@@ -213,7 +189,7 @@ export const getValidGoogleTokenFromConfigs = async (tallylocId, coGuid) => {
     // Token is expired, try to refresh
     console.log('⚠️ Stored token expired, attempting refresh...');
     try {
-      const refreshedToken = await refreshGoogleTokenAndUpdateBackend(tallylocId, coGuid);
+      const refreshedToken = await refreshGoogleTokenAndUpdateBackend(tallylocId, coGuid, null, userEmail);
       console.log('✅ Token refreshed successfully');
       return refreshedToken;
     } catch (refreshError) {
@@ -228,15 +204,29 @@ export const getValidGoogleTokenFromConfigs = async (tallylocId, coGuid) => {
 };
 
 // Get Google token from backend configs
-export const getGoogleTokenFromConfigs = async (tallylocId, coGuid) => {
-  console.log('🔑 getGoogleTokenFromConfigs called:', { tallylocId, coGuid });
+export const getGoogleTokenFromConfigs = async (tallylocId, coGuid, userEmail = null) => {
+  console.log('🔑 getGoogleTokenFromConfigs called:', { tallylocId, coGuid, userEmail });
   
   if (!tallylocId || !coGuid) {
     console.log('❌ Missing tallylocId or coGuid', { tallylocId, coGuid });
     return null;
   }
 
-  const cacheKey = `${tallylocId}_${coGuid}`;
+  // For external users, require userEmail and check user-specific token first
+  const isExternal = isExternalUser();
+  if (isExternal) {
+    userEmail = userEmail || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null);
+    if (!userEmail) {
+      console.log('⚠️ External user but no email provided');
+      return null;
+    }
+  }
+
+  // Build cache key (include userEmail for external users)
+  const cacheKey = isExternal && userEmail 
+    ? `${tallylocId}_${coGuid}_${userEmail.toLowerCase()}`
+    : `${tallylocId}_${coGuid}`;
+  
   const cached = tokenCache.get(cacheKey);
   
   // Return cached token if available and not too old (cache for 5 minutes)
@@ -246,8 +236,14 @@ export const getGoogleTokenFromConfigs = async (tallylocId, coGuid) => {
   }
 
   try {
-    // Call the API endpoint as specified
-    const apiUrl = `/api/cmpconfig/list?tallyloc_id=${tallylocId}&co_guid=${coGuid}`;
+    // For external users, include user email in API call if backend supports it
+    // Otherwise, try user-specific config key pattern
+    let apiUrl = `/api/cmpconfig/list?tallyloc_id=${tallylocId}&co_guid=${coGuid}`;
+    if (isExternal && userEmail) {
+      // Try user-specific endpoint or add email as parameter
+      apiUrl += `&user_email=${encodeURIComponent(userEmail)}`;
+    }
+    
     console.log('📡 Fetching configs from API:', apiUrl);
     
     const data = await apiGet(apiUrl);
@@ -276,8 +272,28 @@ export const getGoogleTokenFromConfigs = async (tallylocId, coGuid) => {
 
     console.log('📋 Found configs:', configs.length);
 
-    // Find the config with config_key === 'google_token'
-    const tokenConfig = configs.find(c => c.config_key === 'google_token');
+    // For external users, look for user-specific token first
+    // Config key pattern: google_token_user_{email} or check user_email field
+    let tokenConfig = null;
+    if (isExternal && userEmail) {
+      // Try user-specific config key
+      const userEmailLower = userEmail.toLowerCase();
+      tokenConfig = configs.find(c => 
+        c.config_key === `google_token_user_${userEmailLower}` ||
+        (c.config_key === 'google_token' && c.user_email === userEmailLower)
+      );
+    }
+    
+    // Fallback to company-wide token if no user-specific token found
+    if (!tokenConfig) {
+      tokenConfig = configs.find(c => c.config_key === 'google_token');
+      
+      // External users should NOT use company-wide tokens
+      if (isExternal && tokenConfig) {
+        console.log('⚠️ External user attempted to use company-wide token - denying access');
+        return null;
+      }
+    }
 
     if (!tokenConfig) {
       console.log('⚠️ No google_token config found in configs.');
@@ -324,7 +340,7 @@ export const getGoogleTokenFromConfigs = async (tallylocId, coGuid) => {
         starts_with: trimmedToken.substring(0, 20),
         ends_with: trimmedToken.substring(Math.max(0, trimmedToken.length - 20))
       });
-      // Cache the token
+      // Cache the token with user-specific key if external
       tokenCache.set(cacheKey, { token: trimmedToken, timestamp: Date.now() });
       return trimmedToken;
     } else {
@@ -680,11 +696,131 @@ export const getGoogleDriveImageUrl = async (imagePath, accessToken) => {
   }
 };
 
-// Clear token cache (useful when token is updated)
-export const clearTokenCache = (tallylocId, coGuid) => {
-  if (tallylocId && coGuid) {
-    const cacheKey = `${tallylocId}_${coGuid}`;
+// Save Google token to configs - supports per-user tokens for external users
+export const saveGoogleTokenToConfigs = async (tallylocId, coGuid, token, displayName = null, userEmail = null) => {
+  console.log('💾 saveGoogleTokenToConfigs called:', { tallylocId, coGuid, userEmail });
+  
+  if (!tallylocId || !coGuid || !token) {
+    throw new Error('Missing required parameters');
+  }
+
+  const isExternal = isExternalUser();
+  if (isExternal) {
+    userEmail = userEmail || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null);
+    if (!userEmail) {
+      throw new Error('External users must provide their email address');
+    }
+  }
+
+  try {
+    // Get existing configs
+    let apiUrl = `/api/cmpconfig/list?tallyloc_id=${tallylocId}&co_guid=${coGuid}`;
+    if (isExternal && userEmail) {
+      apiUrl += `&user_email=${encodeURIComponent(userEmail)}`;
+    }
+    
+    const existingConfigsResponse = await apiGet(apiUrl);
+    
+    let existingConfigs = [];
+    if (Array.isArray(existingConfigsResponse)) {
+      existingConfigs = existingConfigsResponse;
+    } else if (existingConfigsResponse?.data && Array.isArray(existingConfigsResponse.data)) {
+      existingConfigs = existingConfigsResponse.data;
+    } else if (existingConfigsResponse?.success && existingConfigsResponse?.data && Array.isArray(existingConfigsResponse.data)) {
+      existingConfigs = existingConfigsResponse.data;
+    }
+
+    // Determine config keys based on user type
+    const tokenConfigKey = isExternal && userEmail 
+      ? `google_token_user_${userEmail.toLowerCase()}`
+      : 'google_token';
+    
+    const displayNameConfigKey = isExternal && userEmail
+      ? `google_display_name_user_${userEmail.toLowerCase()}`
+      : 'google_display_name';
+
+    // Update or add token config
+    let updatedConfigs = existingConfigs.map(config => {
+      if (config.config_key === tokenConfigKey) {
+        return {
+          ...config,
+          permission_value: token,
+          config_value: token,
+          is_enabled: true
+        };
+      }
+      if (displayName && config.config_key === displayNameConfigKey) {
+        return {
+          ...config,
+          permission_value: displayName,
+          config_value: displayName
+        };
+      }
+      return config;
+    });
+
+    // Add token config if it doesn't exist
+    if (!updatedConfigs.find(c => c.config_key === tokenConfigKey)) {
+      updatedConfigs.push({
+        config_key: tokenConfigKey,
+        permission_value: token,
+        config_value: token,
+        is_enabled: true,
+        user_email: isExternal && userEmail ? userEmail.toLowerCase() : undefined
+      });
+    }
+
+    // Add display name config if it doesn't exist and displayName is provided
+    if (displayName && !updatedConfigs.find(c => c.config_key === displayNameConfigKey)) {
+      updatedConfigs.push({
+        config_key: displayNameConfigKey,
+        permission_value: displayName,
+        config_value: displayName,
+        user_email: isExternal && userEmail ? userEmail.toLowerCase() : undefined
+      });
+    }
+
+    // Prepare payload
+    const companyConfig = existingConfigs[0] || {};
+    const payload = {
+      tallyloc_id: tallylocId,
+      co_guid: coGuid,
+      co_name: companyConfig.co_name || '',
+      configurations: updatedConfigs.map(config => ({
+        config_id: config.config_id || config.id,
+        is_enabled: config.is_enabled === true || config.is_enabled === 1,
+        permission_value: config.permission_value || config.config_value || ''
+      })),
+      user_email: isExternal && userEmail ? userEmail.toLowerCase() : undefined
+    };
+
+    // Save to backend
+    await apiPost('/api/cmpconfig/update', payload);
+    
+    // Clear cache
+    const cacheKey = isExternal && userEmail 
+      ? `${tallylocId}_${coGuid}_${userEmail.toLowerCase()}`
+      : `${tallylocId}_${coGuid}`;
     tokenCache.delete(cacheKey);
+    
+    console.log('✅ Google token saved successfully');
+  } catch (error) {
+    console.error('❌ Error saving Google token:', error);
+    throw error;
+  }
+};
+
+// Clear token cache (useful when token is updated)
+export const clearTokenCache = (tallylocId, coGuid, userEmail = null) => {
+  if (tallylocId && coGuid) {
+    const isExternal = isExternalUser();
+    if (isExternal && userEmail) {
+      const cacheKey = `${tallylocId}_${coGuid}_${userEmail.toLowerCase()}`;
+      tokenCache.delete(cacheKey);
+    } else {
+      const cacheKey = `${tallylocId}_${coGuid}`;
+      tokenCache.delete(cacheKey);
+    }
   } else {
     tokenCache.clear();
   }

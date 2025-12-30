@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../config';
 import TallyLogo from '../DLrlogo.png';
 import '../AdminHomeResponsive.css';
+import Header from '../components/Header';
 import Ledgerbook from './Ledgerbook';
 import PlaceOrder from './PlaceOrder';
 import PlaceOrder_ECommerce from './PlaceOrder_ECommerce';
@@ -11,12 +12,7 @@ import ReceivablesDashboard from '../RecvDashboard';
 import VoucherAuthorization from './vchauth';
 import ReceiptListScreenWrapper from './ReceiptListScreenWrapper';
 import CompanyOrdersScreenWrapper from './CompanyOrdersScreenWrapper';
-import TallyConfig from '../admindashboard/tallyconfig';
 import AccessControl from '../access-control/AccessControl';
-import ModulesManagement from '../access-control/ModulesManagement';
-import RolesManagement from '../access-control/RolesManagement';
-import CreateAccess from '../admindashboard/CreateAccess';
-import ShareAccess from '../TallyDashboard/ShareAccess';
 import MasterForm from './MasterForm';
 import MasterAuthorization from './MasterAuthorization';
 import MasterList from './MasterList';
@@ -24,9 +20,9 @@ import CacheManagement from './CacheManagement';
 import SalesOrderReport from './SalesOrderReport';
 import PaymentVoucherReport from './PaymentVoucherReport';
 import VendorExpenses from './VendorExpenses';
-import { 
-  MODULE_SEQUENCE, 
-  hasModuleAccess, 
+import {
+  MODULE_SEQUENCE,
+  hasModuleAccess,
   hasAnySubModuleAccess,
   hasAnyAccessibleSubModule,
   hasSubModuleAccess,
@@ -41,17 +37,18 @@ import { apiGet } from '../utils/apiUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { MobileMenu, useIsMobile } from './MobileViewConfig';
 import { syncCustomers, syncItems } from '../utils/cacheSyncManager';
+import { isExternalUser, clearAllCacheForExternalUser } from '../utils/cacheUtils';
 
 function TallyDashboard() {
   console.log('🎯 TallyDashboard component loading...');
-  
+
   // Check authentication immediately
   console.log('🎯 TallyDashboard auth check:', {
     token: !!sessionStorage.getItem('token'),
     email: sessionStorage.getItem('email'),
     name: sessionStorage.getItem('name')
   });
-  
+
   // Read cached values from sessionStorage
   const tallyloc_id = sessionStorage.getItem('tallyloc_id');
   const company = sessionStorage.getItem('company');
@@ -60,7 +57,7 @@ function TallyDashboard() {
   const access_type = sessionStorage.getItem('access_type');
   const name = sessionStorage.getItem('name');
   const email = sessionStorage.getItem('email');
-  
+
   console.log('🎯 TallyDashboard sessionStorage data:', {
     tallyloc_id,
     company,
@@ -70,7 +67,7 @@ function TallyDashboard() {
     name,
     email
   });
-  
+
   console.log('🎯 All sessionStorage keys:', Object.keys(sessionStorage));
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 900);
@@ -79,14 +76,19 @@ function TallyDashboard() {
   const [showGoogleConfigModal, setShowGoogleConfigModal] = useState(false);
   const [googleConfigStatus, setGoogleConfigStatus] = useState(null);
   const [googleAccessToken, setGoogleAccessToken] = useState(localStorage.getItem('google_access_token') || null);
-  
+
   // Mobile menu state
   const isMobile = useIsMobile();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  
+
   // Window width state for responsive header
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
-  
+
+  // Sidebar refs for responsive scrolling
+  const sidebarRef = useRef(null);
+  const sidebarContentRef = useRef(null);
+  const [needsScrolling, setNeedsScrolling] = useState(false);
+
   useEffect(() => {
     const handleResize = () => {
       setWindowWidth(window.innerWidth);
@@ -94,7 +96,7 @@ function TallyDashboard() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-  
+
   // Check if user is admin
   const isAdmin = () => {
     try {
@@ -108,26 +110,109 @@ function TallyDashboard() {
   const [sidebarTooltip, setSidebarTooltip] = useState({ show: false, text: '', top: 0 });
   let sidebarTooltipTimeout = null;
   // Track active sidebar item - will be set based on user permissions
-  const [activeSidebar, setActiveSidebar] = useState('main');
+  // Restore from sessionStorage if available, otherwise default to 'main'
+  const [activeSidebar, setActiveSidebar] = useState(() => {
+    const saved = sessionStorage.getItem('activeSidebar');
+    return saved || 'main';
+  });
   const [sidebarLoading, setSidebarLoading] = useState(false);
-  const [showControlPanel, setShowControlPanel] = useState(false);
-  const [controlPanelView, setControlPanelView] = useState(null); // 'tally-config', 'modules', 'roles', 'create-access', 'share-access'
-  const [controlPanelOpen, setControlPanelOpen] = useState(false);
+
+  // Check if sidebar needs scrolling based on content height
+  useEffect(() => {
+    const checkScrollNeeded = () => {
+      if (!sidebarRef.current || !sidebarContentRef.current || isMobile) {
+        setNeedsScrolling(false);
+        return;
+      }
+
+      // Ensure sidebar content is rendered
+      const sidebarItems = sidebarContentRef.current?.children;
+      if (!sidebarItems || sidebarItems.length === 0) {
+        // Content not ready yet, disable scrolling for now
+        setNeedsScrolling(false);
+        return;
+      }
+
+      // Get the sidebar container height (viewport height minus header)
+      const sidebarContainerHeight = sidebarRef.current.clientHeight;
+
+      // Get the total scroll height of all content inside sidebar
+      // Note: scrollHeight is accurate even when overflow is hidden
+      const sidebarScrollHeight = sidebarRef.current.scrollHeight;
+
+      // Check if content exceeds container height
+      // Enable scrolling if content height is >= container height
+      // Use >= to be more permissive and ensure the last item is always accessible
+      const needsScroll = sidebarScrollHeight >= sidebarContainerHeight;
+
+      setNeedsScrolling(needsScroll);
+
+      // Debug logging
+      console.log('📏 Sidebar scroll check:', {
+        containerHeight: sidebarContainerHeight,
+        scrollHeight: sidebarScrollHeight,
+        needsScroll,
+        difference: sidebarScrollHeight - sidebarContainerHeight,
+        ratio: sidebarContainerHeight > 0 ? (sidebarScrollHeight / sidebarContainerHeight * 100).toFixed(1) + '%' : 'N/A'
+      });
+    };
+
+    // Check immediately
+    checkScrollNeeded();
+
+    // Check after delays to ensure DOM is fully rendered and sidebar animation completes
+    const timeoutId = setTimeout(checkScrollNeeded, 100);
+    const timeoutId2 = setTimeout(checkScrollNeeded, 300);
+    const timeoutId3 = setTimeout(checkScrollNeeded, 500);
+    // Check after sidebar transition completes (300ms transition + buffer)
+    const timeoutId4 = setTimeout(checkScrollNeeded, 400);
+    const timeoutId5 = setTimeout(checkScrollNeeded, 600);
+
+    // Check on window resize
+    window.addEventListener('resize', checkScrollNeeded);
+
+    // Check when sidebar content changes
+    const observer = new MutationObserver(() => {
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        setTimeout(checkScrollNeeded, 50);
+      });
+    });
+
+    if (sidebarRef.current) {
+      observer.observe(sidebarRef.current, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
+      });
+    }
+
+    return () => {
+      clearTimeout(timeoutId);
+      clearTimeout(timeoutId2);
+      clearTimeout(timeoutId3);
+      clearTimeout(timeoutId4);
+      clearTimeout(timeoutId5);
+      window.removeEventListener('resize', checkScrollNeeded);
+      observer.disconnect();
+    };
+  }, [sidebarOpen, sidebarLoading, isMobile, activeSidebar]);
+
   const [pendingSidebarNavigation, setPendingSidebarNavigation] = useState(null);
   const [accessControlDropdownOpen, setAccessControlDropdownOpen] = useState(false);
   const [masterManagementDropdownOpen, setMasterManagementDropdownOpen] = useState(false);
   const masterManagementDropdownRef = useRef(null);
   const [masterDropdownPosition, setMasterDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const masterButtonRef = useRef(null);
+  const masterDropdownCloseTimeoutRef = useRef(null);
   const [reportsDropdownOpen, setReportsDropdownOpen] = useState(false);
   const reportsDropdownRef = useRef(null);
   const [reportsDropdownPosition, setReportsDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const reportsButtonRef = useRef(null);
-  const controlPanelButtonRef = useRef(null);
+  const reportsDropdownCloseTimeoutRef = useRef(null);
   const accessControlButtonRef = useRef(null);
-  const [controlPanelDropdownPosition, setControlPanelDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const [accessControlDropdownPosition, setAccessControlDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
-  const [previousView, setPreviousView] = useState(null); // Track previous view before opening control panel
   const desiredActiveSidebarRef = useRef(null);
   const initialPermissionsRequestedRef = useRef(false);
 
@@ -135,6 +220,11 @@ function TallyDashboard() {
     if (!moduleId) return false;
     const module = MODULE_SEQUENCE.find(m => m.id === moduleId);
     if (module) {
+      // Special handling for cache_management - always allow access
+      // The CacheManagement component itself handles the access check and shows error if needed
+      if (module.key === 'cache_management') {
+        return true;
+      }
       if (module.key === 'main_menu' || isAlwaysVisible(module.key)) {
         return true;
       }
@@ -176,89 +266,76 @@ function TallyDashboard() {
     return 'main';
   }, []);
 
+  // Wrapper for setActiveSidebar that also persists to sessionStorage
+  const setActiveSidebarWithPersistence = useCallback((newSidebar) => {
+    setActiveSidebar(newSidebar);
+    sessionStorage.setItem('activeSidebar', newSidebar);
+  }, []);
+
+  // Also update the state setter directly to use persistence
+  // This ensures all calls to setActiveSidebar persist
+  useEffect(() => {
+    // Save to sessionStorage whenever activeSidebar changes
+    if (activeSidebar) {
+      sessionStorage.setItem('activeSidebar', activeSidebar);
+    }
+  }, [activeSidebar]);
+
+  // Replace setActiveSidebar with the persistent version
+  // We'll use setActiveSidebarWithPersistence everywhere
+
   const resolveActiveSidebar = useCallback((userModules) => {
     if (!userModules || userModules.length === 0) {
       if (activeSidebar !== 'main') {
-        setActiveSidebar('main');
+        setActiveSidebarWithPersistence('main');
       }
       desiredActiveSidebarRef.current = null;
       return;
     }
 
+    // Check if current activeSidebar is valid and accessible
+    // If it is, keep it (don't auto-switch to first module)
+    if (activeSidebar !== 'main' && isModuleAccessibleById(activeSidebar, userModules)) {
+      desiredActiveSidebarRef.current = null;
+      return;
+    }
+
+    // Only auto-switch if we're on 'main' and there's no saved valid sidebar
     if (activeSidebar === 'main') {
+      // Check if there's a saved sidebar that's still accessible
+      const savedSidebar = sessionStorage.getItem('activeSidebar');
+      if (savedSidebar && savedSidebar !== 'main' && isModuleAccessibleById(savedSidebar, userModules)) {
+        setActiveSidebarWithPersistence(savedSidebar);
+        desiredActiveSidebarRef.current = null;
+        return;
+      }
+
+      // Otherwise, use first accessible module
       const firstModuleId = getFirstAccessibleModuleId(userModules);
       if (firstModuleId && firstModuleId !== 'main') {
-        setActiveSidebar(firstModuleId);
+        setActiveSidebarWithPersistence(firstModuleId);
         desiredActiveSidebarRef.current = null;
         return;
       }
     }
- 
+
     const desiredId = desiredActiveSidebarRef.current;
     if (desiredId && isModuleAccessibleById(desiredId, userModules)) {
       if (activeSidebar !== desiredId) {
-        setActiveSidebar(desiredId);
+        setActiveSidebarWithPersistence(desiredId);
       }
-      desiredActiveSidebarRef.current = null;
-      return;
-    }
-
-    if (isModuleAccessibleById(activeSidebar, userModules)) {
       desiredActiveSidebarRef.current = null;
       return;
     }
 
     const fallbackId = getFirstAccessibleModuleId(userModules) || 'main';
     if (activeSidebar !== fallbackId) {
-      setActiveSidebar(fallbackId);
+      setActiveSidebarWithPersistence(fallbackId);
     }
     desiredActiveSidebarRef.current = null;
-  }, [activeSidebar, getFirstAccessibleModuleId, isModuleAccessibleById]);
-  
-  // Auto-open control panel when control panel view is set
-  useEffect(() => {
-    if (controlPanelView && !showControlPanel) {
-      setShowControlPanel(true);
-      setControlPanelOpen(true);
-      if (!previousView) {
-        setPreviousView(activeSidebar);
-      }
-    }
-  }, [controlPanelView]);
-  
-  // Auto-open Access Control dropdown when an Access Control view is active
-  useEffect(() => {
-    if (['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) {
-      setAccessControlDropdownOpen(true);
-    }
-  }, [controlPanelView]);
-  
-  // Update control panel dropdown position when it opens
-  useEffect(() => {
-    const updateControlPanelDropdownPosition = () => {
-      if (controlPanelOpen && controlPanelButtonRef.current) {
-        const rect = controlPanelButtonRef.current.getBoundingClientRect();
-        setControlPanelDropdownPosition({
-          top: rect.top,
-          left: rect.left + rect.width,
-          width: rect.width
-        });
-      }
-    };
-    
-    if (controlPanelOpen) {
-      updateControlPanelDropdownPosition();
-      const handleResize = () => updateControlPanelDropdownPosition();
-      const handleScroll = () => updateControlPanelDropdownPosition();
-      window.addEventListener('resize', handleResize);
-      window.addEventListener('scroll', handleScroll, true);
-      return () => {
-        window.removeEventListener('resize', handleResize);
-        window.removeEventListener('scroll', handleScroll, true);
-      };
-    }
-  }, [controlPanelOpen]);
-  
+  }, [activeSidebar, getFirstAccessibleModuleId, isModuleAccessibleById, setActiveSidebarWithPersistence]);
+
+
   // Update access control dropdown position when it opens
   useEffect(() => {
     const updateAccessControlDropdownPosition = () => {
@@ -271,7 +348,7 @@ function TallyDashboard() {
         });
       }
     };
-    
+
     if (accessControlDropdownOpen) {
       updateAccessControlDropdownPosition();
       const handleResize = () => updateAccessControlDropdownPosition();
@@ -284,15 +361,14 @@ function TallyDashboard() {
       };
     }
   }, [accessControlDropdownOpen]);
-  
-  // Close control panel dropdown when sidebar closes
+
+  // Close access control dropdown when sidebar closes
   useEffect(() => {
     if (!sidebarOpen) {
-      setControlPanelOpen(false);
       setAccessControlDropdownOpen(false);
     }
   }, [sidebarOpen]);
-  
+
   // Access Control dropdown items
   const ACCESS_CONTROL_ITEMS = [
     { key: 'modules', label: 'Modules Management', icon: 'apps' },
@@ -300,7 +376,7 @@ function TallyDashboard() {
     { key: 'create-access', label: 'User Management', icon: 'person_add' },
     { key: 'share-access', label: 'Share Access', icon: 'share' },
   ];
-  
+
   // Get dropdown filter options for the current active module
   const getCurrentDropdownOptions = () => {
     const userModules = getUserModules();
@@ -313,10 +389,6 @@ function TallyDashboard() {
 
   // Company selection state for top bar
   const [selectedCompanyGuid, setSelectedCompanyGuid] = useState(sessionStorage.getItem('selectedCompanyGuid') || '');
-  const [topBarCompanyDropdownOpen, setTopBarCompanyDropdownOpen] = useState(false);
-  const [topBarCompanySearchTerm, setTopBarCompanySearchTerm] = useState('');
-  const [filteredTopBarCompanies, setFilteredTopBarCompanies] = useState([]);
-  const [isSelectingCompany, setIsSelectingCompany] = useState(false);
   const [connectionsVersion, setConnectionsVersion] = useState(0);
 
   useEffect(() => {
@@ -327,7 +399,7 @@ function TallyDashboard() {
       }
     }
   }, [selectedCompanyGuid]);
-  
+
   // Get all companies from sessionStorage
   const allConnections = useMemo(() => {
     try {
@@ -376,7 +448,6 @@ function TallyDashboard() {
     console.log('📌 activeSidebar changed to:', activeSidebar);
   }, [activeSidebar]);
 
-  const controlPanelDropdownRef = useRef(null);
   const accessControlDropdownRef = useRef(null);
 
   useEffect(() => {
@@ -387,20 +458,16 @@ function TallyDashboard() {
       if (masterManagementDropdownRef.current && !masterManagementDropdownRef.current.contains(event.target)) {
         setMasterManagementDropdownOpen(false);
       }
-      if (controlPanelDropdownRef.current && !controlPanelDropdownRef.current.contains(event.target) && 
-          controlPanelButtonRef.current && !controlPanelButtonRef.current.contains(event.target)) {
-        setControlPanelOpen(false);
-      }
-      if (accessControlDropdownRef.current && !accessControlDropdownRef.current.contains(event.target) && 
-          accessControlButtonRef.current && !accessControlButtonRef.current.contains(event.target)) {
+      if (accessControlDropdownRef.current && !accessControlDropdownRef.current.contains(event.target) &&
+        accessControlButtonRef.current && !accessControlButtonRef.current.contains(event.target)) {
         setAccessControlDropdownOpen(false);
       }
-      if (reportsDropdownRef.current && !reportsDropdownRef.current.contains(event.target) && 
-          reportsButtonRef.current && !reportsButtonRef.current.contains(event.target)) {
+      if (reportsDropdownRef.current && !reportsDropdownRef.current.contains(event.target) &&
+        reportsButtonRef.current && !reportsButtonRef.current.contains(event.target)) {
         setReportsDropdownOpen(false);
       }
     }
-    if (profileDropdownOpen || masterManagementDropdownOpen || controlPanelOpen || accessControlDropdownOpen || reportsDropdownOpen) {
+    if (profileDropdownOpen || masterManagementDropdownOpen || accessControlDropdownOpen || reportsDropdownOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     } else {
       document.removeEventListener('mousedown', handleClickOutside);
@@ -408,59 +475,8 @@ function TallyDashboard() {
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [profileDropdownOpen, masterManagementDropdownOpen, controlPanelOpen, accessControlDropdownOpen, reportsDropdownOpen]);
+  }, [profileDropdownOpen, masterManagementDropdownOpen, accessControlDropdownOpen, reportsDropdownOpen]);
 
-  // Filter companies based on search term for top bar
-  useEffect(() => {
-    if (!topBarCompanySearchTerm.trim()) {
-      setFilteredTopBarCompanies([]);
-      return;
-    }
-    
-    const timeoutId = setTimeout(() => {
-      const searchLower = topBarCompanySearchTerm.toLowerCase();
-      const exactMatches = [];
-      const startsWithMatches = [];
-      const containsMatches = [];
-      
-      for (let i = 0; i < allConnections.length; i++) {
-        const connection = allConnections[i];
-        const companyName = connection.company || '';
-        const accessType = connection.access_type || '';
-        const companyNameLower = companyName.toLowerCase();
-        const accessTypeLower = accessType.toLowerCase();
-        
-        const nameMatch = companyNameLower.includes(searchLower);
-        const accessMatch = accessTypeLower.includes(searchLower);
-        
-        if (nameMatch || accessMatch) {
-          if (companyNameLower === searchLower || accessTypeLower === searchLower) {
-            exactMatches.push(connection);
-          } else if (companyNameLower.startsWith(searchLower) || accessTypeLower.startsWith(searchLower)) {
-            startsWithMatches.push(connection);
-          } else {
-            containsMatches.push(connection);
-          }
-        }
-      }
-      
-      const filtered = [...exactMatches, ...startsWithMatches, ...containsMatches];
-      setFilteredTopBarCompanies(filtered);
-    }, 150);
-    
-    return () => clearTimeout(timeoutId);
-  }, [topBarCompanySearchTerm, allConnections]);
-
-  // Show all companies when top bar dropdown opens
-  useEffect(() => {
-    if (topBarCompanyDropdownOpen && !topBarCompanySearchTerm.trim()) {
-      if (allConnections.length < 100) {
-        setFilteredTopBarCompanies(allConnections);
-      } else {
-        setFilteredTopBarCompanies([]);
-      }
-    }
-  }, [topBarCompanyDropdownOpen, topBarCompanySearchTerm, allConnections]);
 
   // Set default active sidebar based on user permissions and fetch permissions if needed
   useEffect(() => {
@@ -515,11 +531,156 @@ function TallyDashboard() {
     }
   }, [selectedCompanyGuid, allConnections, resolveActiveSidebar]);
 
+  // Reusable function to download customers and items in the background
+  const downloadCustomersAndItems = React.useCallback(async (companyConnection) => {
+    if (!companyConnection || !companyConnection.guid) {
+      console.warn('⚠️ Cannot download: invalid company connection');
+      return;
+    }
+
+    try {
+      console.log('🔄 Starting automatic background download of customers and items for:', companyConnection.company);
+
+      // Set downloading state in sessionStorage for CacheManagement to read
+      const progressKey = `download_progress_${companyConnection.guid}`;
+      sessionStorage.setItem(progressKey, JSON.stringify({
+        customers: { status: 'downloading', progress: 0 },
+        items: { status: 'downloading', progress: 0 }
+      }));
+
+      // Dispatch event to notify CacheManagement
+      window.dispatchEvent(new CustomEvent('ledgerDownloadStarted', { detail: { company: companyConnection } }));
+
+      // Download customers
+      try {
+        console.log('🔄 Starting customers download...');
+        const customersResult = await syncCustomers(companyConnection);
+        console.log('✅ Customers downloaded:', customersResult);
+
+        // Update progress
+        const currentProgress = JSON.parse(sessionStorage.getItem(progressKey) || '{}');
+        currentProgress.customers = { status: 'completed', progress: 100, count: customersResult.count };
+        sessionStorage.setItem(progressKey, JSON.stringify(currentProgress));
+        window.dispatchEvent(new CustomEvent('ledgerDownloadProgress', {
+          detail: { company: companyConnection, type: 'customers', status: 'completed', count: customersResult.count }
+        }));
+
+        // Trigger cache stats reload in CacheManagement
+        window.dispatchEvent(new CustomEvent('ledgerCacheUpdated', { detail: { type: 'customers', company: companyConnection } }));
+      } catch (error) {
+        console.error('❌ Failed to download customers:', error);
+        const currentProgress = JSON.parse(sessionStorage.getItem(progressKey) || '{}');
+        currentProgress.customers = { status: 'error', progress: 0, error: error.message };
+        sessionStorage.setItem(progressKey, JSON.stringify(currentProgress));
+        window.dispatchEvent(new CustomEvent('ledgerDownloadProgress', {
+          detail: { company: companyConnection, type: 'customers', status: 'error', error: error.message }
+        }));
+      }
+
+      // Download items
+      try {
+        console.log('🔄 Starting items download...');
+        const itemsResult = await syncItems(companyConnection);
+        console.log('✅ Items downloaded:', itemsResult);
+
+        // Update progress
+        const currentProgress = JSON.parse(sessionStorage.getItem(progressKey) || '{}');
+        currentProgress.items = { status: 'completed', progress: 100, count: itemsResult.count };
+        sessionStorage.setItem(progressKey, JSON.stringify(currentProgress));
+        window.dispatchEvent(new CustomEvent('ledgerDownloadProgress', {
+          detail: { company: companyConnection, type: 'items', status: 'completed', count: itemsResult.count }
+        }));
+
+        // Trigger cache stats reload in CacheManagement
+        window.dispatchEvent(new CustomEvent('ledgerCacheUpdated', { detail: { type: 'items', company: companyConnection } }));
+      } catch (error) {
+        console.error('❌ Failed to download items:', error);
+        const currentProgress = JSON.parse(sessionStorage.getItem(progressKey) || '{}');
+        currentProgress.items = { status: 'error', progress: 0, error: error.message };
+        sessionStorage.setItem(progressKey, JSON.stringify(currentProgress));
+        window.dispatchEvent(new CustomEvent('ledgerDownloadProgress', {
+          detail: { company: companyConnection, type: 'items', status: 'error', error: error.message }
+        }));
+      }
+    } catch (error) {
+      console.error('❌ Error in background download:', error);
+    }
+  }, []);
+
   // Update active sidebar when user access permissions are loaded
   useEffect(() => {
     const userModules = getUserModules();
     resolveActiveSidebar(userModules);
   }, [selectedCompanyGuid, resolveActiveSidebar]);
+
+  // Auto-download customers and items when company is selected (initial load or change)
+  useEffect(() => {
+    if (!selectedCompanyGuid) {
+      return;
+    }
+
+    // Find the company connection
+    const companyConnection = allConnections.find(c => c.guid === selectedCompanyGuid);
+    if (!companyConnection) {
+      // Try to construct from sessionStorage if not in allConnections yet
+      const storedTallyloc = sessionStorage.getItem('tallyloc_id');
+      const storedCompany = sessionStorage.getItem('company');
+      const storedGuid = sessionStorage.getItem('guid');
+      if (storedGuid === selectedCompanyGuid && storedTallyloc && storedCompany) {
+        const companyFromStorage = {
+          tallyloc_id: storedTallyloc,
+          company: storedCompany,
+          guid: storedGuid,
+          conn_name: sessionStorage.getItem('conn_name') || '',
+          shared_email: sessionStorage.getItem('shared_email') || '',
+          status: sessionStorage.getItem('status') || '',
+          access_type: sessionStorage.getItem('access_type') || ''
+        };
+        console.log('🔄 Auto-downloading customers and items for company from sessionStorage:', companyFromStorage.company);
+        downloadCustomersAndItems(companyFromStorage);
+      }
+      return;
+    }
+
+    // Check if download is already in progress for this company
+    const progressKey = `download_progress_${companyConnection.guid}`;
+    const existingProgress = sessionStorage.getItem(progressKey);
+    if (existingProgress) {
+      try {
+        const progress = JSON.parse(existingProgress);
+        // If both are already completed or downloading, don't start again
+        if ((progress.customers?.status === 'completed' || progress.customers?.status === 'downloading') &&
+          (progress.items?.status === 'completed' || progress.items?.status === 'downloading')) {
+          console.log('🔄 Download already in progress or completed for:', companyConnection.company);
+          return;
+        }
+      } catch (e) {
+        // If we can't parse, proceed with download
+      }
+    }
+
+    console.log('🔄 Auto-downloading customers and items for company:', companyConnection.company);
+    downloadCustomersAndItems(companyConnection);
+  }, [selectedCompanyGuid, allConnections, downloadCustomersAndItems]);
+
+  // Also listen for companyChanged event to trigger download
+  useEffect(() => {
+    const handleCompanyChanged = (event) => {
+      const companyConnection = event.detail;
+      if (companyConnection && companyConnection.guid) {
+        console.log('🔄 companyChanged event received, triggering download for:', companyConnection.company);
+        // Small delay to ensure sessionStorage is updated
+        setTimeout(() => {
+          downloadCustomersAndItems(companyConnection);
+        }, 500);
+      }
+    };
+
+    window.addEventListener('companyChanged', handleCompanyChanged);
+    return () => {
+      window.removeEventListener('companyChanged', handleCompanyChanged);
+    };
+  }, [downloadCustomersAndItems]);
 
   // Update active sidebar when user access permissions change (company change)
   useEffect(() => {
@@ -530,7 +691,7 @@ function TallyDashboard() {
 
     // Listen for user access updates
     window.addEventListener('userAccessUpdated', handleUserAccessUpdate);
-    
+
     return () => {
       window.removeEventListener('userAccessUpdated', handleUserAccessUpdate);
     };
@@ -540,15 +701,15 @@ function TallyDashboard() {
   useEffect(() => {
     const handleNavigateToPlaceOrder = (event) => {
       console.log('🛒 Navigate to Place Order event received:', event.detail);
-      setActiveSidebar('order');
+      setActiveSidebarWithPersistence('order');
     };
 
     window.addEventListener('navigateToPlaceOrder', handleNavigateToPlaceOrder);
-    
+
     return () => {
       window.removeEventListener('navigateToPlaceOrder', handleNavigateToPlaceOrder);
     };
-  }, []);
+  }, [setActiveSidebarWithPersistence]);
 
   // Fetch user access permissions for a company
   const fetchUserAccessPermissions = async (companyConnection) => {
@@ -558,7 +719,7 @@ function TallyDashboard() {
       const apiUrl = getApiUrl(`/api/access-control/user-access?tallylocId=${companyConnection.tallyloc_id}&co_guid=${companyConnection.guid}&_t=${timestamp}`);
       console.log('🔐 API URL:', apiUrl);
       console.log('🔐 Fetching user access permissions for tallyloc_id:', companyConnection.tallyloc_id, 'co_guid:', companyConnection.guid, 'timestamp:', timestamp);
-      
+
       const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
@@ -566,27 +727,27 @@ function TallyDashboard() {
           'Content-Type': 'application/json'
         }
       });
-      
+
       console.log('📡 API Response status:', response.status);
-      
+
       if (response.ok) {
         const accessData = await response.json();
         console.log('✅ User access permissions loaded for company:', companyConnection.company, 'data:', accessData);
-        
+
         // Store access permissions in sessionStorage - overwrite existing
         sessionStorage.setItem('userAccessPermissions', JSON.stringify(accessData));
         console.log('💾 Stored user access permissions in session storage');
-        
+
         // Update sidebar with new permissions
         const userModules = accessData.data?.modules || [];
         resolveActiveSidebar(userModules);
-        
+
         // Clear loading state
         setSidebarLoading(false);
-        
+
         // Dispatch event with access data for components that need it
         window.dispatchEvent(new CustomEvent('userAccessUpdated', { detail: accessData }));
-        
+
         return accessData;
       } else {
         console.error('❌ Failed to fetch user access permissions:', response.status, response.statusText);
@@ -610,7 +771,7 @@ function TallyDashboard() {
     console.log('🔍 New company guid:', companyConnection.guid);
     const previousActiveSidebarId = activeSidebar;
     desiredActiveSidebarRef.current = previousActiveSidebarId;
-    
+
     // Update sessionStorage with new company data
     sessionStorage.setItem('tallyloc_id', companyConnection.tallyloc_id || '');
     sessionStorage.setItem('conn_name', companyConnection.conn_name || '');
@@ -620,113 +781,45 @@ function TallyDashboard() {
     sessionStorage.setItem('status', companyConnection.status || '');
     sessionStorage.setItem('access_type', companyConnection.access_type || '');
     sessionStorage.setItem('selectedCompanyGuid', companyConnection.guid || '');
-    
+
     // Update local state
     setSelectedCompanyGuid(companyConnection.guid);
-    setTopBarCompanyDropdownOpen(false);
-    setTopBarCompanySearchTerm('');
-    setIsSelectingCompany(false);
-    
+
     // Show loading state
     setSidebarLoading(true);
-    
+
     // Fetch user access permissions for the new company
     console.log('🚀 About to call fetchUserAccessPermissions for company:', companyConnection.company);
     await fetchUserAccessPermissions(companyConnection);
     console.log('✅ fetchUserAccessPermissions completed for company:', companyConnection.company);
-    
+
     // Trigger refresh of child components by dispatching an event
     window.dispatchEvent(new CustomEvent('companyChanged', { detail: companyConnection }));
+
+    // Automatically download customers and items in the background
+    downloadCustomersAndItems(companyConnection);
   };
 
   // Global refresh function for all pages
   const handleGlobalRefresh = async () => {
-    console.log('🔄 Global refresh triggered - updating customers and stock items cache...');
-    console.log('🔄 Refresh button clicked!');
-    
-    // Get current company info
-    const currentCompany = allConnections.find(c => c.guid === selectedCompanyGuid);
-    console.log('🔄 Current company:', currentCompany);
-    if (!currentCompany) {
-      console.log('⚠️ No company selected for refresh');
-      return;
-    }
-    
-    const { tallyloc_id, company: companyVal } = currentCompany;
-    console.log('🔄 Refreshing cache for:', { tallyloc_id, companyVal });
-    
-    // Refresh customers and stock items cache
-    try {
-      console.log('🔄 Starting customers cache refresh...');
-      const customersResult = await syncCustomers(currentCompany);
-      console.log('✅ Customers cache refreshed:', customersResult);
-    } catch (error) {
-      console.error('❌ Failed to refresh customers cache:', error);
-    }
-    
-    try {
-      console.log('🔄 Starting stock items cache refresh...');
-      const itemsResult = await syncItems(currentCompany);
-      console.log('✅ Stock items cache refreshed:', itemsResult);
-    } catch (error) {
-      console.error('❌ Failed to refresh stock items cache:', error);
-    }
-    
-    // Clear old sessionStorage cache keys (for backward compatibility)
-    const cacheKeys = [
-      `ledgerlist_${tallyloc_id}_${companyVal}`,
-      `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`,
-      `stockitems_${tallyloc_id}_${companyVal}`,
-      `reportlist_${tallyloc_id}_${companyVal}`
-    ];
-    
-    cacheKeys.forEach(key => {
-      sessionStorage.removeItem(key);
-      console.log(`🗑️ Cleared old sessionStorage cache: ${key}`);
-    });
-    
-    // Refresh user connections so latest companies are available after cache clear
-    try {
-      console.log('🔄 Refreshing user connections...');
-      const response = await apiGet(`/api/tally/user-connections?ts=${Date.now()}`);
-      if (response) {
-        let connections = [];
-        if (Array.isArray(response)) {
-          connections = response.filter(item => item?.status === 'Connected');
-        } else if (response.createdByMe && response.sharedWithMe) {
-          const created = Array.isArray(response.createdByMe)
-            ? response.createdByMe.filter(row => row?.status === 'Connected').map(row => ({ ...row, type: 'Created By Me' }))
-            : [];
-          const shared = Array.isArray(response.sharedWithMe)
-            ? response.sharedWithMe.filter(row => row?.status === 'Connected').map(row => ({ ...row, type: 'Shared With Me' }))
-            : [];
-          connections = [...created, ...shared];
-        }
-
-        sessionStorage.setItem('allConnections', JSON.stringify(connections));
-        // Notify listeners that connection data has been refreshed
-        window.dispatchEvent(new CustomEvent('connectionsUpdated', { detail: connections }));
-        // Update local dropdown data immediately
-        if (connections.length < 100) {
-          setFilteredTopBarCompanies(connections);
-        } else {
-          setFilteredTopBarCompanies([]);
-        }
-        setConnectionsVersion((prev) => prev + 1);
-        console.log(`✅ Refreshed user connections: ${connections.length} entries`);
-      }
-    } catch (error) {
-      console.error('⚠️ Failed to refresh user connections during global refresh:', error);
-    }
-    
-    // Dispatch custom event to notify all components to refresh
-    console.log('🔄 Dispatching globalRefresh event...');
-    window.dispatchEvent(new CustomEvent('globalRefresh'));
-    
-    console.log('✅ Global refresh completed - customers and stock items cache updated');
+    console.log('🔄 Refresh button clicked! Reloading window...');
+    // Reload the window to refresh all data
+    window.location.reload();
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Clear cache for external users before clearing sessionStorage
+    try {
+      const accessType = sessionStorage.getItem('access_type') || '';
+      if (accessType.toLowerCase() === 'external' || isExternalUser()) {
+        console.log('🧹 Clearing cache for external user on logout...');
+        await clearAllCacheForExternalUser();
+      }
+    } catch (error) {
+      console.error('Error clearing cache on logout:', error);
+      // Continue with logout even if cache clearing fails
+    }
+
     sessionStorage.clear();
     window.location.href = process.env.REACT_APP_HOMEPAGE || '/';
   };
@@ -737,7 +830,7 @@ function TallyDashboard() {
     if (window.salesDashboardLoading && activeSidebar === 'sales_dashboard') {
       console.log('⚠️ Navigation blocked - Sales dashboard is loading data');
       const navigationCallback = () => {
-        setActiveSidebar(newSidebarId);
+        setActiveSidebarWithPersistence(newSidebarId);
         setPendingSidebarNavigation(null);
       };
       setPendingSidebarNavigation(() => navigationCallback);
@@ -746,11 +839,11 @@ function TallyDashboard() {
       }
       return false;
     }
-    
+
     // Safe to navigate
-    setActiveSidebar(newSidebarId);
+    setActiveSidebarWithPersistence(newSidebarId);
     return true;
-  }, [activeSidebar]);
+  }, [activeSidebar, setActiveSidebarWithPersistence]);
 
   // Execute pending navigation when user confirms
   useEffect(() => {
@@ -766,6 +859,8 @@ function TallyDashboard() {
     return MODULE_SEQUENCE
       .filter(module => {
         if (module.key === 'main_menu') return false;
+        // Special handling for cache_management - always show it, let component handle access denial
+        if (module.key === 'cache_management') return true;
         if (module.hasSubModules) {
           return isAlwaysVisible(module.key) || hasAnySubModuleAccess(module.key, userModules);
         }
@@ -773,7 +868,7 @@ function TallyDashboard() {
       })
       .map(module => {
         if (module.hasSubModules && !module.useDropdownFilter) {
-          const accessibleSubModules = (module.subModules || []).filter(sub => 
+          const accessibleSubModules = (module.subModules || []).filter(sub =>
             isAlwaysVisible(module.key) || hasSubModuleAccess(sub.key, userModules)
           );
           return {
@@ -799,17 +894,17 @@ function TallyDashboard() {
   // Enhanced sidebar rendering
   const renderSidebarItems = () => {
     const userModules = getUserModules();
-    
+
     // Debug: Log user modules to see what permissions are available
     console.log('🔍 User modules for sidebar:', userModules);
     console.log('🔍 Module names:', userModules.map(m => m.module_name));
-    
+
     return MODULE_SEQUENCE.map(module => {
       // Skip main_menu (Main Menu) - it's removed from sidebar
       if (module.key === 'main_menu') {
         return null;
       }
-      
+
       // Debug: Check master_form specifically
       if (module.key === 'master_form') {
         console.log('🔍 Master Form module check:', {
@@ -818,7 +913,7 @@ function TallyDashboard() {
           module: module
         });
       }
-      
+
       // For modules with sub-modules (like Ledger Book or Master Management)
       if (module.hasSubModules) {
         // Debug: Log Reports module specifically
@@ -869,52 +964,32 @@ function TallyDashboard() {
         // If no sub-modules have access, don't show the main module
         return null;
       }
-      
+
       // Always show modules marked as alwaysVisible (except main_menu and modules with submodules)
       if (isAlwaysVisible(module.key)) {
         console.log('✅ Rendering always visible module:', module.key, module.label);
         return renderSidebarItem(module.key, module);
       }
-      
+
+      // Special handling for cache_management - check access permissions
+      if (module.key === 'cache_management') {
+        // Check cache access asynchronously - we'll show it if user has access
+        // The CacheManagement component itself will handle the access check and show error if needed
+        // For now, we'll show it to all users and let the component handle access denial
+        // This is because access check is async and we don't want to block sidebar rendering
+        return renderSidebarItem(module.key, module);
+      }
+
       // For regular modules (Place Order, E-Commerce)
       const hasAccess = hasModuleAccess(module.key, userModules);
       if (hasAccess) {
         return renderSidebarItem(module.key, module);
       }
-      
+
       return null;
     }).filter(Boolean);
   };
 
-  // Handler for closing control panel
-  const handleCloseControlPanel = async () => {
-    setShowControlPanel(false);
-    setControlPanelOpen(false);
-    if (previousView) {
-      setActiveSidebar(previousView);
-    }
-    setPreviousView(null);
-    setControlPanelView(null);
-    
-    // Fetch updated modules and permissions after closing control panel
-    const tallylocId = sessionStorage.getItem('tallyloc_id');
-    const guid = sessionStorage.getItem('guid');
-    
-    if (tallylocId && guid) {
-      try {
-        console.log('🔄 Fetching updated user access after closing control panel...');
-        const companyConnection = {
-          tallyloc_id: tallylocId,
-          guid: guid,
-          company: sessionStorage.getItem('company') || ''
-        };
-        await fetchUserAccessPermissions(companyConnection);
-        console.log('✅ Updated user access permissions loaded');
-      } catch (error) {
-        console.error('❌ Error fetching updated user access:', error);
-      }
-    }
-  };
 
   // Render regular sidebar item
   const renderSidebarItem = (moduleKey, module) => {
@@ -922,21 +997,17 @@ function TallyDashboard() {
     return (
       <button
         key={moduleKey}
-        onClick={() => { 
+        onClick={() => {
           if (moduleKey === 'main_menu') {
             navigate('/admin-dashboard');
           } else {
-            const canNavigate = handleSafeNavigation(module.id); 
-            // Close control panel when sidebar item is clicked
-            if (canNavigate && showControlPanel) {
-              handleCloseControlPanel();
-            }
+            handleSafeNavigation(module.id);
           }
         }}
         style={{
           color: isActive ? '#ff9800' : '#fff',
-          background: isActive 
-            ? 'rgba(255, 152, 0, 0.08)' 
+          background: isActive
+            ? 'rgba(255, 152, 0, 0.08)'
             : 'transparent',
           padding: '12px 16px',
           display: 'flex',
@@ -945,8 +1016,8 @@ function TallyDashboard() {
           borderRadius: '12px',
           fontWeight: isActive ? 700 : 500,
           margin: '0',
-          border: isActive 
-            ? '1px solid rgba(255, 255, 255, 0.2)' 
+          border: isActive
+            ? '1px solid rgba(255, 255, 255, 0.2)'
             : '1px solid transparent',
           cursor: 'pointer',
           justifyContent: sidebarOpen ? 'flex-start' : 'center',
@@ -956,8 +1027,8 @@ function TallyDashboard() {
           fontSize: '14px',
           transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
           flexWrap: 'nowrap',
-          boxShadow: isActive 
-            ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)' 
+          boxShadow: isActive
+            ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
             : 'none',
         }}
         title={module.label}
@@ -986,10 +1057,10 @@ function TallyDashboard() {
           setSidebarTooltip({ show: false, text: '', top: 0 });
         }}
       >
-        <span 
-          className="material-icons" 
-          style={{ 
-            fontSize: 22, 
+        <span
+          className="material-icons"
+          style={{
+            fontSize: 22,
             color: isActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
             transition: 'color 0.2s',
             flexShrink: 0,
@@ -999,8 +1070,8 @@ function TallyDashboard() {
           {module.icon}
         </span>
         {sidebarOpen && (
-          <span 
-            className="sidebar-link-label" 
+          <span
+            className="sidebar-link-label"
             style={{
               fontSize: '14px',
               letterSpacing: '0.3px',
@@ -1036,24 +1107,24 @@ function TallyDashboard() {
         const dropdownWidth = 220; // minWidth from dropdown style
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
-        
+
         // Estimate dropdown height (each item is ~50px + padding)
         const itemCount = masterManagementDropdownRef.current?.querySelectorAll('button').length || 2;
         const estimatedDropdownHeight = (itemCount * 50) + 16; // 16px for padding
-        
+
         // Calculate initial top position
         let topPosition = rect.top;
-        
+
         // Check if dropdown would overflow bottom of viewport
         if (topPosition + estimatedDropdownHeight > viewportHeight) {
           // Move dropdown up so it fits within viewport
           topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
         }
-        
+
         // Check if dropdown would overflow to the right
         const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
         let leftPosition;
-        
+
         if (wouldOverflowRight) {
           // Position to the left of button
           leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
@@ -1061,7 +1132,7 @@ function TallyDashboard() {
           // Position to the right of button
           leftPosition = rect.left + rect.width + 8;
         }
-        
+
         setMasterDropdownPosition({
           top: topPosition,
           left: leftPosition,
@@ -1069,7 +1140,7 @@ function TallyDashboard() {
         });
       }
     };
-    
+
     if (masterManagementDropdownOpen) {
       updateMasterDropdownPosition();
       const handleResize = () => updateMasterDropdownPosition();
@@ -1086,40 +1157,40 @@ function TallyDashboard() {
   // Render master management with right-side dropdown
   const renderMasterManagementWithDropdown = (module, userModules) => {
     // Filter submodules based on access
-    const accessibleSubModules = module.subModules.filter(subModule => 
+    const accessibleSubModules = module.subModules.filter(subModule =>
       isAlwaysVisible(subModule.key) || hasSubModuleAccess(subModule.key, userModules)
     );
-    
+
     // Don't render if no submodules are accessible
     if (accessibleSubModules.length === 0) {
       return null;
     }
     const isParentActive = activeSidebar === module.id || accessibleSubModules.some(sub => sub.id === activeSidebar);
-    
+
     const updateButtonPosition = () => {
       if (masterButtonRef.current) {
         const rect = masterButtonRef.current.getBoundingClientRect();
         const dropdownWidth = 220;
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
-        
+
         // Calculate dropdown height based on actual item count
         const itemCount = accessibleSubModules.length;
         const estimatedDropdownHeight = (itemCount * 50) + 16; // 50px per item + 16px padding
-        
+
         // Calculate initial top position
         let topPosition = rect.top;
-        
+
         // Check if dropdown would overflow bottom of viewport
         if (topPosition + estimatedDropdownHeight > viewportHeight) {
           // Move dropdown up so it fits within viewport
           topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
         }
-        
+
         // Check if dropdown would overflow to the right
         const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
         let leftPosition;
-        
+
         if (wouldOverflowRight) {
           // Position to the left of button
           leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
@@ -1127,7 +1198,7 @@ function TallyDashboard() {
           // Position to the right of button
           leftPosition = rect.left + rect.width + 8;
         }
-        
+
         setMasterDropdownPosition({
           top: topPosition,
           left: leftPosition,
@@ -1135,21 +1206,15 @@ function TallyDashboard() {
         });
       }
     };
-    
+
     return (
       <div key={module.key} style={{ marginBottom: 4, position: 'relative' }} ref={masterManagementDropdownRef}>
         <button
           ref={masterButtonRef}
-          onClick={() => { 
-            setMasterManagementDropdownOpen(!masterManagementDropdownOpen);
-            if (!masterManagementDropdownOpen) {
-              setTimeout(updateButtonPosition, 0);
-            }
-          }}
           style={{
             color: isParentActive ? '#ff9800' : '#fff',
-            background: isParentActive 
-              ? 'rgba(255, 152, 0, 0.08)' 
+            background: isParentActive
+              ? 'rgba(255, 152, 0, 0.08)'
               : 'transparent',
             padding: '12px 16px',
             display: 'flex',
@@ -1158,8 +1223,8 @@ function TallyDashboard() {
             borderRadius: '12px',
             fontWeight: isParentActive ? 700 : 500,
             margin: '0',
-            border: isParentActive 
-              ? '1px solid rgba(255, 255, 255, 0.2)' 
+            border: isParentActive
+              ? '1px solid rgba(255, 255, 255, 0.2)'
               : '1px solid transparent',
             cursor: 'pointer',
             justifyContent: sidebarOpen ? 'flex-start' : 'center',
@@ -1169,14 +1234,34 @@ function TallyDashboard() {
             fontSize: '14px',
             transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
             flexWrap: 'nowrap',
-            boxShadow: isParentActive 
-              ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)' 
+            boxShadow: isParentActive
+              ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
               : 'none',
           }}
           title={module.label}
           onMouseEnter={e => {
             if (sidebarOpen) {
               setMasterManagementDropdownOpen(true);
+              // Update position when dropdown opens
+              setTimeout(() => {
+                if (masterButtonRef.current) {
+                  const rect = masterButtonRef.current.getBoundingClientRect();
+                  const dropdownWidth = 220;
+                  const viewportWidth = window.innerWidth;
+                  const viewportHeight = window.innerHeight;
+                  const itemCount = accessibleSubModules.length;
+                  const estimatedDropdownHeight = (itemCount * 50) + 16;
+                  let topPosition = rect.top;
+                  if (topPosition + estimatedDropdownHeight > viewportHeight) {
+                    topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
+                  }
+                  const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
+                  let leftPosition = wouldOverflowRight
+                    ? Math.max(8, rect.left - dropdownWidth - 8)
+                    : rect.left + rect.width + 8;
+                  setMasterDropdownPosition({ top: topPosition, left: leftPosition, width: rect.width });
+                }
+              }, 0);
             }
             if (!isParentActive) {
               e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
@@ -1193,6 +1278,7 @@ function TallyDashboard() {
             }
           }}
           onMouseLeave={e => {
+            // Don't close dropdown here - let the dropdown's onMouseLeave handle it
             if (!isParentActive) {
               e.currentTarget.style.background = 'transparent';
               e.currentTarget.style.color = 'rgba(255, 255, 255, 0.85)';
@@ -1202,10 +1288,10 @@ function TallyDashboard() {
             setSidebarTooltip({ show: false, text: '', top: 0 });
           }}
         >
-          <span 
-            className="material-icons" 
-            style={{ 
-              fontSize: 22, 
+          <span
+            className="material-icons"
+            style={{
+              fontSize: 22,
               color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
               transition: 'color 0.2s',
               flexShrink: 0,
@@ -1216,8 +1302,8 @@ function TallyDashboard() {
           </span>
           {sidebarOpen && (
             <>
-              <span 
-                className="sidebar-link-label" 
+              <span
+                className="sidebar-link-label"
                 style={{
                   fontSize: '14px',
                   letterSpacing: '0.3px',
@@ -1229,13 +1315,11 @@ function TallyDashboard() {
               >
                 {module.label}
               </span>
-              <span 
-                className="material-icons" 
-                style={{ 
-                  fontSize: 18, 
+              <span
+                className="material-icons"
+                style={{
+                  fontSize: 18,
                   color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
-                  transition: 'transform 0.2s',
-                  transform: masterManagementDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                   flexShrink: 0,
                 }}
               >
@@ -1244,10 +1328,10 @@ function TallyDashboard() {
             </>
           )}
         </button>
-        
+
         {/* Right-side dropdown menu */}
         {sidebarOpen && masterManagementDropdownOpen && accessibleSubModules.length > 0 && (
-          <div 
+          <div
             ref={masterManagementDropdownRef}
             style={{
               position: 'fixed',
@@ -1265,30 +1349,35 @@ function TallyDashboard() {
               gap: 2,
             }}
             onMouseEnter={() => {
+              // Clear any pending close timeout
+              if (masterDropdownCloseTimeoutRef.current) {
+                clearTimeout(masterDropdownCloseTimeoutRef.current);
+                masterDropdownCloseTimeoutRef.current = null;
+              }
               setMasterManagementDropdownOpen(true);
               if (masterButtonRef.current) {
                 const rect = masterButtonRef.current.getBoundingClientRect();
                 const dropdownWidth = 220;
                 const viewportWidth = window.innerWidth;
                 const viewportHeight = window.innerHeight;
-                
+
                 // Calculate dropdown height based on actual item count
                 const itemCount = accessibleSubModules.length;
                 const estimatedDropdownHeight = (itemCount * 50) + 16; // 50px per item + 16px padding
-                
+
                 // Calculate initial top position
                 let topPosition = rect.top;
-                
+
                 // Check if dropdown would overflow bottom of viewport
                 if (topPosition + estimatedDropdownHeight > viewportHeight) {
                   // Move dropdown up so it fits within viewport
                   topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
                 }
-                
+
                 // Check if dropdown would overflow to the right
                 const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
                 let leftPosition;
-                
+
                 if (wouldOverflowRight) {
                   // Position to the left of button
                   leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
@@ -1296,7 +1385,7 @@ function TallyDashboard() {
                   // Position to the right of button
                   leftPosition = rect.left + rect.width + 8;
                 }
-                
+
                 setMasterDropdownPosition({
                   top: topPosition,
                   left: leftPosition,
@@ -1304,27 +1393,31 @@ function TallyDashboard() {
                 });
               }
             }}
-            onMouseLeave={() => setMasterManagementDropdownOpen(false)}
+            onMouseLeave={() => {
+              // Close immediately when mouse leaves dropdown
+              if (masterDropdownCloseTimeoutRef.current) {
+                clearTimeout(masterDropdownCloseTimeoutRef.current);
+                masterDropdownCloseTimeoutRef.current = null;
+              }
+              setMasterManagementDropdownOpen(false);
+            }}
           >
             {accessibleSubModules.map(subModule => {
               const isSubActive = activeSidebar === subModule.id;
               return (
                 <button
                   key={subModule.key}
-                  onClick={(e) => { 
+                  onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     console.log('🖱️ Master dropdown item clicked:', subModule.key, subModule.id);
-                    const canNavigate = handleSafeNavigation(subModule.id);
+                    handleSafeNavigation(subModule.id);
                     setMasterManagementDropdownOpen(false);
-                    if (canNavigate && showControlPanel) {
-                      handleCloseControlPanel();
-                    }
                   }}
                   style={{
                     color: isSubActive ? '#ff9800' : '#fff',
-                    background: isSubActive 
-                      ? 'rgba(255, 152, 0, 0.15)' 
+                    background: isSubActive
+                      ? 'rgba(255, 152, 0, 0.15)'
                       : 'transparent',
                     padding: '12px 18px',
                     display: 'flex',
@@ -1351,10 +1444,10 @@ function TallyDashboard() {
                     }
                   }}
                 >
-                  <span 
-                    className="material-icons" 
-                    style={{ 
-                      fontSize: 20, 
+                  <span
+                    className="material-icons"
+                    style={{
+                      fontSize: 20,
                       color: isSubActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
                       flexShrink: 0,
                     }}
@@ -1373,41 +1466,41 @@ function TallyDashboard() {
 
   const renderReportsWithDropdown = (module, userModules) => {
     // Filter submodules based on required modules or submodule access
-    const accessibleSubModules = module.subModules.filter(subModule => 
+    const accessibleSubModules = module.subModules.filter(subModule =>
       isAlwaysVisible(subModule.key) || hasRequiredModuleAccess(subModule, userModules)
     );
-    
+
     // Don't render if no submodules are accessible
     if (accessibleSubModules.length === 0) {
       return null;
     }
-    
+
     const isParentActive = activeSidebar === module.id || accessibleSubModules.some(sub => sub.id === activeSidebar);
-    
+
     const updateButtonPosition = () => {
       if (reportsButtonRef.current) {
         const rect = reportsButtonRef.current.getBoundingClientRect();
         const dropdownWidth = 220;
         const viewportWidth = window.innerWidth;
         const viewportHeight = window.innerHeight;
-        
+
         // Calculate dropdown height based on actual item count
         const itemCount = accessibleSubModules.length;
         const estimatedDropdownHeight = (itemCount * 50) + 16; // 50px per item + 16px padding
-        
+
         // Calculate initial top position
         let topPosition = rect.top;
-        
+
         // Check if dropdown would overflow bottom of viewport
         if (topPosition + estimatedDropdownHeight > viewportHeight) {
           // Move dropdown up so it fits within viewport
           topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
         }
-        
+
         // Check if dropdown would overflow to the right
         const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
         let leftPosition;
-        
+
         if (wouldOverflowRight) {
           // Position to the left of button
           leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
@@ -1415,7 +1508,7 @@ function TallyDashboard() {
           // Position to the right of button
           leftPosition = rect.left + rect.width + 8;
         }
-        
+
         setReportsDropdownPosition({
           top: topPosition,
           left: leftPosition,
@@ -1423,21 +1516,15 @@ function TallyDashboard() {
         });
       }
     };
-    
+
     return (
-      <div key={module.key} style={{ marginBottom: 4, position: 'relative' }} ref={reportsDropdownRef}>
+      <div key={module.key} style={{ marginBottom: 4, position: 'relative' }}>
         <button
           ref={reportsButtonRef}
-          onClick={() => { 
-            setReportsDropdownOpen(!reportsDropdownOpen);
-            if (!reportsDropdownOpen) {
-              setTimeout(updateButtonPosition, 0);
-            }
-          }}
           style={{
             color: isParentActive ? '#ff9800' : '#fff',
-            background: isParentActive 
-              ? 'rgba(255, 152, 0, 0.08)' 
+            background: isParentActive
+              ? 'rgba(255, 152, 0, 0.08)'
               : 'transparent',
             padding: '12px 16px',
             display: 'flex',
@@ -1446,8 +1533,8 @@ function TallyDashboard() {
             borderRadius: '12px',
             fontWeight: isParentActive ? 700 : 500,
             margin: '0',
-            border: isParentActive 
-              ? '1px solid rgba(255, 255, 255, 0.2)' 
+            border: isParentActive
+              ? '1px solid rgba(255, 255, 255, 0.2)'
               : '1px solid transparent',
             cursor: 'pointer',
             justifyContent: sidebarOpen ? 'flex-start' : 'center',
@@ -1457,14 +1544,15 @@ function TallyDashboard() {
             fontSize: '14px',
             transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
             flexWrap: 'nowrap',
-            boxShadow: isParentActive 
-              ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)' 
+            boxShadow: isParentActive
+              ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
               : 'none',
           }}
           title={module.label}
           onMouseEnter={e => {
             if (sidebarOpen) {
               setReportsDropdownOpen(true);
+              setTimeout(updateButtonPosition, 0);
             }
             if (!isParentActive) {
               e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
@@ -1481,6 +1569,7 @@ function TallyDashboard() {
             }
           }}
           onMouseLeave={e => {
+            // Don't close dropdown here - let the dropdown's onMouseLeave handle it
             if (!isParentActive) {
               e.currentTarget.style.background = 'transparent';
               e.currentTarget.style.color = 'rgba(255, 255, 255, 0.85)';
@@ -1490,10 +1579,10 @@ function TallyDashboard() {
             setSidebarTooltip({ show: false, text: '', top: 0 });
           }}
         >
-          <span 
-            className="material-icons" 
-            style={{ 
-              fontSize: 22, 
+          <span
+            className="material-icons"
+            style={{
+              fontSize: 22,
               color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
               transition: 'color 0.2s',
               flexShrink: 0,
@@ -1504,8 +1593,8 @@ function TallyDashboard() {
           </span>
           {sidebarOpen && (
             <>
-              <span 
-                className="sidebar-link-label" 
+              <span
+                className="sidebar-link-label"
                 style={{
                   fontSize: '14px',
                   letterSpacing: '0.3px',
@@ -1517,13 +1606,11 @@ function TallyDashboard() {
               >
                 {module.label}
               </span>
-              <span 
-                className="material-icons" 
-                style={{ 
-                  fontSize: 18, 
+              <span
+                className="material-icons"
+                style={{
+                  fontSize: 18,
                   color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
-                  transition: 'transform 0.2s',
-                  transform: reportsDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
                   flexShrink: 0,
                 }}
               >
@@ -1532,10 +1619,10 @@ function TallyDashboard() {
             </>
           )}
         </button>
-        
+
         {/* Right-side dropdown menu */}
         {sidebarOpen && reportsDropdownOpen && accessibleSubModules.length > 0 && (
-          <div 
+          <div
             ref={reportsDropdownRef}
             style={{
               position: 'fixed',
@@ -1553,30 +1640,35 @@ function TallyDashboard() {
               gap: 2,
             }}
             onMouseEnter={() => {
+              // Clear any pending close timeout
+              if (reportsDropdownCloseTimeoutRef.current) {
+                clearTimeout(reportsDropdownCloseTimeoutRef.current);
+                reportsDropdownCloseTimeoutRef.current = null;
+              }
               setReportsDropdownOpen(true);
               if (reportsButtonRef.current) {
                 const rect = reportsButtonRef.current.getBoundingClientRect();
                 const dropdownWidth = 220;
                 const viewportWidth = window.innerWidth;
                 const viewportHeight = window.innerHeight;
-                
+
                 // Calculate dropdown height based on actual item count
                 const itemCount = accessibleSubModules.length;
                 const estimatedDropdownHeight = (itemCount * 50) + 16; // 50px per item + 16px padding
-                
+
                 // Calculate initial top position
                 let topPosition = rect.top;
-                
+
                 // Check if dropdown would overflow bottom of viewport
                 if (topPosition + estimatedDropdownHeight > viewportHeight) {
                   // Move dropdown up so it fits within viewport
                   topPosition = Math.max(64, viewportHeight - estimatedDropdownHeight - 8);
                 }
-                
+
                 // Check if dropdown would overflow to the right
                 const wouldOverflowRight = (rect.left + rect.width + dropdownWidth + 8) > viewportWidth;
                 let leftPosition;
-                
+
                 if (wouldOverflowRight) {
                   // Position to the left of button
                   leftPosition = Math.max(8, rect.left - dropdownWidth - 8);
@@ -1584,7 +1676,7 @@ function TallyDashboard() {
                   // Position to the right of button
                   leftPosition = rect.left + rect.width + 8;
                 }
-                
+
                 setReportsDropdownPosition({
                   top: topPosition,
                   left: leftPosition,
@@ -1592,27 +1684,31 @@ function TallyDashboard() {
                 });
               }
             }}
-            onMouseLeave={() => setReportsDropdownOpen(false)}
+            onMouseLeave={() => {
+              // Close immediately when mouse leaves dropdown
+              if (reportsDropdownCloseTimeoutRef.current) {
+                clearTimeout(reportsDropdownCloseTimeoutRef.current);
+                reportsDropdownCloseTimeoutRef.current = null;
+              }
+              setReportsDropdownOpen(false);
+            }}
           >
             {accessibleSubModules.map(subModule => {
               const isSubActive = activeSidebar === subModule.id;
               return (
                 <button
                   key={subModule.key}
-                  onClick={(e) => { 
+                  onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     console.log('🖱️ Reports dropdown item clicked:', subModule.key, subModule.id);
-                    const canNavigate = handleSafeNavigation(subModule.id);
+                    handleSafeNavigation(subModule.id);
                     setReportsDropdownOpen(false);
-                    if (canNavigate && showControlPanel) {
-                      handleCloseControlPanel();
-                    }
                   }}
                   style={{
                     color: isSubActive ? '#ff9800' : '#fff',
-                    background: isSubActive 
-                      ? 'rgba(255, 152, 0, 0.15)' 
+                    background: isSubActive
+                      ? 'rgba(255, 152, 0, 0.15)'
                       : 'transparent',
                     padding: '12px 18px',
                     display: 'flex',
@@ -1639,10 +1735,10 @@ function TallyDashboard() {
                     }
                   }}
                 >
-                  <span 
-                    className="material-icons" 
-                    style={{ 
-                      fontSize: 20, 
+                  <span
+                    className="material-icons"
+                    style={{
+                      fontSize: 20,
                       color: isSubActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
                       flexShrink: 0,
                     }}
@@ -1661,21 +1757,21 @@ function TallyDashboard() {
 
   // Render sidebar item with sub-modules and their permissions
   const renderSidebarItemWithSubModules = (module, userModules) => {
-    const accessibleSubModules = module.subModules.filter(subModule => 
+    const accessibleSubModules = module.subModules.filter(subModule =>
       hasSubModuleAccess(subModule.key, userModules)
     );
     const isParentActive = activeSidebar === module.id || accessibleSubModules.some(sub => sub.id === activeSidebar);
-    
+
     return (
       <div key={module.key} style={{ marginBottom: 4 }}>
         <button
-          onClick={() => { 
-            setActiveSidebar(module.id); 
+          onClick={() => {
+            setActiveSidebarWithPersistence(module.id);
           }}
           style={{
             color: isParentActive ? '#ff9800' : '#fff',
-            background: isParentActive 
-              ? 'rgba(255, 152, 0, 0.08)' 
+            background: isParentActive
+              ? 'rgba(255, 152, 0, 0.08)'
               : 'transparent',
             padding: '12px 16px',
             display: 'flex',
@@ -1684,8 +1780,8 @@ function TallyDashboard() {
             borderRadius: '12px',
             fontWeight: isParentActive ? 700 : 500,
             margin: '0',
-            border: isParentActive 
-              ? '1px solid rgba(255, 255, 255, 0.2)' 
+            border: isParentActive
+              ? '1px solid rgba(255, 255, 255, 0.2)'
               : '1px solid transparent',
             cursor: 'pointer',
             justifyContent: sidebarOpen ? 'flex-start' : 'center',
@@ -1695,8 +1791,8 @@ function TallyDashboard() {
             fontSize: '14px',
             transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
             flexWrap: 'nowrap',
-            boxShadow: isParentActive 
-              ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)' 
+            boxShadow: isParentActive
+              ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
               : 'none',
           }}
           title={module.label}
@@ -1723,12 +1819,19 @@ function TallyDashboard() {
             }
             if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
             setSidebarTooltip({ show: false, text: '', top: 0 });
+            // Close dropdown after a short delay (allows time to move to dropdown)
+            if (masterDropdownCloseTimeoutRef.current) {
+              clearTimeout(masterDropdownCloseTimeoutRef.current);
+            }
+            masterDropdownCloseTimeoutRef.current = setTimeout(() => {
+              setMasterManagementDropdownOpen(false);
+            }, 200);
           }}
         >
-          <span 
-            className="material-icons" 
-            style={{ 
-              fontSize: 22, 
+          <span
+            className="material-icons"
+            style={{
+              fontSize: 22,
               color: isParentActive ? '#ff9800' : 'rgba(255, 255, 255, 0.9)',
               transition: 'color 0.2s',
               flexShrink: 0,
@@ -1738,8 +1841,8 @@ function TallyDashboard() {
             {module.icon}
           </span>
           {sidebarOpen && (
-            <span 
-              className="sidebar-link-label" 
+            <span
+              className="sidebar-link-label"
               style={{
                 fontSize: '14px',
                 letterSpacing: '0.3px',
@@ -1753,7 +1856,7 @@ function TallyDashboard() {
             </span>
           )}
         </button>
-        
+
         {/* Sub-modules */}
         {sidebarOpen && accessibleSubModules.length > 0 && (
           <div style={{
@@ -1770,13 +1873,13 @@ function TallyDashboard() {
               return (
                 <button
                   key={subModule.key}
-                  onClick={() => { 
-                    handleSafeNavigation(subModule.id); 
+                  onClick={() => {
+                    handleSafeNavigation(subModule.id);
                   }}
                   style={{
                     color: isSubActive ? '#ff9800' : '#fff',
-                    background: isSubActive 
-                      ? 'rgba(255, 152, 0, 0.08)' 
+                    background: isSubActive
+                      ? 'rgba(255, 152, 0, 0.08)'
                       : 'transparent',
                     padding: '10px 14px 10px 36px',
                     display: 'flex',
@@ -1785,8 +1888,8 @@ function TallyDashboard() {
                     borderRadius: '10px',
                     fontWeight: isSubActive ? 700 : 500,
                     margin: '0',
-                    border: isSubActive 
-                      ? '1px solid rgba(255, 255, 255, 0.2)' 
+                    border: isSubActive
+                      ? '1px solid rgba(255, 255, 255, 0.2)'
                       : '1px solid transparent',
                     cursor: 'pointer',
                     justifyContent: 'flex-start',
@@ -1813,10 +1916,10 @@ function TallyDashboard() {
                     }
                   }}
                 >
-                  <span 
-                    className="material-icons" 
-                    style={{ 
-                      fontSize: 18, 
+                  <span
+                    className="material-icons"
+                    style={{
+                      fontSize: 18,
                       color: isSubActive ? '#ff9800' : 'rgba(255, 255, 255, 0.8)',
                       transition: 'color 0.2s',
                       flexShrink: 0,
@@ -1825,8 +1928,8 @@ function TallyDashboard() {
                   >
                     {subModule.icon}
                   </span>
-                  <span 
-                    className="sidebar-link-label" 
+                  <span
+                    className="sidebar-link-label"
                     style={{
                       fontSize: '13px',
                       letterSpacing: '0.2px',
@@ -1878,7 +1981,7 @@ function TallyDashboard() {
           }
         `}
       </style>
-      
+
       {/* Hamburger Menu Button - Mobile Only */}
       {isMobile && (
         <button
@@ -1934,598 +2037,6 @@ function TallyDashboard() {
         />
       )}
 
-      {/* Top Bar - Hidden in Mobile */}
-      {!isMobile && (
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: 64,
-        background: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #60a5fa 100%)',
-        display: 'flex',
-        alignItems: 'center',
-        zIndex: 4001,
-        boxShadow: '0 4px 20px 0 rgba(30, 58, 138, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
-        padding: windowWidth < 1000 ? '0 8px' : '0 16px',
-        justifyContent: 'space-between',
-        backdropFilter: 'blur(10px)',
-        gap: windowWidth < 1000 ? 6 : 12,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: windowWidth < 1000 ? 8 : 12, flexShrink: 0 }}>
-          <img src={TallyLogo} alt="Tally Logo" style={{ height: windowWidth < 1000 ? 32 : 40, width: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
-          <span style={{ 
-            color: '#fff', 
-            fontWeight: 700, 
-            fontSize: windowWidth < 1000 ? (windowWidth < 900 ? 18 : 20) : 24, 
-            letterSpacing: 0.5, 
-            textShadow: '0 2px 8px rgba(0,0,0,0.15)',
-            background: 'linear-gradient(180deg, #ffffff 0%, #e0e7ff 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-            whiteSpace: 'nowrap',
-            display: windowWidth < 800 ? 'none' : 'inline',
-          }}>DataLynkr</span>
-        </div>
-        
-        {/* Company Selection Dropdown */}
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          position: 'relative', 
-          flex: '1 1 auto', 
-          minWidth: 0, 
-          marginLeft: windowWidth < 1200 ? '12px' : '20px', 
-          marginRight: windowWidth < 1200 ? '12px' : '20px',
-          maxWidth: windowWidth < 1200 ? '500px' : '800px',
-        }}>
-          {/* Company Title */}
-          <span style={{ 
-            color: 'rgba(255, 255, 255, 0.95)', 
-            fontSize: windowWidth < 1000 ? '12px' : '13px', 
-            fontWeight: '600', 
-            marginRight: windowWidth < 1000 ? '8px' : '12px',
-            whiteSpace: 'nowrap',
-            textShadow: '0 1px 2px rgba(0,0,0,0.1)',
-            flexShrink: 0,
-            display: windowWidth < 900 ? 'none' : 'inline',
-          }}>
-            Company:
-          </span>
-          <div style={{
-            position: 'relative',
-            background: 'rgba(255, 255, 255, 0.18)',
-            borderRadius: '10px',
-            border: topBarCompanyDropdownOpen ? '2px solid rgba(255, 255, 255, 0.6)' : '2px solid rgba(255, 255, 255, 0.25)',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            minWidth: windowWidth < 1000 ? (windowWidth < 900 ? '200px' : '250px') : '400px',
-            maxWidth: '100%',
-            width: '100%',
-            flex: '1 1 auto',
-            boxShadow: topBarCompanyDropdownOpen ? '0 4px 12px rgba(0,0,0,0.15)' : '0 2px 8px rgba(0,0,0,0.1)',
-          }}>
-            <input
-              value={selectedCompanyGuid ? (() => {
-                const currentCompany = allConnections.find(c => c.guid === selectedCompanyGuid);
-                return currentCompany ? `${currentCompany.company} [${currentCompany.access_type}]` : '';
-              })() : topBarCompanySearchTerm}
-              onChange={e => {
-                const inputValue = e.target.value;
-                setTopBarCompanySearchTerm(inputValue);
-                setSelectedCompanyGuid('');
-                setTopBarCompanyDropdownOpen(true);
-                if (!inputValue.trim()) {
-                  if (allConnections.length < 100) {
-                    setFilteredTopBarCompanies(allConnections);
-                  } else {
-                    setFilteredTopBarCompanies([]);
-                  }
-                }
-              }}
-              onFocus={() => {
-                console.log('🖱️ Company input focused - opening dropdown');
-                setTopBarCompanyDropdownOpen(true);
-                if (allConnections.length < 100) {
-                  setFilteredTopBarCompanies(allConnections);
-                }
-              }}
-              onBlur={() => {
-                if (!isSelectingCompany) {
-                  setTimeout(() => setTopBarCompanyDropdownOpen(false), 300);
-                }
-              }}
-              style={{
-                width: '100%',
-                padding: '10px 18px',
-                paddingRight: selectedCompanyGuid ? '40px' : '18px',
-                border: 'none',
-                borderRadius: '10px',
-                fontSize: '14px',
-                color: '#fff',
-                outline: 'none',
-                background: 'transparent',
-                cursor: 'text',
-                fontWeight: '500',
-              }}
-              placeholder="Select Company..."
-            />
-            
-            {/* Dropdown Icon */}
-            {!selectedCompanyGuid && (
-              <span 
-                className="material-icons" 
-                style={{
-                  position: 'absolute',
-                  right: '12px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'rgba(255, 255, 255, 0.8)',
-                  fontSize: '18px',
-                  pointerEvents: 'none'
-                }}
-              >
-                {topBarCompanyDropdownOpen ? 'expand_less' : 'expand_more'}
-              </span>
-            )}
-            
-            {/* Clear Button */}
-            {selectedCompanyGuid && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedCompanyGuid('');
-                  setTopBarCompanySearchTerm('');
-                  setTopBarCompanyDropdownOpen(false);
-                  if (allConnections.length < 100) {
-                    setFilteredTopBarCompanies(allConnections);
-                  }
-                }}
-                style={{
-                  position: 'absolute',
-                  right: '8px',
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '4px',
-                  borderRadius: '50%',
-                  color: 'rgba(255, 255, 255, 0.8)',
-                  fontSize: '16px'
-                }}
-                title="Clear company"
-              >
-                ×
-              </button>
-            )}
-
-            {/* Company Dropdown */}
-            {topBarCompanyDropdownOpen && (
-              <>
-                {console.log('📋 Company dropdown opened, filtered companies:', filteredTopBarCompanies)}
-              <div style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                left: 0,
-                right: 0,
-                backgroundColor: 'white',
-                border: '1px solid #e5e7eb',
-                borderRadius: '8px',
-                maxHeight: '300px',
-                overflowY: 'auto',
-                zIndex: 9999,
-                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)'
-              }}>
-                {filteredTopBarCompanies.map((companyOption, index) => (
-                  <div
-                    key={companyOption.guid}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setIsSelectingCompany(true);
-                      console.log('🎯 Company option clicked:', companyOption);
-                      handleTopBarCompanyChange(companyOption);
-                    }}
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    style={{
-                      padding: '12px 16px',
-                      cursor: 'pointer',
-                      borderBottom: index < filteredTopBarCompanies.length - 1 ? '1px solid #f1f5f9' : 'none',
-                      transition: 'background-color 0.2s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.backgroundColor = '#f8fafc';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.backgroundColor = 'white';
-                    }}
-                  >
-                    <div style={{
-                      fontWeight: '600',
-                      color: '#1e293b',
-                      fontSize: '14px'
-                    }}>
-                      {companyOption.company}
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      color: '#64748b',
-                      marginTop: '2px'
-                    }}>
-                      Access Type: {companyOption.access_type || 'N/A'}
-                    </div>
-                  </div>
-                ))}
-                
-                {filteredTopBarCompanies.length > 0 && (
-                  <div style={{
-                    padding: '8px 16px',
-                    textAlign: 'center',
-                    color: '#64748b',
-                    fontSize: '12px',
-                    fontStyle: 'italic',
-                    borderTop: '1px solid #f1f5f9',
-                    backgroundColor: '#f8fafc'
-                  }}>
-                    {filteredTopBarCompanies.length} company{filteredTopBarCompanies.length !== 1 ? 's' : ''} available
-                  </div>
-                )}
-              </div>
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Right Side Actions Container */}
-        <div style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: windowWidth < 1000 ? 6 : 12, 
-          flexShrink: 0,
-          paddingLeft: windowWidth < 1000 ? '8px' : '16px',
-          paddingRight: windowWidth < 1000 ? '12px' : '20px',
-        }}>
-          {/* Icon Buttons Group */}
-          <div style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: windowWidth < 1000 ? 6 : 8,
-            paddingRight: windowWidth < 1000 ? '8px' : '16px',
-            borderRight: '1px solid rgba(255, 255, 255, 0.2)',
-          }}>
-            {/* Control Panel Button */}
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (!showControlPanel) {
-                  // Store current view before opening control panel
-                  setPreviousView(activeSidebar);
-                  setShowControlPanel(true);
-                  setControlPanelOpen(true);
-                  setControlPanelView('tally-config'); // Default to Tally Connections
-                } else {
-                  // Close control panel and return to previous view
-                  handleCloseControlPanel();
-                }
-              }}
-              style={{
-                background: showControlPanel ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.12)',
-                border: showControlPanel ? '2px solid rgba(255, 255, 255, 0.5)' : '1px solid rgba(255, 255, 255, 0.25)',
-                borderRadius: '10px',
-                padding: windowWidth < 1000 ? '8px 10px' : '10px 14px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                color: '#fff',
-                zIndex: 10,
-                position: 'relative',
-                boxShadow: showControlPanel ? '0 4px 12px rgba(0,0,0,0.15)' : '0 2px 6px rgba(0,0,0,0.1)',
-                minWidth: windowWidth < 1000 ? '38px' : '44px',
-                height: windowWidth < 1000 ? '38px' : '44px',
-              }}
-              title="Control Panel"
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.5)';
-                e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = showControlPanel ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.12)';
-                e.currentTarget.style.borderColor = showControlPanel ? 'rgba(255, 255, 255, 0.5)' : 'rgba(255, 255, 255, 0.25)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = showControlPanel ? '0 4px 12px rgba(0,0,0,0.15)' : '0 2px 6px rgba(0,0,0,0.1)';
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: windowWidth < 1000 ? '20px' : '22px', pointerEvents: 'none' }}>
-                admin_panel_settings
-              </span>
-            </button>
-
-            {/* Global Refresh Button */}
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('🖱️ Refresh button clicked!');
-                handleGlobalRefresh();
-              }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                console.log('🖱️ Refresh button mousedown!');
-              }}
-              style={{
-                background: 'rgba(255, 255, 255, 0.12)',
-                border: '1px solid rgba(255, 255, 255, 0.25)',
-                borderRadius: '10px',
-                padding: windowWidth < 1000 ? '8px 10px' : '10px 14px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                color: '#fff',
-                zIndex: 10,
-                position: 'relative',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                minWidth: windowWidth < 1000 ? '38px' : '44px',
-                height: windowWidth < 1000 ? '38px' : '44px',
-              }}
-              title="Refresh all data (ledgers & stock items)"
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.5)';
-                e.currentTarget.style.transform = 'translateY(-1px) rotate(180deg)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-                console.log('🖱️ Refresh button hover!');
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
-                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.25)';
-                e.currentTarget.style.transform = 'translateY(0) rotate(0deg)';
-                e.currentTarget.style.boxShadow = '0 2px 6px rgba(0,0,0,0.1)';
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: windowWidth < 1000 ? '20px' : '22px', pointerEvents: 'none' }}>
-                refresh
-              </span>
-            </button>
-          </div>
-          
-          {/* User Profile Section */}
-          <div ref={profileDropdownRef} style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 6, 
-            position: 'relative',
-          }}>
-            {/* Profile Dropdown */}
-            <div 
-              style={{ 
-                display: 'flex', 
-                alignItems: 'center', 
-                gap: windowWidth < 1000 ? 6 : 10, 
-                cursor: 'pointer',
-                padding: windowWidth < 1000 ? '6px 10px' : '8px 14px',
-                borderRadius: '10px',
-                background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
-                transition: 'all 0.3s ease',
-                border: profileDropdownOpen ? '1px solid rgba(255, 255, 255, 0.3)' : '1px solid transparent',
-              }}
-              onClick={() => setProfileDropdownOpen((open) => !open)}
-              onMouseEnter={(e) => {
-                if (!profileDropdownOpen) {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!profileDropdownOpen) {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.borderColor = 'transparent';
-                }
-              }}
-            >
-              <span 
-                className="material-icons profile-icon" 
-                style={{ 
-                  color: '#fff', 
-                  fontSize: windowWidth < 1000 ? '22px' : '26px', 
-                  filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' 
-                }}
-              >
-                account_circle
-              </span>
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2 }}>
-                <span 
-                  className="profile-name" 
-                  style={{ 
-                    color: '#fff', 
-                    fontWeight: 600, 
-                    fontSize: windowWidth < 1000 ? '13px' : '14px', 
-                    textShadow: '0 1px 2px rgba(0,0,0,0.1)', 
-                    whiteSpace: 'nowrap',
-                    lineHeight: '1.2',
-                    maxWidth: windowWidth < 1000 ? '120px' : 'none',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {name || 'User'}
-                </span>
-                {windowWidth >= 1000 && (
-                  <span 
-                    style={{ 
-                      color: 'rgba(255, 255, 255, 0.8)', 
-                      fontSize: '12px', 
-                      fontWeight: 400,
-                      lineHeight: '1.2',
-                    }}
-                  >
-                    {email || ''}
-                  </span>
-                )}
-              </div>
-              <span 
-                className="material-icons" 
-                style={{ 
-                  color: 'rgba(255, 255, 255, 0.8)', 
-                  fontSize: '20px', 
-                  transition: 'transform 0.3s ease', 
-                  transform: profileDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
-                  marginLeft: '4px',
-                }}
-              >
-                expand_more
-              </span>
-            </div>
-            
-            {/* Logout Button */}
-            <button 
-              className="logout-btn" 
-              title="Logout" 
-              style={{ 
-                background: 'rgba(220, 38, 38, 0.15)', 
-                color: '#fff', 
-                border: '1px solid rgba(220, 38, 38, 0.3)', 
-                minWidth: windowWidth < 1000 ? '44px' : '100px',
-                height: '44px',
-                padding: windowWidth < 1000 ? '10px' : '10px 20px 10px 16px',
-                borderRadius: '10px',
-                fontWeight: 600,
-                fontSize: '14px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: '0 2px 6px rgba(220, 38, 38, 0.2)',
-                whiteSpace: 'nowrap',
-                marginRight: '0',
-              }} 
-              onClick={handleLogout}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(220, 38, 38, 0.25)';
-                e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.4)';
-                e.currentTarget.style.transform = 'translateY(-1px)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.3)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(220, 38, 38, 0.15)';
-                e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.3)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = '0 2px 6px rgba(220, 38, 38, 0.2)';
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: 18 }}>logout</span>
-              {windowWidth >= 1000 && <span>Logout</span>}
-            </button>
-          {profileDropdownOpen && (
-            <div className="profile-dropdown" style={{ 
-              position: 'absolute', 
-              top: 56, 
-              right: 0, 
-              minWidth: 260, 
-              background: '#fff', 
-              borderRadius: 16, 
-              boxShadow: '0 12px 40px 0 rgba(31, 38, 135, 0.2), 0 0 0 1px rgba(0,0,0,0.05)', 
-              padding: 20, 
-              zIndex: 4000, 
-              textAlign: 'left',
-              animation: 'fadeIn 0.2s ease-out',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
-                <span className="material-icons" style={{ fontSize: 32, color: '#3b82f6' }}>account_circle</span>
-                <div>
-                  <div className="profile-dropdown-name" style={{ fontSize: 16, color: '#1e293b', fontWeight: 700, marginBottom: 2 }}>{name || 'User'}</div>
-                  <div className="profile-dropdown-email" style={{ fontSize: 13, color: '#64748b' }}>{email || ''}</div>
-                </div>
-              </div>
-              <button 
-                className="change-password-btn" 
-                style={{ 
-                  width: '100%',
-                  padding: '12px 18px', 
-                  background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)', 
-                  color: '#fff', 
-                  border: 'none', 
-                  borderRadius: 10, 
-                  fontWeight: 600, 
-                  fontSize: 14, 
-                  cursor: 'pointer', 
-                  boxShadow: '0 4px 12px 0 rgba(59,130,246,0.25)', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center',
-                  gap: 8,
-                  transition: 'all 0.3s ease',
-                  marginBottom: isAdmin() ? 10 : 0,
-                }} 
-                onClick={() => navigate('/change-password')}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(59,130,246,0.35)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(59,130,246,0.25)';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: 18 }}>lock</span>
-                Change Password
-              </button>
-              {isAdmin() && (
-                <button 
-                  className="google-config-btn" 
-                  style={{ 
-                    width: '100%',
-                    padding: '12px 18px', 
-                    background: 'linear-gradient(135deg, #4285f4 0%, #34a853 100%)', 
-                    color: '#fff', 
-                    border: 'none', 
-                    borderRadius: 10, 
-                    fontWeight: 600, 
-                    fontSize: 14, 
-                    cursor: 'pointer', 
-                    boxShadow: '0 4px 12px 0 rgba(66,133,244,0.25)', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    gap: 8,
-                    transition: 'all 0.3s ease',
-                  }} 
-                  onClick={() => {
-                    setShowGoogleConfigModal(true);
-                    setProfileDropdownOpen(false);
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                    e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(66,133,244,0.35)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(66,133,244,0.25)';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: 18 }}>account_circle</span>
-                  Configure Google Account
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-        </div>
-      </div>
-      )}
 
       {/* Google Account Configuration Modal */}
       {showGoogleConfigModal && (
@@ -2590,17 +2101,17 @@ function TallyDashboard() {
             </div>
 
             <div style={{ marginBottom: 20 }}>
-              <div style={{ 
-                padding: 16, 
-                borderRadius: 12, 
+              <div style={{
+                padding: 16,
+                borderRadius: 12,
                 background: isGoogleDriveFullyConfigured().configured ? '#f0fdf4' : '#fef2f2',
                 border: `1px solid ${isGoogleDriveFullyConfigured().configured ? '#86efac' : '#fecaca'}`,
                 marginBottom: 20
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                  <span className="material-icons" style={{ 
-                    fontSize: 20, 
-                    color: isGoogleDriveFullyConfigured().configured ? '#16a34a' : '#dc2626' 
+                  <span className="material-icons" style={{
+                    fontSize: 20,
+                    color: isGoogleDriveFullyConfigured().configured ? '#16a34a' : '#dc2626'
                   }}>
                     {isGoogleDriveFullyConfigured().configured ? 'check_circle' : 'error'}
                   </span>
@@ -2609,7 +2120,7 @@ function TallyDashboard() {
                   </span>
                 </div>
                 <div style={{ fontSize: 14, color: '#64748b', marginLeft: 30 }}>
-                  {isGoogleDriveFullyConfigured().configured 
+                  {isGoogleDriveFullyConfigured().configured
                     ? 'Google Drive API is configured and ready to use.'
                     : 'Google Drive API credentials need to be configured in environment variables.'}
                 </div>
@@ -2637,7 +2148,7 @@ function TallyDashboard() {
                         script.async = true;
                         script.defer = true;
                         document.body.appendChild(script);
-                        
+
                         await new Promise((resolve) => {
                           script.onload = resolve;
                         });
@@ -2740,538 +2251,167 @@ function TallyDashboard() {
         </div>
       )}
 
+      {/* Fixed Top Header */}
+      <Header
+        type="tally"
+        isMobile={isMobile}
+        zIndex={1000}
+        logo={{
+          src: TallyLogo,
+          alt: 'DataLynkr Logo',
+          width: '50px',
+          height: 'auto'
+        }}
+        showCompanySelector={true}
+        companySelectorProps={{
+          allConnections: allConnections,
+          selectedCompanyGuid: selectedCompanyGuid,
+          onCompanyChange: handleTopBarCompanyChange,
+          setSelectedCompanyGuid: setSelectedCompanyGuid
+        }}
+        showControlButtons={true}
+        controlButtonProps={{
+          onControlPanelClick: () => navigate('/admin-dashboard?view=dashboard'),
+          onRefreshClick: handleGlobalRefresh
+        }}
+        profileProps={{
+          profileRef: profileDropdownRef,
+          name: name,
+          email: email,
+          profileDropdownOpen: profileDropdownOpen,
+          setProfileDropdownOpen: setProfileDropdownOpen,
+          navigate: navigate,
+          onGoogleConfigClick: () => setShowGoogleConfigModal(true),
+          isAdmin: isAdmin
+        }}
+        onLogout={handleLogout}
+      />
+
       {/* Sidebar - Hidden in Mobile */}
       {!isMobile && (
-      <aside
-        className={`adminhome-sidebar sidebar-animated`}
-        style={{
-          height: 'calc(100vh - 64px)',
-          position: 'fixed',
-          top: 64,
-          left: 0,
-          background: '#1e3a8a',
-          overflowY: 'auto',
-          overflowX: 'hidden',
-          width: sidebarOpen ? 260 : 70,
-          minWidth: sidebarOpen ? 260 : 70,
-          maxWidth: sidebarOpen ? 260 : 70,
-          transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          boxShadow: '4px 0 24px rgba(0, 0, 0, 0.3), 2px 0 8px rgba(0, 0, 0, 0.2)',
-          borderRight: '1px solid rgba(255, 255, 255, 0.08)',
-        }}
-      >
-        <div className="sidebar-logo" style={{ 
-          display: 'flex', 
-          alignItems: 'center', 
-          justifyContent: 'center', 
-          width: '100%', 
-          margin: sidebarOpen ? '16px 0 20px 0' : '16px 0',
-          padding: sidebarOpen ? '0 0px' : '0',
-          minHeight: sidebarOpen ? 'auto' : '60px',
-        }}>
-          <img 
-            src={TallyLogo} 
-            alt="DataLynkr Logo" 
-            style={{ 
-              width: sidebarOpen ? '140px' : '40px', 
-              height: sidebarOpen ? 'auto' : '40px', 
-              maxWidth: '100%',
-              objectFit: 'contain', 
-              transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1), height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              filter: 'drop-shadow(0 2px 8px rgba(255, 255, 255, 0.1))',
-              display: 'block',
-            }} 
-          />
-        </div>
-        {/* Sidebar items */}
-        <nav style={{ 
-          display: 'flex', 
-          flexDirection: 'column', 
-          gap: 8, 
-          fontSize: 15, 
-          marginTop: 8,
-          padding: '0 12px',
-        }}>
-          {sidebarLoading ? (
-            <div style={{ 
+        <aside
+          ref={sidebarRef}
+          className={`adminhome-sidebar sidebar-animated`}
+          style={{
+            height: 'calc(100dvh - 70px)',
+            position: 'fixed',
+            top: '70px',
+            left: 0,
+            background: '#1e3a8a',
+            overflowY: 'auto',
+            overflowX: 'hidden',
+            width: sidebarOpen ? 260 : 70,
+            minWidth: sidebarOpen ? 260 : 70,
+            maxWidth: sidebarOpen ? 260 : 70,
+            transition: 'width 0.3s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.3s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            boxShadow: '4px 0 24px rgba(0, 0, 0, 0.3), 2px 0 8px rgba(0, 0, 0, 0.2)',
+            borderRight: '1px solid rgba(255, 255, 255, 0.08)',
+            display: 'flex',
+            flexDirection: 'column',
+            paddingBottom: '20px',
+          }}
+        >
+          {/* Sidebar items */}
+          <nav
+            ref={sidebarContentRef}
+            style={{
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center', 
-              padding: '20px',
-              color: '#fff',
-              fontSize: '14px'
+              flexDirection: 'column',
+              gap: 8,
+              fontSize: 15,
+              marginTop: 16,
+              padding: '0 12px 12px 12px',
+              flex: 1,
+              overflowY: 'auto',
+              minHeight: 0,
             }}>
-              <span className="material-icons" style={{ 
-                fontSize: '20px', 
-                marginRight: '8px',
-                animation: 'spin 1s linear infinite'
+            {sidebarLoading ? (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '20px',
+                color: '#fff',
+                fontSize: '14px'
               }}>
-                refresh
-              </span>
-              Updating permissions...
+                <span className="material-icons" style={{
+                  fontSize: '20px',
+                  marginRight: '8px',
+                  animation: 'spin 1s linear infinite'
+                }}>
+                  refresh
+                </span>
+                Updating permissions...
+              </div>
+            ) : (
+              <>
+                {renderSidebarItems()}
+              </>
+            )}
+          </nav>
+
+          {/* Tooltip */}
+          {sidebarTooltip.show && !sidebarOpen && (
+            <div
+              className="sidebar-tooltip"
+              style={{
+                position: 'fixed',
+                left: 70,
+                top: sidebarTooltip.top + 70,
+                background: '#1e3a8a',
+                color: '#fff',
+                padding: '8px 14px',
+                borderRadius: '8px',
+                fontSize: '13px',
+                fontWeight: 500,
+                whiteSpace: 'nowrap',
+                zIndex: 10000,
+                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                pointerEvents: 'none',
+                animation: 'fadeIn 0.2s ease-out',
+                backdropFilter: 'blur(10px)',
+              }}
+            >
+              {sidebarTooltip.text}
             </div>
-          ) : (
-            <>
-              {!showControlPanel && renderSidebarItems()}
-              
-              {/* Control Panel Section - Show when control panel is open */}
-              {showControlPanel && (
-                <div style={{ position: 'relative' }}>
-                  {/* Close Button */}
-                  <a
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      handleCloseControlPanel();
-                    }}
-                    style={{
-                      color: '#fff',
-                      background: 'rgba(220, 38, 38, 0.15)',
-                      textDecoration: 'none',
-                      padding: '12px 16px',
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      borderRadius: '12px',
-                      fontWeight: 500,
-                      margin: '0 0 12px 0',
-                      border: '1px solid rgba(220, 38, 38, 0.3)',
-                      cursor: 'pointer',
-                      justifyContent: sidebarOpen ? 'flex-start' : 'center',
-                      position: 'relative',
-                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                      fontSize: '14px',
-                      flexWrap: 'nowrap',
-                    }}
-                    title="Close Control Panel"
-                    onMouseEnter={e => {
-                      e.target.style.background = 'rgba(220, 38, 38, 0.2)';
-                      e.target.style.borderColor = 'rgba(220, 38, 38, 0.4)';
-                      if (!sidebarOpen) {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setSidebarTooltip({ show: true, text: 'Close Control Panel', top: rect.top + window.scrollY });
-                        if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
-                        sidebarTooltipTimeout = setTimeout(() => {
-                          setSidebarTooltip({ show: false, text: '', top: 0 });
-                        }, 1500);
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = 'rgba(220, 38, 38, 0.1)';
-                      e.target.style.borderColor = 'rgba(220, 38, 38, 0.2)';
-                      if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
-                      setSidebarTooltip({ show: false, text: '', top: 0 });
-                    }}
-                  >
-                    <span 
-                      className="material-icons" 
-                      style={{ 
-                        fontSize: 22,
-                        color: 'rgba(255, 255, 255, 0.9)',
-                        flexShrink: 0,
-                        marginTop: '2px',
-                      }}
-                    >
-                      close
-                    </span>
-                    {sidebarOpen && (
-                      <span 
-                        className="sidebar-link-label" 
-                        style={{
-                          fontSize: '14px',
-                          letterSpacing: '0.3px',
-                          whiteSpace: 'normal',
-                          wordWrap: 'break-word',
-                          lineHeight: '1.4',
-                          flex: 1,
-                        }}
-                      >
-                        Close
-                      </span>
-                    )}
-                  </a>
-                  
-                  <a
-                    ref={controlPanelButtonRef}
-                    href="#"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      if (sidebarOpen) {
-                        setControlPanelOpen(!controlPanelOpen);
-                      }
-                    }}
-                    style={{
-                      color: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? '#ff9800' : '#fff',
-                      background: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) 
-                        ? 'rgba(255, 152, 0, 0.08)' 
-                        : 'transparent',
-                      textDecoration: 'none',
-                      padding: '12px 16px',
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 14,
-                      borderRadius: '12px',
-                      fontWeight: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? 700 : 500,
-                      margin: '0 0 8px 0',
-                      border: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) 
-                        ? '1px solid rgba(255, 255, 255, 0.2)' 
-                        : '1px solid transparent',
-                      cursor: 'pointer',
-                      justifyContent: sidebarOpen ? 'flex-start' : 'center',
-                      position: 'relative',
-                      fontSize: '14px',
-                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                      boxShadow: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView))
-                        ? '0 4px 12px rgba(255, 152, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)' 
-                        : 'none',
-                      flexWrap: 'nowrap',
-                    }}
-                    title="Control Panel"
-                    onMouseEnter={e => {
-                      if (sidebarOpen) {
-                        setControlPanelOpen(true);
-                      }
-                      if (!sidebarOpen) {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        setSidebarTooltip({ show: true, text: 'Control Panel', top: rect.top + window.scrollY });
-                        if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
-                        sidebarTooltipTimeout = setTimeout(() => {
-                          setSidebarTooltip({ show: false, text: '', top: 0 });
-                        }, 1500);
-                      }
-                    }}
-                    onMouseLeave={() => {
-                      if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
-                      setSidebarTooltip({ show: false, text: '', top: 0 });
-                    }}
-                  >
-                    <span 
-                      className="material-icons" 
-                      style={{ 
-                        fontSize: 22,
-                        color: (controlPanelOpen || ['tally-config', 'modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) 
-                          ? '#ff9800' 
-                          : 'rgba(255, 255, 255, 0.9)',
-                        transition: 'color 0.2s',
-                        flexShrink: 0,
-                        marginTop: '2px',
-                      }}
-                    >
-                      admin_panel_settings
-                    </span>
-                    {sidebarOpen && (
-                      <span 
-                        className="sidebar-link-label" 
-                        style={{
-                          fontSize: '14px',
-                          letterSpacing: '0.3px',
-                          whiteSpace: 'normal',
-                          wordWrap: 'break-word',
-                          lineHeight: '1.4',
-                          flex: 1,
-                        }}
-                      >
-                        Control Panel
-                      </span>
-                    )}
-                    {sidebarOpen && (
-                      <span 
-                        className="material-icons" 
-                        style={{ 
-                          fontSize: 16, 
-                          marginLeft: 'auto', 
-                          transform: controlPanelOpen ? 'rotate(180deg)' : 'rotate(0deg)', 
-                          transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                          color: 'rgba(255, 255, 255, 0.7)',
-                        }}
-                      >
-                        expand_more
-                      </span>
-                    )}
-                  </a>
-                  
-                  {/* Control Panel Sub-menu - Right-side dropdown */}
-                  {sidebarOpen && controlPanelOpen && (
-                    <div 
-                      ref={controlPanelDropdownRef}
-                      style={{
-                        position: 'fixed',
-                        top: `${controlPanelDropdownPosition.top}px`,
-                        left: `${controlPanelDropdownPosition.left + 8}px`,
-                        backgroundColor: '#1e3a8a',
-                        border: '1px solid rgba(255, 255, 255, 0.2)',
-                        borderRadius: '12px',
-                        padding: '8px 0',
-                        minWidth: '220px',
-                        boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
-                        zIndex: 10000,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: 2,
-                      }}
-                      onMouseEnter={() => {
-                        setControlPanelOpen(true);
-                        if (controlPanelButtonRef.current) {
-                          const rect = controlPanelButtonRef.current.getBoundingClientRect();
-                          setControlPanelDropdownPosition({
-                            top: rect.top,
-                            left: rect.left + rect.width,
-                            width: rect.width
-                          });
-                        }
-                      }}
-                      onMouseLeave={() => setControlPanelOpen(false)}
-                    >
-                      {/* Tally Connections */}
-                      <button
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setControlPanelView('tally-config');
-                          setControlPanelOpen(false);
-                          if (window.innerWidth <= 900) {
-                            setSidebarOpen(false);
-                          }
-                        }}
-                        style={{
-                          color: controlPanelView === 'tally-config' ? '#ff9800' : '#fff',
-                          background: controlPanelView === 'tally-config' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
-                          padding: '12px 18px',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 12,
-                          borderRadius: '8px',
-                          fontWeight: controlPanelView === 'tally-config' ? 700 : 500,
-                          margin: '0 8px',
-                          border: 'none',
-                          cursor: 'pointer',
-                          justifyContent: 'flex-start',
-                          fontSize: '14px',
-                          transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                          textAlign: 'left',
-                        }}
-                        onMouseEnter={e => {
-                          if (controlPanelView !== 'tally-config') {
-                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                          }
-                        }}
-                        onMouseLeave={e => {
-                          if (controlPanelView !== 'tally-config') {
-                            e.currentTarget.style.background = 'transparent';
-                          }
-                        }}
-                      >
-                        <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>settings</span>
-                        <span>Tally Connections</span>
-                      </button>
-                      
-                      {/* Access Control */}
-                      <div style={{ position: 'relative' }}>
-                        <button
-                          ref={accessControlButtonRef}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            setAccessControlDropdownOpen(!accessControlDropdownOpen);
-                          }}
-                          style={{
-                            color: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? '#ff9800' : '#fff',
-                            background: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) 
-                              ? 'rgba(255, 152, 0, 0.15)' 
-                              : 'transparent',
-                            padding: '12px 18px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 12,
-                            borderRadius: '8px',
-                            fontWeight: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? 700 : 500,
-                            margin: '0 8px',
-                            border: 'none',
-                            cursor: 'pointer',
-                            justifyContent: 'flex-start',
-                            fontSize: '14px',
-                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                            textAlign: 'left',
-                            width: 'calc(100% - 16px)',
-                          }}
-                          onMouseEnter={(e) => {
-                            if (sidebarOpen) {
-                              setAccessControlDropdownOpen(true);
-                            }
-                            if (!['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) {
-                              e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                            }
-                          }}
-                          onMouseLeave={(e) => {
-                            if (!['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) {
-                              e.currentTarget.style.background = 'transparent';
-                            }
-                          }}
-                        >
-                          <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>security</span>
-                          <span style={{ flex: 1 }}>Access Control</span>
-                          <span 
-                            className="material-icons" 
-                            style={{ 
-                              fontSize: 18, 
-                              marginLeft: 'auto',
-                              transform: accessControlDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)', 
-                              transition: 'transform 0.2s',
-                              color: (accessControlDropdownOpen || ['modules', 'roles', 'create-access', 'share-access'].includes(controlPanelView)) ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
-                            }}
-                          >
-                            arrow_drop_down
-                          </span>
-                        </button>
-                        
-                        {/* Access Control Sub-menu - Right-side dropdown */}
-                        {sidebarOpen && accessControlDropdownOpen && (
-                          <div 
-                            ref={accessControlDropdownRef}
-                            style={{
-                              position: 'fixed',
-                              top: `${accessControlDropdownPosition.top}px`,
-                              left: `${accessControlDropdownPosition.left + 8}px`,
-                              backgroundColor: '#1e3a8a',
-                              border: '1px solid rgba(255, 255, 255, 0.2)',
-                              borderRadius: '12px',
-                              padding: '8px 0',
-                              minWidth: '220px',
-                              boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
-                              zIndex: 10001,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 2,
-                            }}
-                            onMouseEnter={() => {
-                              setAccessControlDropdownOpen(true);
-                              if (accessControlButtonRef.current) {
-                                const rect = accessControlButtonRef.current.getBoundingClientRect();
-                                setAccessControlDropdownPosition({
-                                  top: rect.top,
-                                  left: rect.left + rect.width,
-                                  width: rect.width
-                                });
-                              }
-                            }}
-                            onMouseLeave={() => setAccessControlDropdownOpen(false)}
-                          >
-                            {ACCESS_CONTROL_ITEMS.map(item => (
-                              <button
-                                key={item.key}
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setControlPanelView(item.key);
-                                  setAccessControlDropdownOpen(false);
-                                  if (window.innerWidth <= 900) {
-                                    setSidebarOpen(false);
-                                  }
-                                }}
-                                style={{
-                                  color: controlPanelView === item.key ? '#ff9800' : '#fff',
-                                  background: controlPanelView === item.key ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
-                                  padding: '12px 18px',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 12,
-                                  borderRadius: '8px',
-                                  fontWeight: controlPanelView === item.key ? 700 : 500,
-                                  margin: '0 8px',
-                                  border: 'none',
-                                  cursor: 'pointer',
-                                  justifyContent: 'flex-start',
-                                  fontSize: '14px',
-                                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                                  textAlign: 'left',
-                                }}
-                                onMouseEnter={e => {
-                                  if (controlPanelView !== item.key) {
-                                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                                  }
-                                }}
-                                onMouseLeave={e => {
-                                  if (controlPanelView !== item.key) {
-                                    e.currentTarget.style.background = 'transparent';
-                                  }
-                                }}
-                              >
-                                <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>{item.icon}</span>
-                                <span>{item.label}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
           )}
-        </nav>
-        {/* Tooltip */}
-        {sidebarTooltip.show && !sidebarOpen && (
-          <div 
-            className="sidebar-tooltip" 
-            style={{ 
-              position: 'fixed',
-              left: 70,
-              top: sidebarTooltip.top,
-              background: '#1e3a8a',
-              color: '#fff',
-              padding: '8px 14px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: 500,
-              whiteSpace: 'nowrap',
-              zIndex: 10000,
-              boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1)',
-              pointerEvents: 'none',
-              animation: 'fadeIn 0.2s ease-out',
-              backdropFilter: 'blur(10px)',
-            }}
-          >
-            {sidebarTooltip.text}
-          </div>
-        )}
-      </aside>
+        </aside>
       )}
 
       {/* Sidebar Toggle - Hidden in Mobile */}
       {!isMobile && (
-      <button
-        className="sidebar-toggle-btn-main"
-        onClick={() => setSidebarOpen(!sidebarOpen)}
-        aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-        style={{
-          position: 'fixed',
-          top: 72,
-          left: (sidebarOpen ? 260 : 70) - 18,
-          zIndex: 5000,
-          background: '#fff',
-          border: '1.5px solid #cbd5e1',
-          borderRadius: '50%',
-          width: 36,
-          height: 36,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '0 2px 8px 0 rgba(31,38,135,0.08)',
-          cursor: 'pointer',
-          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
-        onMouseEnter={e => {
-          e.currentTarget.style.transform = 'scale(1.1)';
-          e.currentTarget.style.boxShadow = '0 4px 12px rgba(31,38,135,0.15)';
-        }}
-        onMouseLeave={e => {
-          e.currentTarget.style.transform = 'scale(1)';
-          e.currentTarget.style.boxShadow = '0 2px 8px 0 rgba(31,38,135,0.08)';
-        }}
-      >
-        <span className="material-icons" style={{ fontSize: 22, color: '#1e40af' }}>{sidebarOpen ? 'chevron_left' : 'chevron_right'}</span>
-      </button>
+        <button
+          className="sidebar-toggle-btn-main"
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+          style={{
+            position: 'fixed',
+            top: '86px',
+            left: (sidebarOpen ? 260 : 70) - 18,
+            zIndex: 5000,
+            background: '#fff',
+            border: '1.5px solid #cbd5e1',
+            borderRadius: '50%',
+            width: 36,
+            height: 36,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 2px 8px 0 rgba(31,38,135,0.08)',
+            cursor: 'pointer',
+            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          }}
+          onMouseEnter={e => {
+            e.currentTarget.style.transform = 'scale(1.1)';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(31,38,135,0.15)';
+          }}
+          onMouseLeave={e => {
+            e.currentTarget.style.transform = 'scale(1)';
+            e.currentTarget.style.boxShadow = '0 2px 8px 0 rgba(31,38,135,0.08)';
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: 22, color: '#1e40af' }}>{sidebarOpen ? 'chevron_left' : 'chevron_right'}</span>
+        </button>
       )}
 
       {/* Main Content */}
@@ -3279,73 +2419,60 @@ function TallyDashboard() {
         className="adminhome-main"
         style={{
           marginLeft: isMobile ? 0 : (sidebarOpen ? 260 : 70),
-          paddingTop: isMobile ? 0 : 64,
+          marginTop: isMobile ? 0 : '70px',
+          paddingTop: isMobile ? 0 : 20,
           padding: isMobile ? 12 : 20,
           transition: 'margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
-        <div style={{ marginTop: 50 }}>
-          {showControlPanel ? (
-            controlPanelView === 'tally-config' ? (
-              <TallyConfig />
-            ) : controlPanelView === 'modules' ? (
-              <ModulesManagement />
-            ) : controlPanelView === 'roles' ? (
-              <RolesManagement />
-            ) : controlPanelView === 'create-access' ? (
-              <CreateAccess />
-            ) : controlPanelView === 'share-access' ? (
-              <ShareAccess />
-            ) : null
-          ) : (
-            <>
-          {activeSidebar === 'ledger' && <Ledgerbook />}
-          {activeSidebar === 'ledgerwise' && <Ledgerbook />}
-          {activeSidebar === 'billwise' && <Ledgerbook />}
-          {activeSidebar === 'order' && (
-            <div style={{ margin: '-20px', padding: '0' }}>
-              <PlaceOrder />
-            </div>
-          )}
-          {activeSidebar === 'ecommerce' && (
-            <div style={{ margin: '-20px', padding: '0' }}>
-              <PlaceOrder_ECommerce />
-            </div>
-          )}
-          {activeSidebar === 'sales_dashboard' && (
-            <div style={{ margin: '-20px', padding: '0' }}>
-              <SalesDashboard onNavigationAttempt={true} />
-            </div>
-          )}
-          {activeSidebar === 'receivables_dashboard' && (
-            <div style={{ margin: '-20px', padding: '0' }}>
-              <ReceivablesDashboard company={currentReceivablesCompany} />
-            </div>
-          )}
-          {activeSidebar === 'vendor_expenses' && (
-            <div style={{ margin: '-20px', padding: '0' }}>
-              <VendorExpenses />
-            </div>
-          )}
-          {activeSidebar === 'receipt_find_party' && (
-            <div style={{ margin: '-20px', padding: '0' }}>
-              <ReceiptListScreenWrapper />
-            </div>
-          )}
-          {activeSidebar === 'company_orders' && (
-            <div style={{ margin: '-20px', padding: '0' }}>
-              <CompanyOrdersScreenWrapper />
-            </div>
-          )}
-          {activeSidebar === 'voucher_authorization' && <VoucherAuthorization />}
-          {activeSidebar === 'sales_order_report' && <SalesOrderReport />}
-          {activeSidebar === 'payment_voucher_report' && <PaymentVoucherReport />}
-          {activeSidebar === 'cache_management' && <CacheManagement />}
-          {activeSidebar === 'master_form' && <MasterForm key="master-form" />}
-          {activeSidebar === 'master_authorization' && <MasterAuthorization />}
-          {activeSidebar === 'master_list' && <MasterList />}
-            </>
-          )}
+        <div>
+          <>
+            {activeSidebar === 'ledger' && <Ledgerbook />}
+            {activeSidebar === 'ledgerwise' && <Ledgerbook />}
+            {activeSidebar === 'billwise' && <Ledgerbook />}
+            {activeSidebar === 'order' && (
+              <div style={{ margin: '-20px', padding: '0' }}>
+                <PlaceOrder />
+              </div>
+            )}
+            {activeSidebar === 'ecommerce' && (
+              <div style={{ margin: '-20px', padding: '0' }}>
+                <PlaceOrder_ECommerce />
+              </div>
+            )}
+            {activeSidebar === 'sales_dashboard' && (
+              <div style={{ margin: '-20px', padding: '0' }}>
+                <SalesDashboard onNavigationAttempt={true} />
+              </div>
+            )}
+            {activeSidebar === 'receivables_dashboard' && (
+              <div style={{ margin: '-20px', padding: '0' }}>
+                <ReceivablesDashboard company={currentReceivablesCompany} />
+              </div>
+            )}
+            {activeSidebar === 'vendor_expenses' && (
+              <div style={{ margin: '-20px', padding: '0' }}>
+                <VendorExpenses />
+              </div>
+            )}
+            {activeSidebar === 'receipt_find_party' && (
+              <div style={{ margin: '-20px', padding: '0' }}>
+                <ReceiptListScreenWrapper />
+              </div>
+            )}
+            {activeSidebar === 'company_orders' && (
+              <div style={{ margin: '-20px', padding: '0' }}>
+                <CompanyOrdersScreenWrapper />
+              </div>
+            )}
+            {activeSidebar === 'voucher_authorization' && <VoucherAuthorization />}
+            {activeSidebar === 'sales_order_report' && <SalesOrderReport />}
+            {activeSidebar === 'payment_voucher_report' && <PaymentVoucherReport />}
+            {activeSidebar === 'cache_management' && <CacheManagement />}
+            {activeSidebar === 'master_form' && <MasterForm key="master-form" />}
+            {activeSidebar === 'master_authorization' && <MasterAuthorization />}
+            {activeSidebar === 'master_list' && <MasterList />}
+          </>
         </div>
       </main>
 

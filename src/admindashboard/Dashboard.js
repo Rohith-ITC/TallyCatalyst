@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import TallyLogo from '../DLrlogo.png';
+import TallyLogo from '../DLlogo.png';
 import '../AdminHomeResponsive.css';
+import Header from '../components/Header';
 import { getApiUrl, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { apiGet } from '../utils/apiUtils';
 import TallyConfig from './tallyconfig';
@@ -391,33 +392,33 @@ function AdminDashboard() {
           onClick={() => setMobileMenuOpen(true)}
           style={{
             position: 'fixed',
-            top: '12px',
-            left: '12px',
+            top: '16px',
+            left: '16px',
             zIndex: 10000,
-            background: 'rgba(255, 255, 255, 0.95)',
-            border: '1px solid rgba(0, 0, 0, 0.1)',
-            borderRadius: '8px',
+            background: '#fff',
+            border: '1px solid #e5e7eb',
+            borderRadius: '10px',
             width: '44px',
             height: '44px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
             transition: 'all 0.2s ease',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.background = '#fff';
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+            e.currentTarget.style.background = '#f8fafc';
+            e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
             e.currentTarget.style.transform = 'scale(1.05)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.95)';
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+            e.currentTarget.style.background = '#fff';
+            e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.1)';
             e.currentTarget.style.transform = 'scale(1)';
           }}
         >
-          <span className="material-icons" style={{ fontSize: 24, color: '#1e3a8a' }}>
+          <span className="material-icons" style={{ fontSize: 24, color: '#1e293b' }}>
             menu
           </span>
         </button>
@@ -445,196 +446,31 @@ function AdminDashboard() {
       )}
 
       {/* Top Bar - Hidden in Mobile */}
-      {!isMobile && (
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        width: '100%',
-        height: 64,
-        background: 'linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #60a5fa 100%)',
-        display: 'flex',
-        alignItems: 'center',
-        zIndex: 4001,
-        boxShadow: '0 4px 20px 0 rgba(30, 58, 138, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.05) inset',
-        padding: '0 28px',
-        justifyContent: 'flex-end',
-        backdropFilter: 'blur(10px)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <img src={TallyLogo} alt="Tally Logo" style={{ height: 40, width: 'auto', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }} />
-          <span style={{ 
-            color: '#fff', 
-            fontWeight: 700, 
-            fontSize: 24, 
-            letterSpacing: 0.5, 
-            textShadow: '0 2px 8px rgba(0,0,0,0.15)',
-            background: 'linear-gradient(180deg, #ffffff 0%, #e0e7ff 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-          }}>DataLynkr</span>
-        </div>
-        <div ref={profileDropdownRef} style={{ display: 'flex', alignItems: 'center', gap: 16, marginLeft: 'auto', position: 'relative' }}>
-          <SubscriptionBadge />
-          <button 
-            className="logout-btn" 
-            title="Logout" 
-            style={{ 
-              background: 'rgba(220, 38, 38, 0.15)', 
-              color: '#fff', 
-              border: '1px solid rgba(220, 38, 38, 0.3)', 
-              marginRight: 0, 
-              minWidth: 110,
-              padding: '10px 18px',
-              borderRadius: '10px',
-              fontWeight: 600,
-              fontSize: '14px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-              boxShadow: '0 2px 6px rgba(220, 38, 38, 0.2)',
-            }} 
-            onClick={handleLogout}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(220, 38, 38, 0.25)';
-              e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.4)';
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.3)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'rgba(220, 38, 38, 0.15)';
-              e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.3)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 2px 6px rgba(220, 38, 38, 0.2)';
-            }}
-          >
-            <span className="material-icons" style={{ fontSize: 18 }}>logout</span>
-            Logout
-          </button>
-          <div 
-            style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: 10, 
-              cursor: 'pointer',
-              padding: '6px 12px',
-              borderRadius: '10px',
-              background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
-              transition: 'all 0.3s ease',
-            }}
-            onClick={() => setProfileDropdownOpen((open) => !open)}
-            onMouseEnter={(e) => {
-              if (!profileDropdownOpen) {
-                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!profileDropdownOpen) {
-                e.currentTarget.style.background = 'transparent';
-              }
-            }}
-          >
-            <span className="material-icons profile-icon" style={{ color: '#fff', fontSize: '28px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}>account_circle</span>
-            <span className="profile-name" style={{ color: '#fff', fontWeight: 600, fontSize: '15px', textShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>{name || 'User'}</span>
-            <span className="material-icons" style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '20px', transition: 'transform 0.3s ease', transform: profileDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
-          </div>
-          {profileDropdownOpen && (
-            <div className="profile-dropdown" style={{ 
-              position: 'absolute', 
-              top: 56, 
-              right: 0, 
-              minWidth: 260, 
-              background: '#fff', 
-              borderRadius: 16, 
-              boxShadow: '0 12px 40px 0 rgba(31, 38, 135, 0.2), 0 0 0 1px rgba(0,0,0,0.05)', 
-              padding: 20, 
-              zIndex: 4000, 
-              textAlign: 'left',
-              animation: 'fadeIn 0.2s ease-out',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
-                <span className="material-icons" style={{ fontSize: 32, color: '#3b82f6' }}>account_circle</span>
-                <div>
-                  <div className="profile-dropdown-name" style={{ fontSize: 16, color: '#1e293b', fontWeight: 700, marginBottom: 2 }}>{name || 'User'}</div>
-                  <div className="profile-dropdown-email" style={{ fontSize: 13, color: '#64748b' }}>{email || ''}</div>
-                </div>
-              </div>
-              <button 
-                className="change-password-btn" 
-                style={{ 
-                  width: '100%',
-                  padding: '12px 18px', 
-                  background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)', 
-                  color: '#fff', 
-                  border: 'none', 
-                  borderRadius: 10, 
-                  fontWeight: 600, 
-                  fontSize: 14, 
-                  cursor: 'pointer', 
-                  boxShadow: '0 4px 12px 0 rgba(59,130,246,0.25)', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center',
-                  gap: 8,
-                  transition: 'all 0.3s ease',
-                  marginBottom: 10,
-                }} 
-                onClick={() => navigate('/change-password')}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(59,130,246,0.35)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(59,130,246,0.25)';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: 18 }}>lock</span>
-                Change Password
-              </button>
-              <button 
-                className="google-config-btn" 
-                style={{ 
-                  width: '100%',
-                  padding: '12px 18px', 
-                  background: 'linear-gradient(135deg, #4285f4 0%, #34a853 100%)', 
-                  color: '#fff', 
-                  border: 'none', 
-                  borderRadius: 10, 
-                  fontWeight: 600, 
-                  fontSize: 14, 
-                  cursor: 'pointer', 
-                  boxShadow: '0 4px 12px 0 rgba(66,133,244,0.25)', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center',
-                  gap: 8,
-                  transition: 'all 0.3s ease',
-                }} 
-                onClick={() => {
-                  setShowGoogleConfigModal(true);
-                  setProfileDropdownOpen(false);
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(66,133,244,0.35)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(66,133,244,0.25)';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: 18 }}>account_circle</span>
-                Configure Google Account
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-      )}
+      <Header
+        type="admin"
+        isMobile={isMobile}
+        zIndex={4001}
+        logo={{
+          src: TallyLogo,
+          alt: 'Tally Logo',
+          height: 50,
+          width: 'auto'
+        }}
+        brandText="DataLynk"
+        showSubscriptionBadge={true}
+        subscriptionBadge={<SubscriptionBadge />}
+        profileProps={{
+          profileRef: profileDropdownRef,
+          name: name,
+          email: email,
+          profileDropdownOpen: profileDropdownOpen,
+          setProfileDropdownOpen: setProfileDropdownOpen,
+          navigate: navigate,
+          onGoogleConfigClick: () => setShowGoogleConfigModal(true),
+          isAdmin: () => true // Admin dashboard users are always admins
+        }}
+        onLogout={handleLogout}
+      />
 
       {/* Google Account Configuration Modal */}
       {showGoogleConfigModal && (
@@ -854,9 +690,9 @@ function AdminDashboard() {
       <aside
         className={`adminhome-sidebar sidebar-animated`}
         style={{
-          height: 'calc(100vh - 64px)',
+          height: 'calc(100vh - 70px)',
           position: 'fixed',
-          top: 64,
+          top: 70,
           left: 0,
           background: '#1e3a8a',
           overflowY: 'auto',
@@ -1128,7 +964,7 @@ function AdminDashboard() {
         className="adminhome-main"
         style={{
           marginLeft: isMobile ? 0 : (sidebarOpen ? 220 : 60),
-          paddingTop: isMobile ? 0 : 64,
+          paddingTop: isMobile ? 0 : 70,
           padding: isMobile ? 12 : 20,
           transition: 'margin 0.3s',
         }}

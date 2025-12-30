@@ -110,6 +110,33 @@ export const MODULE_SEQUENCE = [
       permissions     : {}
     },
     {
+      key               : 'reports',
+      id                : 'reports',
+      label             : 'Reports',
+      icon              : 'description',
+      hasSubModules     : true,
+      useRightSideDropdown : true,
+      subModules: [
+        {
+          key           : 'sales_order_report',
+          id            : 'sales_order_report',
+          label         : 'Sales Order Report',
+          icon          : 'assessment',
+          permissions   : {},
+          requiredModules: ['place_order', 'ecommerce_place_order'] // Show if user has access to place_order OR ecommerce_place_order
+        },
+        {
+          key           : 'payment_voucher_report',
+          id            : 'payment_voucher_report',
+          label         : 'Voucher/Expense Report',
+          icon          : 'account_balance_wallet',
+          permissions   : {},
+          requiredModules: ['vendor_expenses'] // Show if user has access to vendor_expenses
+        }
+      ],
+      permissions       : {}
+    },
+    {
       key               : 'transaction',
       id                : 'transaction',
       label             : 'Transaction',
@@ -158,33 +185,6 @@ export const MODULE_SEQUENCE = [
         }
       ],
       permissions: {}
-    },
-    {
-      key               : 'reports',
-      id                : 'reports',
-      label             : 'Reports',
-      icon              : 'description',
-      hasSubModules     : true,
-      useRightSideDropdown : true,
-      subModules: [
-        {
-          key           : 'sales_order_report',
-          id            : 'sales_order_report',
-          label         : 'Sales Order Report',
-          icon          : 'assessment',
-          permissions   : {},
-          requiredModules: ['place_order', 'ecommerce_place_order'] // Show if user has access to place_order OR ecommerce_place_order
-        },
-        {
-          key           : 'payment_voucher_report',
-          id            : 'payment_voucher_report',
-          label         : 'Voucher/Expense Report',
-          icon          : 'account_balance_wallet',
-          permissions   : {},
-          requiredModules: ['vendor_expenses'] // Show if user has access to vendor_expenses
-        }
-      ],
-      permissions       : {}
     },
     {
       key             : 'company_orders',
@@ -242,7 +242,7 @@ export const MODULE_SEQUENCE = [
       id                : 'cache_management',
       label             : 'Cache Management',
       icon              : 'storage',
-      alwaysVisible     : true,
+      alwaysVisible     : false,
       permissions       : {}
     }
     
