@@ -1060,6 +1060,9 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
             const discount = extractField('DISCOUNT') || '0';
             const gstHsnName = extractField('GSTHSNNAME');
             const hsnCode = extractField('HSNCODE');
+            const uom = extractField('UOM') || extractField('UNIT') || '';
+            const rateUom = extractField('RATEUOM') || extractField('RATE_UOM') || '';
+            const description = extractField('DESCRIPTION') || '';
             
             // Extract batch allocations for this inventory entry
             const batchAllocations: any[] = [];
@@ -1086,6 +1089,7 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
               inventoryEntries.push({
                 STOCKITEMNAME: stockItemName,
                 RATE: rate,
+                RATEUOM: rateUom,
                 AMOUNT: amount,
                 ACTUALQTY: actualQty,
                 BILLEDQTY: billedQty,
@@ -1094,6 +1098,8 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
                 VALUE: amount, // Value same as amount
                 GSTHSNNAME: gstHsnName,
                 HSNCODE: hsnCode,
+                UOM: uom,
+                DESCRIPTION: description,
                 BATCHALLOCATIONS: batchAllocations // Add batch allocations
               });
               
@@ -1120,6 +1126,9 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
             const actualQty = invEl.getElementsByTagName('ACTUALQTY')[0]?.textContent?.trim() || '';
             const billedQty = invEl.getElementsByTagName('BILLEDQTY')[0]?.textContent?.trim() || '';
             const discount = invEl.getElementsByTagName('DISCOUNT')[0]?.textContent?.trim() || '0';
+            const uom = invEl.getElementsByTagName('UOM')[0]?.textContent?.trim() || invEl.getElementsByTagName('UNIT')[0]?.textContent?.trim() || '';
+            const rateUom = invEl.getElementsByTagName('RATEUOM')[0]?.textContent?.trim() || invEl.getElementsByTagName('RATE_UOM')[0]?.textContent?.trim() || '';
+            const description = invEl.getElementsByTagName('DESCRIPTION')[0]?.textContent?.trim() || '';
             
             // Extract batch allocations for this inventory entry (fallback method)
             const batchAllocations: any[] = [];
@@ -1146,12 +1155,15 @@ export const CompanyOrdersScreen: React.FC<CompanyOrdersScreenProps> = ({company
               inventoryEntries.push({
                 STOCKITEMNAME: stockItemName,
                 RATE: rate,
+                RATEUOM: rateUom,
                 AMOUNT: amount,
                 ACTUALQTY: actualQty,
                 BILLEDQTY: billedQty,
                 BILLEQTY: billedQty,
                 DISCOUNT: discount,
                 VALUE: amount,
+                UOM: uom,
+                DESCRIPTION: description,
                 BATCHALLOCATIONS: batchAllocations // Add batch allocations
               });
             }
@@ -6330,7 +6342,7 @@ ${inventoryEntriesStr}
                               <th style={{ padding: '10px', textAlign: 'left', borderRight: '1px solid #cbd5e0', fontWeight: 'bold' }}>HSN/SAC</th>
                               <th style={{ padding: '10px', textAlign: 'right', borderRight: '1px solid #cbd5e0', fontWeight: 'bold' }}>Quantity</th>
                               <th style={{ padding: '10px', textAlign: 'right', borderRight: '1px solid #cbd5e0', fontWeight: 'bold' }}>Rate</th>
-                              <th style={{ padding: '10px', textAlign: 'left', borderRight: '1px solid #cbd5e0', fontWeight: 'bold' }}>per</th>
+                              <th style={{ padding: '10px', textAlign: 'left', borderRight: '1px solid #cbd5e0', fontWeight: 'bold' }}>UOM</th>
                               <th style={{ padding: '10px', textAlign: 'right', fontWeight: 'bold' }}>Amount</th>
                             </tr>
                           </thead>
@@ -6338,8 +6350,10 @@ ${inventoryEntriesStr}
                             {invEntries.map((entry: any, index: number) => {
                               const rateStr = entry.RATE || '';
                               const rateParts = rateStr.split('/');
-                              const rate = rateParts[0] || '';
-                              const per = rateParts[1] || 'Nos';
+                              const rateValue = rateParts[0] || '';
+                              const rateUom = entry.RATEUOM || entry.rateuom || entry.rateUOM || rateParts[1] || '';
+                              const uom = entry.UOM || entry.uom || 'Nos';
+                              const description = entry.DESCRIPTION || entry.description || '';
                               const amount = parseFloat(entry.AMOUNT || '0');
                               const qty = entry.ACTUALQTY || entry.BILLEDQTY || '-';
                               const hsn = entry.GSTHSNNAME || entry.HSNCODE || '-';
@@ -6347,11 +6361,28 @@ ${inventoryEntriesStr}
                               return (
                                 <tr key={index} style={{ borderBottom: '1px solid #e2e8f0' }}>
                                   <td style={{ padding: '10px', borderRight: '1px solid #e2e8f0' }}>{index + 1}</td>
-                                  <td style={{ padding: '10px', borderRight: '1px solid #e2e8f0' }}>{entry.STOCKITEMNAME || '-'}</td>
+                                  <td style={{ padding: '10px', borderRight: '1px solid #e2e8f0' }}>
+                                    <div>{entry.STOCKITEMNAME || '-'}</div>
+                                    <div style={{ fontStyle: 'italic', fontSize: '10px', color: '#64748b', marginTop: '4px' }}>
+                                      {description || '- Description not found'}
+                                    </div>
+                                  </td>
                                   <td style={{ padding: '10px', borderRight: '1px solid #e2e8f0' }}>{hsn}</td>
                                   <td style={{ padding: '10px', textAlign: 'right', borderRight: '1px solid #e2e8f0' }}>{qty}</td>
-                                  <td style={{ padding: '10px', textAlign: 'right', borderRight: '1px solid #e2e8f0' }}>{rate}</td>
-                                  <td style={{ padding: '10px', borderRight: '1px solid #e2e8f0' }}>{per}</td>
+                                  <td style={{ padding: '10px', textAlign: 'right', borderRight: '1px solid #e2e8f0' }}>
+                                    <div>{rateValue || '-'}</div>
+                                    {rateUom && (
+                                      <div style={{ 
+                                        fontSize: '9px', 
+                                        color: '#64748b',
+                                        marginTop: '2px',
+                                        fontWeight: 400
+                                      }}>
+                                        /{rateUom}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td style={{ padding: '10px', borderRight: '1px solid #e2e8f0' }}>{uom}</td>
                                   <td style={{ padding: '10px', textAlign: 'right' }}>
                                     {!isNaN(amount) ? `₹${Math.abs(amount).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
                                   </td>
