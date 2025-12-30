@@ -623,7 +623,6 @@ const CacheManagement = () => {
     }
   };
 
-<<<<<<< HEAD
   // Check Google account configuration for Gmail fetch
   useEffect(() => {
     const checkGoogleConfig = async () => {
@@ -713,8 +712,6 @@ const CacheManagement = () => {
       setFetchingGmailJson(false);
     }
   };
-=======
->>>>>>> 1806b7601280579f341376f1ecc1fe7b9b37259b
 
   const loadCacheEntries = async () => {
     setLoadingEntries(true);
