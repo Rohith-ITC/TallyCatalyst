@@ -722,7 +722,12 @@ const fetchBooksFrom = async (selectedGuid) => {
     const connections = JSON.parse(connectionsStr || '[]');
     
     if (selectedGuid && Array.isArray(connections)) {
-      const company = connections.find(c => c.guid === selectedGuid);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const company = connections.find(c => 
+        c.guid === selectedGuid && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
       if (company && company.booksfrom) {
         return company.booksfrom;
       }
@@ -741,7 +746,12 @@ const fetchBooksFrom = async (selectedGuid) => {
         apiConnections = [...created, ...shared];
       }
       
-      const company = apiConnections.find(c => c.guid === selectedGuid);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const company = apiConnections.find(c => 
+        c.guid === selectedGuid && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
       if (company && company.booksfrom) {
         sessionStorage.setItem('booksfrom', company.booksfrom);
         return company.booksfrom;
@@ -756,8 +766,8 @@ const fetchBooksFrom = async (selectedGuid) => {
 };
 
 // Get sync progress key for storing in cache
-const getSyncProgressKey = (email, guid) => {
-  return `sync_progress_${email}_${guid}`;
+const getSyncProgressKey = (email, guid, tallyloc_id) => {
+  return `sync_progress_${email}_${guid}_${tallyloc_id}`;
 };
 
 // Check if there's an interrupted download for a company
@@ -772,7 +782,7 @@ export const checkInterruptedDownload = async (companyInfo) => {
   const email = getUserEmail();
   if (!email) return null;
 
-  const progressKey = getSyncProgressKey(email, companyInfo.guid);
+  const progressKey = getSyncProgressKey(email, companyInfo.guid, companyInfo.tallyloc_id);
   try {
     const progress = await hybridCache.getDashboardState(progressKey);
     if (progress && progress.status === 'in_progress') {
@@ -806,7 +816,7 @@ export const clearDownloadProgress = async (companyInfo) => {
   const email = getUserEmail();
   if (!email) return;
 
-  const progressKey = getSyncProgressKey(email, companyInfo.guid);
+  const progressKey = getSyncProgressKey(email, companyInfo.guid, companyInfo.tallyloc_id);
   try {
     // Check if deleteDashboardState exists, otherwise use IndexedDB directly
     if (hybridCache.deleteDashboardState) {
@@ -841,7 +851,7 @@ const syncSalesDataInternal = async (companyInfo, email, onProgress = () => { },
     startFresh
   });
 
-  const progressKey = getSyncProgressKey(email, companyInfo.guid);
+  const progressKey = getSyncProgressKey(email, companyInfo.guid, companyInfo.tallyloc_id);
   let savedProgress = null;
 
   try {
@@ -2306,7 +2316,7 @@ class CacheSyncManager {
       );
 
       for (const company of eligibleCompanies) {
-        const progressKey = getSyncProgressKey(email, company.guid);
+        const progressKey = getSyncProgressKey(email, company.guid, company.tallyloc_id);
         try {
           const progress = await hybridCache.getDashboardState(progressKey);
           if (progress && progress.status === 'in_progress') {
@@ -2348,16 +2358,18 @@ class CacheSyncManager {
       // Check each company - sync if not already completed or in progress
       for (const company of eligibleCompanies) {
         // Skip if already in queue
-        if (this.autoSyncQueue.find(c => c.guid === company.guid)) {
+        if (this.autoSyncQueue.find(c => c.guid === company.guid && c.tallyloc_id === company.tallyloc_id)) {
           continue;
         }
         
         // Skip if currently being synced
-        if (this.isSyncing && this.companyInfo && this.companyInfo.guid === company.guid) {
+        if (this.isSyncing && this.companyInfo && 
+            this.companyInfo.guid === company.guid && 
+            this.companyInfo.tallyloc_id === company.tallyloc_id) {
           continue;
         }
         
-        const progressKey = getSyncProgressKey(email, company.guid);
+        const progressKey = getSyncProgressKey(email, company.guid, company.tallyloc_id);
         try {
           const progress = await hybridCache.getDashboardState(progressKey);
           // Only queue if not completed and not already in progress
@@ -2401,7 +2413,7 @@ class CacheSyncManager {
 
     // Check each company - only queue if not already completed
     for (const company of eligibleCompanies) {
-      const progressKey = getSyncProgressKey(email, company.guid);
+      const progressKey = getSyncProgressKey(email, company.guid, company.tallyloc_id);
       try {
         const progress = await hybridCache.getDashboardState(progressKey);
         // Only queue if not completed
@@ -2423,7 +2435,7 @@ class CacheSyncManager {
    */
   queueCompanyForSync(company) {
     // Check if already in queue
-    if (this.autoSyncQueue.find(c => c.guid === company.guid)) {
+    if (this.autoSyncQueue.find(c => c.guid === company.guid && c.tallyloc_id === company.tallyloc_id)) {
       return;
     }
     this.autoSyncQueue.push(company);
@@ -2508,7 +2520,9 @@ class CacheSyncManager {
     }
 
     // First check if this company is currently being synced
-    if (this.isSyncing && this.companyInfo && this.companyInfo.guid === companyInfo.guid) {
+    if (this.isSyncing && this.companyInfo && 
+        this.companyInfo.guid === companyInfo.guid && 
+        this.companyInfo.tallyloc_id === companyInfo.tallyloc_id) {
       return {
         ...this.progress,
         companyGuid: companyInfo.guid,
@@ -2517,7 +2531,7 @@ class CacheSyncManager {
     }
 
     // Otherwise check stored progress
-    const progressKey = getSyncProgressKey(email, companyInfo.guid);
+    const progressKey = getSyncProgressKey(email, companyInfo.guid, companyInfo.tallyloc_id);
     try {
       const progress = await hybridCache.getDashboardState(progressKey);
       if (progress && progress.status === 'in_progress') {
