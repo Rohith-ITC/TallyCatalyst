@@ -697,10 +697,12 @@ class OPFSBackend {
 
       // Store metadata in memory (defer file write to batch operations)
       const salesMap = this.metadataCache.get('sales') || new Map();
+      const email = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null;
       const metadata = {
         cacheKey,
         timestamp,
         baseKey,
+        email: email || 'unknown',
         ...(dateRange ? { startDate: dateRange.startDate, endDate: dateRange.endDate } : {})
       };
       salesMap.set(cacheKey, metadata);
@@ -807,10 +809,12 @@ class OPFSBackend {
           if (file && file.size > 0) {
             console.log(`📋 Found cache file without metadata, restoring metadata for: ${cacheKey}`);
             // Restore metadata from file
+            const email = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null;
             metadata = {
               cacheKey,
               timestamp: file.lastModified || Date.now(),
-              baseKey: this.extractBaseKey(cacheKey)
+              baseKey: this.extractBaseKey(cacheKey),
+              email: email || 'unknown'
             };
             salesMap.set(cacheKey, metadata);
             this.metadataCache.set('sales', salesMap);
@@ -962,7 +966,8 @@ class OPFSBackend {
 
       // Store metadata
       const dashboardMap = this.metadataCache.get('dashboard') || new Map();
-      dashboardMap.set(cacheKey, { cacheKey, timestamp });
+      const email = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null;
+      dashboardMap.set(cacheKey, { cacheKey, timestamp, email: email || 'unknown' });
       this.metadataCache.set('dashboard', dashboardMap);
       await this.saveMetadata();
 
@@ -1223,32 +1228,89 @@ class OPFSBackend {
       // Reload metadata to ensure we have the latest data
       await this.loadMetadata();
 
+      // Get current user email to filter entries
+      const currentUserEmail = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null;
+      // Sanitize current user email the same way as cache key generation
+      const sanitizedCurrentEmail = currentUserEmail ? currentUserEmail.replace(/[^a-zA-Z0-9_-]/g, '_') : null;
+      // Also keep raw email for dashboard cache keys which may use unsanitized email
+      const rawCurrentEmail = currentUserEmail;
+
       const salesMap = this.metadataCache.get('sales') || new Map();
       const dashboardMap = this.metadataCache.get('dashboard') || new Map();
 
-      const salesEntries = Array.from(salesMap.entries()).map(([cacheKey, metadata]) => ({
-        type: 'sales',
-        cacheKey,
-        timestamp: metadata.timestamp,
-        date: new Date(metadata.timestamp).toLocaleString(),
-        startDate: metadata.startDate || null,
-        endDate: metadata.endDate || null,
-        baseKey: metadata.baseKey || null,
-        age: Date.now() - metadata.timestamp,
-        ageDays: Math.floor((Date.now() - metadata.timestamp) / (24 * 60 * 60 * 1000))
-      }));
+      // Filter sales entries by current user email
+      const salesEntries = Array.from(salesMap.entries())
+        .filter(([cacheKey, metadata]) => {
+          // SECURITY: Strict filtering - entry must belong to current user
+          
+          // Check 1: Metadata email must match current user
+          const metadataMatches = metadata.email === currentUserEmail;
+          
+          // Check 2: Cache key must contain sanitized current user email (defense in depth)
+          const cacheKeyMatches = sanitizedCurrentEmail && cacheKey.startsWith(sanitizedCurrentEmail + '_');
+          
+          // For legacy entries without email, verify cache key starts with current user's email
+          if (!metadata.email || metadata.email === 'unknown') {
+            // Only show if cache key contains current user's email
+            return cacheKeyMatches;
+          }
+          
+          // For entries with email, both metadata AND cache key must match
+          return metadataMatches && cacheKeyMatches;
+        })
+        .map(([cacheKey, metadata]) => ({
+          type: 'sales',
+          cacheKey,
+          timestamp: metadata.timestamp,
+          date: new Date(metadata.timestamp).toLocaleString(),
+          startDate: metadata.startDate || null,
+          endDate: metadata.endDate || null,
+          baseKey: metadata.baseKey || null,
+          age: Date.now() - metadata.timestamp,
+          ageDays: Math.floor((Date.now() - metadata.timestamp) / (24 * 60 * 60 * 1000))
+        }));
 
-      const dashboardEntries = Array.from(dashboardMap.entries()).map(([cacheKey, metadata]) => ({
-        type: 'dashboard',
-        cacheKey,
-        timestamp: metadata.timestamp,
-        date: new Date(metadata.timestamp).toLocaleString(),
-        startDate: null,
-        endDate: null,
-        baseKey: null,
-        age: Date.now() - metadata.timestamp,
-        ageDays: Math.floor((Date.now() - metadata.timestamp) / (24 * 60 * 60 * 1000))
-      }));
+      // Filter dashboard entries by current user email
+      const dashboardEntries = Array.from(dashboardMap.entries())
+        .filter(([cacheKey, metadata]) => {
+          // SECURITY: Strict filtering - entry must belong to current user
+          
+          // Check 1: Metadata email must match current user
+          const metadataMatches = metadata.email === currentUserEmail;
+          
+          // Check 2: Cache key must contain current user email (defense in depth)
+          // Dashboard keys format: sync_progress_{email}_{guid}_{tallyloc_id} (uses raw email)
+          // Check both raw and sanitized email formats
+          const cacheKeyMatches = (sanitizedCurrentEmail || rawCurrentEmail) && 
+            (cacheKey.includes('_' + sanitizedCurrentEmail + '_') || 
+             cacheKey.startsWith(sanitizedCurrentEmail + '_') ||
+             cacheKey.endsWith('_' + sanitizedCurrentEmail) ||
+             cacheKey === sanitizedCurrentEmail ||
+             (rawCurrentEmail && cacheKey.includes('_' + rawCurrentEmail + '_')) ||
+             (rawCurrentEmail && cacheKey.startsWith(rawCurrentEmail + '_')) ||
+             (rawCurrentEmail && cacheKey.endsWith('_' + rawCurrentEmail)) ||
+             cacheKey === rawCurrentEmail);
+          
+          // For legacy entries without email, verify cache key contains current user's email
+          if (!metadata.email || metadata.email === 'unknown') {
+            // Only show if cache key contains current user's email
+            return cacheKeyMatches;
+          }
+          
+          // For entries with email, both metadata AND cache key must match
+          return metadataMatches && cacheKeyMatches;
+        })
+        .map(([cacheKey, metadata]) => ({
+          type: 'dashboard',
+          cacheKey,
+          timestamp: metadata.timestamp,
+          date: new Date(metadata.timestamp).toLocaleString(),
+          startDate: null,
+          endDate: null,
+          baseKey: null,
+          age: Date.now() - metadata.timestamp,
+          ageDays: Math.floor((Date.now() - metadata.timestamp) / (24 * 60 * 60 * 1000))
+        }));
 
       // Get file sizes
       const entriesWithSizes = await Promise.all([
@@ -1497,6 +1559,7 @@ class OPFSBackend {
         isComplete: true,
         lastaltid,
         booksfrom,
+        email: email || 'unknown', // SECURITY: Store email to filter cache by user
         ...(startDate && endDate ? { startDate, endDate } : {})
       };
       salesMap.set(cacheKey, metadataEntry);
@@ -1557,7 +1620,8 @@ class OPFSBackend {
               isComplete: true,
               timestamp: file.lastModified || Date.now(),
               lastaltid: null,
-              booksfrom: null
+              booksfrom: null,
+              email: userEmail || 'unknown' // SECURITY: Store email to filter cache by user
             };
             salesMap.set(cacheKey, metadata);
             this.metadataCache.set('sales', salesMap);
@@ -1810,6 +1874,7 @@ class OPFSBackend {
         baseKey: cacheKey,
         isComplete: true,
         isSessionCache: true, // Mark as session cache
+        email: email || 'unknown', // SECURITY: Store email to filter cache by user
         ...(startDate && endDate ? { startDate, endDate } : {})
       };
       salesMap.set(cacheKey, metadataEntry);
@@ -2096,10 +2161,35 @@ class IndexedDBBackend {
       this.db = new Dexie('TallyCatalystCache');
 
       // Define schema
+      // Version 1: Original schema (without email field)
       this.db.version(1).stores({
         salesData: 'cacheKey, timestamp, baseKey, startDate, endDate, isComplete, lastaltid',
         dashboardState: 'cacheKey, timestamp',
         userKeys: 'email'
+      });
+
+      // Version 2: Add email field to salesData and dashboardState for user isolation
+      this.db.version(2).stores({
+        salesData: 'cacheKey, timestamp, baseKey, startDate, endDate, isComplete, lastaltid, email',
+        dashboardState: 'cacheKey, timestamp, email',
+        userKeys: 'email'
+      }).upgrade(async (tx) => {
+        // Migration: Set email to 'unknown' for existing records without email
+        // These will be filtered out in listAllCacheEntries for security
+        const salesData = tx.table('salesData');
+        const dashboardState = tx.table('dashboardState');
+        
+        await salesData.toCollection().modify(record => {
+          if (!record.email) {
+            record.email = 'unknown';
+          }
+        });
+        
+        await dashboardState.toCollection().modify(record => {
+          if (!record.email) {
+            record.email = 'unknown';
+          }
+        });
       });
 
       // Open database
@@ -2175,12 +2265,14 @@ class IndexedDBBackend {
       // Store encrypted data in IndexedDB
       const dataSize = encrypted.byteLength || encrypted.length || 0;
       const dataSizeKB = (dataSize / 1024).toFixed(2);
+      const email = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null;
       
       await this.db.salesData.put({
         cacheKey,
         encryptedData: encrypted,
         timestamp,
         baseKey,
+        email: email || 'unknown',
         startDate: dateRange ? dateRange.startDate : null,
         endDate: dateRange ? dateRange.endDate : null
       });
@@ -2297,12 +2389,14 @@ class IndexedDBBackend {
       await this.init();
       const encrypted = await this.encryption.encryptData(state);
       const timestamp = Date.now();
+      const email = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null;
 
       // Store encrypted data in IndexedDB
       await this.db.dashboardState.put({
         cacheKey,
         encryptedData: encrypted,
-        timestamp
+        timestamp,
+        email: email || 'unknown'
       });
 
       console.log(`✅ Cached dashboard state in IndexedDB: ${cacheKey}`);
@@ -2447,8 +2541,54 @@ class IndexedDBBackend {
     try {
       await this.init();
 
-      const salesEntries = await this.db.salesData.toArray();
-      const dashboardEntries = await this.db.dashboardState.toArray();
+      // Get current user email to filter entries
+      const currentUserEmail = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('email') : null;
+
+      // Filter sales entries by current user email
+      // Include legacy entries without email (encrypted per user, so safe to show)
+      let salesEntries;
+      if (currentUserEmail) {
+        try {
+          // Get entries with matching email OR without email (legacy entries)
+          const entriesWithEmail = await this.db.salesData.where('email').equals(currentUserEmail).toArray();
+          const legacyEntries = await this.db.salesData.where('email').equals('unknown').toArray();
+          const entriesWithoutEmail = await this.db.salesData.filter(entry => !entry.email).toArray();
+          salesEntries = [...entriesWithEmail, ...legacyEntries, ...entriesWithoutEmail];
+        } catch (error) {
+          // If email index doesn't exist (old database), fall back to filtering in memory
+          console.warn('Email index not available, filtering in memory:', error);
+          const allSalesEntries = await this.db.salesData.toArray();
+          salesEntries = allSalesEntries.filter(entry => 
+            !entry.email || entry.email === 'unknown' || entry.email === currentUserEmail
+          );
+        }
+      } else {
+        // No user email, return empty array
+        salesEntries = [];
+      }
+
+      // Filter dashboard entries by current user email
+      // Include legacy entries without email (encrypted per user, so safe to show)
+      let dashboardEntries;
+      if (currentUserEmail) {
+        try {
+          // Get entries with matching email OR without email (legacy entries)
+          const entriesWithEmail = await this.db.dashboardState.where('email').equals(currentUserEmail).toArray();
+          const legacyEntries = await this.db.dashboardState.where('email').equals('unknown').toArray();
+          const entriesWithoutEmail = await this.db.dashboardState.filter(entry => !entry.email).toArray();
+          dashboardEntries = [...entriesWithEmail, ...legacyEntries, ...entriesWithoutEmail];
+        } catch (error) {
+          // If email index doesn't exist (old database), fall back to filtering in memory
+          console.warn('Email index not available, filtering in memory:', error);
+          const allDashboardEntries = await this.db.dashboardState.toArray();
+          dashboardEntries = allDashboardEntries.filter(entry => 
+            !entry.email || entry.email === 'unknown' || entry.email === currentUserEmail
+          );
+        }
+      } else {
+        // No user email, return empty array
+        dashboardEntries = [];
+      }
 
       const salesList = salesEntries.map(entry => ({
         type: 'sales',

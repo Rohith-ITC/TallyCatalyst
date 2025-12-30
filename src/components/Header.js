@@ -122,7 +122,13 @@ const CompanySelector = ({
   }, [topBarCompanyDropdownOpen, topBarCompanySearchTerm, allConnections]);
 
   const currentCompany = useMemo(() => {
-    return allConnections.find(c => c.guid === selectedCompanyGuid);
+    if (!selectedCompanyGuid) return null;
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    return allConnections.find(c => 
+      c.guid === selectedCompanyGuid && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
   }, [allConnections, selectedCompanyGuid]);
 
   const handleCompanySelect = (companyOption) => {

@@ -413,7 +413,12 @@ function TallyDashboard() {
     if (!selectedCompanyGuid) {
       return null;
     }
-    return allConnections.find((connection) => connection.guid === selectedCompanyGuid) || null;
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    return allConnections.find((connection) => 
+      connection.guid === selectedCompanyGuid && 
+      (selectedCompanyTallylocId ? String(connection.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    ) || null;
   }, [allConnections, selectedCompanyGuid]);
 
   useEffect(() => {
@@ -481,7 +486,12 @@ function TallyDashboard() {
   // Set default active sidebar based on user permissions and fetch permissions if needed
   useEffect(() => {
     // Always fetch permissions when company changes, regardless of cached data
-    const currentCompany = allConnections.find(c => c.guid === selectedCompanyGuid);
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const currentCompany = allConnections.find(c => 
+      c.guid === selectedCompanyGuid && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
     if (currentCompany) {
       console.log('🔐 Company changed, fetching fresh permissions for:', currentCompany.company);
       fetchUserAccessPermissions(currentCompany);
@@ -503,7 +513,12 @@ function TallyDashboard() {
       return;
     }
 
-    const connectionFromList = allConnections.find(c => c.guid === selectedCompanyGuid);
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const connectionFromList = allConnections.find(c => 
+      c.guid === selectedCompanyGuid && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
     if (connectionFromList) {
       initialPermissionsRequestedRef.current = true;
       console.log('🔐 Initial permissions missing, requesting using connection list entry');
@@ -542,7 +557,7 @@ function TallyDashboard() {
       console.log('🔄 Starting automatic background download of customers and items for:', companyConnection.company);
 
       // Set downloading state in sessionStorage for CacheManagement to read
-      const progressKey = `download_progress_${companyConnection.guid}`;
+      const progressKey = `download_progress_${companyConnection.tallyloc_id}_${companyConnection.guid}`;
       sessionStorage.setItem(progressKey, JSON.stringify({
         customers: { status: 'downloading', progress: 0 },
         items: { status: 'downloading', progress: 0 }
@@ -620,7 +635,12 @@ function TallyDashboard() {
     }
 
     // Find the company connection
-    const companyConnection = allConnections.find(c => c.guid === selectedCompanyGuid);
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const companyConnection = allConnections.find(c => 
+      c.guid === selectedCompanyGuid && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
     if (!companyConnection) {
       // Try to construct from sessionStorage if not in allConnections yet
       const storedTallyloc = sessionStorage.getItem('tallyloc_id');
@@ -643,7 +663,7 @@ function TallyDashboard() {
     }
 
     // Check if download is already in progress for this company
-    const progressKey = `download_progress_${companyConnection.guid}`;
+    const progressKey = `download_progress_${companyConnection.tallyloc_id}_${companyConnection.guid}`;
     const existingProgress = sessionStorage.getItem(progressKey);
     if (existingProgress) {
       try {
@@ -781,6 +801,7 @@ function TallyDashboard() {
     sessionStorage.setItem('status', companyConnection.status || '');
     sessionStorage.setItem('access_type', companyConnection.access_type || '');
     sessionStorage.setItem('selectedCompanyGuid', companyConnection.guid || '');
+    sessionStorage.setItem('selectedCompanyTallylocId', companyConnection.tallyloc_id || '');
 
     // Update local state
     setSelectedCompanyGuid(companyConnection.guid);

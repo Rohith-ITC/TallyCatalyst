@@ -204,9 +204,15 @@ function Ledgerbook() {
     billwiseBreakup: false
   });
 
-  // Get the current company object using the selected guid
+  // Get the current company object using the selected guid and tallyloc_id
   const currentCompanyObj = useMemo(() => {
-    return companies.find(c => c.guid === company);
+    if (!company) return null;
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    return companies.find(c => 
+      c.guid === company && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
   }, [company, companies]);
 
   // Listen for company changes from top bar
@@ -239,7 +245,12 @@ function Ledgerbook() {
       const { type, company: updatedCompany } = event.detail || {};
       if (type === 'customers') {
         const currentCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
-        const currentCompany = companies.find(c => c.guid === currentCompanyGuid);
+        const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+        // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+        const currentCompany = companies.find(c => 
+          c.guid === currentCompanyGuid && 
+          (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+        );
         // Only refresh if the update is for the current company
         if (currentCompany && updatedCompany && 
             (updatedCompany.guid === currentCompanyGuid || 

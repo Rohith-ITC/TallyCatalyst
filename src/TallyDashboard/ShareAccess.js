@@ -46,8 +46,13 @@ const ShareAccess = () => {
     
     // Get selected company from session storage, but only if it has Full Access
     const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid');
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
     if (selectedCompanyGuid) {
-      const selectedCompany = connections.find(c => c.guid === selectedCompanyGuid);
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const selectedCompany = connections.find(c => 
+        c.guid === selectedCompanyGuid && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
       // Only set the company if it has Full Access, otherwise leave it empty
       if (selectedCompany && selectedCompany.access_type === 'Full Access') {
         setCompany(selectedCompanyGuid);
@@ -117,9 +122,15 @@ const ShareAccess = () => {
     }
   }, [showCompanyDropdown, companySearchTerm, allConnections]);
 
-  // Get the current company object using the selected guid
+  // Get the current company object using the selected guid and tallyloc_id
   const currentCompanyObj = useMemo(() => {
-    return allConnections.find(c => c.guid === company);
+    if (!company) return null;
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    return allConnections.find(c => 
+      c.guid === company && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
   }, [company, allConnections]);
 
   const handleGetMasters = async (e) => {
@@ -409,7 +420,12 @@ const ShareAccess = () => {
               }}>
                 <input
                   value={company ? (() => {
-                    const currentCompany = allConnections.find(c => c.guid === company);
+                    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+                    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+                    const currentCompany = allConnections.find(c => 
+                      c.guid === company && 
+                      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+                    );
                     return currentCompany ? `${currentCompany.company} [${currentCompany.access_type}]` : '';
                   })() : companySearchTerm}
                   onChange={e => {
@@ -513,19 +529,39 @@ const ShareAccess = () => {
                   position: 'absolute',
                   left: '16px',
                   top: companyFocused || (() => {
-                    const currentCompany = allConnections.find(c => c.guid === company);
+                    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+                    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+                    const currentCompany = allConnections.find(c => 
+                      c.guid === company && 
+                      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+                    );
                     return !!currentCompany;
                   })() ? '-8px' : '50%',
                   transform: companyFocused || (() => {
-                    const currentCompany = allConnections.find(c => c.guid === company);
+                    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+                    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+                    const currentCompany = allConnections.find(c => 
+                      c.guid === company && 
+                      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+                    );
                     return !!currentCompany;
                   })() ? 'none' : 'translateY(-50%)',
                   fontSize: companyFocused || (() => {
-                    const currentCompany = allConnections.find(c => c.guid === company);
+                    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+                    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+                    const currentCompany = allConnections.find(c => 
+                      c.guid === company && 
+                      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+                    );
                     return !!currentCompany;
                   })() ? '11px' : '14px',
                   color: companyFocused || (() => {
-                    const currentCompany = allConnections.find(c => c.guid === company);
+                    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+                    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+                    const currentCompany = allConnections.find(c => 
+                      c.guid === company && 
+                      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+                    );
                     return !!currentCompany;
                   })() ? '#3b82f6' : '#6b7280',
                   backgroundColor: '#fff',
