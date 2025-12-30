@@ -106,6 +106,11 @@ function PlaceOrder_ECommerce() {
   const [stockItems, setStockItems] = useState([]);
   const [stockItemsLoading, setStockItemsLoading] = useState(false);
   const [refreshStockItems, setRefreshStockItems] = useState(0);
+  
+  // Stock groups and categories from API (store both ID and name for matching)
+  const [stockGroups, setStockGroups] = useState([]); // Array of { id, name }
+  const [stockCategories, setStockCategories] = useState([]); // Array of { id, name }
+  const [groupsCategoriesLoading, setGroupsCategoriesLoading] = useState(false);
 
   // Image URL state for Google Drive conversions
   const [imageUrlMap, setImageUrlMap] = useState({});
@@ -770,6 +775,9 @@ function PlaceOrder_ECommerce() {
       setStockItems([]);
       setCart([]);
       setCustomerSearchTerm('');
+      setSelectedGroup(''); // Reset group filter
+      setSelectedCategory(''); // Reset category filter
+      setProductSearchTerm(''); // Reset search term
       imageUrlCache.current.clear(); // Clear image URL cache
 
       const currentCompany = companies.find(c => c.guid === newCompanyGuid);
@@ -829,8 +837,172 @@ function PlaceOrder_ECommerce() {
     return () => window.removeEventListener('globalRefresh', handleGlobalRefresh);
   }, []);
 
-  // Product search
+  // Product search and filters
   const [productSearchTerm, setProductSearchTerm] = useState('');
+  const [selectedGroup, setSelectedGroup] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
+
+  // Fetch stock groups and categories from API
+  useEffect(() => {
+    const fetchGroupsAndCategories = async () => {
+      if (!company) {
+        setStockGroups([]);
+        setStockCategories([]);
+        return;
+      }
+
+      const currentCompany = companies.find(c => c.guid === company);
+      if (!currentCompany) return;
+
+      const { tallyloc_id, company: companyVal, guid } = currentCompany;
+      setGroupsCategoriesLoading(true);
+
+      try {
+        const payload = {
+          tallyloc_id,
+          company: companyVal,
+          guid
+        };
+
+        // Fetch stock groups
+        const stockGroupsResponse = await apiPost(`/api/tally/stockgroups?ts=${Date.now()}`, payload);
+        if (stockGroupsResponse && stockGroupsResponse.stockGroups && Array.isArray(stockGroupsResponse.stockGroups)) {
+          const groups = stockGroupsResponse.stockGroups.map(g => ({
+            id: g.MASTERID || g.id || '',
+            name: g.NAME || g.name || ''
+          })).filter(g => g.name);
+          setStockGroups(groups);
+          console.log('✅ Loaded stock groups:', groups.length, groups.map(g => g.name));
+        } else {
+          console.log('⚠️ Stock groups response structure:', stockGroupsResponse);
+          setStockGroups([]);
+        }
+
+        // Fetch stock categories
+        const stockCategoriesResponse = await apiPost(`/api/tally/stockcategories?ts=${Date.now()}`, payload);
+        if (stockCategoriesResponse && stockCategoriesResponse.stockCategories && Array.isArray(stockCategoriesResponse.stockCategories)) {
+          const categories = stockCategoriesResponse.stockCategories.map(c => ({
+            id: c.MASTERID || c.id || '',
+            name: c.NAME || c.name || ''
+          })).filter(c => c.name);
+          setStockCategories(categories);
+          console.log('✅ Loaded stock categories:', categories.length, categories.map(c => c.name));
+        } else {
+          console.log('⚠️ Stock categories response structure:', stockCategoriesResponse);
+          setStockCategories([]);
+        }
+      } catch (err) {
+        console.error('Error fetching groups and categories:', err);
+        setStockGroups([]);
+        setStockCategories([]);
+      } finally {
+        setGroupsCategoriesLoading(false);
+      }
+    };
+
+    fetchGroupsAndCategories();
+  }, [company, companies]);
+
+  // Helper function to extract group from an item
+  const getItemGroup = (item) => {
+    // First check PARENT field (direct parent group)
+    if (item.PARENT && item.PARENT.trim()) {
+      return item.PARENT.trim();
+    }
+    
+    // Then check GROUPLIST (pipe-separated, first item is usually the direct group)
+    if (item.GROUPLIST && item.GROUPLIST.trim()) {
+      return item.GROUPLIST.split('|')[0].trim();
+    }
+    
+    // Fallback to other field name variations
+    const group = item.GROUP || item.group || item.GROUPNAME || item.groupName || 
+                  item.STOCKGROUP || item.stockGroup || item.STOCK_GROUP || 
+                  item.stockitemgroup || item.STOCKITEMGROUP || null;
+    
+    return group ? String(group).trim() : null;
+  };
+
+  // Helper function to extract category from an item
+  const getItemCategory = (item) => {
+    // Check for various field name variations
+    let category = item.CATEGORY || item.category || item.CATEGORYNAME || item.categoryName || 
+                   item.STOCKCATEGORY || item.stockCategory || item.STOCK_CATEGORY || 
+                   item.stockitemcategory || item.STOCKITEMCATEGORY || null;
+    
+    // Handle pipe-separated lists
+    if (!category && item.stockitemcategorylist) {
+      category = item.stockitemcategorylist.split('|')[0].trim();
+    }
+    
+    return category ? String(category).trim() : null;
+  };
+
+  // Extract unique groups and categories from stock items (as fallback)
+  const availableGroupsFromItems = useMemo(() => {
+    const groups = new Set();
+    stockItems.forEach(item => {
+      // Add PARENT if it exists
+      if (item.PARENT && item.PARENT.trim()) {
+        groups.add(item.PARENT.trim());
+      }
+      
+      // Add all groups from GROUPLIST (pipe-separated)
+      if (item.GROUPLIST && item.GROUPLIST.trim()) {
+        item.GROUPLIST.split('|').forEach(g => {
+          const trimmed = g.trim();
+          if (trimmed) groups.add(trimmed);
+        });
+      }
+      
+      // Fallback to other field variations
+      const group = getItemGroup(item);
+      if (group) {
+        groups.add(group);
+      }
+    });
+    const groupsArray = Array.from(groups).sort();
+    console.log('📦 Groups extracted from stock items:', groupsArray.length, groupsArray.slice(0, 10));
+    return groupsArray;
+  }, [stockItems]);
+
+  const availableCategoriesFromItems = useMemo(() => {
+    const categories = new Set();
+    stockItems.forEach(item => {
+      // Get category from item using same logic as filtering
+      const category = getItemCategory(item);
+      if (category) {
+        categories.add(category);
+      }
+      
+      // Also check pipe-separated lists for all categories
+      if (item.stockitemcategorylist) {
+        item.stockitemcategorylist.split('|').forEach(c => {
+          const trimmed = c.trim();
+          if (trimmed) categories.add(trimmed);
+        });
+      }
+    });
+    const categoriesArray = Array.from(categories).sort();
+    console.log('📦 Categories extracted from stock items:', categoriesArray.length, categoriesArray.slice(0, 10));
+    return categoriesArray;
+  }, [stockItems]);
+
+  // Use API data if available, otherwise fall back to extracted data from items
+  const availableGroups = useMemo(() => {
+    if (stockGroups.length > 0) {
+      return stockGroups.map(g => g.name).sort();
+    }
+    return availableGroupsFromItems;
+  }, [stockGroups, availableGroupsFromItems]);
+
+  const availableCategories = useMemo(() => {
+    if (stockCategories.length > 0) {
+      return stockCategories.map(c => c.name).sort();
+    }
+    return availableCategoriesFromItems;
+  }, [stockCategories, availableCategoriesFromItems]);
+
   const filteredStockItems = useMemo(() => {
     let items = stockItems;
 
@@ -839,19 +1011,115 @@ function PlaceOrder_ECommerce() {
       items = stockItems.filter(item => (item.CLOSINGSTOCK || 0) > 0);
     }
 
-    const term = productSearchTerm.trim().toLowerCase();
-    if (!term) return items;
-
-    const out = [];
-    for (let i = 0; i < items.length; i++) {
-      const it = items[i];
-      const name = (it.NAME || '').toLowerCase();
-      const part = (it.PARTNO || '').toLowerCase();
-      if (name.includes(term) || part.includes(term)) out.push(it);
-      if (out.length >= 1000) break; // safety cap
+    // Filter by group
+    if (selectedGroup) {
+      const beforeCount = items.length;
+      items = items.filter(item => {
+        // Check PARENT field first (direct parent group)
+        if (item.PARENT && item.PARENT.trim() === selectedGroup) {
+          return true;
+        }
+        
+        // Check GROUPLIST (pipe-separated) for exact match
+        if (item.GROUPLIST && item.GROUPLIST.trim()) {
+          const groups = item.GROUPLIST.split('|').map(g => g.trim());
+          if (groups.includes(selectedGroup)) {
+            return true;
+          }
+        }
+        
+        // Fallback: check other field variations
+        const itemGroup = getItemGroup(item);
+        if (itemGroup && itemGroup === selectedGroup) {
+          return true;
+        }
+        
+        return false;
+      });
+      console.log(`🔍 Filtered by group "${selectedGroup}": ${beforeCount} → ${items.length} items`);
+      if (items.length === 0 && beforeCount > 0) {
+        // Debug: log a sample item to see what group fields it has
+        const sampleItem = stockItems[0];
+        console.log('🔍 Sample item group fields:', {
+          itemName: sampleItem?.NAME,
+          PARENT: sampleItem?.PARENT,
+          GROUPLIST: sampleItem?.GROUPLIST,
+          allGroupKeys: Object.keys(sampleItem || {}).filter(k => k.toLowerCase().includes('group'))
+        });
+      }
     }
-    return out;
-  }, [productSearchTerm, stockItems, canShowItemsHasQty]);
+
+    // Filter by category
+    if (selectedCategory) {
+      const beforeCount = items.length;
+      items = items.filter(item => {
+        // Get category name from item
+        const itemCategory = getItemCategory(item);
+        
+        // Check pipe-separated lists for exact match
+        if (item.stockitemcategorylist) {
+          const categories = item.stockitemcategorylist.split('|').map(c => c.trim());
+          if (categories.includes(selectedCategory)) {
+            return true;
+          }
+        }
+        
+        // Match by name
+        if (itemCategory && itemCategory === selectedCategory) {
+          return true;
+        }
+        
+        // Match by ID if stock items have CATEGORYID
+        if (stockCategories.length > 0) {
+          const selectedCategoryObj = stockCategories.find(c => c.name === selectedCategory);
+          if (selectedCategoryObj && selectedCategoryObj.id) {
+            const categoryId = item.CATEGORYID || item.categoryId || item.CATEGORY_ID || 
+                              item.STOCKCATEGORYID || item.stockCategoryId || item.STOCK_CATEGORY_ID ||
+                              item.stockitemcategoryid || item.STOCKITEMCATEGORYID || null;
+            if (categoryId && String(categoryId) === String(selectedCategoryObj.id)) {
+              return true;
+            }
+          }
+        }
+        
+        return false;
+      });
+      console.log(`🔍 Filtered by category "${selectedCategory}": ${beforeCount} → ${items.length} items`);
+      if (items.length === 0 && beforeCount > 0) {
+        // Debug: log a sample item to see what category fields it has
+        const sampleItem = stockItems[0];
+        console.log('🔍 Sample item category fields:', {
+          itemName: sampleItem?.NAME,
+          categoryFields: {
+            CATEGORY: sampleItem?.CATEGORY,
+            category: sampleItem?.category,
+            CATEGORYNAME: sampleItem?.CATEGORYNAME,
+            STOCKCATEGORY: sampleItem?.STOCKCATEGORY,
+            stockitemcategory: sampleItem?.stockitemcategory,
+            stockitemcategorylist: sampleItem?.stockitemcategorylist,
+            CATEGORYID: sampleItem?.CATEGORYID,
+            allCategoryKeys: Object.keys(sampleItem || {}).filter(k => k.toLowerCase().includes('category'))
+          }
+        });
+      }
+    }
+
+    // Filter by search term
+    const term = productSearchTerm.trim().toLowerCase();
+    if (term) {
+      const out = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        const name = (it.NAME || '').toLowerCase();
+        const part = (it.PARTNO || '').toLowerCase();
+        if (name.includes(term) || part.includes(term)) out.push(it);
+        if (out.length >= 1000) break; // safety cap
+      }
+      return out;
+    }
+
+    return items;
+  }, [productSearchTerm, selectedGroup, selectedCategory, stockItems, canShowItemsHasQty, stockGroups, stockCategories]);
 
 
   // Compute rate for an item using selected customer's price level
@@ -1106,7 +1374,14 @@ function PlaceOrder_ECommerce() {
                 hasimagepath: !!sampleItem.imagepath,
                 allKeys: Object.keys(sampleItem).filter(k => k.toLowerCase().includes('image')),
                 hasPARTNO: !!sampleItem.PARTNO,
-                hasCLOSINGSTOCK: sampleItem.CLOSINGSTOCK !== undefined
+                hasCLOSINGSTOCK: sampleItem.CLOSINGSTOCK !== undefined,
+                // Check for group/category fields
+                hasGROUP: !!sampleItem.GROUP,
+                GROUP: sampleItem.GROUP,
+                hasCATEGORY: !!sampleItem.CATEGORY,
+                CATEGORY: sampleItem.CATEGORY,
+                allGroupKeys: Object.keys(sampleItem).filter(k => k.toLowerCase().includes('group')),
+                allCategoryKeys: Object.keys(sampleItem).filter(k => k.toLowerCase().includes('category'))
               });
             }
             // Items from cache are already deobfuscated (done in syncItems)
@@ -1174,7 +1449,14 @@ function PlaceOrder_ECommerce() {
               hasimagepath: !!sampleItem.imagepath,
               allKeys: Object.keys(sampleItem).filter(k => k.toLowerCase().includes('image')),
               hasPARTNO: !!sampleItem.PARTNO,
-              hasCLOSINGSTOCK: sampleItem.CLOSINGSTOCK !== undefined
+              hasCLOSINGSTOCK: sampleItem.CLOSINGSTOCK !== undefined,
+              // Check for group/category fields
+              hasGROUP: !!sampleItem.GROUP,
+              GROUP: sampleItem.GROUP,
+              hasCATEGORY: !!sampleItem.CATEGORY,
+              CATEGORY: sampleItem.CATEGORY,
+              allGroupKeys: Object.keys(sampleItem).filter(k => k.toLowerCase().includes('group')),
+              allCategoryKeys: Object.keys(sampleItem).filter(k => k.toLowerCase().includes('category'))
             });
           }
           
@@ -2735,16 +3017,17 @@ function PlaceOrder_ECommerce() {
             src={thumbnailUrl}
             alt={itemName}
             style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              borderRadius: '8px',
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              zIndex: 1,
-              transformOrigin: 'center center',
-              transition: 'transform 0.5s ease-in-out'
+        width: '100%',
+        height: '100%',
+        objectFit: 'contain',
+        borderRadius: '8px',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        zIndex: 1,
+        transformOrigin: 'center center',
+        transition: 'transform 0.5s ease-in-out',
+        background: '#f8fafc'
             }}
             onError={(e) => {
               const img = e.target;
@@ -2877,17 +3160,18 @@ function PlaceOrder_ECommerce() {
             src={imageUrl}
             alt={itemName}
             style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              borderRadius: '8px',
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              zIndex: 2,
-              opacity: thumbnailUrl ? 0 : 1,
-              transition: 'opacity 0.4s ease-in-out, transform 0.5s ease-in-out',
-              transformOrigin: 'center center'
+        width: '100%',
+        height: '100%',
+        objectFit: 'contain',
+        borderRadius: '8px',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        zIndex: 2,
+        opacity: thumbnailUrl ? 0 : 1,
+        transition: 'opacity 0.4s ease-in-out, transform 0.5s ease-in-out',
+        transformOrigin: 'center center',
+        background: '#f8fafc'
             }}
             onLoad={(e) => {
               console.log('✅ ProductImage: Full image loaded successfully');
@@ -3027,14 +3311,15 @@ function PlaceOrder_ECommerce() {
             src={actualImagePath}
             alt={itemName}
             style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              borderRadius: '8px',
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              zIndex: 1
+        width: '100%',
+        height: '100%',
+        objectFit: 'contain',
+        borderRadius: '8px',
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        zIndex: 1,
+        background: '#f8fafc'
             }}
             onLoad={() => {
               console.log('✅ ProductImage: Direct image loaded successfully');
@@ -3367,7 +3652,7 @@ function PlaceOrder_ECommerce() {
               style={{
                 width: '100%',
                 height: '100%',
-                objectFit: 'cover',
+                objectFit: 'contain',
                 borderRadius: '8px',
                 position: 'absolute',
                 top: 0,
@@ -3533,7 +3818,7 @@ function PlaceOrder_ECommerce() {
               style={{
                 width: '100%',
                 height: '100%',
-                objectFit: 'cover',
+                objectFit: 'contain',
                 position: 'absolute',
                 top: 0,
                 left: 0,
@@ -3732,7 +4017,7 @@ function PlaceOrder_ECommerce() {
                 style={{
                   width: '100%',
                   height: '100%',
-                  objectFit: 'cover',
+                  objectFit: 'contain',
                   position: 'absolute',
                   top: 0,
                   left: 0,
@@ -4604,6 +4889,145 @@ function PlaceOrder_ECommerce() {
             </div>
           </div>
 
+          {/* Group and Category Filters */}
+          <div style={{
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            alignItems: isMobile ? 'flex-start' : 'center',
+            justifyContent: 'flex-start',
+            gap: isMobile ? '12px' : '16px',
+            marginBottom: isMobile ? '16px' : '20px',
+            flexWrap: 'wrap'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: isMobile ? '100%' : 'auto'
+            }}>
+              <label style={{
+                fontSize: isMobile ? 13 : 14,
+                fontWeight: 500,
+                color: '#374151',
+                whiteSpace: 'nowrap'
+              }}>
+                Group:
+              </label>
+              <select
+                value={selectedGroup}
+                onChange={(e) => setSelectedGroup(e.target.value)}
+                disabled={groupsCategoriesLoading || availableGroups.length === 0}
+                style={{
+                  padding: isMobile ? '6px 28px 6px 10px' : '8px 32px 8px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 8,
+                  fontSize: isMobile ? 13 : 14,
+                  backgroundColor: (groupsCategoriesLoading || availableGroups.length === 0) ? '#f9fafb' : '#fff',
+                  color: (groupsCategoriesLoading || availableGroups.length === 0) ? '#9ca3af' : '#1f2937',
+                  cursor: (groupsCategoriesLoading || availableGroups.length === 0) ? 'not-allowed' : 'pointer',
+                  minWidth: isMobile ? '100%' : 180,
+                  appearance: 'none',
+                  backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 12 12\'%3E%3Cpath fill=\'%2364748b\' d=\'M6 9L1 4h10z\'/%3E%3C/svg%3E")',
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 10px center',
+                  paddingRight: isMobile ? '28px' : '32px'
+                }}
+              >
+                <option value="">
+                  {groupsCategoriesLoading ? 'Loading...' : (availableGroups.length === 0 ? 'No groups available' : 'All Groups')}
+                </option>
+                {availableGroups.map((group, index) => (
+                  <option key={index} value={group}>
+                    {group}
+                  </option>
+                ))}
+              </select>
+              {selectedGroup && (
+                <button
+                  onClick={() => setSelectedGroup('')}
+                  title="Clear Group Filter"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#64748b',
+                    fontSize: 16,
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              width: isMobile ? '100%' : 'auto'
+            }}>
+              <label style={{
+                fontSize: isMobile ? 13 : 14,
+                fontWeight: 500,
+                color: '#374151',
+                whiteSpace: 'nowrap'
+              }}>
+                Category:
+              </label>
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                disabled={groupsCategoriesLoading || availableCategories.length === 0}
+                style={{
+                  padding: isMobile ? '6px 28px 6px 10px' : '8px 32px 8px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 8,
+                  fontSize: isMobile ? 13 : 14,
+                  backgroundColor: (groupsCategoriesLoading || availableCategories.length === 0) ? '#f9fafb' : '#fff',
+                  color: (groupsCategoriesLoading || availableCategories.length === 0) ? '#9ca3af' : '#1f2937',
+                  cursor: (groupsCategoriesLoading || availableCategories.length === 0) ? 'not-allowed' : 'pointer',
+                  minWidth: isMobile ? '100%' : 180,
+                  appearance: 'none',
+                  backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 12 12\'%3E%3Cpath fill=\'%2364748b\' d=\'M6 9L1 4h10z\'/%3E%3C/svg%3E")',
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 10px center',
+                  paddingRight: isMobile ? '28px' : '32px'
+                }}
+              >
+                <option value="">
+                  {groupsCategoriesLoading ? 'Loading...' : (availableCategories.length === 0 ? 'No categories available' : 'All Categories')}
+                </option>
+                {availableCategories.map((category, index) => (
+                  <option key={index} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+              {selectedCategory && (
+                <button
+                  onClick={() => setSelectedCategory('')}
+                  title="Clear Category Filter"
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: '#64748b',
+                    fontSize: 16,
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+
           <div style={{
             width: '100%',
             display: 'grid',
@@ -4653,7 +5077,7 @@ function PlaceOrder_ECommerce() {
                       data-item-name={item.NAME}
                       style={{
                         width: '100%',
-                        height: isMobile ? '90px' : '120px',
+                        height: isMobile ? '120px' : '180px',
                         marginBottom: isMobile ? '8px' : '12px',
                         borderRadius: '8px',
                         overflow: 'hidden',
@@ -5861,12 +6285,12 @@ function PlaceOrder_ECommerce() {
                                       <img
                                         src={thumbnailUrl}
                                         alt={`${selectedProduct.NAME} - Thumbnail ${index + 1}`}
-                                        style={{
-                                          width: '100%',
-                                          height: '100%',
-                                          objectFit: 'cover',
-                                          borderRadius: '4px'
-                                        }}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                  borderRadius: '4px'
+                }}
                                         onError={(e) => {
                                           // Fallback to ProductImage component if CDN fails
                                           console.warn('Thumbnail CDN failed, using ProductImage fallback');

@@ -10,7 +10,8 @@ const VoucherDetailsModal = ({
   onReject,
   isAuthorizing = false,
   isRejecting = false,
-  voucherStatus = null
+  voucherStatus = null,
+  headerActions: externalHeaderActions = null
 }) => {
   const [voucherDetailsData, setVoucherDetailsData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -152,7 +153,7 @@ const VoucherDetailsModal = ({
   }, [masterId]);
 
   // Create header actions (approve/reject buttons) if showApproveReject is true
-  const headerActions = showApproveReject ? (
+  const approveRejectActions = showApproveReject ? (
     <>
       {/* Authorize Button */}
       <button
@@ -231,6 +232,14 @@ const VoucherDetailsModal = ({
     </>
   ) : null;
 
+  // Combine external header actions with approve/reject actions (if any)
+  const combinedHeaderActions = (
+    <>
+      {externalHeaderActions}
+      {approveRejectActions}
+    </>
+  );
+
   // Render the base modal with optional header actions
   return (
     <VoucherDetailsModalBase
@@ -238,7 +247,7 @@ const VoucherDetailsModal = ({
       loading={loading}
       error={error}
       onClose={onClose}
-      headerActions={headerActions}
+      headerActions={combinedHeaderActions}
     />
   );
 };

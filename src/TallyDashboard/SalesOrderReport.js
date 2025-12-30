@@ -263,7 +263,7 @@ function Reports() {
 
   return (
     <div style={{
-      width: '100%',
+      width: '1200px',
       minHeight: 'calc(100vh - 120px)',
       padding: '24px',
     }}>

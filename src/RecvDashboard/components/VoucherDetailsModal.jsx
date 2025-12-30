@@ -411,7 +411,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr',
                 gap: isMobile ? '16px' : '24px',
                 marginBottom: isMobile ? '16px' : '20px'
               }}
@@ -422,11 +422,11 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                   {partyLedgerName}
                 </div>
               </div>
-              {partyLedger && (partyLedger.ISPARTYLEDGER || partyLedger.ispartyledger || '').toString().toLowerCase().trim() === 'yes' && voucherPartyLedgerName && (
-                <div>
-                  <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Party Ledger Name</div>
-                  <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 500 }}>
-                    {voucherPartyLedgerName}
+              {partyLedger && (partyLedger.ISPARTYLEDGER || partyLedger.ispartyledger || '').toString().toLowerCase().trim() === 'yes' && (voucher.ADDRESS || voucher.address || voucher.BASICBUYERADDRESS || voucher.basicbuyeraddress) && (
+                <div style={{ gridColumn: isMobile ? 'auto' : '2 / 4' }}>
+                  <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Party Ledger Address</div>
+                  <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 500, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {voucher.ADDRESS || voucher.address || voucher.BASICBUYERADDRESS || voucher.basicbuyeraddress || '-'}
                   </div>
                 </div>
               )}
