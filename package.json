@@ -25,6 +25,7 @@
     "babel-loader": "^8.4.1",
     "date-fns": "^4.1.0",
     "dexie": "^4.2.1",
+    "echarts": "^6.0.0",
     "jspdf": "^2.5.2",
     "jspdf-autotable": "^3.8.4",
     "plotly.js": "^3.3.0",
@@ -72,6 +73,7 @@
     "@types/react-dom": "^19.2.3",
     "assert": "^2.1.0",
     "buffer": "^6.0.3",
+    "shapefile": "^0.6.6",
     "stream-browserify": "^3.0.0",
     "typescript": "^5.9.3"
   }
