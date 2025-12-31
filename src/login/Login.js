@@ -420,14 +420,24 @@ function Login({ onLogin }) {
           background: 'transparent',
           zIndex: 10,
         }}>
-          <span style={{
+          <div style={{
             fontSize: '16px',
             color: '#64748b',
             fontFamily: 'Segoe UI, Roboto, Arial, sans-serif',
-            fontWeight: '500'
+            fontWeight: '500',
+            marginBottom: '8px'
           }}>
             © <span style={{ color: COPYRIGHT_CONFIG.ORANGE_COLOR, fontWeight: '700' }}>{COPYRIGHT_CONFIG.ORANGE_PART}</span> {COPYRIGHT_CONFIG.COMPANY_NAME.replace(COPYRIGHT_CONFIG.ORANGE_PART, '').trim()}
-          </span>
+          </div>
+          <div style={{
+            fontSize: '13px',
+            color: '#64748b',
+            fontFamily: 'Segoe UI, Roboto, Arial, sans-serif',
+          }}>
+            <Link to="/privacy-policy" style={{ color: '#3b82f6', textDecoration: 'none', margin: '0 12px' }}>Privacy Policy</Link>
+            <span style={{ color: '#cbd5e1' }}>|</span>
+            <Link to="/terms-of-service" style={{ color: '#3b82f6', textDecoration: 'none', margin: '0 12px' }}>Terms of Service</Link>
+          </div>
         </div>
       </div>
     </>
