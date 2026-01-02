@@ -47,8 +47,12 @@ function PlaceOrder() {
 
 
       const newCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
-
-      const currentCompany = companies.find(c => c.guid === newCompanyGuid);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === newCompanyGuid && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
 
 
 
@@ -172,7 +176,12 @@ function PlaceOrder() {
 
         } catch (e) { }
 
-        const currentCompany = companies.find(c => c.guid === currentCompanyGuid);
+        const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+        // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+        const currentCompany = companies.find(c => 
+          c.guid === currentCompanyGuid && 
+          (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+        );
 
         // Only refresh if the update is for the current company
 
@@ -365,6 +374,16 @@ function PlaceOrder() {
   const [showVoucherTypeDropdown, setShowVoucherTypeDropdown] = useState(false);
 
   const [voucherTypeFocused, setVoucherTypeFocused] = useState(false);
+
+  // Class Name state
+  const [selectedClassName, setSelectedClassName] = useState('');
+
+  const [showClassNameDropdown, setShowClassNameDropdown] = useState(false);
+
+  const [classNameFocused, setClassNameFocused] = useState(false);
+
+  // Ledger values state - stores user-defined values for ledgers
+  const [ledgerValues, setLedgerValues] = useState({});
 
 
 
@@ -4656,13 +4675,413 @@ function PlaceOrder() {
 
 
 
+  // Get available classes for selected voucher type
+  const availableClasses = useMemo(() => {
+    if (!selectedVoucherType || !voucherTypes.length) {
+      return [];
+    }
+    const selectedVoucher = voucherTypes.find(vt => vt.NAME === selectedVoucherType);
+    if (!selectedVoucher || !selectedVoucher.VOUCHERCLASSLIST || !Array.isArray(selectedVoucher.VOUCHERCLASSLIST)) {
+      return [];
+    }
+    return selectedVoucher.VOUCHERCLASSLIST.map(cls => cls.CLASSNAME).filter(Boolean);
+  }, [selectedVoucherType, voucherTypes]);
+
+  // Get ledgers for selected class
+  const selectedClassLedgers = useMemo(() => {
+    if (!selectedVoucherType || !selectedClassName || !voucherTypes.length) {
+      return [];
+    }
+    const selectedVoucher = voucherTypes.find(vt => vt.NAME === selectedVoucherType);
+    if (!selectedVoucher || !selectedVoucher.VOUCHERCLASSLIST || !Array.isArray(selectedVoucher.VOUCHERCLASSLIST)) {
+      return [];
+    }
+    const selectedClass = selectedVoucher.VOUCHERCLASSLIST.find(cls => cls.CLASSNAME === selectedClassName);
+    if (!selectedClass || !selectedClass.LEDGERENTRIESLIST || !Array.isArray(selectedClass.LEDGERENTRIESLIST)) {
+      return [];
+    }
+    return selectedClass.LEDGERENTRIESLIST;
+  }, [selectedVoucherType, selectedClassName, voucherTypes]);
+
+  // Reset or restore class selection when voucher type changes
+  useEffect(() => {
+    if (!selectedVoucherType || !voucherTypes.length) {
+      setSelectedClassName('');
+      setShowClassNameDropdown(false);
+      setLedgerValues({});
+      return;
+    }
+
+    const selectedVoucher = voucherTypes.find(vt => vt.NAME === selectedVoucherType);
+    if (!selectedVoucher || !selectedVoucher.VOUCHERCLASSLIST || !Array.isArray(selectedVoucher.VOUCHERCLASSLIST)) {
+      setSelectedClassName('');
+      setShowClassNameDropdown(false);
+      setLedgerValues({});
+      return;
+    }
+
+    // Try to restore saved class name if available for this voucher type
+    const savedClassName = sessionStorage.getItem('selectedClassName');
+    if (savedClassName && selectedVoucher.VOUCHERCLASSLIST.some(cls => cls.CLASSNAME === savedClassName)) {
+      setSelectedClassName(savedClassName);
+    } else {
+      setSelectedClassName('');
+      setLedgerValues({});
+    }
+    setShowClassNameDropdown(false);
+  }, [selectedVoucherType, voucherTypes]);
+
+  // Reset ledger values when class changes
+  useEffect(() => {
+    setLedgerValues({});
+  }, [selectedClassName]);
+
+  // Calculate all ledger amounts (shared between UI display and payload)
+  const calculatedLedgerAmounts = useMemo(() => {
+    // Return empty object if no class selected or no items
+    if (!selectedClassName || !selectedClassLedgers.length || orderItems.length === 0) {
+      return {
+        subtotal: 0,
+        ledgerAmounts: {},
+        gstAmounts: {},
+        flatRateAmounts: {},
+        basedOnQuantityAmounts: {},
+        onTotalSalesAmounts: {},
+        onCurrentSubTotalAmounts: {},
+        roundingAmounts: {}
+      };
+    }
+
+    // Get company and customer for state comparison
+    const currentCompany = filteredCompanies.find(c => c.guid === company);
+    const selectedCustomerObj = customerOptions.find(c => c.NAME === selectedCustomer);
+    const companyState = currentCompany?.statename || currentCompany?.STATENAME || currentCompany?.state || '';
+    const customerState = selectedCustomerObj?.STATENAME || editableState || '';
+    const isSameState = companyState && customerState && companyState.toLowerCase().trim() === customerState.toLowerCase().trim();
+
+    // Helper function to determine GSTDUTYHEAD from ledger name
+    const getGSTDUTYHEAD = (ledgerName) => {
+      const nameUpper = (ledgerName || '').toUpperCase();
+      if (nameUpper.includes('CGST')) return 'CGST';
+      if (nameUpper.includes('SGST') || nameUpper.includes('UTGST')) return 'SGST/UTGST';
+      if (nameUpper.includes('IGST')) return 'IGST';
+      return null;
+    };
+
+    // Helper function to check if ledger should be calculated based on state
+    const shouldCalculateLedger = (ledger) => {
+      const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
+      if (!gstDutyHead) return false;
+
+      if (isSameState) {
+        return gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST';
+      } else {
+        return gstDutyHead === 'IGST';
+      }
+    };
+
+    // Calculate subtotal directly (sum of all item amounts)
+    const subtotal = orderItems.reduce((sum, item) => sum + (parseFloat(item.amount || 0)), 0);
+
+    // Calculate GST for each GST ledger
+    const gstLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'GST' && shouldCalculateLedger(ledger)
+    );
+
+    const gstAmounts = {};
+    gstLedgers.forEach(ledger => {
+      const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
+      const rateOfTaxCalc = parseFloat(ledger.RATEOFTAXCALCULATION || '0');
+      let totalGST = 0;
+
+      orderItems.forEach(item => {
+        const itemGstPercent = parseFloat(item.gstPercent || 0);
+
+        if (itemGstPercent > 0) {
+          const itemTaxableAmount = parseFloat(item.amount || 0);
+
+          if (rateOfTaxCalc === 0) {
+            let effectiveGstRate = itemGstPercent;
+            if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+              effectiveGstRate = itemGstPercent / 2;
+            }
+            const itemGST = (itemTaxableAmount * effectiveGstRate) / 100;
+            totalGST += itemGST;
+          } else {
+            const matchingRate = rateOfTaxCalc;
+            if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+              if (Math.abs((itemGstPercent / 2) - matchingRate) < 0.01) {
+                const itemGST = (itemTaxableAmount * matchingRate) / 100;
+                totalGST += itemGST;
+              }
+            } else {
+              if (Math.abs(itemGstPercent - matchingRate) < 0.01) {
+                const itemGST = (itemTaxableAmount * matchingRate) / 100;
+                totalGST += itemGST;
+              }
+            }
+          }
+        }
+      });
+
+      gstAmounts[ledger.NAME] = totalGST;
+    });
+
+    // Calculate total ledger values (only user-defined ones that have values)
+    const totalLedgerValues = Object.values(ledgerValues).reduce((sum, value) => {
+      return sum + (parseFloat(value) || 0);
+    }, 0);
+
+    // Calculate flat rate ledger amounts
+    const flatRateLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'As Flat Rate'
+    );
+    const flatRateAmounts = {};
+    flatRateLedgers.forEach(ledger => {
+      const classRate = parseFloat(ledger.CLASSRATE || '0');
+      flatRateAmounts[ledger.NAME] = classRate;
+    });
+    const totalFlatRate = Object.values(flatRateAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+    // Calculate "Based on Quantity" ledger amounts
+    const basedOnQuantityLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'Based on Quantity'
+    );
+    const basedOnQuantityAmounts = {};
+    const totalQuantity = orderItems.reduce((sum, item) => sum + (parseFloat(item.quantity || 0)), 0);
+    basedOnQuantityLedgers.forEach(ledger => {
+      const classRate = parseFloat(ledger.CLASSRATE || '0');
+      basedOnQuantityAmounts[ledger.NAME] = totalQuantity * classRate;
+    });
+    const totalBasedOnQuantity = Object.values(basedOnQuantityAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+    // Calculate "On Total Sales" ledger amounts
+    const onTotalSalesLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'On Total Sales'
+    );
+    const onTotalSalesAmounts = {};
+    onTotalSalesLedgers.forEach(ledger => {
+      const classRate = parseFloat(ledger.CLASSRATE || '0');
+      onTotalSalesAmounts[ledger.NAME] = (subtotal * classRate) / 100;
+    });
+    const totalOnTotalSales = Object.values(onTotalSalesAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+    // Calculate "On Current SubTotal" ledger amounts
+    const onCurrentSubTotalLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'On Current SubTotal'
+    );
+    let cumulativeOnCurrentSubTotal = 0;
+    const onCurrentSubTotalAmounts = {};
+    onCurrentSubTotalLedgers.forEach(ledger => {
+      const classRate = parseFloat(ledger.CLASSRATE || '0');
+      const currentBase = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + cumulativeOnCurrentSubTotal;
+      const amount = (currentBase * classRate) / 100;
+      onCurrentSubTotalAmounts[ledger.NAME] = amount;
+      cumulativeOnCurrentSubTotal += amount;
+    });
+    const finalOnCurrentSubTotal = cumulativeOnCurrentSubTotal;
+
+    // Calculate GST on other ledgers
+    const gstOnOtherLedgers = {};
+    const calculateAverageGSTRate = () => {
+      let totalTaxableAmount = 0;
+      let weightedGstRate = 0;
+
+      orderItems.forEach(item => {
+        const itemGstPercent = parseFloat(item.gstPercent || 0);
+        const itemAmount = parseFloat(item.amount || 0);
+
+        if (itemGstPercent > 0 && itemAmount > 0) {
+          totalTaxableAmount += itemAmount;
+          weightedGstRate += itemAmount * itemGstPercent;
+        }
+      });
+
+      if (totalTaxableAmount > 0) {
+        return weightedGstRate / totalTaxableAmount;
+      }
+      return 0;
+    };
+
+    const avgGstRate = calculateAverageGSTRate();
+
+    selectedClassLedgers.forEach(ledger => {
+      if (ledger.METHODTYPE === 'GST' || ledger.METHODTYPE === 'As Total Amount Rounding') {
+        return;
+      }
+
+      let ledgerValue = 0;
+
+      if (ledger.METHODTYPE === 'As User Defined Value') {
+        ledgerValue = parseFloat(ledgerValues[ledger.NAME] || 0);
+      } else if (ledger.METHODTYPE === 'As Flat Rate') {
+        ledgerValue = parseFloat(ledger.CLASSRATE || '0');
+      } else if (ledger.METHODTYPE === 'Based on Quantity') {
+        ledgerValue = basedOnQuantityAmounts[ledger.NAME] || 0;
+      } else if (ledger.METHODTYPE === 'On Total Sales') {
+        ledgerValue = onTotalSalesAmounts[ledger.NAME] || 0;
+      } else if (ledger.METHODTYPE === 'On Current SubTotal') {
+        ledgerValue = onCurrentSubTotalAmounts[ledger.NAME] || 0;
+      }
+
+      if (ledgerValue !== 0) {
+        if (ledger.APPROPRIATEFOR === 'GST' && ledger.EXCISEALLOCTYPE === 'Based on Value') {
+          const totalItemValue = orderItems.reduce((sum, item) => sum + (parseFloat(item.amount || 0)), 0);
+
+          if (totalItemValue > 0) {
+            gstLedgers.forEach(gstLedger => {
+              const gstDutyHead = getGSTDUTYHEAD(gstLedger.NAME);
+              if (!gstDutyHead) return;
+
+              const shouldCalculate = (isSameState && (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST')) ||
+                (!isSameState && gstDutyHead === 'IGST');
+
+              if (!shouldCalculate) return;
+
+              let ledgerGstAmount = 0;
+
+              orderItems.forEach(item => {
+                const itemAmount = parseFloat(item.amount || 0);
+                const itemGstPercent = parseFloat(item.gstPercent || 0);
+
+                if (itemAmount > 0 && itemGstPercent > 0) {
+                  const itemDiscountPortion = (ledgerValue * itemAmount) / totalItemValue;
+                  let effectiveGstRate = itemGstPercent;
+
+                  if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+                    effectiveGstRate = itemGstPercent / 2;
+                  }
+
+                  const itemGstOnDiscount = (itemDiscountPortion * effectiveGstRate) / 100;
+                  ledgerGstAmount += itemGstOnDiscount;
+                }
+              });
+
+              // Allow negative GST amounts (for discounts) - remove the > 0 check
+              if (ledgerGstAmount !== 0) {
+                if (!gstAmounts[gstLedger.NAME]) {
+                  gstAmounts[gstLedger.NAME] = 0;
+                }
+                gstAmounts[gstLedger.NAME] += ledgerGstAmount;
+              }
+            });
+          }
+        } else if (ledger.GSTAPPLICABLE === 'Yes' && (ledger.APPROPRIATEFOR === '' || !ledger.APPROPRIATEFOR)) {
+          const gstRate = ledger.GSTRATE ? parseFloat(ledger.GSTRATE) : 0;
+          if (gstRate > 0) {
+            const gstAmount = (ledgerValue * gstRate) / 100;
+            gstOnOtherLedgers[ledger.NAME] = gstAmount;
+          }
+        }
+      }
+    });
+
+    const totalGST = Object.values(gstAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+    const totalGstOnOtherLedgers = Object.values(gstOnOtherLedgers).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+    // Calculate amount before rounding
+    const amountBeforeRounding = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + finalOnCurrentSubTotal + totalGST + totalGstOnOtherLedgers;
+
+    // Helper function to calculate rounding
+    const calculateRounding = (amount, roundType, roundLimit) => {
+      const limit = parseFloat(roundLimit) || 1;
+
+      if (roundType === 'Normal Rounding') {
+        return Math.round(amount / limit) * limit - amount;
+      } else if (roundType === 'Upward Rounding') {
+        return Math.ceil(amount / limit) * limit - amount;
+      } else if (roundType === 'Downward Rounding') {
+        return Math.floor(amount / limit) * limit - amount;
+      }
+      return 0;
+    };
+
+    // Calculate rounding amounts
+    const roundingLedgers = selectedClassLedgers.filter(
+      ledger => ledger.METHODTYPE === 'As Total Amount Rounding'
+    );
+
+    let cumulativeRounding = 0;
+    const roundingAmounts = {};
+    roundingLedgers.forEach(ledger => {
+      const amountToRound = amountBeforeRounding + cumulativeRounding;
+      const roundingAmount = calculateRounding(
+        amountToRound,
+        ledger.ROUNDTYPE || 'Normal Rounding',
+        ledger.ROUNDLIMIT || '1'
+      );
+      roundingAmounts[ledger.NAME] = roundingAmount;
+      cumulativeRounding += roundingAmount;
+    });
+
+    // Build ledger amounts map for easy lookup
+    const ledgerAmountsMap = {};
+    selectedClassLedgers.forEach(ledger => {
+      const isUserDefined = ledger.METHODTYPE === 'As User Defined Value';
+      const isRounding = ledger.METHODTYPE === 'As Total Amount Rounding';
+      const isGST = ledger.METHODTYPE === 'GST';
+      const isFlatRate = ledger.METHODTYPE === 'As Flat Rate';
+      const isBasedOnQuantity = ledger.METHODTYPE === 'Based on Quantity';
+      const isOnTotalSales = ledger.METHODTYPE === 'On Total Sales';
+      const isOnCurrentSubTotal = ledger.METHODTYPE === 'On Current SubTotal';
+
+      let amount = 0;
+
+      if (isUserDefined) {
+        amount = parseFloat(ledgerValues[ledger.NAME] || 0);
+      } else if (isRounding) {
+        amount = roundingAmounts[ledger.NAME] || 0;
+      } else if (isGST) {
+        amount = gstAmounts[ledger.NAME] || 0;
+      } else if (isFlatRate) {
+        amount = flatRateAmounts[ledger.NAME] || 0;
+      } else if (isBasedOnQuantity) {
+        amount = basedOnQuantityAmounts[ledger.NAME] || 0;
+      } else if (isOnTotalSales) {
+        amount = onTotalSalesAmounts[ledger.NAME] || 0;
+      } else if (isOnCurrentSubTotal) {
+        amount = onCurrentSubTotalAmounts[ledger.NAME] || 0;
+      }
+
+      ledgerAmountsMap[ledger.NAME] = amount;
+    });
+
+    return {
+      subtotal,
+      ledgerAmounts: ledgerAmountsMap,
+      gstAmounts,
+      flatRateAmounts,
+      basedOnQuantityAmounts,
+      onTotalSalesAmounts,
+      onCurrentSubTotalAmounts,
+      roundingAmounts
+    };
+  }, [
+    selectedClassName,
+    selectedClassLedgers,
+    orderItems,
+    ledgerValues,
+    company,
+    filteredCompanies,
+    selectedCustomer,
+    customerOptions,
+    editableState
+  ]);
+
+
+
   // Handle customer cache refresh
 
   const handleRefreshCustomers = async () => {
 
     if (!company) return;
 
-    const currentCompany = companies.find(c => c.guid === company);
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const currentCompany = companies.find(c => 
+      c.guid === company && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
 
     if (!currentCompany) return;
 
@@ -4729,8 +5148,12 @@ function PlaceOrder() {
       // Get the current company object directly from companies
 
       // Use companies directly to avoid dependency issues
-
-      const currentCompany = companies.find(c => c.guid === company);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
 
       if (!currentCompany) {
 
@@ -4852,8 +5275,12 @@ function PlaceOrder() {
       // Get the current company object directly from companies
 
       // Use companies directly to avoid dependency issues
-
-      const currentCompany = companies.find(c => c.guid === company);
+      const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+      // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+      const currentCompany = companies.find(c => 
+        c.guid === company && 
+        (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+      );
 
       if (!currentCompany) {
 
@@ -6612,13 +7039,29 @@ function PlaceOrder() {
 
 
 
-      // Find the selected voucher type to get PREFIX and SUFFIX
+      // Find the selected voucher type to get PREFIX and SUFFIX, ISOUTENTRY, PERSISTEDVIEW
 
       const selectedVoucherTypeObj = voucherTypes.find(vt => vt.NAME === selectedVoucherType);
 
       const voucherNumber = selectedVoucherTypeObj
 
         ? `${selectedVoucherTypeObj.PREFIX}${timestamp}${selectedVoucherTypeObj.SUFFIX}`
+
+        : '';
+
+      // Get selected class object to access LEDGERFORINVENTORYLIST
+
+      const selectedClassObj = selectedVoucherTypeObj && selectedVoucherTypeObj.VOUCHERCLASSLIST
+
+        ? selectedVoucherTypeObj.VOUCHERCLASSLIST.find(cls => cls.CLASSNAME === selectedClassName)
+
+        : null;
+
+      // Get ledger name for inventory items from LEDGERFORINVENTORYLIST
+
+      const inventoryLedgerName = selectedClassObj && selectedClassObj.LEDGERFORINVENTORYLIST && selectedClassObj.LEDGERFORINVENTORYLIST.length > 0
+
+        ? selectedClassObj.LEDGERFORINVENTORYLIST[0].NAME
 
         : '';
 
@@ -6715,6 +7158,12 @@ function PlaceOrder() {
         ...(canShowDelvTerms && { basicorderterms: deliveryTerms || '' }),
 
         vouchertype: selectedVoucherType || '',
+
+        ...(selectedVoucherTypeObj?.ISOUTENTRY && { isoutentry: selectedVoucherTypeObj.ISOUTENTRY }),
+
+        ...(selectedVoucherTypeObj?.PERSISTEDVIEW && { persistedview: selectedVoucherTypeObj.PERSISTEDVIEW }),
+
+        ...(selectedClassName && { classname: selectedClassName }),
 
         vouchernumber: voucherNumber,
 
@@ -6854,11 +7303,12 @@ function PlaceOrder() {
           // Build payload item
           const payloadItem = {
             item: item.name,
+            ...(inventoryLedgerName && { ledgername: inventoryLedgerName }),
             qty: qtyString, // Always base quantity display
             rate: rateString,
             discount: item.discountPercent || 0,
             gst: item.gstPercent || 0,
-            amount: item.amount,
+            amount: Math.round(parseFloat(item.amount || 0) * 100) / 100,
             description: item.description || ''
           };
 
@@ -6906,7 +7356,27 @@ function PlaceOrder() {
           }*/
 
           return payloadItem;
-        })
+        }),
+
+        // Build ledgers array with all ledger entries that have values (use pre-calculated values)
+        ledgers: (() => {
+          const ledgersArray = [];
+
+          // Use the pre-calculated ledger amounts from useMemo
+          selectedClassLedgers.forEach(ledger => {
+            const ledgerAmount = calculatedLedgerAmounts.ledgerAmounts[ledger.NAME] || 0;
+
+            // Add ledger if it has a non-zero amount (including negative values)
+            if (ledgerAmount !== 0) {
+              ledgersArray.push({
+                ledgername: ledger.NAME,
+                amount: Math.round(parseFloat(ledgerAmount) * 100) / 100
+              });
+            }
+          });
+
+          return ledgersArray;
+        })()
 
       };
 
@@ -7857,7 +8327,12 @@ function PlaceOrder() {
 
 
   // Get current company for display
-  const currentCompany = companies.find(c => c.guid === selectedCompanyGuid);
+  const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+  // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+  const currentCompany = companies.find(c => 
+    c.guid === selectedCompanyGuid && 
+    (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+  );
 
   return (
 
@@ -7869,7 +8344,7 @@ function PlaceOrder() {
 
       background: 'transparent',
 
-      padding: isMobile ? '0.5rem' : '2rem',
+      padding: isMobile ? '20px' : '24px',
 
       margin: 0,
 
@@ -8055,9 +8530,10 @@ function PlaceOrder() {
             title="Refresh data"
             style={{
               width: isMobile ? '100%' : 'auto',
-              padding: isMobile ? '0.75rem' : '0.65rem 1.25rem',
-              fontSize: isMobile ? '0.875rem' : '0.95rem',
-              borderRadius: isMobile ? '0.5rem' : '999px',
+              padding: isMobile ? '12px 20px' : '12px 24px',
+              height: isMobile ? '44px' : '48px',
+              fontSize: isMobile ? '14px' : '15px',
+              borderRadius: '8px',
               WebkitTapHighlightColor: 'transparent',
               display: 'inline-flex',
               alignItems: 'center',
@@ -8101,10 +8577,11 @@ function PlaceOrder() {
           flex: isMobile ? 'none' : '1 1 0',
           minWidth: 0,
           width: isMobile ? '100%' : 'auto',
-          padding: isMobile ? '16px 12px' : '24px',
+          padding: isMobile ? '20px' : '24px',
           display: 'flex',
           flexDirection: 'column',
-          gap: isMobile ? '24px' : '32px'
+          gap: isMobile ? '24px' : '32px',
+          boxSizing: 'border-box'
         }}>
           {/* Form - Place Order */}
           <form id="order-form" onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
@@ -8147,29 +8624,21 @@ function PlaceOrder() {
 
 
               <div style={{
-
                 display: 'flex',
-
                 flexDirection: isMobile ? 'column' : 'row',
-
-                gap: isMobile ? '14px' : '16px',
-
+                gap: '16px',
                 alignItems: isMobile ? 'stretch' : 'flex-end',
-
-                position: 'relative'
-
+                position: 'relative',
+                width: '100%'
               }}>
 
                 {/* VoucherType */}
-
                 <div style={{
-
                   position: 'relative',
-
-                  flex: isMobile ? '1 1 100%' : '0 0 280px',
-
-                  width: isMobile ? '100%' : 'auto'
-
+                  flex: isMobile ? '1 1 100%' : '1 1 0',
+                  width: isMobile ? '100%' : 'auto',
+                  minWidth: isMobile ? 'auto' : '200px',
+                  maxWidth: isMobile ? '100%' : '240px'
                 }}>
 
                   <div style={{
@@ -8180,7 +8649,7 @@ function PlaceOrder() {
 
                     borderRadius: '8px',
 
-                    border: showVoucherTypeDropdown ? '2px solid #7c3aed' : '1px solid #d1d5db',
+                    border: showVoucherTypeDropdown ? '2px solid #7c3aed' : '1px solid #e2e8f0',
 
                     transition: 'all 0.2s ease',
 
@@ -8291,31 +8760,19 @@ function PlaceOrder() {
                     />
 
                     <label style={{
-
                       position: 'absolute',
-
-                      left: isMobile ? '16px' : '16px',
-
-                      top: voucherTypeFocused || selectedVoucherType ? '-8px' : (isMobile ? '14px' : '14px'),
-
-                      fontSize: voucherTypeFocused || selectedVoucherType ? '12px' : (isMobile ? '14px' : '15px'),
-
+                      left: '16px',
+                      top: '-8px',
+                      fontSize: '12px',
                       fontWeight: '500',
-
                       color: voucherTypeFocused || selectedVoucherType ? '#7c3aed' : '#6b7280',
-
                       backgroundColor: 'white',
-
                       padding: '0 6px',
-
                       transition: 'all 0.2s ease',
-
-                      pointerEvents: 'none'
-
+                      pointerEvents: 'none',
+                      zIndex: 1
                     }}>
-
                       Order Type
-
                     </label>
 
                     {selectedVoucherType && (
@@ -8394,8 +8851,6 @@ function PlaceOrder() {
 
                   </div>
 
-
-
                   {/* VoucherType Dropdown */}
 
                   {showVoucherTypeDropdown && voucherTypes.length > 0 && (
@@ -8443,6 +8898,8 @@ function PlaceOrder() {
                             // Save the selected voucher type for future use
 
                             sessionStorage.setItem('selectedVoucherType', voucherType.NAME);
+
+                            // Class name restoration is handled by useEffect
 
                           }}
 
@@ -8510,6 +8967,159 @@ function PlaceOrder() {
 
                 </div>
 
+                {/* Class Name */}
+                {availableClasses.length > 0 && (
+                  <div style={{
+                    position: 'relative',
+                    flex: isMobile ? '1 1 100%' : '1 1 0',
+                    width: isMobile ? '100%' : 'auto',
+                    minWidth: isMobile ? 'auto' : '200px',
+                    maxWidth: isMobile ? '100%' : '240px'
+                  }}>
+                    <div style={{
+                      position: 'relative',
+                      background: 'white',
+                      borderRadius: '8px',
+                      border: showClassNameDropdown ? '2px solid #7c3aed' : '1px solid #e2e8f0',
+                      transition: 'all 0.2s ease',
+                      boxShadow: showClassNameDropdown ? '0 0 0 3px rgba(124, 58, 237, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                      zIndex: showClassNameDropdown ? 1001 : 'auto'
+                    }}>
+                      <input
+                        type="text"
+                        value={selectedClassName}
+                        onChange={e => {
+                          const inputValue = e.target.value;
+                          setSelectedClassName(inputValue);
+                          setShowClassNameDropdown(true);
+                        }}
+                        onFocus={() => {
+                          setClassNameFocused(true);
+                          setShowClassNameDropdown(true);
+                        }}
+                        onBlur={() => {
+                          setClassNameFocused(false);
+                          // Delay hiding dropdown to allow click events
+                          setTimeout(() => setShowClassNameDropdown(false), 200);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Escape') {
+                            setShowClassNameDropdown(false);
+                            e.target.blur();
+                          }
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: isMobile ? '12px 16px' : '14px 16px',
+                          border: 'none',
+                          borderRadius: '8px',
+                          fontSize: isMobile ? '14px' : '15px',
+                          color: '#111827',
+                          outline: 'none',
+                          background: 'transparent',
+                          cursor: 'text',
+                          height: isMobile ? '44px' : '48px',
+                          boxSizing: 'border-box',
+                          fontWeight: '400'
+                        }}
+                        placeholder=""
+                      />
+                      <label style={{
+                        position: 'absolute',
+                        left: '16px',
+                        top: '-8px',
+                        fontSize: '12px',
+                        fontWeight: '500',
+                        color: classNameFocused || selectedClassName ? '#7c3aed' : '#6b7280',
+                        backgroundColor: 'white',
+                        padding: '0 6px',
+                        transition: 'all 0.2s ease',
+                        pointerEvents: 'none',
+                        zIndex: 1
+                      }}>
+                        Class Name
+                      </label>
+                      {selectedClassName && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedClassName('');
+                            setShowClassNameDropdown(false);
+                          }}
+                          style={{
+                            position: 'absolute',
+                            right: '12px',
+                            top: '50%',
+                            transform: 'translateY(-50%)',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: '#6b7280',
+                            fontSize: '18px',
+                            lineHeight: 1,
+                            padding: '4px'
+                          }}
+                          title="Clear selection"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Class Name Dropdown */}
+                    {showClassNameDropdown && availableClasses.length > 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0,
+                        right: 0,
+                        backgroundColor: 'white',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '12px',
+                        boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+                        zIndex: 1002,
+                        maxHeight: '200px',
+                        overflowY: 'auto',
+                        marginTop: '4px'
+                      }}>
+                        {availableClasses
+                          .filter(className => !selectedClassName || className.toLowerCase().includes(selectedClassName.toLowerCase()))
+                          .map((className, index, filtered) => (
+                            <div
+                              key={className}
+                              onClick={() => {
+                                setSelectedClassName(className);
+                                setShowClassNameDropdown(false);
+                                // Save the selected class name for future use
+                                sessionStorage.setItem('selectedClassName', className);
+                              }}
+                              style={{
+                                padding: '12px 16px',
+                                cursor: 'pointer',
+                                borderBottom: index < filtered.length - 1 ? '1px solid #f1f5f9' : 'none',
+                                transition: 'background-color 0.2s ease'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.target.style.backgroundColor = '#f8fafc';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.target.style.backgroundColor = 'white';
+                              }}
+                            >
+                              <div style={{
+                                fontWeight: '600',
+                                color: '#1e293b',
+                                fontSize: '14px'
+                              }}>
+                                {className}
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
 
 
                 {/* Customer */}
@@ -8520,7 +9130,7 @@ function PlaceOrder() {
 
                   flex: isMobile ? '1 1 100%' : '1 1 0',
 
-                  minWidth: 0,
+                  minWidth: isMobile ? 'auto' : '250px',
 
                   width: isMobile ? '100%' : 'auto'
 
@@ -8534,7 +9144,7 @@ function PlaceOrder() {
 
                     borderRadius: '8px',
 
-                    border: showCustomerDropdown ? '2px solid #7c3aed' : '1px solid #d1d5db',
+                    border: showCustomerDropdown ? '2px solid #7c3aed' : '1px solid #e2e8f0',
 
                     transition: 'all 0.2s ease',
 
@@ -9224,24 +9834,15 @@ function PlaceOrder() {
 
                 </div>
 
-
-
                 {/* Submit Button */}
-
                 <div style={{
-
                   display: 'flex',
-
                   alignItems: 'center',
-
-                  gap: '10px',
-
+                  gap: '8px',
                   flex: isMobile ? '1 1 100%' : '0 0 auto',
-
                   width: isMobile ? '100%' : 'auto',
-
-                  flexShrink: 0
-
+                  flexShrink: 0,
+                  marginLeft: isMobile ? '0' : 'auto'
                 }}>
 
                   <button
@@ -9260,11 +9861,13 @@ function PlaceOrder() {
 
                       borderRadius: '8px',
 
-                      padding: isMobile ? '14px 20px' : '14px 24px',
+                      padding: isMobile ? '12px 20px' : '12px 24px',
+
+                      height: isMobile ? '44px' : '48px',
 
                       cursor: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'not-allowed' : 'pointer',
 
-                      fontSize: isMobile ? '15px' : '16px',
+                      fontSize: isMobile ? '14px' : '15px',
 
                       fontWeight: '600',
 
@@ -9282,7 +9885,9 @@ function PlaceOrder() {
 
                       transition: 'all 0.2s ease',
 
-                      width: isMobile ? '100%' : 'auto'
+                      width: isMobile ? '100%' : 'auto',
+
+                      boxSizing: 'border-box'
 
                     }}
 
@@ -9329,8 +9934,6 @@ function PlaceOrder() {
                 </div>
 
               </div>
-
-
 
               {/* Credit Limit Information Line - Below the main row */}
 
@@ -9501,7 +10104,8 @@ function PlaceOrder() {
                   width: '100%',
                   maxWidth: '100%',
                   boxSizing: 'border-box',
-                  overflow: 'hidden'
+                  overflow: 'visible',
+                  position: 'relative'
                 }}>
 
                   {/* End of Customer Details Section */}
@@ -9518,6 +10122,9 @@ function PlaceOrder() {
                     border: '1px solid #e2e8f0',
                     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
                     transition: 'all 0.2s ease',
+                    overflow: 'visible',
+                    position: 'relative',
+                    zIndex: 1
                   }}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
@@ -9550,23 +10157,21 @@ function PlaceOrder() {
 
                       flexWrap: isMobile ? 'nowrap' : 'wrap',
 
-                      gap: isMobile ? '16px' : '16px',
+                      gap: '16px',
 
-                      rowGap: isMobile ? '20px' : '24px',
+                      rowGap: '16px',
 
                       alignItems: isMobile ? 'stretch' : 'flex-start',
 
                       position: 'relative',
 
-                      padding: isMobile ? '20px 16px' : '28px 24px',
-
-                      paddingTop: isMobile ? '24px' : '32px',
+                      padding: isMobile ? '20px' : '24px',
 
                       background: '#f9fafb',
 
-                      borderRadius: '10px',
+                      borderRadius: '8px',
 
-                      border: '1px solid #e5e7eb',
+                      border: '1px solid #e2e8f0',
 
                       width: '100%',
                       maxWidth: '100%',
@@ -9578,37 +10183,25 @@ function PlaceOrder() {
                       {/* Item Name */}
 
                       <div style={{
-
                         position: 'relative',
-
                         flex: isMobile ? '1 1 100%' : '1 1 300px',
-
                         minWidth: isMobile ? '100%' : '250px',
-
                         maxWidth: isMobile ? '100%' : '400px',
-
                         width: isMobile ? '100%' : 'auto',
-
-                        boxSizing: 'border-box'
-
+                        boxSizing: 'border-box',
+                        overflow: 'visible',
+                        zIndex: 10
                       }}>
 
                         <div style={{
-
                           position: 'relative',
-
                           background: 'white',
-
                           borderRadius: '8px',
-
-                          border: showItemDropdown ? '2px solid #7c3aed' : '1px solid #d1d5db',
-
+                          border: showItemDropdown ? '2px solid #7c3aed' : '1px solid #e2e8f0',
                           transition: 'all 0.2s ease',
-
                           boxShadow: showItemDropdown ? '0 0 0 3px rgba(124, 58, 237, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
-
-                          zIndex: showItemDropdown ? 1001 : 'auto'
-
+                          zIndex: showItemDropdown ? 1001 : 'auto',
+                          overflow: 'visible'
                         }}>
 
                           <input
@@ -9883,11 +10476,13 @@ function PlaceOrder() {
 
                                 borderRadius: '8px',
 
-                                maxHeight: isMobile ? '300px' : '500px',
+                                maxHeight: isMobile ? '300px' : '400px',
 
                                 overflowY: 'auto',
 
-                                zIndex: 9999,
+                                overflowX: 'hidden',
+
+                                zIndex: 10000,
 
                                 boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
 
@@ -10157,8 +10752,8 @@ function PlaceOrder() {
 
                             background: 'white',
 
-                            borderRadius: isMobile ? '10px' : '10px',
-                            border: quantityFocused ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
+                            borderRadius: '8px',
+                            border: quantityFocused ? '2px solid #3b82f6' : '1px solid #e2e8f0',
                             transition: 'all 0.2s ease',
 
                             boxShadow: quantityFocused ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
@@ -10402,10 +10997,10 @@ function PlaceOrder() {
 
                                 width: '100%',
 
-                                padding: isMobile ? '14px 18px' : '15px 18px',
+                                padding: isMobile ? '12px 16px' : '14px 16px',
                                 border: 'none',
 
-                                borderRadius: isMobile ? '10px' : '10px',
+                                borderRadius: '8px',
                                 fontSize: isMobile ? '14px' : '15px',
                                 color: selectedItem ? '#1e293b' : '#9ca3af',
                                 outline: 'none',
@@ -10413,7 +11008,7 @@ function PlaceOrder() {
                                 background: selectedItem ? 'transparent' : '#f1f5f9',
                                 textAlign: 'left',
                                 cursor: selectedItem ? 'text' : 'not-allowed',
-                                height: isMobile ? '48px' : '52px',
+                                height: isMobile ? '44px' : '48px',
                                 boxSizing: 'border-box',
                                 minHeight: isMobile ? '48px' : 'auto'
                               }}
@@ -10612,9 +11207,9 @@ function PlaceOrder() {
 
                             background: 'white',
 
-                            borderRadius: isMobile ? '10px' : '10px',
+                            borderRadius: '8px',
 
-                            border: '1.5px solid #e2e8f0',
+                            border: '1px solid #e2e8f0',
 
                             transition: 'all 0.2s ease',
 
@@ -10720,9 +11315,9 @@ function PlaceOrder() {
 
                             background: '#f8fafc',
 
-                            borderRadius: isMobile ? '10px' : '12px',
+                            borderRadius: '8px',
 
-                            border: '2px solid #e2e8f0',
+                            border: '1px solid #e2e8f0',
 
                             boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
 
@@ -10949,8 +11544,8 @@ function PlaceOrder() {
                                 <div style={{
                                   position: 'relative',
                                   background: 'white',
-                                  borderRadius: isMobile ? '10px' : '10px',
-                                  border: showRateUOMDropdown ? '2px solid #3b82f6' : '1.5px solid #e2e8f0',
+                                  borderRadius: '8px',
+                                  border: showRateUOMDropdown ? '2px solid #3b82f6' : '1px solid #e2e8f0',
                                   transition: 'all 0.2s ease',
                                   boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
                                   cursor: hasMultipleUnits ? 'pointer' : 'default'
@@ -11007,15 +11602,16 @@ function PlaceOrder() {
                                       width: '100%',
                                       padding: isMobile ? '14px 36px 14px 16px' : '15px 36px 15px 16px',
                                       border: 'none',
-                                      borderRadius: isMobile ? '10px' : '10px',
-                                      fontSize: isMobile ? '14px' : '14px',
+                                      borderRadius: '8px',
+                                      fontSize: isMobile ? '14px' : '15px',
                                       color: '#1e293b',
                                       outline: 'none',
                                       background: hasMultipleUnits ? 'transparent' : '#f8fafc',
                                       cursor: hasMultipleUnits ? 'pointer' : 'default',
                                       pointerEvents: 'none',
                                       fontWeight: '500',
-                                      height: isMobile ? '48px' : '52px',
+                                      height: isMobile ? '44px' : '48px',
+                                      padding: isMobile ? '12px 36px 12px 16px' : '14px 36px 14px 16px',
                                       boxSizing: 'border-box'
                                     }}
                                   />
@@ -11323,7 +11919,7 @@ function PlaceOrder() {
 
                             borderRadius: '8px',
 
-                            border: '1px solid #d1d5db',
+                            border: '1px solid #e2e8f0',
 
                             boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
 
@@ -11421,9 +12017,9 @@ function PlaceOrder() {
 
                             background: '#f8fafc',
 
-                            borderRadius: isMobile ? '10px' : '12px',
+                            borderRadius: '8px',
 
-                            border: '2px solid #e2e8f0',
+                            border: '1px solid #e2e8f0',
 
                             boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
 
@@ -11515,9 +12111,9 @@ function PlaceOrder() {
 
                           background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
 
-                          borderRadius: isMobile ? '10px' : '12px',
+                          borderRadius: '8px',
 
-                          border: '2px solid #0ea5e9',
+                          border: '1px solid #0ea5e9',
 
                           fontSize: isMobile ? '15px' : '16px',
 
@@ -11565,7 +12161,9 @@ function PlaceOrder() {
 
                           borderRadius: '8px',
 
-                          padding: isMobile ? '12px 20px' : '14px 24px',
+                          padding: isMobile ? '12px 20px' : '12px 24px',
+
+                          height: isMobile ? '44px' : '48px',
 
                           cursor: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)) ? 'not-allowed' : 'pointer',
 
@@ -11589,7 +12187,9 @@ function PlaceOrder() {
 
                           width: isMobile ? '100%' : 'auto',
 
-                          justifyContent: 'center'
+                          justifyContent: 'center',
+
+                          boxSizing: 'border-box'
 
                         }}
 
@@ -12475,98 +13075,74 @@ function PlaceOrder() {
                         gap: '6px',
                         justifyContent: 'center',
                         alignItems: 'center',
-                        width: '100%',
-                        minWidth: 0
+                        minWidth: '80px',
+                        maxWidth: '80px',
+                        padding: '4px 0'
                       }}>
-
                         <button
-
                           type="button"
-
                           onClick={() => startEditItem(index)}
-
                           style={{
-
                             background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-
                             color: 'white',
-
                             border: 'none',
-
                             borderRadius: '6px',
-
-                            padding: '4px 6px',
-
+                            padding: '6px',
+                            height: '32px',
+                            width: '32px',
                             cursor: 'pointer',
-
-                            fontSize: '11px',
-
-                            fontWeight: '600',
-
                             transition: 'all 0.2s ease',
-
                             boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)',
-                            minWidth: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxSizing: 'border-box',
                             flexShrink: 0
-
                           }}
-
                           title="Edit item"
-
-                        >
-
-                          <span className="material-icons" style={{ fontSize: '16px' }}>
-
-                            edit
-
-                          </span>
-
-                        </button>
-
-                        <button
-
-                          type="button"
-
-                          onClick={() => removeOrderItem(item.id)}
-
-                          style={{
-
-                            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-
-                            color: 'white',
-
-                            border: 'none',
-
-                            borderRadius: '6px',
-
-                            padding: '4px 6px',
-
-                            cursor: 'pointer',
-
-                            fontSize: '11px',
-
-                            fontWeight: '600',
-
-                            transition: 'all 0.2s ease',
-
-                            boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)',
-                            minWidth: 0,
-                            flexShrink: 0
-
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.boxShadow = '0 4px 6px rgba(59, 130, 246, 0.3)';
                           }}
-
-                          title="Remove item"
-
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2)';
+                          }}
                         >
-
-                          <span className="material-icons" style={{ fontSize: '16px' }}>
-
-                            delete_outline
-
-                          </span>
-
+                          <span className="material-icons" style={{ fontSize: '16px' }}>edit</span>
                         </button>
-
+                        <button
+                          type="button"
+                          onClick={() => removeOrderItem(item.id)}
+                          style={{
+                            background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '6px',
+                            padding: '6px',
+                            height: '32px',
+                            width: '32px',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            boxShadow: '0 2px 4px rgba(239, 68, 68, 0.2)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxSizing: 'border-box',
+                            flexShrink: 0
+                          }}
+                          title="Remove item"
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.transform = 'translateY(-1px)';
+                            e.currentTarget.style.boxShadow = '0 4px 6px rgba(239, 68, 68, 0.3)';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.transform = 'translateY(0)';
+                            e.currentTarget.style.boxShadow = '0 2px 4px rgba(239, 68, 68, 0.2)';
+                          }}
+                        >
+                          <span className="material-icons" style={{ fontSize: '16px' }}>delete_outline</span>
+                        </button>
                       </div>
 
                     </div>
@@ -12722,17 +13298,18 @@ function PlaceOrder() {
           alignSelf: isMobile ? 'auto' : 'flex-start',
           maxHeight: isMobile ? 'none' : 'calc(100vh - 48px)',
           overflowY: isMobile ? 'visible' : 'auto',
-          padding: isMobile ? '16px 12px' : '24px',
+          padding: isMobile ? '20px' : '24px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '20px'
+          gap: '20px',
+          boxSizing: 'border-box'
         }}>
           {/* Order Summary */}
           <div style={{
             background: '#fff',
             borderRadius: '0.75rem',
             border: '1px solid #e2e8f0',
-            padding: '24px',
+            padding: isMobile ? '20px' : '24px',
             boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
             transition: 'all 0.2s ease',
           }}
@@ -12753,9 +13330,332 @@ function PlaceOrder() {
             {(() => {
               const totals = calculateTotals();
               const subtotal = totals.totalAmount;
-              const discount = 0; // Calculate discount if needed
-              const gst = 0; // Calculate GST if needed
-              const total = subtotal - discount + gst;
+
+              // Get current company and customer for state comparison
+              const currentCompany = filteredCompanies.find(c => c.guid === company);
+              const selectedCustomerObj = customerOptions.find(c => c.NAME === selectedCustomer);
+              // Company state from user-connections API response (statename field, lowercase)
+              const companyState = currentCompany?.statename || currentCompany?.STATENAME || currentCompany?.state || '';
+              // Customer state from customer options (STATENAME field, uppercase)
+              const customerState = selectedCustomerObj?.STATENAME || editableState || '';
+              const isSameState = companyState && customerState && companyState.toLowerCase().trim() === customerState.toLowerCase().trim();
+
+              // Helper function to determine GSTDUTYHEAD from ledger name
+              const getGSTDUTYHEAD = (ledgerName) => {
+                const nameUpper = (ledgerName || '').toUpperCase();
+                if (nameUpper.includes('CGST')) return 'CGST';
+                if (nameUpper.includes('SGST') || nameUpper.includes('UTGST')) return 'SGST/UTGST';
+                if (nameUpper.includes('IGST')) return 'IGST';
+                return null;
+              };
+
+              // Helper function to check if ledger should be calculated based on state
+              const shouldCalculateLedger = (ledger) => {
+                const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
+                if (!gstDutyHead) return false;
+
+                if (isSameState) {
+                  // Same state: Calculate CGST and SGST/UTGST
+                  return gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST';
+                } else {
+                  // Different states: Calculate IGST
+                  return gstDutyHead === 'IGST';
+                }
+              };
+
+              // Calculate GST for each GST ledger
+              const gstLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'GST' && shouldCalculateLedger(ledger)
+              );
+
+              const gstAmounts = {};
+              gstLedgers.forEach(ledger => {
+                const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
+                const rateOfTaxCalc = parseFloat(ledger.RATEOFTAXCALCULATION || '0');
+                let totalGST = 0;
+
+                orderItems.forEach(item => {
+                  const itemGstPercent = parseFloat(item.gstPercent || 0);
+
+                  if (itemGstPercent > 0) {
+                    // Item amount is already calculated as: rate * quantity * (1 - discount%)
+                    // This is the taxable amount (after discount, before GST)
+                    const itemTaxableAmount = parseFloat(item.amount || 0);
+
+                    if (rateOfTaxCalc === 0) {
+                      // RATEOFTAXCALCULATION = 0: Take all item tax
+                      let effectiveGstRate = itemGstPercent;
+
+                      // For CGST/SGST, split the rate (18% -> 9% each)
+                      // For IGST, use full rate (18% -> 18%)
+                      if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+                        effectiveGstRate = itemGstPercent / 2;
+                      }
+                      // For IGST, use full rate (no division)
+
+                      const itemGST = (itemTaxableAmount * effectiveGstRate) / 100;
+                      totalGST += itemGST;
+                    } else {
+                      // RATEOFTAXCALCULATION != 0: Only items with matching rate
+                      // RATEOFTAXCALCULATION stores the split rate (e.g., 9 for CGST/SGST, 18 for IGST)
+                      const matchingRate = rateOfTaxCalc;
+
+                      // Check if item's GST rate matches
+                      // For CGST/SGST, compare split rate (item 18% should match ledger 9%)
+                      // For IGST, compare full rate (item 18% should match ledger 18%)
+                      if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+                        // For CGST/SGST, ledger rate is split, so compare with item rate / 2
+                        if (Math.abs((itemGstPercent / 2) - matchingRate) < 0.01) {
+                          const itemGST = (itemTaxableAmount * matchingRate) / 100;
+                          totalGST += itemGST;
+                        }
+                      } else {
+                        // For IGST, compare full rates
+                        if (Math.abs(itemGstPercent - matchingRate) < 0.01) {
+                          const itemGST = (itemTaxableAmount * matchingRate) / 100;
+                          totalGST += itemGST;
+                        }
+                      }
+                    }
+                  }
+                });
+
+                gstAmounts[ledger.NAME] = totalGST;
+              });
+
+              // Calculate total ledger values (only user-defined ones that have values)
+              const totalLedgerValues = Object.values(ledgerValues).reduce((sum, value) => {
+                return sum + (parseFloat(value) || 0);
+              }, 0);
+
+              // Calculate flat rate ledger amounts (METHODTYPE = "As Flat Rate")
+              const flatRateLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'As Flat Rate'
+              );
+              const flatRateAmounts = {};
+              flatRateLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                flatRateAmounts[ledger.NAME] = classRate;
+              });
+              const totalFlatRate = Object.values(flatRateAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate "Based on Quantity" ledger amounts (METHODTYPE = "Based on Quantity")
+              // Value = Total qty * CLASSRATE
+              const basedOnQuantityLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'Based on Quantity'
+              );
+              const basedOnQuantityAmounts = {};
+              const totalQuantity = orderItems.reduce((sum, item) => sum + (parseFloat(item.quantity || 0)), 0);
+              basedOnQuantityLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                basedOnQuantityAmounts[ledger.NAME] = totalQuantity * classRate;
+              });
+              const totalBasedOnQuantity = Object.values(basedOnQuantityAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate "On Total Sales" ledger amounts (METHODTYPE = "On Total Sales")
+              // Value = total item value (subtotal) * CLASSRATE/100
+              const onTotalSalesLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'On Total Sales'
+              );
+              const onTotalSalesAmounts = {};
+              onTotalSalesLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                onTotalSalesAmounts[ledger.NAME] = (subtotal * classRate) / 100;
+              });
+              const totalOnTotalSales = Object.values(onTotalSalesAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate "On Current SubTotal" ledger amounts (METHODTYPE = "On Current SubTotal")
+              // Value = (total item value + additional ledger value excluding certain types) * CLASSRATE
+              // Exclude: "As Total Amount Rounding", "GST", and "On Current SubTotal"
+              const onCurrentSubTotalLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'On Current SubTotal'
+              );
+
+              // Calculate base amount for "On Current SubTotal" excluding: "As Total Amount Rounding", "GST", and "On Current SubTotal"
+              // Include: subtotal + user-defined + flat rate + based on quantity + on total sales
+              // Note: GST and rounding are explicitly excluded, and "On Current SubTotal" ledgers are calculated sequentially
+              let cumulativeOnCurrentSubTotal = 0;
+              const recalculatedOnCurrentSubTotalAmounts = {};
+
+              onCurrentSubTotalLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                // Base includes: subtotal + user-defined + flat rate + based on quantity + on total sales + previous "On Current SubTotal" amounts
+                // Excludes: GST, rounding, and other "On Current SubTotal" ledgers (handled sequentially)
+                const currentBase = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + cumulativeOnCurrentSubTotal;
+                const amount = (currentBase * classRate) / 100;
+                recalculatedOnCurrentSubTotalAmounts[ledger.NAME] = amount;
+                cumulativeOnCurrentSubTotal += amount;
+              });
+              const finalOnCurrentSubTotal = cumulativeOnCurrentSubTotal;
+
+              // Calculate GST on other ledgers (excluding GST and rounding ledgers)
+              // Logic: Calculate GST if APPROPRIATEFOR = "GST" and EXCISEALLOCTYPE = "Based on Value" (regardless of GSTAPPLICABLE)
+              // OR if GSTAPPLICABLE = "Yes" and APPROPRIATEFOR is empty
+              const gstOnOtherLedgers = {};
+
+              // Helper function to calculate average GST rate from items
+              const calculateAverageGSTRate = () => {
+                let totalTaxableAmount = 0;
+                let weightedGstRate = 0;
+
+                orderItems.forEach(item => {
+                  const itemGstPercent = parseFloat(item.gstPercent || 0);
+                  const itemAmount = parseFloat(item.amount || 0);
+
+                  if (itemGstPercent > 0 && itemAmount > 0) {
+                    totalTaxableAmount += itemAmount;
+                    weightedGstRate += itemAmount * itemGstPercent;
+                  }
+                });
+
+                if (totalTaxableAmount > 0) {
+                  return weightedGstRate / totalTaxableAmount;
+                }
+                return 0;
+              };
+
+              const avgGstRate = calculateAverageGSTRate();
+
+              // Calculate GST for each non-GST, non-rounding ledger
+              selectedClassLedgers.forEach(ledger => {
+                // Skip GST and rounding ledgers
+                if (ledger.METHODTYPE === 'GST' || ledger.METHODTYPE === 'As Total Amount Rounding') {
+                  return;
+                }
+
+                let ledgerValue = 0;
+
+                // Get the ledger value based on METHODTYPE
+                if (ledger.METHODTYPE === 'As User Defined Value') {
+                  ledgerValue = parseFloat(ledgerValues[ledger.NAME] || 0);
+                } else if (ledger.METHODTYPE === 'As Flat Rate') {
+                  ledgerValue = parseFloat(ledger.CLASSRATE || '0');
+                } else if (ledger.METHODTYPE === 'Based on Quantity') {
+                  ledgerValue = basedOnQuantityAmounts[ledger.NAME] || 0;
+                } else if (ledger.METHODTYPE === 'On Total Sales') {
+                  ledgerValue = onTotalSalesAmounts[ledger.NAME] || 0;
+                } else if (ledger.METHODTYPE === 'On Current SubTotal') {
+                  ledgerValue = recalculatedOnCurrentSubTotalAmounts[ledger.NAME] || 0;
+                }
+
+                if (ledgerValue !== 0) {
+                  let gstAmount = 0;
+
+                  // Check if APPROPRIATEFOR = "GST" and EXCISEALLOCTYPE = "Based on Value"
+                  // This should calculate GST even if GSTAPPLICABLE = "No"
+                  if (ledger.APPROPRIATEFOR === 'GST' && ledger.EXCISEALLOCTYPE === 'Based on Value') {
+                    // Allocate discount proportionally to items based on their values
+                    // Then calculate GST on each item's discount portion using that item's GST rate
+                    const totalItemValue = orderItems.reduce((sum, item) => sum + (parseFloat(item.amount || 0)), 0);
+
+                    if (totalItemValue > 0) {
+                      // Calculate GST for each GST ledger (CGST, SGST, IGST)
+                      gstLedgers.forEach(gstLedger => {
+                        const gstDutyHead = getGSTDUTYHEAD(gstLedger.NAME);
+                        if (!gstDutyHead) return;
+
+                        let ledgerGstAmount = 0;
+
+                        // Allocate discount to each item proportionally
+                        orderItems.forEach(item => {
+                          const itemAmount = parseFloat(item.amount || 0);
+                          const itemGstPercent = parseFloat(item.gstPercent || 0);
+
+                          if (itemAmount > 0 && itemGstPercent > 0) {
+                            // Calculate this item's portion of the discount
+                            const itemDiscountPortion = (ledgerValue * itemAmount) / totalItemValue;
+
+                            // Calculate GST on this item's discount portion
+                            let effectiveGstRate = itemGstPercent;
+
+                            // For CGST/SGST, split the rate (12% -> 6% each, 5% -> 2.5% each)
+                            // For IGST, use full rate
+                            if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+                              effectiveGstRate = itemGstPercent / 2;
+                            }
+
+                            // Only add if this GST ledger matches the state requirement
+                            if ((isSameState && (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST')) ||
+                              (!isSameState && gstDutyHead === 'IGST')) {
+                              const itemGstOnDiscount = (itemDiscountPortion * effectiveGstRate) / 100;
+                              ledgerGstAmount += itemGstOnDiscount;
+                            }
+                          }
+                        });
+
+                        // Add GST on discount to the GST ledger amount (allow negative values for discounts)
+                        if (ledgerGstAmount !== 0) {
+                          // Add to gstAmounts so it's included in the displayed GST amounts
+                          if (!gstAmounts[gstLedger.NAME]) {
+                            gstAmounts[gstLedger.NAME] = 0;
+                          }
+                          gstAmounts[gstLedger.NAME] += ledgerGstAmount;
+                        }
+                      });
+                    }
+                  } else if (ledger.GSTAPPLICABLE === 'Yes' && (ledger.APPROPRIATEFOR === '' || !ledger.APPROPRIATEFOR)) {
+                    // GST = ledger value * GSTRATE/100
+                    // Only calculate if GSTRATE is provided (not empty)
+                    const gstRate = ledger.GSTRATE ? parseFloat(ledger.GSTRATE) : 0;
+                    if (gstRate > 0) {
+                      const gstAmount = (ledgerValue * gstRate) / 100;
+                      gstOnOtherLedgers[ledger.NAME] = gstAmount;
+                    }
+                    // If GSTRATE is empty, no GST calculation required
+                  }
+                }
+              });
+
+              // Calculate totalGST after adding GST on discount (which was added to gstAmounts)
+              let totalGST = Object.values(gstAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              const totalGstOnOtherLedgers = Object.values(gstOnOtherLedgers).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate amount before rounding (subtotal + user-defined ledgers + flat rate + based on quantity + on total sales + on current subtotal + GST + GST on other ledgers)
+              const amountBeforeRounding = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + finalOnCurrentSubTotal + totalGST + totalGstOnOtherLedgers;
+
+              // Helper function to calculate rounding based on ROUNDTYPE and ROUNDLIMIT
+              const calculateRounding = (amount, roundType, roundLimit) => {
+                const limit = parseFloat(roundLimit) || 1;
+
+                if (roundType === 'Normal Rounding') {
+                  // Round to nearest limit (e.g., if limit is 1, round to nearest rupee)
+                  return Math.round(amount / limit) * limit - amount;
+                } else if (roundType === 'Upward Rounding') {
+                  // Round up to next limit
+                  return Math.ceil(amount / limit) * limit - amount;
+                } else if (roundType === 'Downward Rounding') {
+                  // Round down to previous limit
+                  return Math.floor(amount / limit) * limit - amount;
+                }
+                return 0;
+              };
+
+              // Calculate rounding amounts for each rounding ledger
+              const roundingLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'As Total Amount Rounding'
+              );
+
+              let cumulativeRounding = 0;
+              const roundingAmounts = {};
+
+              // Process rounding ledgers in order (they might be cumulative)
+              roundingLedgers.forEach(ledger => {
+                const amountToRound = amountBeforeRounding + cumulativeRounding;
+                const roundingAmount = calculateRounding(
+                  amountToRound,
+                  ledger.ROUNDTYPE || 'Normal Rounding',
+                  ledger.ROUNDLIMIT || '1'
+                );
+                roundingAmounts[ledger.NAME] = roundingAmount;
+                cumulativeRounding += roundingAmount;
+              });
+
+              // Calculate total rounding
+              const totalRounding = cumulativeRounding;
+
+              // Final total = subtotal + user-defined ledgers + rounding
+              const total = amountBeforeRounding + totalRounding;
 
               return (
                 <>
@@ -12769,26 +13669,190 @@ function PlaceOrder() {
                     <span>Subtotal:</span>
                     <span>₹{subtotal.toFixed(2)}</span>
                   </div>
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    marginBottom: '12px',
-                    fontSize: '14px',
-                    color: '#374151'
-                  }}>
-                    <span>Discount:</span>
-                    <span>-₹{discount.toFixed(2)}</span>
-                  </div>
-                  <div style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    marginBottom: '16px',
-                    fontSize: '14px',
-                    color: '#374151'
-                  }}>
-                    <span>GST:</span>
-                    <span>₹{gst.toFixed(2)}</span>
-                  </div>
+
+                  {/* Ledger entries - show all, but only user-defined ones are editable */}
+                  {selectedClassLedgers.map((ledger, index) => {
+                    const isUserDefined = ledger.METHODTYPE === 'As User Defined Value';
+                    const isRounding = ledger.METHODTYPE === 'As Total Amount Rounding';
+                    const isGST = ledger.METHODTYPE === 'GST';
+                    const isFlatRate = ledger.METHODTYPE === 'As Flat Rate';
+                    const isBasedOnQuantity = ledger.METHODTYPE === 'Based on Quantity';
+                    const isOnTotalSales = ledger.METHODTYPE === 'On Total Sales';
+                    const isOnCurrentSubTotal = ledger.METHODTYPE === 'On Current SubTotal';
+                    const ledgerValue = ledgerValues[ledger.NAME] || '';
+                    const ledgerAmount = parseFloat(ledgerValue) || 0;
+
+                    // Get rounding amount if it's a rounding ledger
+                    const roundingAmount = isRounding ? (roundingAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get GST amount if it's a GST ledger
+                    const gstAmount = isGST ? (gstAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get flat rate amount if it's a flat rate ledger
+                    const flatRateAmount = isFlatRate ? (flatRateAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get based on quantity amount if it's a based on quantity ledger
+                    const basedOnQuantityAmount = isBasedOnQuantity ? (basedOnQuantityAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get on total sales amount if it's an on total sales ledger
+                    const onTotalSalesAmount = isOnTotalSales ? (onTotalSalesAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get on current subtotal amount if it's an on current subtotal ledger
+                    const onCurrentSubTotalAmount = isOnCurrentSubTotal ? (recalculatedOnCurrentSubTotalAmounts[ledger.NAME] || 0) : 0;
+
+                    // Get GST on this ledger if applicable (for non-GST, non-rounding ledgers)
+                    const gstOnThisLedger = (!isGST && !isRounding && ledger.GSTAPPLICABLE === 'Yes') ? (gstOnOtherLedgers[ledger.NAME] || 0) : 0;
+
+                    return (
+                      <div key={`${ledger.NAME}-${index}`} style={{
+                        marginBottom: '12px'
+                      }}>
+                        {isUserDefined ? (
+                          <>
+                            <div style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: '8px'
+                            }}>
+                              <span style={{
+                                fontSize: '14px',
+                                color: '#374151',
+                                flex: '1 1 auto',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}>
+                                {ledger.NAME}:
+                              </span>
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                flexShrink: 0
+                              }}>
+                                <span style={{ fontSize: '14px', color: '#374151' }}>₹</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={ledgerValue}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setLedgerValues(prev => ({
+                                      ...prev,
+                                      [ledger.NAME]: value
+                                    }));
+                                  }}
+                                  onBlur={(e) => {
+                                    // Ensure value is a valid number
+                                    const numValue = parseFloat(e.target.value) || 0;
+                                    setLedgerValues(prev => ({
+                                      ...prev,
+                                      [ledger.NAME]: numValue === 0 ? '' : numValue.toString()
+                                    }));
+                                  }}
+                                  placeholder="0.00"
+                                  style={{
+                                    width: '80px',
+                                    padding: '6px 8px',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '6px',
+                                    fontSize: '14px',
+                                    textAlign: 'right',
+                                    color: '#374151'
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            {gstOnThisLedger > 0 && (
+                              <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                fontSize: '12px',
+                                color: '#6b7280',
+                                marginTop: '4px',
+                                paddingLeft: '12px'
+                              }}>
+                                <span>GST on {ledger.NAME}:</span>
+                                <span>₹{gstOnThisLedger.toFixed(2)}</span>
+                              </div>
+                            )}
+                          </>
+                        ) : isRounding ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{roundingAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isGST ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{gstAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isFlatRate ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{flatRateAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isBasedOnQuantity ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{basedOnQuantityAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isOnTotalSales ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{onTotalSalesAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isOnCurrentSubTotal ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{onCurrentSubTotalAmount.toFixed(2)}</span>
+                          </div>
+                        ) : (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹0.00</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
                   <div style={{
                     display: 'flex',
                     justifyContent: 'space-between',
@@ -12841,6 +13905,7 @@ function PlaceOrder() {
                   border: 'none',
                   borderRadius: '8px',
                   padding: '12px 24px',
+                  height: '48px',
                   cursor: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'not-allowed' : 'pointer',
                   fontSize: '15px',
                   fontWeight: '600',
@@ -12850,7 +13915,8 @@ function PlaceOrder() {
                   gap: '8px',
                   transition: 'all 0.2s ease',
                   opacity: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 0.6 : 1,
-                  boxShadow: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'none' : '0 2px 4px rgba(124, 58, 237, 0.2)'
+                  boxShadow: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'none' : '0 2px 4px rgba(124, 58, 237, 0.2)',
+                  boxSizing: 'border-box'
                 }}
               >
                 {isSubmittingOrder ? (
@@ -12881,14 +13947,16 @@ function PlaceOrder() {
                 style={{
                   background: '#fff',
                   color: '#374151',
-                  border: '1px solid #d1d5db',
+                  border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   padding: '12px 24px',
+                  height: '48px',
                   cursor: 'pointer',
                   fontSize: '15px',
                   fontWeight: '600',
                   transition: 'all 0.2s ease',
-                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                  boxSizing: 'border-box'
                 }}
               >
                 Save as Draft
@@ -12915,7 +13983,7 @@ function PlaceOrder() {
             background: '#fff',
             borderRadius: '0.75rem',
             border: '1px solid #e2e8f0',
-            padding: '24px',
+            padding: isMobile ? '20px' : '24px',
             boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
             transition: 'all 0.2s ease',
           }}

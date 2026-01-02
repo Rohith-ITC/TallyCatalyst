@@ -16,6 +16,8 @@ import ChangePassword from './admindashboard/ChangePassword';
 import TallyDashboard from './TallyDashboard/tallydashboard';
 import SubscriptionManagement from './admindashboard/SubscriptionManagement';
 import MasterInvitationForm from './TallyDashboard/MasterInvitationForm';
+import PrivacyPolicy from './PrivacyPolicy';
+import TermsOfService from './TermsOfService';
 import { APP_CONFIG } from './config';
 
 // Protected Route Component
@@ -152,6 +154,8 @@ function App() {
         <Route path="/signup" element={<SignUp />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/master-form/:token" element={<MasterInvitationForm />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/terms-of-service" element={<TermsOfService />} />
 
         <Route
           path="/admin-dashboard"

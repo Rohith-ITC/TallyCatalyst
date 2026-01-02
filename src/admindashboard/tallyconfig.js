@@ -867,7 +867,11 @@ function TallyConfig() {
       
       if (data && data.success) {
         // Refresh the configurations
-        const company = configCompanies.find(c => c.guid === companyGuid);
+        // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+        const company = configCompanies.find(c => 
+          c.guid === companyGuid && 
+          c.tallyloc_id === companyConfig.tallyloc_id
+        );
         if (company) {
           await fetchCompanyConfig(
             company,

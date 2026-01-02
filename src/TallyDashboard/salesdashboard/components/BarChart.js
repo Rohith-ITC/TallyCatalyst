@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 
-const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton, rowAction, customHeader }) => {
+const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton, rowAction, customHeader, stacked = false }) => {
   const [isMobile, setIsMobile] = React.useState(window.innerWidth <= 768);
+  const [hoveredSegment, setHoveredSegment] = useState(null);
   
   React.useEffect(() => {
     const handleResize = () => {
@@ -121,7 +122,10 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
     );
   }
 
-  const maxValue = Math.max(...data.map(d => d.value));
+  // Calculate max value based on whether it's stacked or not
+  const maxValue = stacked 
+    ? Math.max(...data.map(d => d.segments?.reduce((sum, seg) => sum + seg.value, 0) || d.value || 0))
+    : Math.max(...data.map(d => d.value));
 
 
   return (
@@ -227,113 +231,167 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
           flexDirection: 'column', 
           gap: '12px'
         }}>
-          {data.map((item) => (
-            <div
-              key={item.label}
-              onClick={() => onBarClick?.(item.label)}
-              style={{
-                cursor: onBarClick ? 'pointer' : 'default',
-                padding: onBarClick ? '6px' : '0',
-                borderRadius: '8px',
-                transition: 'all 0.2s ease'
-              }}
-              onMouseEnter={(e) => {
-                if (onBarClick) {
-                  e.currentTarget.style.background = '#f8fafc';
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (onBarClick) {
-                  e.currentTarget.style.background = 'transparent';
-                }
-              }}
-            >
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '4px'
-              }}>
-                <span style={{
-                  fontSize: '12px',
-                  fontWeight: '500',
-                  color: '#64748b',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: '60%'
-                }}>
-                  {item.label}
-                </span>
+          {data.map((item) => {
+            const totalValue = stacked 
+              ? item.segments?.reduce((sum, seg) => sum + seg.value, 0) 
+              : item.value;
+            
+            return (
+              <div
+                key={item.label}
+                onClick={() => onBarClick?.(item.label)}
+                style={{
+                  cursor: onBarClick ? 'pointer' : 'default',
+                  padding: onBarClick ? '6px' : '0',
+                  borderRadius: '8px',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  if (onBarClick) {
+                    e.currentTarget.style.background = '#f8fafc';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (onBarClick) {
+                    e.currentTarget.style.background = 'transparent';
+                  }
+                }}
+              >
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px'
+                  justifyContent: 'space-between',
+                  marginBottom: '4px'
                 }}>
                   <span style={{
                     fontSize: '12px',
-                    fontWeight: '600',
-                    color: '#1e293b'
+                    fontWeight: '500',
+                    color: '#64748b',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    maxWidth: '60%'
                   }}>
-                    {valuePrefix}{item.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {item.label}
                   </span>
-                  {rowAction && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        rowAction.onClick?.(item);
-                      }}
-                      title={rowAction.title || 'View raw data'}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}>
+                    <span style={{
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      color: '#1e293b'
+                    }}>
+                      {valuePrefix}{totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                    {rowAction && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          rowAction.onClick?.(item);
+                        }}
+                        title={rowAction.title || 'View raw data'}
+                        style={{
+                          border: 'none',
+                          background: '#eff6ff',
+                          cursor: 'pointer',
+                          color: '#1e40af',
+                          padding: '6px',
+                          borderRadius: '6px',
+                          transition: 'all 0.2s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: '28px',
+                          height: '28px'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#dbeafe';
+                          e.currentTarget.style.color = '#1e3a8a';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#eff6ff';
+                          e.currentTarget.style.color = '#1e40af';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: '18px' }}>
+                          {rowAction.icon || 'table_view'}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Stacked or Regular Bar */}
+                <div style={{
+                  width: '100%',
+                  background: '#e2e8f0',
+                  borderRadius: '4px',
+                  height: '8px',
+                  overflow: 'hidden',
+                  position: 'relative'
+                }}>
+                  {stacked && item.segments ? (
+                    // Stacked segments
+                    <div style={{
+                      display: 'flex',
+                      height: '8px',
+                      width: `${(totalValue / maxValue) * 100}%`,
+                      borderRadius: '4px',
+                      overflow: 'hidden'
+                    }}>
+                      {item.segments.map((segment, idx) => (
+                        <div
+                          key={`${item.label}-segment-${idx}`}
+                          style={{
+                            height: '8px',
+                            width: `${(segment.value / totalValue) * 100}%`,
+                            backgroundColor: segment.color || '#3b82f6',
+                            transition: 'all 0.3s ease',
+                            cursor: 'pointer',
+                            opacity: hoveredSegment === `${item.label}-${idx}` ? 0.8 : 1
+                          }}
+                          onMouseEnter={() => setHoveredSegment(`${item.label}-${idx}`)}
+                          onMouseLeave={() => setHoveredSegment(null)}
+                          title={`${segment.label || `Segment ${idx + 1}`}: ${valuePrefix}${segment.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    // Regular single bar
+                    <div
                       style={{
-                        border: 'none',
-                        background: '#eff6ff',
-                        cursor: 'pointer',
-                        color: '#1e40af',
-                        padding: '6px',
-                        borderRadius: '6px',
-                        transition: 'all 0.2s ease',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: '28px',
-                        height: '28px'
+                        height: '8px',
+                        borderRadius: '4px',
+                        transition: 'all 0.5s ease-out',
+                        width: `${(item.value / maxValue) * 100}%`,
+                        backgroundColor: item.color || '#3b82f6',
                       }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = '#dbeafe';
-                        e.currentTarget.style.color = '#1e3a8a';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = '#eff6ff';
-                        e.currentTarget.style.color = '#1e40af';
-                      }}
-                    >
-                      <span className="material-icons" style={{ fontSize: '18px' }}>
-                        {rowAction.icon || 'table_view'}
-                      </span>
-                    </button>
+                    />
                   )}
                 </div>
-              </div>
-              <div style={{
-                width: '100%',
-                background: '#e2e8f0',
-                borderRadius: '4px',
-                height: '8px',
-                overflow: 'hidden'
-              }}>
-                <div
-                  style={{
-                    height: '8px',
+                
+                {/* Tooltip for stacked bar segments */}
+                {stacked && item.segments && hoveredSegment?.startsWith(item.label) && (
+                  <div style={{
+                    marginTop: '4px',
+                    padding: '6px 8px',
+                    background: '#1e293b',
+                    color: 'white',
+                    fontSize: '11px',
                     borderRadius: '4px',
-                    transition: 'all 0.5s ease-out',
-                    width: `${(item.value / maxValue) * 100}%`,
-                    backgroundColor: item.color || '#3b82f6',
-                  }}
-                />
+                    display: 'inline-block'
+                  }}>
+                    {item.segments[parseInt(hoveredSegment.split('-').pop())].label}: {valuePrefix}
+                    {item.segments[parseInt(hoveredSegment.split('-').pop())].value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

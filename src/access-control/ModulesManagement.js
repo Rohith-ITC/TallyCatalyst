@@ -152,7 +152,12 @@ function ModulesManagement() {
         // Get current company from sessionStorage
         const allConnections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
         const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid');
-        const currentCompany = allConnections.find(c => c.guid === selectedCompanyGuid);
+        const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+        // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+        const currentCompany = allConnections.find(c => 
+          c.guid === selectedCompanyGuid && 
+          (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+        );
         
         if (currentCompany && currentCompany.tallyloc_id && currentCompany.guid) {
           // Dispatch global refresh event to trigger permission refresh

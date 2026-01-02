@@ -178,6 +178,8 @@ function PaymentVoucherReport() {
               STOCKITEMNAME: item.stockitemname,
               STOCKITEMNAMEID: item.stockitemnameid,
               UOM: item.uom,
+              RATEUOM: item.rateuom || item.rateUOM || item.RATEUOM || '', // Rate UOM from API
+              DESCRIPTION: item.description || '', // Item User Description from API
               ACTUALQTY: item.actualqty,
               BILLEDQTY: item.billedqty,
               AMOUNT: item.amount,
@@ -243,7 +245,7 @@ function PaymentVoucherReport() {
 
   return (
     <div style={{
-      width: '100%',
+      width: '1200px',
       minHeight: 'calc(100vh - 120px)',
       padding: '24px',
     }}>

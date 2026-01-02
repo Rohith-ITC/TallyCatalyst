@@ -411,7 +411,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+                gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr',
                 gap: isMobile ? '16px' : '24px',
                 marginBottom: isMobile ? '16px' : '20px'
               }}
@@ -422,11 +422,11 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                   {partyLedgerName}
                 </div>
               </div>
-              {partyLedger && (partyLedger.ISPARTYLEDGER || partyLedger.ispartyledger || '').toString().toLowerCase().trim() === 'yes' && voucherPartyLedgerName && (
-                <div>
-                  <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Party Ledger Name</div>
-                  <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 500 }}>
-                    {voucherPartyLedgerName}
+              {partyLedger && (partyLedger.ISPARTYLEDGER || partyLedger.ispartyledger || '').toString().toLowerCase().trim() === 'yes' && (voucher.ADDRESS || voucher.address || voucher.BASICBUYERADDRESS || voucher.basicbuyeraddress) && (
+                <div style={{ gridColumn: isMobile ? 'auto' : '2 / 4' }}>
+                  <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Party Ledger Address</div>
+                  <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 500, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {voucher.ADDRESS || voucher.address || voucher.BASICBUYERADDRESS || voucher.basicbuyeraddress || '-'}
                   </div>
                 </div>
               )}
@@ -458,7 +458,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: isMobile ? '2fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 1fr 0.8fr 1.2fr',
+                    gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
                   padding: isMobile ? '10px 12px' : '12px 16px',
                   background: '#f8fafc',
                     borderBottom: '1px solid #e2e8f0',
@@ -470,23 +470,30 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                 >
                   <div>Item Name</div>
                   <div style={{ textAlign: 'right' }}>Quantity</div>
+                  <div style={{ textAlign: 'left' }}>UOM</div>
                   <div style={{ textAlign: 'right' }}>Rate</div>
                   <div style={{ textAlign: 'right' }}>Discount</div>
                   <div style={{ textAlign: 'right' }}>Amount</div>
                 </div>
                 {inventoryEntries.map((item, idx) => {
                   const itemName = item.STOCKITEMNAME || item.ITEMNAME || item.ITEM || item.stockitemname || item.itemname || '-';
+                  const description = item.DESCRIPTION || item.description || '';
                   const quantity = parseAmount(item.BILLEQTY || item.ACTUALQTY || item.QTY || item.billedqty || item.actualqty || 0);
                   const rate = parseAmount(item.RATE || item.rate || 0);
+                  const rateUom = item.RATEUOM || item.rateuom || item.rateUOM || '';
+                  const uom = item.UOM || item.uom || item.UNIT || item.unit || '';
                   const discount = parseAmount(item.DISCOUNT || item.discount || 0);
                   const amount = parseAmount(item.AMOUNT || item.VALUE || item.amount || 0);
+                  
+                  // Format rate with UOM if available
+                  const formattedRate = rateUom ? `${formatNumber(rate)}/${rateUom}` : formatNumber(rate);
                   
                   return (
                     <div
                       key={idx}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: isMobile ? '2fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 1fr 0.8fr 1.2fr',
+                        gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
                         padding: isMobile ? '10px 12px' : '12px 16px',
                         borderBottom: idx === inventoryEntries.length - 1 ? 'none' : '1px solid #e2e8f0',
                         fontSize: isMobile ? '12px' : '14px',
@@ -496,9 +503,32 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                         background: '#fff'
                       }}
                     >
-                      <div style={{ fontWeight: 500 }}>{itemName}</div>
+                      <div>
+                        <div style={{ fontWeight: 500 }}>{itemName}</div>
+                        <div style={{ 
+                          fontStyle: 'italic', 
+                          fontSize: isMobile ? '11px' : '12px', 
+                          color: '#64748b',
+                          marginTop: '4px'
+                        }}>
+                          {description || '- Description not found'}
+                        </div>
+                      </div>
                       <div style={{ textAlign: 'right', fontWeight: 500 }}>{formatNumber(quantity)}</div>
-                      <div style={{ textAlign: 'right', fontWeight: 500 }}>{formatNumber(rate)}</div>
+                      <div style={{ textAlign: 'left', fontWeight: 500, fontSize: isMobile ? '11px' : '12px', color: '#64748b' }}>{uom || '-'}</div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 500 }}>{formatNumber(rate)}</div>
+                        {rateUom && (
+                          <div style={{ 
+                            fontSize: isMobile ? '10px' : '11px', 
+                            color: '#64748b',
+                            marginTop: '2px',
+                            fontWeight: 400
+                          }}>
+                            /{rateUom}
+                          </div>
+                        )}
+                      </div>
                       <div style={{ textAlign: 'right', fontWeight: 500 }}>{formatNumber(discount)}</div>
                       <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(amount)}</div>
                     </div>
@@ -511,7 +541,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                     <div
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: isMobile ? '2fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 1fr 0.8fr 1.2fr',
+                        gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
                         padding: isMobile ? '10px 12px' : '12px 16px',
                         borderTop: '1px solid #e2e8f0',
                         fontSize: isMobile ? '12px' : '14px',
@@ -522,6 +552,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                     >
                       <div style={{ fontWeight: 500 }}>CGST</div>
                       <div style={{ textAlign: 'right' }}></div>
+                      <div style={{ textAlign: 'left' }}></div>
                       <div style={{ textAlign: 'right' }}></div>
                       <div style={{ textAlign: 'right' }}></div>
                       <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(totalCgst)}</div>
@@ -531,7 +562,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                     <div
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: isMobile ? '2fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 1fr 0.8fr 1.2fr',
+                        gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
                         padding: isMobile ? '10px 12px' : '12px 16px',
                         borderTop: '1px solid #e2e8f0',
                         fontSize: isMobile ? '12px' : '14px',
@@ -542,6 +573,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                     >
                       <div style={{ fontWeight: 500 }}>SGST</div>
                       <div style={{ textAlign: 'right' }}></div>
+                      <div style={{ textAlign: 'left' }}></div>
                       <div style={{ textAlign: 'right' }}></div>
                       <div style={{ textAlign: 'right' }}></div>
                       <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(totalSgst)}</div>
@@ -550,7 +582,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                   <div
                     style={{
                       display: 'grid',
-                      gridTemplateColumns: isMobile ? '2fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 1fr 0.8fr 1.2fr',
+                      gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
                       padding: isMobile ? '10px 12px' : '12px 16px',
                       borderTop: '1px solid #e2e8f0',
                       fontSize: isMobile ? '12px' : '14px',
@@ -561,6 +593,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                   >
                     <div style={{ fontWeight: 500 }}>ROUND OFF</div>
                     <div style={{ textAlign: 'right' }}></div>
+                    <div style={{ textAlign: 'left' }}></div>
                     <div style={{ textAlign: 'right' }}></div>
                     <div style={{ textAlign: 'right' }}></div>
                     <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(totalRoundoff)}</div>
