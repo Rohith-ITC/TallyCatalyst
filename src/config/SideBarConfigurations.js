@@ -244,6 +244,14 @@ export const MODULE_SEQUENCE = [
       icon              : 'storage',
       alwaysVisible     : false,
       permissions       : {}
+    },
+    {
+      key               : 'gmail_json',
+      id                : 'gmail_json',
+      label             : 'Gmail JSON',
+      icon              : 'email',
+      alwaysVisible     : true,
+      permissions       : {}
     }
     
   ];

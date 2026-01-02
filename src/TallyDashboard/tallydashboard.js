@@ -20,6 +20,7 @@ import CacheManagement from './CacheManagement';
 import SalesOrderReport from './SalesOrderReport';
 import PaymentVoucherReport from './PaymentVoucherReport';
 import VendorExpenses from './VendorExpenses';
+import GmailJsonViewer from './GmailJsonViewer';
 import {
   MODULE_SEQUENCE,
   hasModuleAccess,
@@ -2493,6 +2494,7 @@ function TallyDashboard() {
             {activeSidebar === 'master_form' && <MasterForm key="master-form" />}
             {activeSidebar === 'master_authorization' && <MasterAuthorization />}
             {activeSidebar === 'master_list' && <MasterList />}
+            {activeSidebar === 'gmail_json' && <GmailJsonViewer />}
           </>
         </div>
       </main>
