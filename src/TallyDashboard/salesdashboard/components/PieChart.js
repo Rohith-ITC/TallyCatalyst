@@ -4,7 +4,7 @@ import { ResponsivePie } from '@nivo/pie';
 const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick, showBackButton, rowAction, customHeader }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  
+
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 768);
@@ -13,12 +13,12 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Professional color palette
+  // Professional color palette - Teal/Coral theme
   const colors = useMemo(() => [
-    '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
-    '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
-    '#14b8a6', '#f43f5e', '#8b5a2b', '#6b7280', '#dc2626',
-    '#059669', '#d97706', '#7c3aed', '#0891b2', '#ca8a04'
+    '#0d6464', '#2dd4bf', '#c55a39', '#f59e0b', '#16a34a',
+    '#0891b2', '#dc2626', '#7c3aed', '#ea580c', '#059669',
+    '#0284c7', '#db2777', '#65a30d', '#6366f1', '#ca8a04',
+    '#14b8a6', '#e11d48', '#8b5cf6', '#d97706', '#10b981'
   ], []);
 
   // Calculate total
@@ -44,28 +44,19 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
   if (!data || !Array.isArray(data) || data.length === 0 || total === 0) {
     return (
       <div style={{
-        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-        borderRadius: isMobile ? '12px' : '16px',
-        padding: '0',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
         overflow: 'hidden',
         width: '100%',
-        maxWidth: '100%'
+        maxWidth: '100%',
+        background: 'white',
+        borderRadius: '12px',
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
       }}>
         {customHeader ? (
-          <div style={{ 
-            padding: isMobile ? '12px 16px' : '16px 20px',
-            position: 'sticky',
-            top: 0,
-            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-            zIndex: 10,
-            borderBottom: '2px solid #e2e8f0',
-            marginBottom: '0'
-          }}>
+          <div>
             {customHeader}
           </div>
         ) : (
@@ -73,13 +64,6 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: isMobile ? '12px 16px' : '16px 20px',
-            position: 'sticky',
-            top: 0,
-            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-            zIndex: 10,
-            borderBottom: '2px solid #e2e8f0',
-            marginBottom: '0',
             gap: isMobile ? '8px' : '12px'
           }}>
             <h3 style={{
@@ -152,20 +136,19 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
 
   return (
     <div style={{
-      background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-      borderRadius: isMobile ? '12px' : '16px',
-      padding: '0',
-      border: '1px solid #e2e8f0',
-      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
       overflow: 'hidden',
       width: '100%',
-      maxWidth: '100%'
+      maxWidth: '100%',
+      background: 'white',
+      borderRadius: '12px',
+      border: '1px solid #e2e8f0',
+      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
     }}>
       {customHeader ? (
-        <div style={{ 
+        <div style={{
           padding: isMobile ? '12px 16px' : '16px 20px',
           position: 'sticky',
           top: 0,
@@ -210,27 +193,12 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
-                padding: isMobile ? '6px 10px' : '8px 14px',
-                background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
-                border: '1px solid #cbd5e1',
-                borderRadius: '8px',
+                border: 'none',
                 color: '#475569',
                 fontSize: isMobile ? '11px' : '13px',
                 fontWeight: '600',
                 cursor: 'pointer',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
                 flexShrink: 0
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = 'linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)';
-                e.target.style.transform = 'translateY(-1px)';
-                e.target.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
               }}
             >
               <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px' }}>arrow_back</span>
@@ -254,17 +222,14 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
         maxWidth: '100%',
         minHeight: 0
       }}>
-        <div style={{ 
-          width: isMobile ? '100%' : 'min(300px, 40%)', 
-          height: isMobile ? '250px' : '100%', 
+        <div style={{
+          width: isMobile ? '100%' : 'min(300px, 40%)',
+          height: isMobile ? '250px' : '100%',
           minHeight: isMobile ? '250px' : '300px',
           maxHeight: isMobile ? '350px' : '450px',
           maxWidth: '100%',
           flexShrink: 0,
-          borderRadius: isMobile ? '8px' : '12px',
-          background: 'white',
           padding: '0',
-          boxShadow: 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.06)',
           overflow: 'hidden'
         }}>
           <ResponsivePie
@@ -305,9 +270,9 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
                   minWidth: isMobile ? '140px' : '180px',
                   maxWidth: isMobile ? '200px' : 'none'
                 }}>
-                  <div style={{ 
-                    fontWeight: '700', 
-                    marginBottom: isMobile ? '4px' : '8px', 
+                  <div style={{
+                    fontWeight: '700',
+                    marginBottom: isMobile ? '4px' : '8px',
                     color: '#1e293b',
                     fontSize: isMobile ? '12px' : '14px',
                     letterSpacing: '-0.025em',
@@ -317,7 +282,7 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
                   }}>
                     {datum.id}
                   </div>
-                  <div style={{ 
+                  <div style={{
                     color: '#475569',
                     fontSize: isMobile ? '13px' : '15px',
                     fontWeight: '600',
@@ -325,8 +290,8 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
                   }}>
                     {valuePrefix}{datum.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </div>
-                  <div style={{ 
-                    color: '#64748b', 
+                  <div style={{
+                    color: '#64748b',
                     fontSize: isMobile ? '10px' : '12px',
                     background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
                     padding: isMobile ? '2px 6px' : '4px 8px',

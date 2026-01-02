@@ -6,6 +6,7 @@ import PieChart from './components/PieChart';
 import TreeMap from './components/TreeMap';
 import LineChart from './components/LineChart';
 import ChatBot from './components/ChatBot';
+import KPICard from './components/KPICard';
 import { getUserModules, hasPermission } from '../../config/SideBarConfigurations';
 import {
   ResponsiveContainer,
@@ -2589,6 +2590,66 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         return parseInt(monthA) - parseInt(monthB);
       });
   }, [filteredSales]);
+
+  // Generate trend data for KPI cards
+  const kpiTrendData = useMemo(() => {
+    // Get the last 12 periods for trend visualization
+    const last12Periods = periodChartData.slice(-12);
+    
+    // Calculate other metrics per period
+    const periodMetrics = last12Periods.map(period => {
+      const periodSales = filteredSales.filter(sale => {
+        const saleDate = sale.cp_date || sale.date;
+        const date = new Date(saleDate);
+        const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+        return yearMonth === period.originalLabel;
+      });
+      
+      const orders = new Set(periodSales.map(s => s.masterid)).size;
+      const customers = new Set(periodSales.map(s => s.customer)).size;
+      const revenue = periodSales.reduce((sum, s) => sum + s.amount, 0);
+      const avgInvoiceValue = orders > 0 ? revenue / orders : 0;
+      const profit = periodSales.reduce((sum, s) => sum + (s.profit || 0), 0);
+      const profitMargin = revenue > 0 ? (profit / revenue) * 100 : 0;
+      const avgProfitPerOrder = orders > 0 ? profit / orders : 0;
+      
+      return {
+        revenue,
+        orders,
+        customers,
+        avgInvoiceValue,
+        profit,
+        profitMargin,
+        avgProfitPerOrder
+      };
+    });
+    
+    return {
+      revenue: periodMetrics.map(p => p.revenue),
+      orders: periodMetrics.map(p => p.orders),
+      customers: periodMetrics.map(p => p.customers),
+      avgInvoiceValue: periodMetrics.map(p => p.avgInvoiceValue),
+      profit: periodMetrics.map(p => p.profit),
+      profitMargin: periodMetrics.map(p => p.profitMargin),
+      avgProfitPerOrder: periodMetrics.map(p => p.avgProfitPerOrder)
+    };
+  }, [periodChartData, filteredSales]);
+
+  // Generate period label for KPI cards
+  const kpiPeriodLabel = useMemo(() => {
+    if (!fromDate || !toDate) return 'current period';
+    
+    const start = new Date(fromDate);
+    const end = new Date(toDate);
+    
+    // Check if it's a single month
+    if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${monthNames[start.getMonth()]} ${start.getFullYear()}`;
+    }
+    
+    return 'current period';
+  }, [fromDate, toDate]);
 
   // Month-wise Revenue vs Profit chart data
   const revenueVsProfitChartData = useMemo(() => {
@@ -6199,26 +6260,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
          overflowX: 'hidden',
        }}
      >
-       <div
-         style={{
-           width: '100%',
-           margin: '0 auto',
-           maxWidth: '100%',
-           background: 'white',
-           borderRadius: '16px',
-           boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-           overflow: 'visible',
-           border: '1px solid #e2e8f0',
-           position: 'relative',
-         }}
-       >
         {/* Header */}
         <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
-        <div style={{
-            padding: isMobile ? '12px 16px' : '18px 24px',
-          borderBottom: '1px solid #f1f5f9',
-          background: 'transparent',
-          position: 'relative'
+          <div style={{
+            background: 'linear-gradient(90deg, #1e40af 0%, #1e3a8a 100%)',
+            borderRadius: '16px',
+            padding: isMobile ? '16px' : '24px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+            marginBottom: '24px'
           }}>
             {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
         {isMobile ? (
@@ -6235,58 +6284,72 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 width: '36px',
                 height: '36px',
                 borderRadius: '10px',
-                background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+                background: 'rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                flexShrink: 0
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
-              }}
-              >
-                <span className="material-icons" style={{ color: 'white', fontSize: '18px' }}>analytics</span>
+                flexShrink: 0,
+                border: '1px solid rgba(255, 255, 255, 0.3)'
+              }}>
+                <span className="material-icons" style={{ color: '#ffffff', fontSize: '18px' }}>bar_chart</span>
               </div>
               <div style={{ flex: '1' }}>
                 <h1 style={{
                   margin: 0,
-                  color: '#0f172a',
-                  fontSize: '18px',
-                  fontWeight: '800',
+                  color: '#ffffff',
+                  fontSize: isMobile ? '14px' : '16px',
+                  fontWeight: '700',
                   lineHeight: '1.2',
                   letterSpacing: '-0.02em'
                 }}>
                   Sales Analytics Dashboard
                 </h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
                   <p style={{
                     margin: 0,
-                    color: '#64748b',
+                    color: '#ffffff',
                     fontSize: '11px',
                     fontWeight: '500',
                     lineHeight: '1.4'
                   }}>
                     Comprehensive sales insights
                   </p>
+                  {/* Date Range Badge */}
+                  {fromDate && toDate && (
+                    <div style={{
+                      display: 'inline-flex',
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      backdropFilter: 'blur(10px)',
+                      color: '#ffffff',
+                      padding: '4px 12px',
+                      borderRadius: '16px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      border: '1px solid rgba(255, 255, 255, 0.3)'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: '14px' }}>calendar_month</span>
+                      <span>
+                        {new Date(fromDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} → {new Date(toDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                    </div>
+                  )}
                   {/* Records Available Badge - Inline */}
                   <div style={{
                     display: 'inline-flex',
-                    background: '#f0f9ff',
-                    color: '#0369a1',
-                    padding: '4px 10px',
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    backdropFilter: 'blur(10px)',
+                    color: '#ffffff',
+                    padding: '4px 12px',
                     borderRadius: '16px',
                     fontSize: '11px',
                     fontWeight: '600',
                     alignItems: 'center',
-                    gap: '5px',
-                    border: '1px solid #bae6fd',
+                    gap: '6px',
+                    border: '1px solid rgba(255, 255, 255, 0.3)',
                     whiteSpace: 'nowrap'
                   }}>
                     <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
@@ -6315,9 +6378,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 disabled={sales.length === 0}
                 style={{
                   background: sales.length === 0 
-                    ? '#e5e7eb' 
-                    : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                  color: sales.length === 0 ? '#9ca3af' : '#fff',
+                    ? 'rgba(255, 255, 255, 0.3)' 
+                    : '#ffffff',
+                  color: sales.length === 0 ? '#ffffff' : '#1e293b',
                   border: 'none',
                   borderRadius: '8px',
                   padding: '10px 16px',
@@ -6328,23 +6391,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   fontSize: '13px',
                   fontWeight: '600',
                   transition: 'all 0.2s ease',
-                  boxShadow: sales.length === 0 
-                    ? 'none' 
-                    : '0 2px 4px rgba(16, 185, 129, 0.2)',
                   whiteSpace: 'nowrap',
                   justifyContent: 'center',
                   width: '100%'
                 }}
                 onMouseEnter={(e) => {
                   if (sales.length > 0) {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.9)';
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (sales.length > 0) {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
+                    e.currentTarget.style.background = '#ffffff';
                   }
                 }}
               >
@@ -6398,9 +6456,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 gap: '8px',
                 width: '100%',
                 padding: '10px 12px',
-                background: '#f8fafc',
+                background: '#ffffff',
                 borderRadius: '8px',
-                border: '1px solid #e2e8f0',
                 boxSizing: 'border-box',
                 position: 'relative',
                 overflow: 'hidden'
@@ -6443,7 +6500,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   position: 'relative',
                   zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '16px', color: isDownloadingCache ? '#10b981' : '#64748b', flexShrink: 0 }}>schedule</span>
+                  <span className="material-icons" style={{ fontSize: '16px', color: isDownloadingCache ? '#10b981' : '#1e293b', flexShrink: 0 }}>schedule</span>
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
@@ -6454,7 +6511,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}>
                     <span style={{
                       fontSize: '11px',
-                      color: isDownloadingCache ? '#059669' : '#64748b',
+                      color: isDownloadingCache ? '#059669' : '#1e293b',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
@@ -6578,7 +6635,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               <div style={{ position: 'relative', width: '100%' }} ref={downloadDropdownRef}>
                 <button
                   type="button"
-                  title="Download"
+                  title="Export"
                   onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
                   style={{
                     background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
@@ -6609,7 +6666,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 >
                   <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
-                  <span>Download</span>
+                  <span>Export</span>
                   <span className="material-icons" style={{ fontSize: '18px' }}>
                     {showDownloadDropdown ? 'expand_less' : 'expand_more'}
                   </span>
@@ -6713,29 +6770,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 width: '44px',
                 height: '44px',
                 borderRadius: '10px',
-                background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+                background: 'rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                flexShrink: 0
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
-              }}
-              >
-                <span className="material-icons" style={{ color: 'white', fontSize: '22px' }}>analytics</span>
+                flexShrink: 0,
+                border: '1px solid rgba(255, 255, 255, 0.3)'
+              }}>
+                <span className="material-icons" style={{ color: '#ffffff', fontSize: '22px' }}>bar_chart</span>
               </div>
               <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
                 <h1 style={{
                   margin: 0,
-                  color: '#0f172a',
+                  color: '#ffffff',
                   fontSize: '24px',
                   fontWeight: '800',
                   lineHeight: '1.2',
@@ -6750,14 +6798,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   display: 'flex', 
                   alignItems: 'center', 
                   gap: '10px', 
-                  marginTop: '4px', 
+                  marginTop: '8px', 
                   flexWrap: 'wrap',
                   overflow: 'hidden',
                   minWidth: 0
                 }}>
                   <p style={{
                     margin: 0,
-                    color: '#64748b',
+                    color: '#ffffff',
                     fontSize: '13px',
                     fontWeight: '500',
                     lineHeight: '1.4',
@@ -6768,18 +6816,42 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}>
                     Comprehensive sales insights
                   </p>
+                  {/* Date Range Badge */}
+                  {fromDate && toDate && (
+                    <div style={{
+                      display: 'inline-flex',
+                      background: 'rgba(255, 255, 255, 0.2)',
+                      backdropFilter: 'blur(10px)',
+                      color: '#ffffff',
+                      padding: '4px 12px',
+                      borderRadius: '16px',
+                      fontSize: '11px',
+                      fontWeight: '600',
+                      alignItems: 'center',
+                      gap: '6px',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0
+                    }}>
+                      <span className="material-icons" style={{ fontSize: '14px' }}>calendar_month</span>
+                      <span>
+                        {new Date(fromDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} → {new Date(toDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                    </div>
+                  )}
                   {/* Records Available Badge - Inline */}
                   <div style={{
                     display: 'inline-flex',
-                    background: '#f0f9ff',
-                    color: '#0369a1',
-                    padding: '4px 10px',
+                    background: 'rgba(255, 255, 255, 0.2)',
+                    backdropFilter: 'blur(10px)',
+                    color: '#ffffff',
+                    padding: '4px 12px',
                     borderRadius: '16px',
                     fontSize: '11px',
                     fontWeight: '600',
                     alignItems: 'center',
-                    gap: '5px',
-                    border: '1px solid #bae6fd',
+                    gap: '6px',
+                    border: '1px solid rgba(255, 255, 255, 0.3)',
                     whiteSpace: 'nowrap',
                     flexShrink: 0
                   }}>
@@ -6803,9 +6875,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   disabled={sales.length === 0}
                   style={{
                     background: sales.length === 0 
-                      ? '#e5e7eb' 
-                      : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                    color: sales.length === 0 ? '#9ca3af' : '#fff',
+                      ? 'rgba(255, 255, 255, 0.3)' 
+                      : '#ffffff',
+                    color: sales.length === 0 ? '#ffffff' : '#1e293b',
                     border: 'none',
                     borderRadius: '10px',
                     padding: '10px 20px',
@@ -6816,21 +6888,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     fontSize: '14px',
                     fontWeight: '600',
                     transition: 'all 0.2s ease',
-                    boxShadow: sales.length === 0 
-                      ? 'none' 
-                      : '0 2px 4px rgba(16, 185, 129, 0.2)',
                     whiteSpace: 'nowrap'
                   }}
                   onMouseEnter={(e) => {
                     if (sales.length > 0) {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.9)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (sales.length > 0) {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
+                      e.currentTarget.style.background = '#ffffff';
                     }
                   }}
                 >
@@ -6898,9 +6965,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 gap: '10px',
                 flex: '0 0 auto',
                 padding: '6px 12px',
-                background: '#f8fafc',
+                background: '#ffffff',
                 borderRadius: '8px',
-                border: '1px solid #e2e8f0',
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
                 position: 'relative',
@@ -6941,7 +7007,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   position: 'relative',
                   zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#64748b' }}>schedule</span>
+                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#1e293b' }}>schedule</span>
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
@@ -6950,7 +7016,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}>
                     <span style={{
                       fontSize: '12px',
-                      color: isDownloadingCache ? '#059669' : '#64748b',
+                      color: isDownloadingCache ? '#059669' : '#1e293b',
                       whiteSpace: 'nowrap',
                       fontWeight: isDownloadingCache ? '600' : '400'
                     }}>
@@ -7080,7 +7146,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               }} ref={downloadDropdownRef}>
                 <button
                   type="button"
-                  title="Download"
+                  title="Export"
                   onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
                   style={{
                     background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
@@ -7110,7 +7176,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 >
                   <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
-                  <span>Download</span>
+                  <span>Export</span>
                   <span className="material-icons" style={{ fontSize: '18px' }}>
                     {showDownloadDropdown ? 'expand_less' : 'expand_more'}
                   </span>
@@ -7230,7 +7296,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               </div>
           </div>
         )}
-        </div>
+          </div>
 
         {/* Progress Bar - Removed: Sales dashboard uses cache-only mode, no server fetching notifications */}
 
@@ -7722,385 +7788,114 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           )}
 
         {/* Dashboard Content */}
-        <div style={{ padding: isMobile ? '12px 16px' : '24px 28px 28px 28px' }}>
-          {/* Date Range Display */}
-          {fromDate && toDate && (
+          {/* KPI Cards Row */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)',
+            gap: isMobile ? '12px' : '16px',
+            marginBottom: isMobile ? '16px' : '24px'
+          }}>
+            <KPICard
+              title="Total Revenue"
+              value={totalRevenue}
+              period={kpiPeriodLabel}
+              trendData={kpiTrendData.revenue}
+              format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              isMobile={isMobile}
+              iconName="account_balance_wallet"
+              iconBgColor="#dbeafe"
+              iconColor="#3b82f6"
+            />
+            <KPICard
+              title="Total Invoices"
+              value={totalOrders}
+              period={kpiPeriodLabel}
+              trendData={kpiTrendData.orders}
+              format={(val) => val.toLocaleString()}
+              isMobile={isMobile}
+              iconName="shopping_cart"
+              iconBgColor="#dcfce7"
+              iconColor="#16a34a"
+            />
+            <KPICard
+              title="Unique Customers"
+              value={uniqueCustomers}
+              period={kpiPeriodLabel}
+              trendData={kpiTrendData.customers}
+              format={(val) => val.toLocaleString()}
+              isMobile={isMobile}
+              iconName="people"
+              iconBgColor="#e9d5ff"
+              iconColor="#9333ea"
+            />
+            <KPICard
+              title="Avg Invoice Value"
+              value={avgOrderValue}
+              period={kpiPeriodLabel}
+              trendData={kpiTrendData.avgInvoiceValue}
+              format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              isMobile={isMobile}
+              iconName="trending_up"
+              iconBgColor="#dcfce7"
+              iconColor="#16a34a"
+            />
+          </div>
+
+          {/* Profit KPI Cards Row */}
+          {canShowProfit && (
             <div style={{
-              marginBottom: isMobile ? '16px' : '24px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: isMobile ? '8px' : '12px',
-              fontSize: isMobile ? '14px' : '16px',
-              fontWeight: '600',
-              color: '#475569',
-              flexWrap: 'wrap'
+              display: 'grid',
+              gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)',
+              gap: isMobile ? '12px' : '16px',
+              marginBottom: isMobile ? '20px' : '28px'
             }}>
-              <span>
-                {new Date(fromDate).toLocaleDateString('en-IN', { 
-                  day: 'numeric', 
-                  month: 'short', 
-                  year: 'numeric' 
-                })}
-              </span>
-              <span style={{ color: '#94a3b8' }}>→</span>
-              <span>
-                {new Date(toDate).toLocaleDateString('en-IN', { 
-                  day: 'numeric', 
-                  month: 'short', 
-                  year: 'numeric' 
-                })}
-              </span>
+              <KPICard
+                title="Total Profit"
+                value={totalProfit}
+                period={kpiPeriodLabel}
+                trendData={kpiTrendData.profit}
+                format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                status={totalProfit >= 0 ? 'met' : 'below'}
+                isMobile={isMobile}
+                iconName="trending_up"
+                iconBgColor="#dcfce7"
+                iconColor="#16a34a"
+              />
+              <KPICard
+                title="Profit Margin"
+                value={profitMargin}
+                period={kpiPeriodLabel}
+                trendData={kpiTrendData.profitMargin}
+                format={(val) => `${val >= 0 ? '+' : ''}${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                unit="%"
+                status={profitMargin >= 0 ? 'met' : 'below'}
+                isMobile={isMobile}
+                iconName="percent"
+                iconBgColor="#dcfce7"
+                iconColor="#16a34a"
+              />
+              <KPICard
+                title="Avg Profit per Order"
+                value={avgProfitPerOrder}
+                period={kpiPeriodLabel}
+                trendData={kpiTrendData.avgProfitPerOrder}
+                format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                status={avgProfitPerOrder >= 0 ? 'met' : 'below'}
+                isMobile={isMobile}
+                iconName="trending_up"
+                iconBgColor="#dcfce7"
+                iconColor="#16a34a"
+              />
             </div>
           )}
-          
-          {/* KPI Cards */}
+
+          {/* Main Content: Charts */}
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: isMobile ? '12px' : '20px',
-            marginBottom: isMobile ? '16px' : '28px'
+            display: 'flex',
+            flexDirection: 'column',
+            gap: isMobile ? '16px' : '24px',
+            marginBottom: isMobile ? '16px' : '24px'
           }}>
-            <div style={{
-              background: 'white',
-              borderRadius: isMobile ? '12px' : '14px',
-              padding: isMobile ? '16px' : '20px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              transition: 'all 0.3s ease',
-              cursor: 'default'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.borderColor = '#cbd5e1';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = '#e2e8f0';
-            }}
-            >
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                  Total Revenue
-                </p>
-                <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                  ₹{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-              </div>
-              <div style={{
-                width: isMobile ? '40px' : '52px',
-                height: isMobile ? '40px' : '52px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(59, 130, 246, 0.15)'
-              }}>
-                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>account_balance_wallet</span>
-              </div>
-            </div>
-
-            <div style={{
-              background: 'white',
-              borderRadius: isMobile ? '12px' : '14px',
-              padding: isMobile ? '16px' : '20px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              transition: 'all 0.3s ease',
-              cursor: 'default'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.borderColor = '#cbd5e1';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = '#e2e8f0';
-            }}
-            >
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                  Total Invoices
-                </p>
-                <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                  {totalOrders}
-                </p>
-              </div>
-              <div style={{
-                width: isMobile ? '40px' : '52px',
-                height: isMobile ? '40px' : '52px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(22, 163, 74, 0.15)'
-              }}>
-                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>shopping_cart</span>
-              </div>
-            </div>
-
-            <div style={{
-              background: 'white',
-              borderRadius: isMobile ? '12px' : '14px',
-              padding: isMobile ? '16px' : '20px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              transition: 'all 0.3s ease',
-              cursor: 'default'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.borderColor = '#cbd5e1';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = '#e2e8f0';
-            }}
-            >
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                  Unique Customers
-                </p>
-                <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                  {uniqueCustomers}
-                </p>
-              </div>
-              <div style={{
-                width: isMobile ? '40px' : '52px',
-                height: isMobile ? '40px' : '52px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #e9d5ff 0%, #ddd6fe 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(147, 51, 234, 0.15)'
-              }}>
-                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#9333ea' }}>people</span>
-              </div>
-            </div>
-
-            <div style={{
-              background: 'white',
-              borderRadius: isMobile ? '12px' : '14px',
-              padding: isMobile ? '16px' : '20px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              transition: 'all 0.3s ease',
-              cursor: 'default'
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.borderColor = '#cbd5e1';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.borderColor = '#e2e8f0';
-            }}
-            >
-              <div style={{ flex: 1 }}>
-                <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                  Avg Invoice Value
-                </p>
-                <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                  ₹{avgOrderValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-              </div>
-              <div style={{
-                width: isMobile ? '40px' : '52px',
-                height: isMobile ? '40px' : '52px',
-                borderRadius: '12px',
-                background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(22, 163, 74, 0.15)'
-              }}>
-                <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>trending_up</span>
-              </div>
-              </div>
-            </div>
-
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: '20px',
-            marginBottom: isMobile ? '16px' : '28px'
-          }}>
-            {canShowProfit && (
-              <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Total Profit
-                  </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: totalProfit >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                    ₹{totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
-                <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: totalProfit >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: totalProfit >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: totalProfit >= 0 ? '#16a34a' : '#dc2626' }}>
-                    {totalProfit >= 0 ? 'trending_up' : 'trending_down'}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {canShowProfit && (
-              <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Profit Margin
-                  </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: profitMargin >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                    {profitMargin >= 0 ? '+' : ''}{profitMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
-                  </p>
-                </div>
-                <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: profitMargin >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: profitMargin >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: profitMargin >= 0 ? '#16a34a' : '#dc2626' }}>
-                    {profitMargin >= 0 ? 'percent' : 'remove'}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {canShowProfit && (
-              <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Avg Profit per Order
-                  </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                    ₹{avgProfitPerOrder.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
-                <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: avgProfitPerOrder >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: avgProfitPerOrder >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626' }}>
-                    {avgProfitPerOrder >= 0 ? 'trending_up' : 'trending_down'}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
 
           {/* Charts Section */}
           {/* Row 1: Sales by Ledger Group and Salesperson Totals */}
@@ -8116,6 +7911,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               flexDirection: 'column',
               height: isMobile ? '400px' : '550px',
               minHeight: isMobile ? '350px' : '500px',
+              maxHeight: isMobile ? '400px' : '550px',
               overflow: 'hidden'
             }}>
               {ledgerGroupChartType === 'bar' && (
@@ -8346,7 +8142,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: '500px',
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
+              maxHeight: isMobile ? '400px' : '550px',
               overflow: 'hidden'
             }}>
               <div style={{
@@ -8355,7 +8153,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 padding: '12px 16px',
                 border: '1px solid #e2e8f0',
                 boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                flex: 1,
+                height: '100%',
                 display: 'flex',
                 flexDirection: 'column',
                 overflow: 'hidden'
@@ -10626,7 +10424,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               <div style={{ 
                 display: 'flex',
                 flexDirection: 'column',
-                height: '500px',
+                height: isMobile ? '400px' : '550px',
+                minHeight: isMobile ? '350px' : '500px',
                 overflowY: 'auto',
                 overflowX: 'hidden'
               }}>
@@ -10948,7 +10747,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
-                height: '500px',
+                height: isMobile ? '400px' : '550px',
+                minHeight: isMobile ? '350px' : '500px',
                 overflowY: 'auto',
                 overflowX: 'hidden'
               }}>
@@ -11248,7 +11048,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: '500px',
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {topProfitableItemsChartType === 'bar' && (
@@ -11490,7 +11291,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: '500px',
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               {topLossItemsChartType === 'bar' && (
@@ -11717,7 +11519,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: '500px',
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden',
               width: '100%',
               maxWidth: '100%',
@@ -12048,9 +11851,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             });
           })()}
           
-        </div>
+          </div>
+          {/* End of Main Content */}
+
         </form>
-      </div>
     </div>
 
     {rawDataModal.open && (
@@ -15952,9 +15756,9 @@ const CustomCard = React.memo(({
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      height: '500px',
-      maxHeight: '500px',
-      minHeight: '500px',
+      height: isMobile ? '400px' : '550px',
+      maxHeight: isMobile ? '400px' : '550px',
+      minHeight: isMobile ? '350px' : '500px',
       overflow: 'hidden',
       position: 'relative',
       width: '100%',
@@ -16054,7 +15858,8 @@ const CustomCard = React.memo(({
           borderRadius: '12px',
           border: '1px solid #e2e8f0',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          height: '500px',
+          height: isMobile ? '400px' : '550px',
+          minHeight: isMobile ? '350px' : '500px',
           display: 'flex',
           flexDirection: 'column'
         }}>
