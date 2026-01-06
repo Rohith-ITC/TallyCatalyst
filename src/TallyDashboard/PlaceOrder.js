@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { apiPost } from '../utils/apiUtils';
+import { apiPost, apiGet } from '../utils/apiUtils';
 import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
 import { getCustomersFromOPFS, syncCustomers } from '../utils/cacheSyncManager';
@@ -1250,7 +1250,9 @@ function PlaceOrder() {
 
   const [showOrderResultModal, setShowOrderResultModal] = useState(false);
 
-  const [orderResult, setOrderResult] = useState({ success: false, message: '', tallyResponse: null });
+  const [orderResult, setOrderResult] = useState({ success: false, message: '', tallyResponse: null, companyInfo: null, lastVchId: null });
+
+  const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
 
 
 
@@ -7418,13 +7420,27 @@ function PlaceOrder() {
 
         // Order created successfully
 
+        // Extract LASTVCHID from response - check both result.data.lastVchId and nested path
+        const lastVchId = result.data?.lastVchId || 
+                         result.data?.tallyResponse?.BODY?.DATA?.IMPORTRESULT?.LASTVCHID || 
+                         result.tallyResponse?.BODY?.DATA?.IMPORTRESULT?.LASTVCHID || 
+                         null;
+
         setOrderResult({
 
           success: true,
 
           message: 'Order placed successfully!',
 
-          tallyResponse: result.tallyResponse
+          tallyResponse: result.data?.tallyResponse || result.tallyResponse,
+
+          companyInfo: currentCompany ? {
+            tallyloc_id: currentCompany.tallyloc_id,
+            company: currentCompany.company,
+            guid: currentCompany.guid
+          } : null,
+
+          lastVchId: lastVchId
 
         });
 
@@ -7510,6 +7526,125 @@ function PlaceOrder() {
 
     }
 
+  };
+
+
+
+  // Download PDF function
+  const downloadPDF = async () => {
+    setIsDownloadingPDF(true);
+
+    try {
+      // Extract company info - try from orderResult first, then from component state
+      let companyInfo = orderResult.companyInfo;
+      if (!companyInfo) {
+        const currentCompany = filteredCompanies.find(c => c.guid === company);
+        if (currentCompany) {
+          companyInfo = {
+            tallyloc_id: currentCompany.tallyloc_id,
+            company: currentCompany.company,
+            guid: currentCompany.guid
+          };
+        }
+      }
+
+      // Extract lastVchId - try from orderResult first, then from tallyResponse
+      let lastVchId = orderResult.lastVchId;
+      if (!lastVchId && orderResult.tallyResponse) {
+        lastVchId = orderResult.tallyResponse?.BODY?.DATA?.IMPORTRESULT?.LASTVCHID || null;
+      }
+
+      if (!companyInfo || !lastVchId) {
+        alert('❌ Unable to download PDF: Missing order information');
+        return;
+      }
+
+      // Step 1: Request PDF generation
+      const requestPayload = {
+        tallyloc_id: companyInfo.tallyloc_id,
+        company: companyInfo.company,
+        guid: companyInfo.guid,
+        master_id: lastVchId
+      };
+
+      console.log('Requesting PDF generation:', requestPayload);
+      const requestResult = await apiPost('/api/tally/pdf/request', requestPayload);
+
+      if (!requestResult || !requestResult.success || !requestResult.request_id) {
+        throw new Error(requestResult?.message || 'Failed to request PDF generation');
+      }
+
+      const requestId = requestResult.request_id;
+      console.log('PDF request ID:', requestId);
+
+      // Step 2: Poll PDF status until ready (with timeout)
+      let statusResult = null;
+      const maxAttempts = 3; // Maximum 30 attempts
+      const pollInterval = 1000; // Check every 1 second
+      let attempts = 0;
+
+      while (attempts < maxAttempts) {
+        // Wait before checking (except first attempt)
+        if (attempts > 0) {
+          await new Promise(resolve => setTimeout(resolve, pollInterval));
+        }
+
+        statusResult = await apiGet(`/api/tally/pdf/status/${requestId}`);
+
+        if (statusResult && statusResult.status === 'ready' && statusResult.pdf_base64) {
+          console.log(`PDF ready after ${attempts + 1} attempt(s)`);
+          break;
+        }
+
+        if (statusResult && statusResult.status === 'error') {
+          throw new Error(statusResult?.message || 'PDF generation failed');
+        }
+
+        attempts++;
+        console.log(`PDF status: ${statusResult?.status || 'unknown'}, attempt ${attempts}/${maxAttempts}`);
+      }
+
+      // Step 3: Verify PDF is ready
+      if (!statusResult || statusResult.status !== 'ready' || !statusResult.pdf_base64) {
+        throw new Error(statusResult?.message || 'PDF generation timed out. Please try again later.');
+      }
+
+      // Step 4: Decode base64 and download PDF
+      const pdfBase64 = statusResult.pdf_base64;
+      
+      // Convert base64 to binary
+      const binaryString = atob(pdfBase64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Create blob and download
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      
+      // Generate filename from voucher number if available
+      const voucherNumber = orderResult.tallyResponse?.BODY?.DATA?.IMPORTRESULT?.VCHNUMBER || orderResult.lastVchId;
+      a.download = `Order_${voucherNumber}.pdf`;
+      
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      console.log('PDF downloaded successfully');
+
+      // Close the modal after successful download
+      setShowOrderResultModal(false);
+
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      alert(`❌ Error downloading PDF: ${error.message}`);
+    } finally {
+      setIsDownloadingPDF(false);
+    }
   };
 
 
@@ -15088,9 +15223,57 @@ function PlaceOrder() {
 
                 display: 'flex',
 
-                justifyContent: 'center'
+                justifyContent: 'center',
+
+                gap: '12px',
+
+                flexWrap: 'wrap'
 
               }}>
+
+                {orderResult.success && (
+
+                  <button
+
+                    onClick={downloadPDF}
+
+                    disabled={isDownloadingPDF}
+
+                    style={{
+
+                      background: isDownloadingPDF
+
+                        ? 'linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)'
+
+                        : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+
+                      color: '#fff',
+
+                      border: 'none',
+
+                      borderRadius: '8px',
+
+                      padding: '12px 24px',
+
+                      cursor: isDownloadingPDF ? 'not-allowed' : 'pointer',
+
+                      fontSize: '14px',
+
+                      fontWeight: '600',
+
+                      minWidth: '120px',
+
+                      opacity: isDownloadingPDF ? 0.7 : 1
+
+                    }}
+
+                  >
+
+                    {isDownloadingPDF ? 'Downloading...' : 'Download PDF'}
+
+                  </button>
+
+                )}
 
                 <button
 
@@ -15124,7 +15307,7 @@ function PlaceOrder() {
 
                 >
 
-                  {orderResult.success ? 'Great!' : 'Close'}
+                  {orderResult.success ? 'Close' : 'Close'}
 
                 </button>
 

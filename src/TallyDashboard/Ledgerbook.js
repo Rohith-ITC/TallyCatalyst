@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { apiPost } from '../utils/apiUtils';
+import { apiPost, apiGet } from '../utils/apiUtils';
 import { getDropdownFilterOptions, getUserModules } from '../config/SideBarConfigurations';
 import { getCustomersFromOPFS, syncCustomers } from '../utils/cacheSyncManager';
 import { hybridCache } from '../utils/hybridCache';
@@ -105,6 +105,7 @@ function Ledgerbook() {
   const [showConfigOptions, setShowConfigOptions] = useState(false);
   const [showVoucherDetails, setShowVoucherDetails] = useState(false);
   const [viewingVoucher, setViewingVoucher] = useState(null);
+  const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
   const parseAmount = (amount) => {
     if (amount === null || amount === undefined || amount === '') return 0;
     if (typeof amount === 'number') return amount;
@@ -197,6 +198,109 @@ function Ledgerbook() {
     setShowVoucherDetails(true);
   };
 
+  // Download PDF function for voucher
+  const downloadPDF = async () => {
+    if (!viewingVoucher || !viewingVoucher.MASTERID) {
+      alert('❌ Unable to download PDF: Missing voucher information');
+      return;
+    }
+
+    if (!currentCompanyObj) {
+      alert('❌ Unable to download PDF: Missing company information');
+      return;
+    }
+
+    setIsDownloadingPDF(true);
+
+    try {
+      // Step 1: Request PDF generation
+      const requestPayload = {
+        tallyloc_id: currentCompanyObj.tallyloc_id,
+        company: currentCompanyObj.company,
+        guid: currentCompanyObj.guid,
+        master_id: viewingVoucher.MASTERID
+      };
+
+      console.log('Requesting PDF generation:', requestPayload);
+      const requestResult = await apiPost('/api/tally/pdf/request', requestPayload);
+
+      if (!requestResult || !requestResult.success || !requestResult.request_id) {
+        throw new Error(requestResult?.message || 'Failed to request PDF generation');
+      }
+
+      const requestId = requestResult.request_id;
+      console.log('PDF request ID:', requestId);
+
+      // Step 2: Poll PDF status until ready (with timeout)
+      let statusResult = null;
+      const maxAttempts = 30; // Maximum 30 attempts
+      const pollInterval = 1000; // Check every 1 second
+      let attempts = 0;
+
+      while (attempts < maxAttempts) {
+        // Wait before checking (except first attempt)
+        if (attempts > 0) {
+          await new Promise(resolve => setTimeout(resolve, pollInterval));
+        }
+
+        statusResult = await apiGet(`/api/tally/pdf/status/${requestId}`);
+
+        if (statusResult && statusResult.status === 'ready' && statusResult.pdf_base64) {
+          console.log(`PDF ready after ${attempts + 1} attempt(s)`);
+          break;
+        }
+
+        if (statusResult && statusResult.status === 'error') {
+          throw new Error(statusResult?.message || 'PDF generation failed');
+        }
+
+        attempts++;
+        console.log(`PDF status: ${statusResult?.status || 'unknown'}, attempt ${attempts}/${maxAttempts}`);
+      }
+
+      // Step 3: Verify PDF is ready
+      if (!statusResult || statusResult.status !== 'ready' || !statusResult.pdf_base64) {
+        throw new Error(statusResult?.message || 'PDF generation timed out. Please try again later.');
+      }
+
+      // Step 4: Decode base64 and download PDF
+      const pdfBase64 = statusResult.pdf_base64;
+      
+      // Convert base64 to binary
+      const binaryString = atob(pdfBase64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Create blob and download
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      
+      // Generate filename from voucher number if available
+      const voucherNumber = viewingVoucher?.VCHNO || viewingVoucher?.VOUCHERNUMBER || viewingVoucher?.MASTERID;
+      a.download = `Voucher_${voucherNumber}.pdf`;
+      
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      console.log('PDF downloaded successfully');
+
+      // Close the modal after successful download
+      setShowVoucherDetails(false);
+      setViewingVoucher(null);
+
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      alert(`❌ Error downloading PDF: ${error.message}`);
+    } finally {
+      setIsDownloadingPDF(false);
+    }
+  };
 
   // Configuration state variables to persist checkbox selections
   const [configOptions, setConfigOptions] = useState({
@@ -3261,28 +3365,66 @@ function Ledgerbook() {
                     Ledger: {viewingVoucher?.ledgerName || dropdown3}
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    setShowVoucherDetails(false);
-                    setViewingVoucher(null);
-                  }}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    width: 40,
-                    height: 40,
-                    borderRadius: '50%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'background 0.2s'
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(15, 23, 42, 0.08)')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-                >
-                  <span className="material-icons" style={{ fontSize: 24, color: '#475569' }}>close</span>
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  {viewingVoucher?.MASTERID && (
+                    <button
+                      onClick={downloadPDF}
+                      disabled={isDownloadingPDF}
+                      style={{
+                        background: isDownloadingPDF ? '#cbd5e1' : '#3b82f6',
+                        color: '#fff',
+                        border: 'none',
+                        cursor: isDownloadingPDF ? 'not-allowed' : 'pointer',
+                        padding: '10px 20px',
+                        borderRadius: '8px',
+                        fontSize: 14,
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        transition: 'background 0.2s',
+                        opacity: isDownloadingPDF ? 0.7 : 1
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isDownloadingPDF) {
+                          e.currentTarget.style.background = '#2563eb';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isDownloadingPDF) {
+                          e.currentTarget.style.background = '#3b82f6';
+                        }
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: 18 }}>
+                        {isDownloadingPDF ? 'hourglass_empty' : 'download'}
+                      </span>
+                      {isDownloadingPDF ? 'Downloading...' : 'Download PDF'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setShowVoucherDetails(false);
+                      setViewingVoucher(null);
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      width: 40,
+                      height: 40,
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'background 0.2s'
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(15, 23, 42, 0.08)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <span className="material-icons" style={{ fontSize: 24, color: '#475569' }}>close</span>
+                  </button>
+                </div>
               </div>
 
               <div className="ledgerbook-voucher-modal-content" style={{ flex: 1, overflow: 'auto', padding: '28px' }}>

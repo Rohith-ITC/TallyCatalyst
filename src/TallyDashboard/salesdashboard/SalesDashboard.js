@@ -5,15 +5,23 @@ import BarChart from './components/BarChart';
 import PieChart from './components/PieChart';
 import TreeMap from './components/TreeMap';
 import LineChart from './components/LineChart';
+import MultiAxisChart from './components/MultiAxisChart';
+import GeoMapChart from './components/GeoMapChart';
 import ChatBot from './components/ChatBot';
-import KPICard from './components/KPICard';
 import { getUserModules, hasPermission } from '../../config/SideBarConfigurations';
 import {
   ResponsiveContainer,
   Treemap,
   Tooltip as RechartsTooltip,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
 } from 'recharts';
 import { Tooltip } from '@mui/material';
+import { DatePicker } from '@mui/x-date-pickers/DatePicker';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import BillDrilldownModal from '../../RecvDashboard/components/BillDrilldownModal';
 import VoucherDetailsModal from '../components/VoucherDetailsModal';
 import {
@@ -29,10 +37,13 @@ import ResumeDownloadModal from '../components/ResumeDownloadModal';
 const SalesDashboard = ({ onNavigationAttempt }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   
   useEffect(() => {
     const handleResize = () => {
-      setIsMobile(window.innerWidth <= 768);
+      const width = window.innerWidth;
+      setIsMobile(width <= 768);
+      setWindowWidth(width);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -78,7 +89,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [categoryChartType, setCategoryChartType] = useState('bar');
   const [ledgerGroupChartType, setLedgerGroupChartType] = useState('bar');
   const [regionChartType, setRegionChartType] = useState('bar');
+  const [regionMapSubType, setRegionMapSubType] = useState('choropleth');
   const [countryChartType, setCountryChartType] = useState('bar');
+  const [countryMapSubType, setCountryMapSubType] = useState('choropleth');
   const [periodChartType, setPeriodChartType] = useState('bar');
   const [topCustomersChartType, setTopCustomersChartType] = useState('bar');
   const [topItemsByRevenueChartType, setTopItemsByRevenueChartType] = useState('bar');
@@ -109,6 +122,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [rawDataPageSize, setRawDataPageSize] = useState(20);
   const [rawDataPageInput, setRawDataPageInput] = useState('1');
   const [rawDataPageSizeInput, setRawDataPageSizeInput] = useState('20');
+  const [rawDataSortBy, setRawDataSortBy] = useState(null); // 'date', 'quantity', 'amount', or null
+  const [rawDataSortOrder, setRawDataSortOrder] = useState('asc'); // 'asc' or 'desc'
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
+  
+  // Column filter states
+  const [columnFilters, setColumnFilters] = useState({});
+  const [filterDropdownOpen, setFilterDropdownOpen] = useState(null);
   
   // Bill drilldown modal state
   const [showDrilldown, setShowDrilldown] = useState(false);
@@ -131,15 +151,99 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Calendar modal state
   const [showCalendarModal, setShowCalendarModal] = useState(false);
+  const [selectedPeriodType, setSelectedPeriodType] = useState(null); // 'financial-year', 'quarter', 'month', 'today', 'yesterday', 'week', 'custom'
   const [tempFromDate, setTempFromDate] = useState('');
   const [tempToDate, setTempToDate] = useState('');
   const [tempFromDateDisplay, setTempFromDateDisplay] = useState('');
   const [tempToDateDisplay, setTempToDateDisplay] = useState('');
   const [booksFromDate, setBooksFromDate] = useState('');
+  const [showFromDatePicker, setShowFromDatePicker] = useState(false);
+  const [showToDatePicker, setShowToDatePicker] = useState(false);
+  const fromDatePickerRef = useRef(null);
+  const toDatePickerRef = useRef(null);
+  const fromDateButtonRef = useRef(null);
+  const toDateButtonRef = useRef(null);
 
   // Download dropdown state
   const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
   const downloadDropdownRef = useRef(null);
+
+  // Settings modal state
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  
+  // Fullscreen card modal state
+  const [fullscreenCard, setFullscreenCard] = useState(null); // { type: 'metric' | 'chart' | 'custom', title: string, cardId?: string }
+  
+  // Card visibility state - tracks which cards are visible/hidden
+  const [cardVisibility, setCardVisibility] = useState(() => {
+    try {
+      const stored = localStorage.getItem('salesDashboardCardVisibility');
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (e) {
+      console.warn('Error loading card visibility from localStorage:', e);
+    }
+    // Default: all cards visible (return empty object, meaning all are visible by default)
+    return {};
+  });
+  
+  // Save card visibility to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('salesDashboardCardVisibility', JSON.stringify(cardVisibility));
+    } catch (e) {
+      console.warn('Error saving card visibility to localStorage:', e);
+    }
+  }, [cardVisibility]);
+
+  // Number format preference: 'indian' (lakhs-crores) or 'international' (millions-billions)
+  const [numberFormat, setNumberFormat] = useState(() => {
+    try {
+      const stored = localStorage.getItem('salesDashboardNumberFormat');
+      return stored || 'indian'; // Default to Indian format
+    } catch (e) {
+      return 'indian';
+    }
+  });
+
+  // Save number format to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('salesDashboardNumberFormat', numberFormat);
+    } catch (e) {
+      console.warn('Error saving number format to localStorage:', e);
+    }
+  }, [numberFormat]);
+  
+  // Toggle card visibility
+  const toggleCardVisibility = useCallback((cardTitle) => {
+    setCardVisibility(prev => {
+      const newVisibility = { ...prev };
+      // If card is currently visible (not in object or true), hide it (set to false)
+      // If card is hidden (false), show it (remove from object or set to true)
+      if (newVisibility[cardTitle] === false) {
+        delete newVisibility[cardTitle]; // Remove to show (default is visible)
+      } else {
+        newVisibility[cardTitle] = false; // Hide it
+      }
+      return newVisibility;
+    });
+  }, []);
+  
+  // Check if a card is visible (default is true if not in the object)
+  const isCardVisible = useCallback((cardTitle) => {
+    return cardVisibility[cardTitle] !== false;
+  }, [cardVisibility]);
+
+  // Fullscreen card modal functions
+  const openFullscreenCard = useCallback((cardType, cardTitle, cardId = null) => {
+    setFullscreenCard({ type: cardType, title: cardTitle, cardId });
+  }, []);
+
+  const closeFullscreenCard = useCallback(() => {
+    setFullscreenCard(null);
+  }, []);
 
   // Background cache download state
   const [isDownloadingCache, setIsDownloadingCache] = useState(false);
@@ -360,6 +464,60 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     };
   }, [showDownloadDropdown]);
 
+  // Close calendar pickers when clicking outside (but not inside the calendar itself)
+  // We use a more reliable approach by checking for MUI calendar elements
+  useEffect(() => {
+    if (!showFromDatePicker && !showToDatePicker) return;
+
+    const handleClickOutside = (event) => {
+      // Check if click is inside any MUI DatePicker calendar element
+      // MUI renders calendars in portals, so we need to check the DOM directly
+      const target = event.target;
+      
+      // Check for MUI calendar-related elements
+      const isInsideCalendar = 
+        target.closest('.MuiPickersPopper-root') ||
+        target.closest('.MuiPickersCalendar-root') ||
+        target.closest('.MuiDayCalendar-root') ||
+        target.closest('.MuiPickersCalendarHeader-root') ||
+        target.closest('[role="dialog"]') ||
+        target.closest('[role="grid"]') ||
+        target.closest('[role="gridcell"]') ||
+        target.closest('.MuiPickersArrowSwitcher-root') ||
+        target.closest('button[aria-label*="Previous"]') ||
+        target.closest('button[aria-label*="Next"]') ||
+        target.closest('button[aria-label*="calendar"]') ||
+        (target.classList && (
+          target.classList.contains('MuiIconButton-root') ||
+          target.classList.contains('MuiPickersDay-root')
+        ));
+      
+      // Check if click is on our calendar button
+      const isCalendarButton = 
+        fromDateButtonRef.current?.contains(target) ||
+        toDateButtonRef.current?.contains(target);
+      
+      // Only close if click is truly outside
+      if (showFromDatePicker && !isInsideCalendar && !isCalendarButton) {
+        setShowFromDatePicker(false);
+      }
+      
+      if (showToDatePicker && !isInsideCalendar && !isCalendarButton) {
+        setShowToDatePicker(false);
+      }
+    };
+
+    // Use a small delay to ensure MUI's event handlers run first
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside, true);
+    }, 10);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside, true);
+    };
+  }, [showFromDatePicker, showToDatePicker]);
+
   // Cleanup on component unmount - DO NOT abort cache download
   useEffect(() => {
     return () => {
@@ -424,8 +582,65 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       
       if (response && response.status === 'success' && response.data) {
         const cards = Array.isArray(response.data) ? response.data : [];
-        // Filter only active cards
-        const activeCards = cards.filter(card => card.isActive !== 0);
+        // Filter only active cards and flatten cardConfig properties
+        const activeCards = cards.filter(card => card.isActive !== 0).map(card => {
+          // Flatten cardConfig properties to top level if they exist
+          const flatCard = { ...card };
+          
+          // Parse cardConfig if it's a string
+          let parsedCardConfig = card.cardConfig;
+          if (typeof card.cardConfig === 'string') {
+            try {
+              parsedCardConfig = JSON.parse(card.cardConfig);
+            } catch (e) {
+              console.warn('Failed to parse cardConfig for card:', card.id, e);
+              parsedCardConfig = {};
+            }
+          }
+          
+          // Flatten cardConfig properties to top level
+          if (parsedCardConfig && typeof parsedCardConfig === 'object') {
+            flatCard.enableStacking = parsedCardConfig.enableStacking;
+            flatCard.segmentBy = parsedCardConfig.segmentBy;
+            flatCard.multiAxisSeries = parsedCardConfig.multiAxisSeries;
+            flatCard.dateGrouping = parsedCardConfig.dateGrouping || flatCard.dateGrouping;
+            flatCard.mapSubType = parsedCardConfig.mapSubType || 'choropleth';
+          }
+          
+          // Force date grouping to 'day' (daily) for all date-based cards
+          // This ensures existing cards created with 'month' grouping are updated to 'day'
+          if (flatCard.groupBy === 'date' || flatCard.groupBy === 'cp_date' || 
+              (flatCard.groupBy && String(flatCard.groupBy).toLowerCase().includes('date'))) {
+            flatCard.dateGrouping = 'day';
+            console.log('📅 Overriding dateGrouping to "day" for card:', {
+              cardId: flatCard.id,
+              cardTitle: flatCard.title,
+              oldDateGrouping: parsedCardConfig?.dateGrouping || flatCard.dateGrouping,
+              newDateGrouping: 'day'
+            });
+          }
+          
+          // Parse filters if it's a string
+          if (typeof flatCard.filters === 'string') {
+            try {
+              flatCard.filters = JSON.parse(flatCard.filters);
+            } catch (e) {
+              console.warn('Failed to parse filters for card:', flatCard.id, e);
+              flatCard.filters = [];
+            }
+          }
+          
+          console.log('📦 Loaded card:', {
+            id: flatCard.id,
+            title: flatCard.title,
+            chartType: flatCard.chartType,
+            multiAxisSeries: flatCard.multiAxisSeries,
+            hasMultiAxis: !!flatCard.multiAxisSeries,
+            filters: flatCard.filters
+          });
+          
+          return flatCard;
+        });
         
         setCustomCards(activeCards);
         
@@ -438,7 +653,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         });
         setCustomCardChartTypes(chartTypes);
         
-        console.log('✅ Loaded custom cards from backend:', activeCards.length);
+        console.log('✅ Loaded custom cards from backend:', activeCards.length, activeCards);
       } else {
         console.warn('⚠️ No custom cards found or invalid response:', response);
         setCustomCards([]);
@@ -1175,7 +1390,36 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const salePeriod = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      const periodMatch = !selectedPeriod || salePeriod === selectedPeriod;
+      const saleYear = date.getFullYear();
+      const saleMonth = date.getMonth() + 1; // 1-12
+      
+      // Handle period matching - support month format (YYYY-MM), quarter format (Q1-YYYY), and year format (YYYY)
+      let periodMatch = true;
+      if (selectedPeriod) {
+        // Check if selectedPeriod is a quarter format (Q1-2024, Q2-2024, etc.)
+        const quarterMatch = selectedPeriod.match(/^Q(\d)-(\d{4})$/);
+        if (quarterMatch) {
+          const selectedQuarter = parseInt(quarterMatch[1]);
+          const selectedYear = parseInt(quarterMatch[2]);
+          
+          // Check if sale's month falls within the selected quarter
+          const quarterMonths = {
+            1: [1, 2, 3],   // Q1: Jan, Feb, Mar
+            2: [4, 5, 6],   // Q2: Apr, May, Jun
+            3: [7, 8, 9],   // Q3: Jul, Aug, Sep
+            4: [10, 11, 12] // Q4: Oct, Nov, Dec
+          };
+          
+          periodMatch = saleYear === selectedYear && 
+                       quarterMonths[selectedQuarter]?.includes(saleMonth);
+        } else if (/^\d{4}$/.test(selectedPeriod)) {
+          // Year-only format (YYYY) - match all sales in that year
+          periodMatch = saleYear === parseInt(selectedPeriod);
+        } else {
+          // Regular month format matching (YYYY-MM)
+          periodMatch = salePeriod === selectedPeriod;
+        }
+      }
       // Filter by selected salesperson if one is selected
       const salespersonMatch = !selectedSalesperson || (sale.salesperson || 'Unassigned') === selectedSalesperson;
       
@@ -1621,7 +1865,45 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       
       // Extract salesperson from voucher (if available) or use formula
       const extractSalesperson = (voucher) => {
-        return voucher.salesprsn || voucher.SalesPrsn || voucher.SALESPRSN ||
+        // Helper to try pulling salesperson using the configured formula (if provided)
+        // We don't evaluate the TDL formula here; instead we try to map the formula token
+        // to a field on the voucher (best-effort fallback).
+        const getFormulaFieldValue = () => {
+          if (!salespersonFormula) return null;
+
+          // Try to extract the last alphanumeric/underscore token from the formula
+          // Example formulas we might see:
+          //   $$VCHBILLITCSalesPerson       -> token: VCHBILLITCSalesPerson
+          //   $MyCustomSalesPersonField     -> token: MyCustomSalesPersonField
+          //   ##SomeVar                     -> token: SomeVar
+          // We keep it simple and just pick the last "word" token.
+          const tokenMatch = salespersonFormula.match(/([A-Za-z0-9_]+)$/);
+          const token = tokenMatch ? tokenMatch[1] : null;
+          if (!token) return null;
+
+          // Try direct, lower, upper and case-insensitive key match on the voucher
+          const possibleKeys = [
+            token,
+            token.toLowerCase(),
+            token.toUpperCase()
+          ];
+
+          // Also try matching by case-insensitive search across voucher keys
+          const voucherKeys = Object.keys(voucher || {});
+          const matchingKey = voucherKeys.find(k => k.toLowerCase() === token.toLowerCase());
+
+          const keyToUse = matchingKey || possibleKeys.find(k => voucher && voucher[k] !== undefined);
+          if (!keyToUse) return null;
+
+          const val = voucher[keyToUse];
+          if (val === undefined || val === null || val === '') return null;
+          return String(val).trim();
+        };
+
+        const formulaSalesperson = getFormulaFieldValue();
+
+        return formulaSalesperson ||
+               voucher.salesprsn || voucher.SalesPrsn || voucher.SALESPRSN ||
                voucher.salesperson || voucher.SalesPerson || 
                voucher.salespersonname || voucher.SalesPersonName || 
                voucher.sales_person || voucher.SALES_PERSON || 
@@ -2064,20 +2346,219 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     }
   };
 
+  // Helper function to convert YYYY-MM-DD string to Date object
+  const stringToDate = (dateStr) => {
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day);
+  };
+
+  // Helper function to convert Date object to YYYY-MM-DD string
+  const dateToString = (date) => {
+    if (!date || !(date instanceof Date) || isNaN(date.getTime())) return '';
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Period calculation functions
+  const getFinancialYearStartToDate = () => {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth(); // 0-indexed (0 = Jan, 3 = Apr)
+    
+    // Financial year starts April 1st
+    let financialYearStart;
+    if (currentMonth >= 3) { // April (3) to December (11)
+      financialYearStart = new Date(currentYear, 3, 1); // April 1st of current year
+    } else { // January (0) to March (2)
+      financialYearStart = new Date(currentYear - 1, 3, 1); // April 1st of previous year
+    }
+    
+    return {
+      start: dateToString(financialYearStart),
+      end: dateToString(today)
+    };
+  };
+
+  const getQuarterStartToDate = () => {
+    const today = new Date();
+    const currentMonth = today.getMonth(); // 0-indexed
+    const currentYear = today.getFullYear();
+    
+    // Determine quarter start month
+    let quarterStartMonth;
+    if (currentMonth >= 0 && currentMonth <= 2) { // Q1: Jan-Mar
+      quarterStartMonth = 0; // January
+    } else if (currentMonth >= 3 && currentMonth <= 5) { // Q2: Apr-Jun
+      quarterStartMonth = 3; // April
+    } else if (currentMonth >= 6 && currentMonth <= 8) { // Q3: Jul-Sep
+      quarterStartMonth = 6; // July
+    } else { // Q4: Oct-Dec
+      quarterStartMonth = 9; // October
+    }
+    
+    const quarterStart = new Date(currentYear, quarterStartMonth, 1);
+    return {
+      start: dateToString(quarterStart),
+      end: dateToString(today)
+    };
+  };
+
+  const getMonthStartToDate = () => {
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    return {
+      start: dateToString(monthStart),
+      end: dateToString(today)
+    };
+  };
+
+  const getToday = () => {
+    const today = new Date();
+    const todayStr = dateToString(today);
+    return {
+      start: todayStr,
+      end: todayStr
+    };
+  };
+
+  const getYesterday = () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = dateToString(yesterday);
+    return {
+      start: yesterdayStr,
+      end: yesterdayStr
+    };
+  };
+
+  const getWeekStartToDate = () => {
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const daysToSubtract = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Monday = 0 days, Sunday = 6 days
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - daysToSubtract);
+    return {
+      start: dateToString(weekStart),
+      end: dateToString(today)
+    };
+  };
+
+  const handlePeriodSelection = (periodType) => {
+    setSelectedPeriodType(periodType);
+    
+    if (periodType === 'custom') {
+      // Keep existing dates for custom period
+      setTempFromDate(fromDate);
+      setTempToDate(toDate);
+      setTempFromDateDisplay(formatDateForInput(fromDate));
+      setTempToDateDisplay(formatDateForInput(toDate));
+    } else {
+      let periodDates;
+      switch (periodType) {
+        case 'financial-year':
+          periodDates = getFinancialYearStartToDate();
+          break;
+        case 'quarter':
+          periodDates = getQuarterStartToDate();
+          break;
+        case 'month':
+          periodDates = getMonthStartToDate();
+          break;
+        case 'today':
+          periodDates = getToday();
+          break;
+        case 'yesterday':
+          periodDates = getYesterday();
+          break;
+        case 'week':
+          periodDates = getWeekStartToDate();
+          break;
+        default:
+          return;
+      }
+      
+      setTempFromDate(periodDates.start);
+      setTempToDate(periodDates.end);
+      setTempFromDateDisplay(formatDateForInput(periodDates.start));
+      setTempToDateDisplay(formatDateForInput(periodDates.end));
+    }
+  };
+
   // Calendar modal handlers
   const handleOpenCalendar = () => {
+    setSelectedPeriodType(null); // Reset period selection
     setTempFromDate(fromDate);
     setTempToDate(toDate);
     // Format dates for display in input fields
     setTempFromDateDisplay(formatDateForInput(fromDate));
     setTempToDateDisplay(formatDateForInput(toDate));
     setShowCalendarModal(true);
+    setShowFromDatePicker(false);
+    setShowToDatePicker(false);
+  };
+
+  // Handle date selection from calendar picker
+  const handleFromDateChange = (date) => {
+    if (date && !isNaN(date.getTime())) {
+      const dateStr = dateToString(date);
+      setTempFromDate(dateStr);
+      setTempFromDateDisplay(formatDateForInput(dateStr));
+      setShowFromDatePicker(false);
+    }
+  };
+
+  const handleToDateChange = (date) => {
+    if (date && !isNaN(date.getTime())) {
+      const dateStr = dateToString(date);
+      setTempToDate(dateStr);
+      setTempToDateDisplay(formatDateForInput(dateStr));
+      setShowToDatePicker(false);
+    }
   };
 
   const handleApplyDates = () => {
-    // Parse the display format back to YYYY-MM-DD
-    const parsedFromDate = parseDateFromNewFormat(tempFromDateDisplay) || tempFromDateDisplay;
-    const parsedToDate = parseDateFromNewFormat(tempToDateDisplay) || tempToDateDisplay;
+    let parsedFromDate, parsedToDate;
+    
+    // If a period type is selected (not custom), use the calculated dates
+    if (selectedPeriodType && selectedPeriodType !== 'custom') {
+      let periodDates;
+      switch (selectedPeriodType) {
+        case 'financial-year':
+          periodDates = getFinancialYearStartToDate();
+          break;
+        case 'quarter':
+          periodDates = getQuarterStartToDate();
+          break;
+        case 'month':
+          periodDates = getMonthStartToDate();
+          break;
+        case 'today':
+          periodDates = getToday();
+          break;
+        case 'yesterday':
+          periodDates = getYesterday();
+          break;
+        case 'week':
+          periodDates = getWeekStartToDate();
+          break;
+        default:
+          // Fallback to parsing display format
+          parsedFromDate = parseDateFromNewFormat(tempFromDateDisplay) || tempFromDateDisplay;
+          parsedToDate = parseDateFromNewFormat(tempToDateDisplay) || tempToDateDisplay;
+      }
+      
+      if (periodDates) {
+        parsedFromDate = periodDates.start;
+        parsedToDate = periodDates.end;
+      }
+    } else {
+      // Parse the display format back to YYYY-MM-DD for custom period
+      parsedFromDate = parseDateFromNewFormat(tempFromDateDisplay) || tempFromDateDisplay;
+      parsedToDate = parseDateFromNewFormat(tempToDateDisplay) || tempToDateDisplay;
+    }
     
     // Validate that dates are in YYYY-MM-DD format
     if (!/^\d{4}-\d{2}-\d{2}$/.test(parsedFromDate)) {
@@ -2094,12 +2575,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     setTempFromDate(parsedFromDate);
     setTempToDate(parsedToDate);
     setShowCalendarModal(false);
+    setSelectedPeriodType(null);
     // Directly submit the form
     loadSales(parsedFromDate, parsedToDate, { invalidateCache: true });
   };
 
   const handleCancelDates = () => {
     setShowCalendarModal(false);
+    setSelectedPeriodType(null);
   };
 
   // Calculate metrics
@@ -2137,6 +2620,281 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     profitMargin,
     avgProfitPerOrder
   } = metrics;
+
+  // Helper function to get date from sale
+  const getSaleDate = (sale) => {
+    const dateStr = sale.cp_date || sale.date;
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    return isNaN(date.getTime()) ? null : date;
+  };
+
+  // Helper function to format date as YYYY-MM-DD for grouping
+  const formatDateKey = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Calculate daily trend data for Total Revenue
+  const revenueTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSales.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const current = dailyData.get(dateKey) || 0;
+      dailyData.set(dateKey, current + (sale.amount || 0));
+    });
+    
+    // Convert to array and sort by date
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, value]) => ({ date, value }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    // Ensure we have at least a few data points for visualization
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSales]);
+
+  // Calculate daily trend data for Total Invoices
+  const invoiceTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSalesForOrders.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const orderSet = dailyData.get(dateKey) || new Set();
+      orderSet.add(sale.masterid);
+      dailyData.set(dateKey, orderSet);
+    });
+    
+    // Convert to array and sort by date
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, orderSet]) => ({ date, value: orderSet.size }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSalesForOrders]);
+
+  // Calculate daily trend data for Unique Customers (cumulative unique customers per day)
+  const customerTrendData = useMemo(() => {
+    const dailyData = new Map();
+    const seenCustomers = new Set();
+    
+    // Sort sales by date first
+    const sortedSales = [...filteredSales].sort((a, b) => {
+      const dateA = getSaleDate(a);
+      const dateB = getSaleDate(b);
+      if (!dateA || !dateB) return 0;
+      return dateA - dateB;
+    });
+    
+    sortedSales.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date || !sale.customer) return;
+      
+      const dateKey = formatDateKey(date);
+      if (!seenCustomers.has(sale.customer)) {
+        seenCustomers.add(sale.customer);
+        const current = dailyData.get(dateKey) || 0;
+        dailyData.set(dateKey, current + 1);
+      }
+    });
+    
+    // Convert to cumulative counts
+    let cumulative = 0;
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, newCustomers]) => {
+        cumulative += newCustomers;
+        return { date, value: cumulative };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSales]);
+
+  // Calculate daily trend data for Avg Invoice Value
+  const avgInvoiceTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSalesForOrders.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const existing = dailyData.get(dateKey) || { total: 0, count: 0 };
+      existing.total += (sale.amount || 0);
+      existing.count += 1;
+      dailyData.set(dateKey, existing);
+    });
+    
+    // Convert to array with averages
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, { total, count }]) => ({ 
+        date, 
+        value: count > 0 ? total / count : 0 
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSalesForOrders]);
+
+  // Calculate daily trend data for Total Profit
+  const profitTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSales.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const current = dailyData.get(dateKey) || 0;
+      dailyData.set(dateKey, current + (sale.profit || 0));
+    });
+    
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, value]) => ({ date, value }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSales]);
+
+  // Calculate daily trend data for Profit Margin
+  const profitMarginTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSales.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const existing = dailyData.get(dateKey) || { revenue: 0, profit: 0 };
+      existing.revenue += (sale.amount || 0);
+      existing.profit += (sale.profit || 0);
+      dailyData.set(dateKey, existing);
+    });
+    
+    // Convert to array with profit margins
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, { revenue, profit }]) => ({ 
+        date, 
+        value: revenue > 0 ? (profit / revenue) * 100 : 0 
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSales]);
+
+  // Calculate daily trend data for Avg Profit per Order
+  const avgProfitTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSalesForOrders.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const existing = dailyData.get(dateKey) || { totalProfit: 0, count: 0 };
+      existing.totalProfit += (sale.profit || 0);
+      existing.count += 1;
+      dailyData.set(dateKey, existing);
+    });
+    
+    // Convert to array with averages
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, { totalProfit, count }]) => ({ 
+        date, 
+        value: count > 0 ? totalProfit / count : 0 
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSalesForOrders]);
+
+  // Function to get all card titles organized by sections
+  const getCardTitlesBySection = useCallback(() => {
+    const keyMetrics = [];
+    const charts = [];
+    const customCardsList = [];
+    
+    // Key Metrics (always shown)
+    keyMetrics.push('Total Revenue');
+    keyMetrics.push('Total Invoices');
+    keyMetrics.push('Unique Customers');
+    keyMetrics.push('Avg Invoice Value');
+    
+    // Profit-related metrics (conditional)
+    if (canShowProfit) {
+      keyMetrics.push('Total Profit');
+      keyMetrics.push('Profit Margin');
+      keyMetrics.push('Avg Profit per Order');
+    }
+    
+    // Charts
+    charts.push('Sales by Ledger Group');
+    charts.push('Salesperson Totals');
+    charts.push('Sales by Stock Group');
+    charts.push('Sales by State');
+    charts.push('Sales by Country');
+    charts.push('Sales by Period');
+    charts.push('Top Customers Chart');
+    charts.push('Top Items by Revenue Chart');
+    charts.push('Top Items by Quantity Chart');
+    
+    // Profit-related charts (conditional)
+    if (canShowProfit) {
+      charts.push('Revenue vs Profit');
+      charts.push('Top Profitable Items');
+      charts.push('Top Loss Items');
+      charts.push('Month-wise Profit');
+    }
+    
+    // Custom cards
+    customCards.forEach(card => {
+      if (card.title) {
+        customCardsList.push(card.title);
+      }
+    });
+    
+    return {
+      keyMetrics,
+      charts,
+      customCards: customCardsList
+    };
+  }, [canShowProfit, customCards]);
 
   // Helper function for case-insensitive grouping
   // Groups by lowercase key but preserves the original case for display
@@ -2591,66 +3349,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       });
   }, [filteredSales]);
 
-  // Generate trend data for KPI cards
-  const kpiTrendData = useMemo(() => {
-    // Get the last 12 periods for trend visualization
-    const last12Periods = periodChartData.slice(-12);
-    
-    // Calculate other metrics per period
-    const periodMetrics = last12Periods.map(period => {
-      const periodSales = filteredSales.filter(sale => {
-        const saleDate = sale.cp_date || sale.date;
-        const date = new Date(saleDate);
-        const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-        return yearMonth === period.originalLabel;
-      });
-      
-      const orders = new Set(periodSales.map(s => s.masterid)).size;
-      const customers = new Set(periodSales.map(s => s.customer)).size;
-      const revenue = periodSales.reduce((sum, s) => sum + s.amount, 0);
-      const avgInvoiceValue = orders > 0 ? revenue / orders : 0;
-      const profit = periodSales.reduce((sum, s) => sum + (s.profit || 0), 0);
-      const profitMargin = revenue > 0 ? (profit / revenue) * 100 : 0;
-      const avgProfitPerOrder = orders > 0 ? profit / orders : 0;
-      
-      return {
-        revenue,
-        orders,
-        customers,
-        avgInvoiceValue,
-        profit,
-        profitMargin,
-        avgProfitPerOrder
-      };
-    });
-    
-    return {
-      revenue: periodMetrics.map(p => p.revenue),
-      orders: periodMetrics.map(p => p.orders),
-      customers: periodMetrics.map(p => p.customers),
-      avgInvoiceValue: periodMetrics.map(p => p.avgInvoiceValue),
-      profit: periodMetrics.map(p => p.profit),
-      profitMargin: periodMetrics.map(p => p.profitMargin),
-      avgProfitPerOrder: periodMetrics.map(p => p.avgProfitPerOrder)
-    };
-  }, [periodChartData, filteredSales]);
-
-  // Generate period label for KPI cards
-  const kpiPeriodLabel = useMemo(() => {
-    if (!fromDate || !toDate) return 'current period';
-    
-    const start = new Date(fromDate);
-    const end = new Date(toDate);
-    
-    // Check if it's a single month
-    if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      return `${monthNames[start.getMonth()]} ${start.getFullYear()}`;
-    }
-    
-    return 'current period';
-  }, [fromDate, toDate]);
-
   // Month-wise Revenue vs Profit chart data
   const revenueVsProfitChartData = useMemo(() => {
     const periodData = filteredSales.reduce((acc, sale) => {
@@ -2861,6 +3559,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     selectedCountry !== 'all' ||
     selectedPeriod !== null ||
     selectedSalesperson !== null ||
+    (dateRange.start !== '' && dateRange.end !== '' && dateRange.start === dateRange.end) ||
     (genericFilters && Object.keys(genericFilters).length > 0 && Object.values(genericFilters).some(v => v !== null && v !== 'all' && v !== ''));
 
   // Helper function to render filter badges for a specific card
@@ -2875,11 +3574,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       'region': ['selectedRegion'],
       'country': ['selectedCountry'],
       'period': ['selectedPeriod'],
+      'month': ['selectedPeriod'],
+      'year': ['selectedPeriod'],
+      'quarter': ['selectedPeriod'],
+      'week': ['selectedPeriod'],
       'salesperson': ['selectedSalesperson'],
       'ledgerGroup': ['selectedLedgerGroup'],
       'topCustomers': ['selectedCustomer'],
       'topItems': ['selectedItem'],
-      'custom': cardId ? [`generic_${cardId}`] : []
+      'custom': cardId ? [
+        'selectedCustomer', 
+        'selectedItem', 
+        'selectedStockGroup', 
+        'selectedRegion', 
+        'selectedCountry', 
+        'selectedPeriod', 
+        'selectedLedgerGroup', 
+        `generic_${cardId}`
+      ] : []
     };
     
     const relevantFilters = filterMap[cardType] || [];
@@ -3134,7 +3846,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       );
     }
     
-    // Add period filter badge
+    // Add period filter badge (for date, month, year, quarter, week filters)
     if (relevantFilters.includes('selectedPeriod') && selectedPeriod !== null) {
       badges.push(
         <div
@@ -3158,6 +3870,56 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             onClick={(e) => {
               e.stopPropagation();
               setSelectedPeriod(null);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#9d174d',
+              cursor: 'pointer',
+              padding: '1px',
+              borderRadius: '50%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              marginLeft: '2px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = '#f9a8d4';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'none';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+          </button>
+        </div>
+      );
+    }
+    
+    // Add single-day date filter badge (when dateRange.start === dateRange.end)
+    if (dateRange.start !== '' && dateRange.end !== '' && dateRange.start === dateRange.end) {
+      badges.push(
+        <div
+          key="date-filter"
+          style={{
+            background: '#fce7f3',
+            border: '1px solid #f9a8d4',
+            borderRadius: '12px',
+            padding: isMobile ? '2px 6px' : '3px 8px',
+            fontSize: isMobile ? '10px' : '11px',
+            color: '#9d174d',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            marginLeft: '8px'
+          }}
+        >
+          <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>event</span>
+          {isMobile ? 'Date' : `Date: ${formatDateForDisplay(dateRange.start)}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setDateRange({ start: '', end: '' });
             }}
             style={{
               background: 'none',
@@ -3284,16 +4046,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       );
     }
     
-    // For custom cards, check both standard filters (if groupBy matches) and generic filters
+    // For custom cards, show ALL active global filters (not just ones matching groupBy)
     if (cardType === 'custom' && cardId) {
       const card = customCards.find(c => c.id === cardId);
       if (card) {
         const groupBy = card.groupBy;
         const groupByLower = groupBy ? groupBy.toLowerCase() : '';
         
-        // Check if custom card's groupBy matches standard filter fields and show badges
+        // Show ALL active global filters on custom cards
         // Customer filter
-        if ((groupByLower === 'customer') && selectedCustomer !== 'all') {
+        if (selectedCustomer !== 'all') {
           badges.push(
             <div
               key="customer-filter"
@@ -3343,7 +4105,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         // Item filter
-        if ((groupByLower === 'item') && selectedItem !== 'all') {
+        if (selectedItem !== 'all') {
           badges.push(
             <div
               key="item-filter"
@@ -3393,7 +4155,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         // Stock Group filter
-        if ((groupByLower === 'category' || groupByLower === 'stockgroup' || groupByLower === 'stock_group') && selectedStockGroup !== 'all') {
+        if (selectedStockGroup !== 'all') {
           badges.push(
             <div
               key="stockGroup-filter"
@@ -3443,7 +4205,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         // Region filter
-        if ((groupByLower === 'region') && selectedRegion !== 'all') {
+        if (selectedRegion !== 'all') {
           badges.push(
             <div
               key="region-filter"
@@ -3493,7 +4255,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         // Country filter
-        if ((groupByLower === 'country') && selectedCountry !== 'all') {
+        if (selectedCountry !== 'all') {
           badges.push(
             <div
               key="country-filter"
@@ -3542,8 +4304,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           );
         }
         
-        // Period filter (for date grouping)
-        if ((groupBy === 'date') && selectedPeriod !== null) {
+        // Period filter (for date grouping, month, year, quarter, week)
+        if ((groupBy === 'date' || groupByLower === 'month' || groupByLower === 'year' || groupByLower === 'quarter' || groupByLower === 'week') && selectedPeriod !== null) {
           badges.push(
             <div
               key="period-filter"
@@ -3561,7 +4323,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               }}
             >
               <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>calendar_month</span>
-              {isMobile ? 'Period' : `Period: ${formatPeriodLabel(selectedPeriod)}`}
+              {isMobile ? 'Period' : `Period: ${formatPeriodLabel(selectedPeriod) || 'All'}`}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -3593,7 +4355,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         // Ledger Group filter
-        if ((groupByLower === 'ledgergroup' || groupByLower === 'ledger_group') && selectedLedgerGroup !== 'all') {
+        if (selectedLedgerGroup !== 'all') {
           badges.push(
             <div
               key="ledgerGroup-filter"
@@ -3631,6 +4393,56 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 }}
                 onMouseEnter={(e) => {
                   e.target.style.background = '#c084fc';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'none';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>close</span>
+              </button>
+            </div>
+          );
+        }
+        
+        // Single-day date filter (when dateRange.start === dateRange.end)
+        if (dateRange.start !== '' && dateRange.end !== '' && dateRange.start === dateRange.end) {
+          badges.push(
+            <div
+              key="date-filter"
+              style={{
+                background: '#fce7f3',
+                border: '1px solid #f9a8d4',
+                borderRadius: '12px',
+                padding: isMobile ? '2px 6px' : '3px 8px',
+                fontSize: isMobile ? '10px' : '11px',
+                color: '#9d174d',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px'
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: isMobile ? '10px' : '12px' }}>event</span>
+              {isMobile ? 'Date' : `Date: ${formatDateForDisplay(dateRange.start)}`}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDateRange({ start: '', end: '' });
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#9d174d',
+                  cursor: 'pointer',
+                  padding: '1px',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  marginLeft: '2px'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#f9a8d4';
                 }}
                 onMouseLeave={(e) => {
                   e.target.style.background = 'none';
@@ -3741,12 +4553,94 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     // Note: Cache and date range are preserved to avoid unnecessary API calls
   };
 
-  const formatCurrency = (value) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // Format number based on selected format (for non-currency values)
+  const formatNumber = (value, options = {}) => {
+    const locale = numberFormat === 'indian' ? 'en-IN' : 'en-US';
+    const defaultOptions = { minimumFractionDigits: 0, maximumFractionDigits: 2 };
+    return value.toLocaleString(locale, { ...defaultOptions, ...options });
+  };
+
+  const formatCurrency = (value) => {
+    const locale = numberFormat === 'indian' ? 'en-IN' : 'en-US';
+    return `₹${value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  // Helper functions for chart components
+  const formatChartValue = useCallback((value, prefix = '₹') => {
+    const locale = numberFormat === 'indian' ? 'en-IN' : 'en-US';
+    return `${prefix}${value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }, [numberFormat]);
+
+  const formatChartCompactValue = useCallback((value, prefix = '₹') => {
+    if (!value || value === 0) return `${prefix}0.00`;
+    const absValue = Math.abs(value);
+    let formatted = '';
+    let unit = '';
+    
+    if (numberFormat === 'indian') {
+      // Indian numbering: Lakhs and Crores
+      if (absValue >= 10000000) {
+        formatted = `${prefix}${(absValue / 10000000).toFixed(1)}Cr`;
+      } else if (absValue >= 100000) {
+        formatted = `${prefix}${(absValue / 100000).toFixed(1)}L`;
+      } else if (absValue >= 1000) {
+        formatted = `${prefix}${(absValue / 1000).toFixed(1)}K`;
+      } else {
+        const locale = 'en-IN';
+        formatted = `${prefix}${absValue.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+      }
+    } else {
+      // International numbering: Millions and Billions
+      if (absValue >= 1000000000) {
+        formatted = `${prefix}${(absValue / 1000000000).toFixed(1)}B`;
+      } else if (absValue >= 1000000) {
+        formatted = `${prefix}${(absValue / 1000000).toFixed(1)}M`;
+      } else if (absValue >= 1000) {
+        formatted = `${prefix}${(absValue / 1000).toFixed(1)}K`;
+      } else {
+        const locale = 'en-US';
+        formatted = `${prefix}${absValue.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+      }
+    }
+    
+    return formatted;
+  }, [numberFormat]);
 
   // Custom Cards Helper Functions
   // Helper function to get field value with case-insensitive fallback
   const getFieldValue = useCallback((item, fieldName) => {
     if (!item || !fieldName) return null;
+    
+    // Handle derived fields that are computed from the date
+    if (fieldName === 'month' || fieldName === 'year' || fieldName === 'quarter' || fieldName === 'week') {
+      const dateValue = item.date || item.Date || item.DATE || 
+                       (Object.keys(item).find(k => k.toLowerCase() === 'date') ? 
+                        item[Object.keys(item).find(k => k.toLowerCase() === 'date')] : null);
+      
+      if (dateValue) {
+        const date = new Date(dateValue);
+        if (!isNaN(date.getTime())) {
+          if (fieldName === 'month') {
+            const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            return `${monthAbbr[date.getMonth()]}-${String(date.getFullYear()).slice(-2)}`;
+          } else if (fieldName === 'year') {
+            return String(date.getFullYear());
+          } else if (fieldName === 'quarter') {
+            const month = date.getMonth();
+            const quarter = Math.floor(month / 3) + 1;
+            return `Q${quarter} ${date.getFullYear()}`;
+          } else if (fieldName === 'week') {
+            const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+            const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+            const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+            return `Week ${weekNum}, ${date.getFullYear()}`;
+          }
+        }
+      }
+      return null;
+    }
+    
     // Try direct access first
     if (item[fieldName] !== undefined) return item[fieldName];
     // Try lowercase
@@ -3763,6 +4657,23 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     if (!cardConfig || !cardConfig.groupBy || !cardConfig.valueField) {
       console.warn('Invalid card config:', cardConfig);
       return [];
+    }
+    
+    // Force dateGrouping to 'day' (daily) for all date-based cards
+    // This ensures that even if a card has 'month' stored, it will use daily grouping
+    // Create a normalized config to avoid mutating the original
+    const isDateField = cardConfig.groupBy === 'date' || cardConfig.groupBy === 'cp_date' || 
+                        (cardConfig.groupBy && String(cardConfig.groupBy).toLowerCase().includes('date'));
+    
+    if (isDateField && cardConfig.dateGrouping !== 'day') {
+      console.log('📅 Forcing dateGrouping to "day" in generateCustomCardData:', {
+        cardId: cardConfig.id,
+        cardTitle: cardConfig.title,
+        oldDateGrouping: cardConfig.dateGrouping,
+        groupBy: cardConfig.groupBy
+      });
+      // Create a new config object with dateGrouping forced to 'day'
+      cardConfig = { ...cardConfig, dateGrouping: 'day' };
     }
 
     // Apply filters from card config
@@ -3864,22 +4775,123 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       let originalKey = '';
       
       if (cardConfig.groupBy === 'date') {
-        const saleDate = sale.cp_date || sale.date;
-        const date = new Date(saleDate);
+        // Use getFieldValue helper for consistent case-insensitive field access
+        // Try cp_date first (most common), then date
+        const saleDate = getFieldValue(sale, 'cp_date') || getFieldValue(sale, 'date');
+        
+        // Log first few sales to debug date parsing (only for first 3 to avoid spam)
+        const saleIndex = filteredData.indexOf(sale);
+        if (saleIndex < 3) {
+          console.log('📅 Date parsing debug:', {
+            saleIndex,
+            saleDate,
+            saleDateType: typeof saleDate,
+            saleKeys: Object.keys(sale).filter(k => k.toLowerCase().includes('date')),
+            directAccess: {
+              cp_date: sale.cp_date,
+              date: sale.date,
+              Date: sale.Date,
+              DATE: sale.DATE,
+              CP_DATE: sale.CP_DATE
+            },
+            getFieldValueResult: {
+              cp_date: getFieldValue(sale, 'cp_date'),
+              date: getFieldValue(sale, 'date')
+            }
+          });
+        }
+        
+        // Normalize date to YYYY-MM-DD format first
+        let normalizedDate = null;
+        if (saleDate) {
+          // Convert to string and trim
+          const dateStr = String(saleDate).trim();
+          
+          // Try to parse date from various formats (in order of likelihood)
+          // 1. Try parseDateFromNewFormat (handles DD-MMM-YY format)
+          const parsed = parseDateFromNewFormat(dateStr);
+          if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+            normalizedDate = parsed;
+          } 
+          // 2. Try parseDateFromAPI (handles YYYYMMDD format)
+          else if (/^\d{8}$/.test(dateStr)) {
+            const apiParsed = parseDateFromAPI(dateStr);
+            if (apiParsed && /^\d{4}-\d{2}-\d{2}$/.test(apiParsed)) {
+              normalizedDate = apiParsed;
+            }
+          }
+          // 3. Check if already in YYYY-MM-DD format
+          else if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+            normalizedDate = dateStr;
+          }
+          // 4. Try direct Date parsing as last resort
+          else {
+            const directDate = new Date(dateStr);
+            if (!isNaN(directDate.getTime()) && directDate.getFullYear() > 1900 && directDate.getFullYear() < 2100) {
+              const year = directDate.getFullYear();
+              const month = String(directDate.getMonth() + 1).padStart(2, '0');
+              const day = String(directDate.getDate()).padStart(2, '0');
+              normalizedDate = `${year}-${month}-${day}`;
+            }
+          }
+          
+          // Log parsing failures for first few items
+          if (saleIndex < 3 && !normalizedDate) {
+            console.warn('⚠️ Failed to parse date:', {
+              original: saleDate,
+              dateStr,
+              parsed,
+              triedDirectDate: new Date(dateStr).toString()
+            });
+          }
+        }
+        
+        // Check if we have a valid normalized date
+        if (!normalizedDate || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+          // Invalid date - use 'Unknown'
+          // Log why it's going to Unknown
+          if (filteredData.indexOf(sale) < 3) {
+            console.warn('⚠️ Date going to Unknown:', {
+              saleDate,
+              normalizedDate,
+              reason: !saleDate ? 'No date field found' : 
+                      !normalizedDate ? 'Could not normalize date' : 
+                      'Date format validation failed'
+            });
+          }
+          groupKey = 'Unknown';
+          originalKey = 'Unknown';
+        } else {
+          const date = new Date(normalizedDate);
+          
+          // Double-check date is valid
+          if (isNaN(date.getTime())) {
+            groupKey = 'Unknown';
+            originalKey = 'Unknown';
+          } else {
         if (cardConfig.dateGrouping === 'day') {
-          groupKey = saleDate; // YYYY-MM-DD
+              // Use normalized YYYY-MM-DD format for grouping
+              groupKey = normalizedDate;
+              // Format for display: DD-MMM-YY
+              originalKey = formatDateForDisplay(normalizedDate);
         } else if (cardConfig.dateGrouping === 'week') {
           const weekStart = new Date(date);
           weekStart.setDate(date.getDate() - date.getDay());
           groupKey = `${weekStart.getFullYear()}-W${Math.ceil((weekStart.getDate() + 6) / 7)}`;
+              originalKey = groupKey;
         } else if (cardConfig.dateGrouping === 'month') {
           groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+              originalKey = groupKey;
         } else if (cardConfig.dateGrouping === 'year') {
           groupKey = String(date.getFullYear());
+              originalKey = groupKey;
         } else {
-          groupKey = saleDate;
+              // Default to day grouping
+              groupKey = normalizedDate;
+              originalKey = formatDateForDisplay(normalizedDate);
         }
-        originalKey = groupKey;
+          }
+        }
       } else if (cardConfig.groupBy === 'profit_margin') {
         const amount = parseFloat(getFieldValue(sale, 'amount') || 0);
         const profit = parseFloat(getFieldValue(sale, 'profit') || 0);
@@ -3895,6 +4907,78 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         else if (value < 50000) groupKey = '₹10K - ₹50K';
         else groupKey = '> ₹50K';
         originalKey = groupKey;
+      } else if (cardConfig.groupBy === 'month') {
+        // Group by month (derived from date field)
+        const saleDate = getFieldValue(sale, 'date');
+        if (saleDate) {
+          const date = new Date(saleDate);
+          if (!isNaN(date.getTime())) {
+            const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            groupKey = `${monthAbbr[date.getMonth()]}-${String(date.getFullYear()).slice(-2)}`;
+            originalKey = groupKey;
+          } else {
+            groupKey = 'Unknown';
+            originalKey = 'Unknown';
+          }
+        } else {
+          groupKey = 'Unknown';
+          originalKey = 'Unknown';
+        }
+      } else if (cardConfig.groupBy === 'year') {
+        // Group by year (derived from date field)
+        const saleDate = getFieldValue(sale, 'date');
+        if (saleDate) {
+          const date = new Date(saleDate);
+          if (!isNaN(date.getTime())) {
+            groupKey = String(date.getFullYear());
+            originalKey = groupKey;
+          } else {
+            groupKey = 'Unknown';
+            originalKey = 'Unknown';
+          }
+        } else {
+          groupKey = 'Unknown';
+          originalKey = 'Unknown';
+        }
+      } else if (cardConfig.groupBy === 'quarter') {
+        // Group by quarter (derived from date field)
+        const saleDate = getFieldValue(sale, 'date');
+        if (saleDate) {
+          const date = new Date(saleDate);
+          if (!isNaN(date.getTime())) {
+            const month = date.getMonth();
+            const quarter = Math.floor(month / 3) + 1;
+            groupKey = `Q${quarter} ${date.getFullYear()}`;
+            originalKey = groupKey;
+          } else {
+            groupKey = 'Unknown';
+            originalKey = 'Unknown';
+          }
+        } else {
+          groupKey = 'Unknown';
+          originalKey = 'Unknown';
+        }
+      } else if (cardConfig.groupBy === 'week') {
+        // Group by week (derived from date field)
+        const saleDate = getFieldValue(sale, 'date');
+        if (saleDate) {
+          const date = new Date(saleDate);
+          if (!isNaN(date.getTime())) {
+            // Get ISO week number
+            const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+            const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+            const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+            groupKey = `Week ${weekNum}, ${date.getFullYear()}`;
+            originalKey = groupKey;
+          } else {
+            groupKey = 'Unknown';
+            originalKey = 'Unknown';
+          }
+        } else {
+          groupKey = 'Unknown';
+          originalKey = 'Unknown';
+        }
       } else {
         // Generic field access - use helper function for case-insensitive search
         const fieldValue = getFieldValue(sale, cardConfig.groupBy);
@@ -3906,7 +4990,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       
       // Initialize group if needed
       if (!grouped[groupKey]) {
-        grouped[groupKey] = { items: [], originalKey: originalKey };
+        grouped[groupKey] = { 
+          items: [], 
+          originalKey: originalKey,
+          // Initialize segments if stacking is enabled
+          segments: cardConfig.enableStacking && cardConfig.segmentBy ? {} : null
+        };
       } else {
         // For case-insensitive fields, keep the most common casing (use first encountered)
         if (cardConfig.groupBy !== 'date' && cardConfig.groupBy !== 'profit_margin' && cardConfig.groupBy !== 'order_value') {
@@ -3915,8 +5004,44 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           }
         }
       }
+      
+      // If stacking is enabled, also group by segment
+      if (cardConfig.enableStacking && cardConfig.segmentBy && grouped[groupKey].segments) {
+        const segmentValue = getFieldValue(sale, cardConfig.segmentBy);
+        const segmentKey = segmentValue ? String(segmentValue).trim() : 'Unknown';
+        const normalizedSegmentKey = segmentKey.toLowerCase();
+        
+        if (!grouped[groupKey].segments[normalizedSegmentKey]) {
+          grouped[groupKey].segments[normalizedSegmentKey] = {
+            items: [],
+            originalKey: segmentKey
+          };
+        }
+        grouped[groupKey].segments[normalizedSegmentKey].items.push(sale);
+      }
+      
       grouped[groupKey].items.push(sale);
     });
+
+    // Log grouping statistics for debugging
+    if (cardConfig.groupBy === 'date') {
+      const unknownCount = grouped['Unknown']?.items?.length || 0;
+      const validDateCount = Object.keys(grouped).filter(k => k !== 'Unknown').reduce((sum, k) => sum + (grouped[k]?.items?.length || 0), 0);
+      console.log('📅 Date Grouping Statistics:', {
+        totalSales: filteredData.length,
+        unknownCount,
+        validDateCount,
+        unknownPercentage: ((unknownCount / filteredData.length) * 100).toFixed(2) + '%',
+        sampleGroupKeys: Object.keys(grouped).slice(0, 10),
+        sampleUnknownItems: unknownCount > 0 ? grouped['Unknown'].items.slice(0, 2).map(s => ({
+          hasCpDate: !!s.cp_date,
+          hasDate: !!s.date,
+          cpDateValue: s.cp_date,
+          dateValue: s.date,
+          allKeys: Object.keys(s).filter(k => k.toLowerCase().includes('date'))
+        })) : []
+      });
+    }
 
     // Calculate aggregated values
     const result = Object.keys(grouped).map(key => {
@@ -4103,14 +5228,95 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         value = values.length > 0 ? Math.max(...values) : 0;
       }
 
+      // Calculate segments if stacking is enabled
+      let segments = null;
+      if (cardConfig.enableStacking && groupData.segments) {
+        const segmentColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1'];
+        segments = Object.keys(groupData.segments).map((segKey, idx) => {
+          const segmentData = groupData.segments[segKey];
+          const segmentItems = segmentData.items;
+          let segmentValue = 0;
+          
+          if (cardConfig.aggregation === 'sum') {
+            // Handle special calculated fields
+            if (cardConfig.valueField === 'tax_amount') {
+              segmentValue = segmentItems.reduce((sum, item) => {
+                const cgst = parseFloat(getFieldValue(item, 'cgst') || 0);
+                const sgst = parseFloat(getFieldValue(item, 'sgst') || 0);
+                return sum + cgst + sgst;
+              }, 0);
+            } else if (cardConfig.valueField === 'profit_margin') {
+              const totalAmount = segmentItems.reduce((sum, item) => sum + parseFloat(getFieldValue(item, 'amount') || 0), 0);
+              const totalProfit = segmentItems.reduce((sum, item) => sum + parseFloat(getFieldValue(item, 'profit') || 0), 0);
+              segmentValue = totalAmount > 0 ? (totalProfit / totalAmount) * 100 : 0;
+            } else {
+              segmentValue = segmentItems.reduce((sum, item) => {
+                return sum + parseFloat(getFieldValue(item, cardConfig.valueField) || 0);
+              }, 0);
+            }
+          } else if (cardConfig.aggregation === 'count') {
+            segmentValue = segmentItems.length;
+          } else if (cardConfig.aggregation === 'avg') {
+            const sum = segmentItems.reduce((s, item) => {
+              return s + parseFloat(getFieldValue(item, cardConfig.valueField) || 0);
+            }, 0);
+            segmentValue = segmentItems.length > 0 ? sum / segmentItems.length : 0;
+          }
+          
+          return {
+            label: segmentData.originalKey,
+            value: segmentValue,
+            color: segmentColors[idx % segmentColors.length]
+          };
+        });
+        
+        // Sort segments by value descending
+        segments.sort((a, b) => b.value - a.value);
+      }
+      
       return {
         label: displayKey, // Use original key for display (preserves casing)
-        value: value
+        value: segments ? segments.reduce((sum, s) => sum + s.value, 0) : value,
+        segments: segments, // Add segments array
+        sortKey: key // Store the groupKey for sorting (especially useful for dates in YYYY-MM-DD format)
       };
     });
 
-    // Sort by value descending
+    // Sort results - chronologically for dates, by value for others
+    if (cardConfig.groupBy === 'date') {
+      // Sort dates chronologically (oldest first)
+      result.sort((a, b) => {
+        // Handle 'Unknown' - put it at the end
+        if (a.sortKey === 'Unknown') return 1;
+        if (b.sortKey === 'Unknown') return -1;
+        
+        // Use sortKey (groupKey) which is in standardized format for proper sorting
+        if (cardConfig.dateGrouping === 'day') {
+          // sortKey is in YYYY-MM-DD format - can use string comparison
+          return a.sortKey.localeCompare(b.sortKey);
+        } else if (cardConfig.dateGrouping === 'month') {
+          // Format: YYYY-MM - can use string comparison
+          return a.sortKey.localeCompare(b.sortKey);
+        } else if (cardConfig.dateGrouping === 'year') {
+          // Format: YYYY - compare as numbers
+          return parseInt(a.sortKey) - parseInt(b.sortKey);
+        } else if (cardConfig.dateGrouping === 'week') {
+          // Format: YYYY-WN - can use string comparison
+          return a.sortKey.localeCompare(b.sortKey);
+        } else {
+          // Default: try to parse as date
+          const dateA = new Date(a.sortKey);
+          const dateB = new Date(b.sortKey);
+          if (!isNaN(dateA.getTime()) && !isNaN(dateB.getTime())) {
+            return dateA.getTime() - dateB.getTime();
+          }
+          return a.sortKey.localeCompare(b.sortKey);
+        }
+      });
+    } else {
+      // Sort by value (descending) for non-date fields
     result.sort((a, b) => b.value - a.value);
+    }
 
     // Extended color palette for custom cards (same as other charts)
     const colors = [
@@ -4141,10 +5347,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       ? result.slice(0, cardConfig.topN)
       : result;
 
-    // Add colors to each item
+    // Add colors to each item (only for non-stacked bars)
     return finalResult.map((item, index) => ({
       ...item,
-      color: colors[index % colors.length]
+      color: item.segments ? colors[0] : colors[index % colors.length] // Use first color if stacked
     }));
   }, []);
 
@@ -4167,11 +5373,107 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       
       if (editingCardId) {
         // Update existing card
-        const cardToUpdate = customCards.find(c => c.id === editingCardId);
+        let cardToUpdate = customCards.find(c => c.id === editingCardId);
+        
+        // If card not found, try flexible ID matching (handle string/number/format variations)
         if (!cardToUpdate) {
-          console.error('❌ Card not found for update:', editingCardId);
+          console.warn('⚠️ Card not found with exact ID match, trying flexible matching...', {
+            editingCardId,
+            editingIdType: typeof editingCardId,
+            availableCardIds: customCards.map(c => ({ id: c.id, idType: typeof c.id })),
+            customCardsCount: customCards.length
+          });
+          
+          // Try matching by ID as string or number (handle ID format variations like "78_1765774966063")
+          const editingIdStr = String(editingCardId);
+          const editingIdNum = editingIdStr.includes('_') 
+            ? parseInt(editingIdStr.split('_')[0]) 
+            : (typeof editingCardId === 'number' ? editingCardId : parseInt(editingCardId));
+          
+          cardToUpdate = customCards.find(c => {
+            const cardIdStr = String(c.id);
+            const cardIdNum = cardIdStr.includes('_')
+              ? parseInt(cardIdStr.split('_')[0])
+              : (typeof c.id === 'number' ? c.id : parseInt(c.id));
+            
+            // Try multiple matching strategies
+            return c.id === editingCardId ||                    // Exact match
+                   cardIdStr === editingIdStr ||                // String match
+                   (cardIdNum === editingIdNum && !isNaN(editingIdNum) && !isNaN(cardIdNum)) || // Numeric match
+                   cardIdStr.startsWith(editingIdStr) ||        // Starts with match
+                   editingIdStr.startsWith(cardIdStr);          // Reverse starts with match
+          });
+          
+          if (cardToUpdate) {
+            console.log('✅ Found card using flexible ID matching:', {
+              editingCardId,
+              foundCardId: cardToUpdate.id,
+              matchType: 'flexible'
+            });
+          }
+        }
+        
+        // If still not found, try to fetch the card directly from API
+        if (!cardToUpdate) {
+          console.warn('⚠️ Card not found in local array, attempting to fetch from API...', editingCardId);
+          try {
+            const endpoint = `${API_CONFIG.ENDPOINTS.CUSTOM_CARD_GET}?tallylocId=${tallyloc_id}&coGuid=${guid}&dashboardType=sales`;
+            const response = await apiGet(endpoint);
+            
+            if (response && response.status === 'success' && response.data) {
+              const cards = Array.isArray(response.data) ? response.data : [];
+              const allCards = cards.filter(card => card.isActive !== 0);
+              
+              // Try to find the card in the fresh API response
+              cardToUpdate = allCards.find(c => {
+                const cardIdStr = String(c.id);
+                const editingIdStr = String(editingCardId);
+                return c.id === editingCardId || 
+                       cardIdStr === editingIdStr ||
+                       (cardIdStr.includes('_') && editingIdStr.includes('_') && 
+                        cardIdStr.split('_')[0] === editingIdStr.split('_')[0]);
+              });
+              
+              if (cardToUpdate) {
+                console.log('✅ Found card from API:', cardToUpdate.id);
+                // Flatten the card like in loadCustomCards
+                let parsedCardConfig = cardToUpdate.cardConfig;
+                if (typeof parsedCardConfig === 'string') {
+                  try {
+                    parsedCardConfig = JSON.parse(parsedCardConfig);
+                  } catch (e) {
+                    parsedCardConfig = {};
+                  }
+                }
+                if (parsedCardConfig && typeof parsedCardConfig === 'object') {
+                  cardToUpdate = { ...cardToUpdate, ...parsedCardConfig };
+                }
+              }
+            }
+          } catch (apiError) {
+            console.error('❌ Error fetching card from API:', apiError);
+          }
+        }
+        
+        // Final check - if still not found, show error
+        if (!cardToUpdate) {
+          console.error('❌ Card not found for update after all attempts:', {
+            editingCardId,
+            editingIdType: typeof editingCardId,
+            availableCardIds: customCards.map(c => ({ id: c.id, idType: typeof c.id })),
+            customCardsCount: customCards.length
+          });
+          alert(`Card with ID ${editingCardId} not found. The card may have been deleted or the page needs to be refreshed.`);
+          setEditingCardId(null); // Clear editing state
+          setShowCustomCardModal(false); // Close modal
           return;
         }
+        
+        console.log('🔧 Updating card:', {
+          cardId: editingCardId,
+          cardConfig,
+          cardToUpdate
+        });
         
         const updatePayload = {
           title: cardConfig.title,
@@ -4181,7 +5483,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           aggregation: cardConfig.aggregation,
           topN: cardConfig.topN || null,
           filters: cardConfig.filters || [],
-          cardConfig: cardConfig.cardConfig || {},
+          cardConfig: {
+            enableStacking: cardConfig.enableStacking,
+            segmentBy: cardConfig.segmentBy,
+            multiAxisSeries: cardConfig.multiAxisSeries,
+            dateGrouping: cardConfig.dateGrouping,
+            mapSubType: cardConfig.mapSubType,
+            ...(cardConfig.cardConfig || {})
+          },
           sortOrder: cardConfig.sortOrder || cardToUpdate.sortOrder || 0,
           isActive: 1
         };
@@ -4190,11 +5499,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         const response = await apiPut(endpoint, updatePayload);
         
         if (response && response.status === 'success') {
+          // Flatten response data (same as during load)
+          const updatedCard = { ...cardToUpdate, ...cardConfig, ...response.data };
+          
+          // Parse and flatten cardConfig from response if it exists
+          let parsedCardConfig = updatedCard.cardConfig;
+          if (typeof updatedCard.cardConfig === 'string') {
+            try {
+              parsedCardConfig = JSON.parse(updatedCard.cardConfig);
+            } catch (e) {
+              console.warn('Failed to parse cardConfig after update:', e);
+              parsedCardConfig = {};
+            }
+          }
+          
+          if (parsedCardConfig && typeof parsedCardConfig === 'object') {
+            updatedCard.enableStacking = parsedCardConfig.enableStacking;
+            updatedCard.segmentBy = parsedCardConfig.segmentBy;
+            updatedCard.multiAxisSeries = parsedCardConfig.multiAxisSeries;
+            updatedCard.dateGrouping = parsedCardConfig.dateGrouping || updatedCard.dateGrouping;
+            updatedCard.mapSubType = parsedCardConfig.mapSubType || 'choropleth';
+          }
+          
+          // Force date grouping to 'day' (daily) for all date-based cards
+          if (updatedCard.groupBy === 'date' || updatedCard.groupBy === 'cp_date' || 
+              (updatedCard.groupBy && String(updatedCard.groupBy).toLowerCase().includes('date'))) {
+            updatedCard.dateGrouping = 'day';
+          }
+          
+          // Parse filters if it's a string
+          if (typeof updatedCard.filters === 'string') {
+            try {
+              updatedCard.filters = JSON.parse(updatedCard.filters);
+            } catch (e) {
+              console.warn('Failed to parse filters after update:', e);
+              updatedCard.filters = [];
+            }
+          }
+          
           // Update local state
           setCustomCards(prev => prev.map(card => 
-            card.id === editingCardId 
-              ? { ...card, ...cardConfig, ...response.data }
-              : card
+            card.id === editingCardId ? updatedCard : card
           ));
           
           // Update chartType state
@@ -4205,7 +5550,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             }));
           }
           
-          console.log('✅ Custom card updated successfully:', response.data);
+          console.log('✅ Custom card updated successfully:', updatedCard);
         } else {
           console.error('❌ Failed to update custom card:', response);
           alert('Failed to update custom card. Please try again.');
@@ -4226,7 +5571,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           aggregation: cardConfig.aggregation,
           topN: cardConfig.topN || null,
           filters: cardConfig.filters || [],
-          cardConfig: cardConfig.cardConfig || {},
+          cardConfig: {
+            enableStacking: cardConfig.enableStacking,
+            segmentBy: cardConfig.segmentBy,
+            multiAxisSeries: cardConfig.multiAxisSeries,
+            dateGrouping: cardConfig.dateGrouping,
+            mapSubType: cardConfig.mapSubType,
+            ...(cardConfig.cardConfig || {})
+          },
           sortOrder: cardConfig.sortOrder || 0
         };
         
@@ -4234,6 +5586,41 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         
         if (response && response.status === 'success' && response.data) {
           const newCard = response.data;
+          
+          // Flatten cardConfig properties to top level (same as during load)
+          let parsedCardConfig = newCard.cardConfig;
+          if (typeof newCard.cardConfig === 'string') {
+            try {
+              parsedCardConfig = JSON.parse(newCard.cardConfig);
+            } catch (e) {
+              console.warn('Failed to parse cardConfig for new card:', e);
+              parsedCardConfig = {};
+            }
+          }
+          
+          if (parsedCardConfig && typeof parsedCardConfig === 'object') {
+            newCard.enableStacking = parsedCardConfig.enableStacking;
+            newCard.segmentBy = parsedCardConfig.segmentBy;
+            newCard.multiAxisSeries = parsedCardConfig.multiAxisSeries;
+            newCard.dateGrouping = parsedCardConfig.dateGrouping || newCard.dateGrouping;
+            newCard.mapSubType = parsedCardConfig.mapSubType || 'choropleth';
+          }
+          
+          // Force date grouping to 'day' (daily) for all date-based cards
+          if (newCard.groupBy === 'date' || newCard.groupBy === 'cp_date' || 
+              (newCard.groupBy && String(newCard.groupBy).toLowerCase().includes('date'))) {
+            newCard.dateGrouping = 'day';
+          }
+          
+          // Parse filters if it's a string
+          if (typeof newCard.filters === 'string') {
+            try {
+              newCard.filters = JSON.parse(newCard.filters);
+            } catch (e) {
+              console.warn('Failed to parse filters for new card:', e);
+              newCard.filters = [];
+            }
+          }
           
           // Add to local state
           setCustomCards(prev => [...prev, newCard]);
@@ -4327,18 +5714,37 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     const absValue = Math.abs(value);
     let formatted = '';
     let unit = '';
-    if (absValue >= 10000000) {
-      formatted = '₹' + (absValue / 10000000).toFixed(2);
-      unit = ' Crore';
-    } else if (absValue >= 100000) {
-      formatted = '₹' + (absValue / 100000).toFixed(2);
-      unit = ' L';
-    } else if (absValue >= 1000) {
-      formatted = '₹' + (absValue / 1000).toFixed(2);
-      unit = ' K';
+    
+    if (numberFormat === 'indian') {
+      // Indian numbering: Lakhs and Crores
+      if (absValue >= 10000000) {
+        formatted = '₹' + (absValue / 10000000).toFixed(2);
+        unit = ' Cr';
+      } else if (absValue >= 100000) {
+        formatted = '₹' + (absValue / 100000).toFixed(2);
+        unit = ' L';
+      } else if (absValue >= 1000) {
+        formatted = '₹' + (absValue / 1000).toFixed(2);
+        unit = ' K';
+      } else {
+        formatted = '₹' + absValue.toFixed(2);
+      }
     } else {
-      formatted = '₹' + absValue.toFixed(2);
+      // International numbering: Millions and Billions
+      if (absValue >= 1000000000) {
+        formatted = '₹' + (absValue / 1000000000).toFixed(2);
+        unit = ' B';
+      } else if (absValue >= 1000000) {
+        formatted = '₹' + (absValue / 1000000).toFixed(2);
+        unit = ' M';
+      } else if (absValue >= 1000) {
+        formatted = '₹' + (absValue / 1000).toFixed(2);
+        unit = ' K';
+      } else {
+        formatted = '₹' + absValue.toFixed(2);
+      }
     }
+    
     return formatted + unit;
   };
 
@@ -4393,11 +5799,26 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   const formatPeriodLabel = (period) => {
     if (!period) return '';
+
+    // Handle quarter format (Q1-2024, Q2-2024, etc.)
+    const quarterMatch = period.match(/^Q(\d)-(\d{4})$/);
+    if (quarterMatch) {
+      const quarter = quarterMatch[1];
+      const year = quarterMatch[2];
+      return `Q${quarter} ${year}`;
+    }
+
+    // Handle year-only format (YYYY)
+    if (/^\d{4}$/.test(period)) {
+      return period;
+    }
+
+    // Handle regular month format (YYYY-MM)
     const [year, month] = period.split('-');
-    const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthIndex = parseInt(month, 10) - 1;
     if (monthIndex < 0 || monthIndex > 11) return period;
-    return `${monthNames[monthIndex]} ${year}`;
+    return `${monthAbbr[monthIndex]}-${String(year).slice(-2)}`;
   };
 
   const transactionColumns = useMemo(() => ([
@@ -4805,7 +6226,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             </div>
             <div class="metric-card">
               <div class="metric-title">Total Quantity</div>
-              <div class="metric-value">${totalQuantity.toLocaleString()}</div>
+              <div class="metric-value">${formatNumber(totalQuantity)}</div>
             </div>
             <div class="metric-card">
               <div class="metric-title">Unique Customers</div>
@@ -4822,7 +6243,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             </div>
             <div class="metric-card">
               <div class="metric-title">Profit Margin</div>
-              <div class="metric-value">${profitMargin >= 0 ? '+' : ''}${profitMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
+              <div class="metric-value">${profitMargin >= 0 ? '+' : ''}${formatNumber(profitMargin, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
             </div>
             <div class="metric-card">
               <div class="metric-title">Avg Profit per Order</div>
@@ -4927,7 +6348,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               ${topItemsByQuantityData.slice(0, 10).map(item => `
                 <div class="chart-row">
                   <span>${item.label}</span>
-                  <span>${item.value.toLocaleString()}</span>
+                  <span>${formatNumber(item.value)}</span>
                 </div>
               `).join('')}
             </div>
@@ -5049,7 +6470,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 ${cardData.slice(0, 20).map(item => `
                   <div class="chart-row">
                     <span>${item.label || 'Unknown'}</span>
-                    <span>${typeof item.value === 'number' ? (item.value % 1 === 0 ? item.value.toLocaleString() : item.value.toFixed(2)) : item.value}</span>
+                    <span>${typeof item.value === 'number' ? (item.value % 1 === 0 ? formatNumber(item.value) : formatNumber(item.value, { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : item.value}</span>
                   </div>
                 `).join('')}
               </div>
@@ -5253,7 +6674,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             </div>
             <div class="metric-card">
               <div class="metric-title">Total Quantity</div>
-              <div class="metric-value">${totalQuantity.toLocaleString()}</div>
+              <div class="metric-value">${formatNumber(totalQuantity)}</div>
             </div>
             <div class="metric-card">
               <div class="metric-title">Unique Customers</div>
@@ -5270,7 +6691,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             </div>
             <div class="metric-card">
               <div class="metric-title">Profit Margin</div>
-              <div class="metric-value">${profitMargin >= 0 ? '+' : ''}${profitMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
+              <div class="metric-value">${profitMargin >= 0 ? '+' : ''}${formatNumber(profitMargin, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
             </div>
             <div class="metric-card">
               <div class="metric-title">Avg Profit per Order</div>
@@ -5375,7 +6796,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               ${topItemsByQuantityData.slice(0, 10).map(item => `
                 <div class="chart-row">
                   <span>${item.label}</span>
-                  <span>${item.value.toLocaleString()}</span>
+                  <span>${formatNumber(item.value)}</span>
                 </div>
               `).join('')}
             </div>
@@ -5497,7 +6918,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 ${cardData.slice(0, 20).map(item => `
                   <div class="chart-row">
                     <span>${item.label || 'Unknown'}</span>
-                    <span>${typeof item.value === 'number' ? (item.value % 1 === 0 ? item.value.toLocaleString() : item.value.toFixed(2)) : item.value}</span>
+                    <span>${typeof item.value === 'number' ? (item.value % 1 === 0 ? formatNumber(item.value) : formatNumber(item.value, { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : item.value}</span>
                   </div>
                 `).join('')}
               </div>
@@ -5939,22 +7360,272 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     setRawDataPage(1);
   }, []);
 
+  // Utility functions for column filtering
+  const getColumnFilterType = useCallback((column, rows) => {
+    const key = column.key.toLowerCase();
+    
+    // Date columns
+    if (key.includes('date') || key === 'duedate' || key === 'referencedate') {
+      return 'date';
+    }
+    
+    // Numeric columns
+    if (key.includes('amount') || key.includes('balance') || key.includes('qty') || 
+        key.includes('quantity') || key.includes('days') || key.includes('overdue') ||
+        key === 'closingbalance' || key === 'daysoverdue' || column.format) {
+      return 'numeric';
+    }
+
+    // Force item columns to dropdown (per request)
+    if (key.includes('item')) {
+      return 'dropdown';
+    }
+    
+    // Get unique values for the column
+    const uniqueValues = new Set();
+    rows.forEach(row => {
+      const value = row[column.key];
+      if (value !== null && value !== undefined && value !== '') {
+        uniqueValues.add(String(value));
+      }
+    });
+    
+    // If less than 50 unique values, use dropdown
+    if (uniqueValues.size > 0 && uniqueValues.size < 50) {
+      return 'dropdown';
+    }
+    
+    // Default to text search
+    return 'text';
+  }, []);
+
+  const getUniqueColumnValues = useCallback((column, rows) => {
+    const uniqueValues = new Set();
+    rows.forEach(row => {
+      const value = row[column.key];
+      if (value !== null && value !== undefined && value !== '') {
+        uniqueValues.add(String(value));
+      }
+    });
+    return Array.from(uniqueValues).sort();
+  }, []);
+
+  const evaluateNumericFilter = useCallback((value, filterValue) => {
+    if (!filterValue || filterValue.trim() === '') return true;
+    
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) return false;
+    
+    // Split by comma for multiple conditions (AND logic)
+    const conditions = filterValue.split(',').map(c => c.trim());
+    
+    return conditions.every(condition => {
+      // Match operators: >, <, >=, <=, =
+      const match = condition.match(/^([><]=?|=)\s*(-?\d+\.?\d*)$/);
+      if (!match) return true; // Invalid format, ignore
+      
+      const operator = match[1];
+      const filterNum = parseFloat(match[2]);
+      
+      switch (operator) {
+        case '>': return numValue > filterNum;
+        case '<': return numValue < filterNum;
+        case '>=': return numValue >= filterNum;
+        case '<=': return numValue <= filterNum;
+        case '=': return numValue === filterNum;
+        default: return true;
+      }
+    });
+  }, []);
+
+  const evaluateDateFilter = useCallback((value, filterValue) => {
+    if (!filterValue || !filterValue.from) return true;
+    
+    try {
+      // Parse the row value date
+      const rowDate = parseDateFromNewFormat(String(value));
+      if (!rowDate) return false;
+      const rowDateObj = new Date(rowDate);
+
+      // Parse the 'from' date text; if not a valid date yet, ignore the filter
+      const fromParsed = parseDateFromNewFormat(filterValue.from);
+      if (!fromParsed) return true;
+      const fromDate = new Date(fromParsed);
+      
+      // If 'to' is provided AND valid, treat as range; otherwise treat as single-day match
+      if (filterValue.to) {
+        const toParsed = parseDateFromNewFormat(filterValue.to);
+        if (!toParsed) {
+          // Invalid 'to' while typing - just check equality with from date
+          return rowDateObj.toDateString() === fromDate.toDateString();
+        }
+        const toDate = new Date(toParsed);
+        return rowDateObj >= fromDate && rowDateObj <= toDate;
+      }
+
+      // Single date match
+      return rowDateObj.toDateString() === fromDate.toDateString();
+    } catch (error) {
+      return false;
+    }
+  }, [parseDateFromNewFormat]);
+
+  const applyColumnFilters = useCallback((rows) => {
+    if (Object.keys(columnFilters).length === 0) return rows;
+    
+    return rows.filter(row => {
+      return Object.entries(columnFilters).every(([columnKey, filterValue]) => {
+        const column = rawDataModal.columns.find(col => col.key === columnKey);
+        if (!column) return true;
+        
+        const cellValue = row[columnKey];
+        const filterType = getColumnFilterType(column, rawDataModal.rows);
+        
+        switch (filterType) {
+          case 'dropdown':
+            if (!filterValue || filterValue.length === 0) return true;
+            return filterValue.includes(String(cellValue ?? ''));
+            
+          case 'text':
+            if (!filterValue || filterValue.trim() === '') return true;
+            return String(cellValue ?? '').toLowerCase().includes(filterValue.toLowerCase());
+            
+          case 'numeric':
+            return evaluateNumericFilter(cellValue, filterValue);
+            
+          case 'date':
+            // Date filters removed per request
+            return true;
+            
+          default:
+            return true;
+        }
+      });
+    });
+  }, [columnFilters, rawDataModal.columns, rawDataModal.rows, getColumnFilterType, evaluateNumericFilter, evaluateDateFilter]);
+
   const filteredRawRows = useMemo(() => {
     if (!rawDataModal.open) return [];
+    
+    let filtered = rawDataModal.rows;
+    
+    // Apply column filters first
+    filtered = applyColumnFilters(filtered);
+    
+    // Then apply global search
     const query = rawDataSearch.trim().toLowerCase();
-    if (!query) return rawDataModal.rows;
-    return rawDataModal.rows.filter((row) =>
-      rawDataModal.columns.some((column) =>
-        String(row[column.key] ?? '')
-          .toLowerCase()
-          .includes(query)
-      )
-    );
-  }, [rawDataModal, rawDataSearch]);
+    if (query) {
+      filtered = filtered.filter((row) =>
+        rawDataModal.columns.some((column) =>
+          String(row[column.key] ?? '')
+            .toLowerCase()
+            .includes(query)
+        )
+      );
+    }
+    
+    // Apply sorting if sortBy is set
+    if (rawDataSortBy) {
+      filtered = [...filtered].sort((a, b) => {
+        let aValue = a[rawDataSortBy];
+        let bValue = b[rawDataSortBy];
+        
+        // Handle null/undefined values
+        if (aValue === null || aValue === undefined) aValue = rawDataSortBy === 'date' ? '' : 0;
+        if (bValue === null || bValue === undefined) bValue = rawDataSortBy === 'date' ? '' : 0;
+        
+        if (rawDataSortBy === 'date') {
+          // Sort dates - parse various date formats
+          const parseDate = (dateStr) => {
+            if (!dateStr) return new Date(0);
+            
+            // Format: YYYYMMDD
+            if (typeof dateStr === 'string' && dateStr.length === 8 && /^\d+$/.test(dateStr)) {
+              const year = dateStr.substring(0, 4);
+              const month = dateStr.substring(4, 6);
+              const day = dateStr.substring(6, 8);
+              return new Date(`${year}-${month}-${day}`);
+            }
+            
+            // Format: DD-MMM-YY
+            if (typeof dateStr === 'string' && dateStr.includes('-')) {
+              const parts = dateStr.split('-');
+              if (parts.length === 3) {
+                const day = parts[0];
+                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const monthIndex = monthNames.findIndex(m => m.toLowerCase() === parts[1].toLowerCase());
+                if (monthIndex !== -1) {
+                  let year = parts[2];
+                  if (year.length === 2) {
+                    const yearNum = parseInt(year, 10);
+                    year = yearNum < 50 ? `20${year}` : `19${year}`;
+                  }
+                  return new Date(`${year}-${String(monthIndex + 1).padStart(2, '0')}-${day.padStart(2, '0')}`);
+                }
+              }
+            }
+            
+            // Try Date constructor
+            const date = new Date(dateStr);
+            return isNaN(date.getTime()) ? new Date(0) : date;
+          };
+          
+          const aDate = parseDate(aValue);
+          const bDate = parseDate(bValue);
+          return rawDataSortOrder === 'asc' ? aDate - bDate : bDate - aDate;
+        } else if (rawDataSortBy === 'quantity' || rawDataSortBy === 'amount') {
+          // Sort numeric values
+          const aNum = typeof aValue === 'number' ? aValue : parseFloat(aValue) || 0;
+          const bNum = typeof bValue === 'number' ? bValue : parseFloat(bValue) || 0;
+          return rawDataSortOrder === 'asc' ? aNum - bNum : bNum - aNum;
+        }
+        
+        // Fallback: string comparison
+        const aStr = String(aValue).toLowerCase();
+        const bStr = String(bValue).toLowerCase();
+        if (rawDataSortOrder === 'asc') {
+          return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
+        } else {
+          return aStr > bStr ? -1 : aStr < bStr ? 1 : 0;
+        }
+      });
+    }
+    
+    return filtered;
+  }, [rawDataModal, rawDataSearch, applyColumnFilters, rawDataSortBy, rawDataSortOrder]);
 
   const totalRawPages = rawDataModal.open
     ? Math.max(1, Math.ceil(Math.max(filteredRawRows.length, 1) / rawDataPageSize))
     : 1;
+
+  // Close dropdowns on outside click
+  useEffect(() => {
+    if (!filterDropdownOpen && !showSortDropdown) return;
+    const handleClickOutside = (e) => {
+      if (filterDropdownOpen && !e.target.closest('[data-filter-dropdown]')) {
+        setFilterDropdownOpen(null);
+      }
+      if (showSortDropdown && !e.target.closest('[data-sort-dropdown]')) {
+        setShowSortDropdown(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [filterDropdownOpen, showSortDropdown]);
+
+  // Reset filters when modal closes
+  useEffect(() => {
+    if (!rawDataModal.open) {
+      setColumnFilters({});
+      setFilterDropdownOpen(null);
+      setDateDrafts({});
+      setRawDataPage(1);
+      setRawDataPageInput('1');
+      setRawDataSortBy(null);
+      setRawDataSortOrder('asc');
+      setShowSortDropdown(false);
+    }
+  }, [rawDataModal.open]);
 
   useEffect(() => {
     if (!rawDataModal.open) return;
@@ -5996,6 +7667,296 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     const start = (rawDataPage - 1) * rawDataPageSize;
     return filteredRawRows.slice(start, start + rawDataPageSize);
   }, [filteredRawRows, rawDataModal.open, rawDataPage, rawDataPageSize]);
+
+  // Draft values for date inputs (avoid applying until Enter/blur with valid date)
+  const [dateDrafts, setDateDrafts] = useState({});
+
+  // Clear individual column filter
+  const clearColumnFilter = useCallback((columnKey) => {
+    setColumnFilters(prev => {
+      const newFilters = { ...prev };
+      delete newFilters[columnKey];
+      return newFilters;
+    });
+    setDateDrafts(prev => {
+      const next = { ...prev };
+      delete next[columnKey];
+      return next;
+    });
+    setRawDataPage(1);
+  }, []);
+
+  // Clear all column filters
+  const clearAllColumnFilters = useCallback(() => {
+    setColumnFilters({});
+    setRawDataPage(1);
+  }, []);
+
+  // Render column filter based on type
+  const renderColumnFilter = useCallback((column) => {
+    const filterType = getColumnFilterType(column, rawDataModal.rows);
+    const filterValue = columnFilters[column.key];
+    const columnKey = column.key;
+    
+    const commonInputStyle = {
+      width: '100%',
+      padding: '6px 8px',
+      fontSize: '13px',
+      border: '1px solid #e2e8f0',
+      borderRadius: '6px',
+      outline: 'none',
+      transition: 'border-color 0.2s ease, box-shadow 0.2s ease'
+    };
+
+    switch (filterType) {
+      case 'dropdown': {
+        const uniqueValues = getUniqueColumnValues(column, rawDataModal.rows);
+        const selectedValues = filterValue || [];
+        const isOpen = filterDropdownOpen === columnKey;
+        
+        return (
+          <div style={{ position: 'relative', width: '100%' }}>
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                setFilterDropdownOpen(isOpen ? null : columnKey);
+              }}
+              style={{
+                ...commonInputStyle,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#fff',
+                borderColor: isOpen ? '#3b82f6' : '#e2e8f0',
+                boxShadow: isOpen ? '0 0 0 3px rgba(59, 130, 246, 0.1)' : 'none'
+              }}
+            >
+              <span style={{ color: selectedValues.length === 0 ? '#94a3b8' : '#1e293b', fontSize: '13px' }}>
+                {selectedValues.length === 0 ? 'All' : `${selectedValues.length} selected`}
+              </span>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>
+                {isOpen ? 'expand_less' : 'expand_more'}
+              </span>
+            </div>
+            
+            {isOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  width: '100%',
+                  minWidth: '100%',
+                  marginTop: '4px',
+                  background: '#fff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                  maxHeight: '280px',
+                  overflowY: 'auto',
+                  zIndex: 3000,
+                  boxSizing: 'border-box'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {uniqueValues.map((value) => {
+                  const isSelected = selectedValues.includes(value);
+                  return (
+                    <div
+                      key={value}
+                      onClick={() => {
+                        setColumnFilters(prev => {
+                          const current = prev[columnKey] || [];
+                          const newValues = isSelected
+                            ? current.filter(v => v !== value)
+                            : [...current, value];
+                          return newValues.length === 0
+                            ? { ...prev, [columnKey]: undefined }
+                            : { ...prev, [columnKey]: newValues };
+                        });
+                        setRawDataPage(1);
+                      }}
+                      style={{
+                        padding: '8px 12px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        background: isSelected ? '#eff6ff' : 'transparent',
+                        transition: 'background 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected) e.currentTarget.style.background = '#f8fafc';
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) e.currentTarget.style.background = 'transparent';
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        readOnly
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <span style={{ fontSize: '13px', color: '#1e293b' }}>{value}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            
+            {selectedValues.length > 0 && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearColumnFilter(columnKey);
+                }}
+                style={{
+                  position: 'absolute',
+                  right: '28px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#64748b'
+                }}
+                title="Clear filter"
+              >
+                <span className="material-icons" style={{ fontSize: '16px' }}>close</span>
+              </button>
+            )}
+          </div>
+        );
+      }
+      
+      case 'text': {
+        return (
+          <div style={{ position: 'relative', width: '100%' }}>
+            <input
+              type="text"
+              value={filterValue || ''}
+              onChange={(e) => {
+                const value = e.target.value;
+                setColumnFilters(prev => ({
+                  ...prev,
+                  [columnKey]: value || undefined
+                }));
+                setRawDataPage(1);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              placeholder="Filter..."
+              style={{
+                ...commonInputStyle,
+                paddingRight: filterValue ? '30px' : '8px'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#3b82f6';
+                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#e2e8f0';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+            {filterValue && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearColumnFilter(columnKey);
+                }}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#64748b'
+                }}
+                title="Clear filter"
+              >
+                <span className="material-icons" style={{ fontSize: '16px' }}>close</span>
+              </button>
+            )}
+          </div>
+        );
+      }
+      
+      case 'numeric': {
+        return (
+          <div style={{ position: 'relative', width: '100%' }}>
+            <input
+              type="text"
+              value={filterValue || ''}
+              onChange={(e) => {
+                const value = e.target.value;
+                setColumnFilters(prev => ({
+                  ...prev,
+                  [columnKey]: value || undefined
+                }));
+                setRawDataPage(1);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              placeholder="Filter (e.g., >1000, <5000)"
+              style={{
+                ...commonInputStyle,
+                paddingRight: filterValue ? '30px' : '8px'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = '#3b82f6';
+                e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = '#e2e8f0';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+            {filterValue && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearColumnFilter(columnKey);
+                }}
+                style={{
+                  position: 'absolute',
+                  right: '8px',
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  border: 'none',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  padding: '2px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: '#64748b'
+                }}
+                title="Clear filter"
+              >
+                <span className="material-icons" style={{ fontSize: '16px' }}>close</span>
+              </button>
+            )}
+          </div>
+        );
+      }
+      
+      case 'date': {
+        // Date filters removed per request
+        return null;
+      }
+      
+      default:
+        return null;
+    }
+  }, [columnFilters, filterDropdownOpen, getColumnFilterType, getUniqueColumnValues, rawDataModal.rows, clearColumnFilter]);
 
   const exportRawDataToCSV = useCallback(() => {
     if (!rawDataModal.open || rawDataModal.columns.length === 0) {
@@ -6092,6 +8053,50 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return `${day}-${month}-${year}`;
   };
 
+  // Format date range in format: "1 Apr 2025 → 31 Dec 2025"
+  const formatDateRangeForHeader = (fromDateStr, toDateStr) => {
+    if (!fromDateStr || !toDateStr) return '';
+    
+    const formatDate = (dateStr) => {
+      let dateObj = null;
+      
+      // Try to parse various date formats
+      if (typeof dateStr === 'string') {
+        // Format: YYYYMMDD
+        if (dateStr.length === 8 && /^\d+$/.test(dateStr)) {
+          const year = dateStr.substring(0, 4);
+          const month = dateStr.substring(4, 6);
+          const day = dateStr.substring(6, 8);
+          dateObj = new Date(`${year}-${month}-${day}`);
+        }
+        // Format: YYYY-MM-DD
+        else if (dateStr.includes('-') && dateStr.length >= 10) {
+          dateObj = new Date(dateStr);
+        }
+      }
+      
+      // If we couldn't parse it, try Date constructor directly
+      if (!dateObj || isNaN(dateObj.getTime())) {
+        dateObj = new Date(dateStr);
+      }
+      
+      // If still invalid, return original string
+      if (isNaN(dateObj.getTime())) {
+        return dateStr;
+      }
+      
+      // Format to "D MMM YYYY" (e.g., "1 Apr 2025")
+      const day = dateObj.getDate();
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const month = monthNames[dateObj.getMonth()];
+      const year = dateObj.getFullYear();
+      
+      return `${day} ${month} ${year}`;
+    };
+    
+    return `${formatDate(fromDateStr)} → ${formatDate(toDateStr)}`;
+  };
+
   const renderRawDataCell = (row, column) => {
     const value = row[column.key];
     if (value === null || value === undefined || value === '') {
@@ -6136,7 +8141,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     if (column.format === 'number') {
       const numericValue = typeof value === 'number' ? value : parseFloat(value);
       if (Number.isFinite(numericValue)) {
-        return numericValue.toLocaleString('en-IN');
+        const locale = numberFormat === 'indian' ? 'en-IN' : 'en-US';
+        return numericValue.toLocaleString(locale);
       }
     }
 
@@ -6262,12 +8268,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
      >
         {/* Header */}
         <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
-          <div style={{
-            background: 'linear-gradient(90deg, #1e40af 0%, #1e3a8a 100%)',
-            borderRadius: '16px',
-            padding: isMobile ? '12px' : '16px',
-            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-            marginBottom: '24px'
+        <div style={{
+            padding: isMobile ? '16px 20px' : '10px 20px',
+          borderBottom: 'none',
+          background: '#1e3a8a',
+          borderRadius: '16px',
+          position: 'relative',
+          marginBottom: isMobile ? '16px' : '28px',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.07), 0 10px 24px rgba(37, 99, 235, 0.15)'
           }}>
             {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
         {isMobile ? (
@@ -6278,75 +8286,34 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               alignItems: 'center',
               gap: '8px',
               width: '100%',
-              marginBottom: '8px'
+              marginBottom: '12px'
             }}>
               <div style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
+                width: '48px',
+                height: '48px',
+                borderRadius: '12px',
                 background: 'rgba(255, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
-                border: '1px solid rgba(255, 255, 255, 0.3)'
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.2)'
               }}>
-                <span className="material-icons" style={{ color: '#ffffff', fontSize: '18px' }}>bar_chart</span>
+                <span className="material-icons" style={{ color: 'white', fontSize: '24px' }}>bar_chart</span>
               </div>
               <div style={{ flex: '1' }}>
                 <h1 style={{
                   margin: 0,
-                  color: '#ffffff',
-                  fontSize: isMobile ? '14px' : '16px',
+                  color: 'white',
+                  fontSize: '24px',
                   fontWeight: '700',
                   lineHeight: '1.2',
-                  letterSpacing: '-0.02em'
+                  letterSpacing: '-0.01em'
                 }}>
                   Sales Analytics Dashboard
                 </h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
-                  {/* Date Range Badge */}
-                  {fromDate && toDate && (
-                    <div style={{
-                      display: 'inline-flex',
-                      background: 'rgba(255, 255, 255, 0.2)',
-                      backdropFilter: 'blur(10px)',
-                      color: '#ffffff',
-                      padding: '4px 12px',
-                      borderRadius: '16px',
-                      fontSize: '11px',
-                      fontWeight: '600',
-                      alignItems: 'center',
-                      gap: '6px',
-                      whiteSpace: 'nowrap',
-                      border: '1px solid rgba(255, 255, 255, 0.3)'
-                    }}>
-                      <span className="material-icons" style={{ fontSize: '14px' }}>calendar_month</span>
-                      <span>
-                        {new Date(fromDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} → {new Date(toDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </span>
-                    </div>
-                  )}
-                  {/* Records Available Badge - Inline */}
-                  <div style={{
-                    display: 'inline-flex',
-                    background: 'rgba(255, 255, 255, 0.2)',
-                    backdropFilter: 'blur(10px)',
-                    color: '#ffffff',
-                    padding: '4px 12px',
-                    borderRadius: '16px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    alignItems: 'center',
-                    gap: '6px',
-                    border: '1px solid rgba(255, 255, 255, 0.3)',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
-                    {filteredSales.length} records
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -6369,35 +8336,41 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 disabled={sales.length === 0}
                 style={{
                   background: sales.length === 0 
-                    ? 'rgba(255, 255, 255, 0.3)' 
-                    : '#ffffff',
-                  color: sales.length === 0 ? '#ffffff' : '#1e293b',
+                    ? '#e5e7eb' 
+                    : '#22c55e',
+                  color: sales.length === 0 ? '#9ca3af' : '#fff',
                   border: 'none',
                   borderRadius: '8px',
-                  padding: '10px 16px',
+                  padding: '6px 14px',
                   cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
+                  gap: '6px',
                   fontSize: '13px',
                   fontWeight: '600',
-                  transition: 'all 0.2s ease',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                   whiteSpace: 'nowrap',
                   justifyContent: 'center',
-                  width: '100%'
+                  width: '100%',
+                  height: '32px',
+                  boxShadow: sales.length === 0 ? 'none' : '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)'
                 }}
                 onMouseEnter={(e) => {
                   if (sales.length > 0) {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.9)';
+                    e.currentTarget.style.background = '#16a34a';
+                    e.currentTarget.style.boxShadow = '0 4px 6px rgba(34, 197, 94, 0.25), 0 8px 12px rgba(34, 197, 94, 0.15)';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (sales.length > 0) {
-                    e.currentTarget.style.background = '#ffffff';
+                    e.currentTarget.style.background = '#22c55e';
+                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)';
+                    e.currentTarget.style.transform = 'translateY(0)';
                   }
                 }}
               >
-                <span className="material-icons" style={{ fontSize: '18px' }}>add_chart</span>
+                <span className="material-icons" style={{ fontSize: '16px' }}>add_chart</span>
                 <span>Create Custom Card</span>
               </button>
 
@@ -6407,36 +8380,37 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 onClick={handleOpenCalendar}
                 title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
                 style={{
-                  background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                  background: '#7c3aed',
                   border: 'none',
                   borderRadius: '8px',
-                  padding: '10px 16px',
+                  padding: '6px 14px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
+                  gap: '6px',
                   color: '#fff',
                   fontSize: '13px',
                   fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 3px 8px rgba(124, 58, 237, 0.3)',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                   justifyContent: 'center',
                   whiteSpace: 'nowrap',
-                  width: '100%'
+                  width: '100%',
+                  height: '32px',
+                  boxShadow: '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)'
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
-                  e.target.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)';
+                  e.target.style.background = '#6d28d9';
+                  e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25), 0 8px 12px rgba(124, 58, 237, 0.15)';
                   e.target.style.transform = 'translateY(-1px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
-                  e.target.style.boxShadow = '0 3px 8px rgba(124, 58, 237, 0.3)';
+                  e.target.style.background = '#7c3aed';
+                  e.target.style.boxShadow = '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)';
                   e.target.style.transform = 'translateY(0)';
                 }}
               >
-                <span className="material-icons" style={{ fontSize: '18px' }}>calendar_month</span>
-                <span>Select Date Range</span>
+                <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromDate && toDate ? formatDateRangeForHeader(fromDate, toDate) : 'Date Range'}</span>
               </button>
 
               {/* Last Updated & Refresh - Mobile */}
@@ -6446,13 +8420,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 justifyContent: 'space-between',
                 gap: '8px',
                 width: '100%',
-                padding: '10px 12px',
-                background: '#ffffff',
-                borderRadius: '8px',
-                boxSizing: 'border-box',
-                position: 'relative',
-                overflow: 'hidden'
+                boxSizing: 'border-box'
               }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '6px',
+                  flex: '1 1 0',
+                  padding: '6px 10px',
+                  background: 'white',
+                  borderRadius: '8px',
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  position: 'relative',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 8px rgba(0, 0, 0, 0.03)',
+                  border: '1px solid rgba(0, 0, 0, 0.05)',
+                  height: '32px'
+                }}>
                 {/* Progress Bar Background */}
                 {isDownloadingCache && (() => {
                   const current = cacheDownloadProgress.current || 0;
@@ -6484,29 +8469,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '4px',
                   flex: '1 1 0',
                   minWidth: 0,
                   overflow: 'hidden',
                   position: 'relative',
                   zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '16px', color: isDownloadingCache ? '#10b981' : '#1e293b', flexShrink: 0 }}>schedule</span>
+                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#9ca3af', flexShrink: 0 }}>schedule</span>
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '1px',
                     flex: '1 1 0',
                     minWidth: 0,
                     overflow: 'hidden'
                   }}>
                     <span style={{
                       fontSize: '11px',
-                      color: isDownloadingCache ? '#059669' : '#1e293b',
+                      color: isDownloadingCache ? '#059669' : '#374151',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
-                      fontWeight: isDownloadingCache ? '600' : '400'
+                      fontWeight: isDownloadingCache ? '600' : '400',
+                      lineHeight: '1.2'
                     }}>
                       {isDownloadingCache ? (
                         (() => {
@@ -6577,172 +8563,212 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: loading || !fromDate || !toDate || isDownloadingCache
                       ? '#e5e7eb'
-                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                      : '#3b82f6',
                     border: 'none',
-                    borderRadius: '6px',
-                    padding: '6px 10px',
+                    borderRadius: '10px',
+                    padding: '11px 16px',
                     cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '4px',
+                    gap: '6px',
                     color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
-                    fontSize: '11px',
+                    fontSize: '13px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: loading || !fromDate || !toDate || isDownloadingCache
-                      ? 'none'
-                      : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     flexShrink: 0,
                     whiteSpace: 'nowrap',
                     position: 'relative',
-                    zIndex: 1
+                    zIndex: 1,
+                    boxShadow: (loading || !fromDate || !toDate || isDownloadingCache) ? 'none' : '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)'
                   }}
                   onMouseEnter={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                      e.target.style.background = '#2563eb';
+                      e.target.style.boxShadow = '0 4px 6px rgba(59, 130, 246, 0.25), 0 8px 12px rgba(59, 130, 246, 0.15)';
+                      e.target.style.transform = 'translateY(-1px)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                      e.target.style.background = '#3b82f6';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)';
+                      e.target.style.transform = 'translateY(0)';
                     }
                   }}
                 >
                   <span className="material-icons" style={{
-                    fontSize: '16px',
+                    fontSize: '18px',
                     animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
                   }}>
-                    {downloadStatus === 'none' ? 'download' : downloadStatus === 'interrupted' ? 'play_arrow' : 'refresh'}
+                    refresh
                   </span>
-                  <span>
-                    {downloadStatus === 'none' ? 'Download' : downloadStatus === 'interrupted' ? 'Continue Download' : 'Refresh'}
-                  </span>
+                  <span>Refresh</span>
                 </button>
+                </div>
               </div>
 
-              {/* Download Button */}
-              <div style={{ position: 'relative', width: '100%' }} ref={downloadDropdownRef}>
+              {/* Download Button and Settings */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
+                <div style={{ position: 'relative', flex: '1' }} ref={downloadDropdownRef}>
+                  <button
+                    type="button"
+                    title="Export"
+                    onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+                    style={{
+                      background: '#10b981',
+                      border: 'none',
+                      borderRadius: '10px',
+                      padding: '11px 16px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      color: '#fff',
+                      fontSize: '13px',
+                      fontWeight: '600',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      width: '100%',
+                      justifyContent: 'center',
+                      boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#059669';
+                      e.target.style.boxShadow = '0 4px 6px rgba(16, 185, 129, 0.25), 0 8px 12px rgba(16, 185, 129, 0.15)';
+                      e.target.style.transform = 'translateY(-1px)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = '#10b981';
+                      e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)';
+                      e.target.style.transform = 'translateY(0)';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
+                    <span>Export</span>
+                    <span className="material-icons" style={{ fontSize: '18px' }}>
+                      {showDownloadDropdown ? 'expand_less' : 'expand_more'}
+                    </span>
+                  </button>
+                  
+                  {/* Download Dropdown Menu - Mobile */}
+                  {showDownloadDropdown && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '48px',
+                      left: '0',
+                      right: '0',
+                      background: 'white',
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                      zIndex: 1000,
+                      width: '100%',
+                      overflow: 'hidden',
+                      border: '1px solid #e2e8f0'
+                    }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          exportToPDF();
+                          setShowDownloadDropdown(false);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '12px 16px',
+                          border: 'none',
+                          background: 'white',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          color: '#1e293b',
+                          fontSize: '14px',
+                          textAlign: 'left',
+                          transition: 'background 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
+                        onMouseLeave={(e) => e.target.style.background = 'white'}
+                      >
+                        <span className="material-icons" style={{ fontSize: '20px', color: '#dc2626' }}>picture_as_pdf</span>
+                        <span>Export as PDF</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          exportToExcel();
+                          setShowDownloadDropdown(false);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '12px 16px',
+                          border: 'none',
+                          borderTop: '1px solid #e2e8f0',
+                          background: 'white',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          color: '#1e293b',
+                          fontSize: '14px',
+                          textAlign: 'left',
+                          transition: 'background 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
+                        onMouseLeave={(e) => e.target.style.background = 'white'}
+                      >
+                        <span className="material-icons" style={{ fontSize: '20px', color: '#16a34a' }}>table_chart</span>
+                        <span>Export as Excel</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Settings Icon Button */}
                 <button
                   type="button"
-                  title="Export"
-                  onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+                  title="Settings"
+                  onClick={() => {
+                    setShowSettingsModal(true);
+                  }}
                   style={{
-                    background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                    background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
                     border: 'none',
                     borderRadius: '8px',
-                    padding: '10px 16px',
+                    padding: '10px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px',
+                    justifyContent: 'center',
                     color: '#fff',
-                    fontSize: '13px',
+                    fontSize: '18px',
                     fontWeight: '600',
                     transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
-                    width: '100%',
-                    justifyContent: 'center'
+                    boxShadow: '0 2px 6px rgba(99, 102, 241, 0.25)',
+                    flexShrink: 0,
+                    width: '44px',
+                    height: '44px'
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)';
-                    e.target.style.boxShadow = '0 3px 10px rgba(5, 150, 105, 0.35)';
+                    e.target.style.background = 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)';
+                    e.target.style.boxShadow = '0 3px 10px rgba(99, 102, 241, 0.35)';
                     e.target.style.transform = 'translateY(-1px)';
                   }}
                   onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                    e.target.style.boxShadow = '0 2px 6px rgba(5, 150, 105, 0.25)';
+                    e.target.style.background = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
+                    e.target.style.boxShadow = '0 2px 6px rgba(99, 102, 241, 0.25)';
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
-                  <span>Export</span>
-                  <span className="material-icons" style={{ fontSize: '18px' }}>
-                    {showDownloadDropdown ? 'expand_less' : 'expand_more'}
-                  </span>
+                  <span className="material-icons" style={{ fontSize: '20px' }}>settings</span>
                 </button>
-                
-                {/* Download Dropdown Menu - Mobile */}
-                {showDownloadDropdown && (
-                  <div style={{
-                    position: 'absolute',
-                    top: '48px',
-                    left: '0',
-                    right: '0',
-                    background: 'white',
-                    borderRadius: '8px',
-                    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                    zIndex: 1000,
-                    width: '100%',
-                    overflow: 'hidden',
-                    border: '1px solid #e2e8f0'
-                  }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        exportToPDF();
-                        setShowDownloadDropdown(false);
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '12px 16px',
-                        border: 'none',
-                        background: 'white',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        color: '#1e293b',
-                        fontSize: '14px',
-                        textAlign: 'left',
-                        transition: 'background 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
-                      onMouseLeave={(e) => e.target.style.background = 'white'}
-                    >
-                      <span className="material-icons" style={{ fontSize: '20px', color: '#dc2626' }}>picture_as_pdf</span>
-                      <span>Export as PDF</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        exportToExcel();
-                        setShowDownloadDropdown(false);
-                      }}
-                      style={{
-                        width: '100%',
-                        padding: '12px 16px',
-                        border: 'none',
-                        borderTop: '1px solid #e2e8f0',
-                        background: 'white',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        color: '#1e293b',
-                        fontSize: '14px',
-                        textAlign: 'left',
-                        transition: 'background 0.2s ease'
-                      }}
-                      onMouseEnter={(e) => e.target.style.background = '#f1f5f9'}
-                      onMouseLeave={(e) => e.target.style.background = 'white'}
-                    >
-                      <span className="material-icons" style={{ fontSize: '20px', color: '#16a34a' }}>table_chart</span>
-                      <span>Export as Excel</span>
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
           </>
         ) : (
           <div style={{
             display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: '16px',
-            flexWrap: 'wrap',
+            flexDirection: windowWidth <= 1100 ? 'column' : 'row',
+            alignItems: windowWidth <= 1100 ? 'stretch' : 'center',
+            gap: windowWidth <= 1100 ? '12px' : '10px',
+            flexWrap: windowWidth <= 1100 ? 'wrap' : 'nowrap',
             width: '100%',
             position: 'relative',
             overflow: 'visible'
@@ -6752,14 +8778,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
-              flex: '0 1 auto',
-              minWidth: '200px',
-              maxWidth: '400px',
-              overflow: 'hidden'
+              flex: windowWidth <= 1100 ? '0 0 auto' : '0 1 auto',
+              minWidth: windowWidth <= 1100 ? '100%' : '180px',
+              maxWidth: windowWidth <= 1100 ? '100%' : '400px',
+              overflow: 'hidden',
+              width: windowWidth <= 1100 ? '100%' : 'auto'
             }}>
               <div style={{
-                width: '40px',
-                height: '40px',
+                width: '36px',
+                height: '36px',
                 borderRadius: '10px',
                 background: 'rgba(255, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
@@ -6767,82 +8794,39 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
-                border: '1px solid rgba(255, 255, 255, 0.3)'
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.2)'
               }}>
-                <span className="material-icons" style={{ color: '#ffffff', fontSize: '20px' }}>bar_chart</span>
+                <span className="material-icons" style={{ color: 'white', fontSize: '20px' }}>bar_chart</span>
               </div>
               <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
                 <h1 style={{
                   margin: 0,
-                  color: '#ffffff',
-                  fontSize: '22px',
-                  fontWeight: '800',
+                  color: 'white',
+                  fontSize: '18px',
+                  fontWeight: '700',
                   lineHeight: '1.2',
-                  letterSpacing: '-0.02em',
+                  letterSpacing: '-0.01em',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis'
                 }}>
                   Sales Analytics Dashboard
                 </h1>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '10px', 
-                  marginTop: '4px', 
-                  flexWrap: 'wrap',
-                  overflow: 'hidden',
-                  minWidth: 0
-                }}>
-                  {/* Date Range Badge */}
-                  {fromDate && toDate && (
-                    <div style={{
-                      display: 'inline-flex',
-                      background: 'rgba(255, 255, 255, 0.2)',
-                      backdropFilter: 'blur(10px)',
-                      color: '#ffffff',
-                      padding: '4px 12px',
-                      borderRadius: '16px',
-                      fontSize: '11px',
-                      fontWeight: '600',
-                      alignItems: 'center',
-                      gap: '6px',
-                      border: '1px solid rgba(255, 255, 255, 0.3)',
-                      whiteSpace: 'nowrap',
-                      flexShrink: 0
-                    }}>
-                      <span className="material-icons" style={{ fontSize: '14px' }}>calendar_month</span>
-                      <span>
-                        {new Date(fromDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} → {new Date(toDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </span>
-                    </div>
-                  )}
-                  {/* Records Available Badge - Inline */}
-                  <div style={{
-                    display: 'inline-flex',
-                    background: 'rgba(255, 255, 255, 0.2)',
-                    backdropFilter: 'blur(10px)',
-                    color: '#ffffff',
-                    padding: '4px 12px',
-                    borderRadius: '16px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    alignItems: 'center',
-                    gap: '6px',
-                    border: '1px solid rgba(255, 255, 255, 0.3)',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0
-                  }}>
-                    <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
-                    {filteredSales.length} records
-                  </div>
-                </div>
               </div>
             </div>
 
             {/* Desktop: Buttons */}
             {/* Create Custom Card Button - Desktop */}
-            <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            <div style={{ 
+              flex: windowWidth <= 1100 ? '0 0 auto' : '0 1 auto', 
+              display: 'flex', 
+              alignItems: 'center', 
+              flexShrink: windowWidth <= 1100 ? 0 : 1, 
+              gap: '8px',
+              width: windowWidth <= 1100 ? '100%' : 'auto',
+              flexWrap: windowWidth <= 900 ? 'wrap' : 'nowrap'
+            }}>
                 <button
                   onClick={(e) => {
                     e.preventDefault();
@@ -6853,57 +8837,52 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   disabled={sales.length === 0}
                   style={{
                     background: sales.length === 0 
-                      ? 'rgba(255, 255, 255, 0.3)' 
-                      : '#ffffff',
-                    color: sales.length === 0 ? '#ffffff' : '#1e293b',
+                      ? '#e5e7eb' 
+                      : '#22c55e',
+                    color: sales.length === 0 ? '#9ca3af' : '#fff',
                     border: 'none',
-                    borderRadius: '10px',
-                    padding: '10px 20px',
+                    borderRadius: '8px',
+                    padding: '6px 14px',
                     cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '14px',
+                    gap: '6px',
+                    fontSize: '13px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    whiteSpace: 'nowrap'
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    whiteSpace: 'nowrap',
+                    height: '32px',
+                    boxShadow: sales.length === 0 ? 'none' : '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)'
                   }}
                   onMouseEnter={(e) => {
                     if (sales.length > 0) {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.9)';
+                      e.currentTarget.style.background = '#16a34a';
+                      e.currentTarget.style.boxShadow = '0 4px 6px rgba(34, 197, 94, 0.25), 0 8px 12px rgba(34, 197, 94, 0.15)';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (sales.length > 0) {
-                      e.currentTarget.style.background = '#ffffff';
+                      e.currentTarget.style.background = '#22c55e';
+                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)';
+                      e.currentTarget.style.transform = 'translateY(0)';
                     }
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '20px' }}>add_chart</span>
-                  Create Custom Card
+                  <span className="material-icons" style={{ fontSize: '16px' }}>add_chart</span>
+                  <span>Create Custom Card</span>
                 </button>
-              </div>
 
-              {/* Center: Calendar Button - Desktop */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                flex: '0 1 auto',
-                justifyContent: 'center',
-                flexWrap: 'wrap',
-                minWidth: '140px',
-                flexShrink: 1
-              }}>
+              {/* Calendar Button - Desktop */}
                 <button
                   type="button"
                   onClick={handleOpenCalendar}
                   title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
                   style={{
-                    background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                    background: '#7c3aed',
                     border: 'none',
-                    borderRadius: '10px',
-                    padding: '9px 18px',
+                    borderRadius: '8px',
+                    padding: '6px 14px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -6911,28 +8890,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     color: '#fff',
                     fontSize: '13px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 3px 8px rgba(124, 58, 237, 0.3)',
-                    minWidth: '140px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     justifyContent: 'center',
-                    height: '40px',
-                    whiteSpace: 'nowrap'
+                    height: '32px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '140px',
+                    maxWidth: isMobile ? '100%' : '220px',
+                    boxShadow: '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)'
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
-                    e.target.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)';
+                    e.target.style.background = '#6d28d9';
+                    e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25), 0 8px 12px rgba(124, 58, 237, 0.15)';
                     e.target.style.transform = 'translateY(-1px)';
                   }}
                   onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
-                    e.target.style.boxShadow = '0 3px 8px rgba(124, 58, 237, 0.3)';
+                    e.target.style.background = '#7c3aed';
+                    e.target.style.boxShadow = '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)';
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>calendar_month</span>
-                  <span>
-                    {fromDate && toDate ? 'Date Range' : 'Select Dates'}
-                  </span>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromDate && toDate ? formatDateRangeForHeader(fromDate, toDate) : 'Date Range'}</span>
                 </button>
               </div>
 
@@ -6940,16 +8918,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px',
+                gap: '8px',
                 flex: '0 0 auto',
-                padding: '6px 12px',
-                background: '#ffffff',
-                borderRadius: '8px',
                 whiteSpace: 'nowrap',
-                flexShrink: 0,
-                position: 'relative',
-                overflow: 'hidden'
+                flexShrink: 0
               }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '6px',
+                  padding: '6px 10px',
+                  background: 'white',
+                  borderRadius: '8px',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 8px rgba(0, 0, 0, 0.03)',
+                  border: '1px solid rgba(0, 0, 0, 0.05)',
+                  height: '32px',
+                  minWidth: '200px',
+                  maxWidth: isMobile ? '100%' : '320px'
+                }}>
                 {/* Progress Bar Background */}
                 {isDownloadingCache && (() => {
                   const current = cacheDownloadProgress.current || 0;
@@ -6981,22 +8970,23 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '4px',
                   position: 'relative',
                   zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#1e293b' }}>schedule</span>
+                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#9ca3af' }}>schedule</span>
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '1px',
                     minWidth: 0
                   }}>
                     <span style={{
-                      fontSize: '12px',
-                      color: isDownloadingCache ? '#059669' : '#1e293b',
+                      fontSize: '11px',
+                      color: isDownloadingCache ? '#059669' : '#374151',
                       whiteSpace: 'nowrap',
-                      fontWeight: isDownloadingCache ? '600' : '400'
+                      fontWeight: isDownloadingCache ? '600' : '400',
+                      lineHeight: '1.2'
                     }}>
                       {isDownloadingCache ? (
                         (() => {
@@ -7048,10 +9038,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       if (hasTotal) {
                         return (
                           <span style={{
-                            fontSize: '10px',
+                            fontSize: '9px',
                             color: '#059669',
                             opacity: 0.8,
-                            whiteSpace: 'nowrap'
+                            whiteSpace: 'nowrap',
+                            lineHeight: '1.1',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            minWidth: 0,
+                            display: 'block'
                           }}>
                             {current} / {total} chunks
                           </span>
@@ -7068,34 +9063,35 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: loading || !fromDate || !toDate || isDownloadingCache
                       ? '#e5e7eb'
-                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                      : '#3b82f6',
                     border: 'none',
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     padding: '6px 12px',
                     cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
                     color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: loading || !fromDate || !toDate || isDownloadingCache
-                      ? 'none'
-                      : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     position: 'relative',
-                    zIndex: 1
+                    zIndex: 1,
+                    height: '32px',
+                    boxShadow: (loading || !fromDate || !toDate || isDownloadingCache) ? 'none' : '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)'
                   }}
                   onMouseEnter={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                      e.target.style.background = '#2563eb';
+                      e.target.style.boxShadow = '0 4px 6px rgba(59, 130, 246, 0.25), 0 8px 12px rgba(59, 130, 246, 0.15)';
+                      e.target.style.transform = 'translateY(-1px)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                      e.target.style.background = '#3b82f6';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)';
+                      e.target.style.transform = 'translateY(0)';
                     }
                   }}
                 >
@@ -7103,12 +9099,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     fontSize: '16px',
                     animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
                   }}>
-                    {downloadStatus === 'none' ? 'download' : downloadStatus === 'interrupted' ? 'play_arrow' : 'refresh'}
+                    refresh
                   </span>
-                  <span>
-                    {downloadStatus === 'none' ? 'Download' : downloadStatus === 'interrupted' ? 'Continue Download' : 'Refresh'}
-                  </span>
+                  <span>Refresh</span>
                 </button>
+                </div>
               </div>
 
               {/* Right: Download Dropdown - Desktop */}
@@ -7118,7 +9113,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 alignItems: 'center',
                 flex: '0 0 auto',
                 justifyContent: 'flex-end',
-                minWidth: '120px',
+                minWidth: '100px',
                 position: 'relative',
                 flexShrink: 0
               }} ref={downloadDropdownRef}>
@@ -7127,10 +9122,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   title="Export"
                   onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
                   style={{
-                    background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                    background: '#10b981',
                     border: 'none',
                     borderRadius: '8px',
-                    padding: '8px 16px',
+                    padding: '6px 12px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -7138,26 +9133,65 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     color: '#fff',
                     fontSize: '13px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
-                    height: '40px'
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    height: '32px',
+                    boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)'
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)';
-                    e.target.style.boxShadow = '0 3px 10px rgba(5, 150, 105, 0.35)';
+                    e.target.style.background = '#059669';
+                    e.target.style.boxShadow = '0 4px 6px rgba(16, 185, 129, 0.25), 0 8px 12px rgba(16, 185, 129, 0.15)';
                     e.target.style.transform = 'translateY(-1px)';
                   }}
                   onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                    e.target.style.boxShadow = '0 2px 6px rgba(5, 150, 105, 0.25)';
+                    e.target.style.background = '#10b981';
+                    e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)';
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>download</span>
                   <span>Export</span>
-                  <span className="material-icons" style={{ fontSize: '18px' }}>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>
                     {showDownloadDropdown ? 'expand_less' : 'expand_more'}
                   </span>
+                </button>
+                
+                {/* Settings Icon Button - Desktop */}
+                <button
+                  type="button"
+                  title="Settings"
+                  onClick={() => {
+                    setShowSettingsModal(true);
+                  }}
+                  style={{
+                    background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '6px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#fff',
+                    fontSize: '16px',
+                    fontWeight: '600',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    boxShadow: '0 2px 4px rgba(99, 102, 241, 0.2), 0 4px 8px rgba(99, 102, 241, 0.1)',
+                    flexShrink: 0,
+                    width: '32px',
+                    height: '32px'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)';
+                    e.target.style.boxShadow = '0 4px 6px rgba(99, 102, 241, 0.25), 0 8px 12px rgba(99, 102, 241, 0.15)';
+                    e.target.style.transform = 'translateY(-1px)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.background = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
+                    e.target.style.boxShadow = '0 2px 4px rgba(99, 102, 241, 0.2), 0 4px 8px rgba(99, 102, 241, 0.1)';
+                    e.target.style.transform = 'translateY(0)';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: '16px' }}>settings</span>
                 </button>
                 
                 {/* Download Dropdown Menu - Desktop */}
@@ -7274,7 +9308,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               </div>
           </div>
         )}
-          </div>
+        </div>
 
         {/* Progress Bar - Removed: Sales dashboard uses cache-only mode, no server fetching notifications */}
 
@@ -7613,6 +9647,48 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </div>
               )}
 
+              {(dateRange.start !== '' && dateRange.end !== '' && dateRange.start === dateRange.end) && (
+                <div style={{
+                  background: '#fce7f3',
+                  border: '1px solid #f9a8d4',
+                  borderRadius: '16px',
+                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
+                  fontSize: isMobile ? '11px' : '12px',
+                  color: '#9d174d',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>event</span>
+                  {isMobile ? 'Date' : 'Date:'} {formatDateForDisplay(dateRange.start)}
+                  <button
+                    onClick={() => setDateRange({ start: '', end: '' })}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#9d174d',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#f9a8d4';
+                      e.target.style.color = '#9d174d';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'none';
+                      e.target.style.color = '#9d174d';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
+                  </button>
+                </div>
+              )}
+
               {selectedSalesperson && (
                 <div style={{
                   background: '#fff7ed',
@@ -7766,131 +9842,611 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           )}
 
         {/* Dashboard Content */}
-          {/* KPI Cards Row - All in one row */}
+        <div style={{ padding: isMobile ? '12px 16px' : '24px 28px 28px 28px' }}>
+          {/* KPI Cards */}
           <div style={{
-            display: 'flex',
-            flexDirection: isMobile ? 'column' : 'row',
-            flexWrap: isMobile ? 'nowrap' : 'wrap',
-            gap: isMobile ? '12px' : '12px',
-            marginBottom: isMobile ? '16px' : '24px',
-            overflowX: isMobile ? 'visible' : 'auto',
-            overflowY: 'visible'
+            display: 'grid',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(7, minmax(0, 1fr))',
+            gap: isMobile ? '12px' : '16px',
+            marginBottom: isMobile ? '16px' : '28px'
           }}>
-            <KPICard
-              title="Total Revenue"
-              value={totalRevenue}
-              period={kpiPeriodLabel}
-              trendData={kpiTrendData.revenue}
-              format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-              isMobile={isMobile}
-              iconName="account_balance_wallet"
-              iconBgColor="#dbeafe"
-              iconColor="#3b82f6"
-            />
-            <KPICard
-              title="Total Invoices"
-              value={totalOrders}
-              period={kpiPeriodLabel}
-              trendData={kpiTrendData.orders}
-              format={(val) => val.toLocaleString()}
-              isMobile={isMobile}
-              iconName="shopping_cart"
-              iconBgColor="#dcfce7"
-              iconColor="#16a34a"
-            />
-            <KPICard
-              title="Unique Customers"
-              value={uniqueCustomers}
-              period={kpiPeriodLabel}
-              trendData={kpiTrendData.customers}
-              format={(val) => val.toLocaleString()}
-              isMobile={isMobile}
-              iconName="people"
-              iconBgColor="#e9d5ff"
-              iconColor="#9333ea"
-            />
-            <KPICard
-              title="Avg Invoice Value"
-              value={avgOrderValue}
-              period={kpiPeriodLabel}
-              trendData={kpiTrendData.avgInvoiceValue}
-              format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-              isMobile={isMobile}
-              iconName="trending_up"
-              iconBgColor="#dcfce7"
-              iconColor="#16a34a"
-            />
-            {canShowProfit && (
-              <>
-                <KPICard
-                  title="Total Profit"
-                  value={totalProfit}
-                  period={kpiPeriodLabel}
-                  trendData={kpiTrendData.profit}
-                  format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  status={totalProfit >= 0 ? 'met' : 'below'}
-                  isMobile={isMobile}
-                  iconName="trending_up"
-                  iconBgColor="#dcfce7"
-                  iconColor="#16a34a"
-                />
-                <KPICard
-                  title="Profit Margin"
-                  value={profitMargin}
-                  period={kpiPeriodLabel}
-                  trendData={kpiTrendData.profitMargin}
-                  format={(val) => `${val >= 0 ? '+' : ''}${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  unit="%"
-                  status={profitMargin >= 0 ? 'met' : 'below'}
-                  isMobile={isMobile}
-                  iconName="percent"
-                  iconBgColor="#dcfce7"
-                  iconColor="#16a34a"
-                />
-                <KPICard
-                  title="Avg Profit per Order"
-                  value={avgProfitPerOrder}
-                  period={kpiPeriodLabel}
-                  trendData={kpiTrendData.avgProfitPerOrder}
-                  format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  status={avgProfitPerOrder >= 0 ? 'met' : 'below'}
-                  isMobile={isMobile}
-                  iconName="trending_up"
-                  iconBgColor="#dcfce7"
-                  iconColor="#16a34a"
-                />
-              </>
+            {isCardVisible('Total Revenue') && (
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column'
+              }}>
+                {/* Background Area Chart */}
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
+                }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={revenueTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#10b981" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#revenueGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Total Revenue')}
+                    style={{ 
+                      margin: '0 0 6px 0', 
+                      fontSize: isMobile ? '9px' : '10px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.2',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    TOTAL REVENUE
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                    {formatCurrency(totalRevenue)}
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: '#dbeafe',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#3b82f6' }}>account_balance_wallet</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {isCardVisible('Total Invoices') && (
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column'
+              }}>
+                {/* Background Area Chart */}
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
+                }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={invoiceTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="invoiceGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#invoiceGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '9px' : '10px', fontWeight: '600', color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
+                    TOTAL INVOICES
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                    {totalOrders}
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: '#dcfce7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>shopping_cart</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {isCardVisible('Unique Customers') && (
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column'
+              }}>
+                {/* Background Area Chart */}
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
+                }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={customerTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="customerGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#customerGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Unique Customers')}
+                    style={{ 
+                      margin: '0 0 6px 0', 
+                      fontSize: isMobile ? '9px' : '10px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.2',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    UNIQUE CUSTOMERS
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                    {uniqueCustomers}
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: '#e9d5ff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#7c3aed' }}>people</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {isCardVisible('Avg Invoice Value') && (
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                minWidth: '0'
+              }}>
+                {/* Background Area Chart */}
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
+                }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={avgInvoiceTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="avgInvoiceGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#avgInvoiceGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Avg Invoice Value')}
+                    style={{ 
+                      margin: '0 0 6px 0', 
+                      fontSize: isMobile ? '9px' : '10px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.2',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    AVG INVOICE VALUE
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                    {formatCurrency(avgOrderValue)}
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: '#dcfce7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>trending_up</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {canShowProfit && isCardVisible('Total Profit') && (
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                minWidth: '0'
+              }}>
+                {/* Background Area Chart */}
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
+                }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={profitTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="profitGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#10b981" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#profitGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Total Profit')}
+                    style={{ 
+                      margin: '0 0 6px 0', 
+                      fontSize: isMobile ? '9px' : '10px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.2',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    TOTAL PROFIT
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                    {formatCurrency(totalProfit)}
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: '#dcfce7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>trending_up</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {canShowProfit && isCardVisible('Profit Margin') && (
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                minWidth: '0'
+              }}>
+                {/* Background Area Chart */}
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '60%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
+                }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={profitMarginTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="profitMarginGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#ec4899" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#ec4899" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#profitMarginGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Profit Margin')}
+                    style={{ 
+                      margin: '0 0 8px 0', 
+                      fontSize: isMobile ? '11px' : '12px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.3',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    PROFIT MARGIN
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                    {profitMargin >= 0 ? '+' : ''}{formatNumber(profitMargin, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '40px' : '48px',
+                    height: isMobile ? '40px' : '48px',
+                    borderRadius: '8px',
+                    background: '#dcfce7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: 'auto',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>percent</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {canShowProfit && isCardVisible('Avg Profit per Order') && (
+              <div style={{
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                minWidth: '0'
+              }}>
+                {/* Background Area Chart */}
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '60%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
+                }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={avgProfitTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="avgProfitGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#06b6d4" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#avgProfitGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Avg Profit per Order')}
+                    style={{ 
+                      margin: '0 0 8px 0', 
+                      fontSize: isMobile ? '11px' : '12px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.3',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    AVG PROFIT PER ORDER
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                    {formatCurrency(avgProfitPerOrder)}
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '40px' : '48px',
+                    height: isMobile ? '40px' : '48px',
+                    borderRadius: '8px',
+                    background: '#dcfce7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: 'auto',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>trending_up</span>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
 
-          {/* Main Content: Charts */}
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
-          }}>
-
-          {/* Charts Section */}
-          {/* Row 1: Sales by Ledger Group and Salesperson Totals */}
+          {/* Charts Section - All charts in a continuous grid */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)',
             gap: isMobile ? '16px' : '24px',
             marginBottom: isMobile ? '16px' : '24px'
           }}>
             {/* Ledger Group Chart */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              maxHeight: isMobile ? '400px' : '550px',
-              overflow: 'hidden'
-            }}>
+            {isCardVisible('Sales by Ledger Group') && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: isMobile ? '400px' : '550px',
+                minHeight: isMobile ? '350px' : '500px',
+                overflow: 'hidden'
+              }}>
               {ledgerGroupChartType === 'bar' && (
                 <BarChart
                   data={ledgerGroupChartData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -7908,7 +10464,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Sales by Ledger Group')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                     Sales by Ledger Group
                 </h3>
                 {renderCardFilterBadges('ledgerGroup')}
@@ -7948,6 +10517,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 {ledgerGroupChartType === 'pie' && (
                   <PieChart
                     data={ledgerGroupChartData}
+                    formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -8059,6 +10629,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 {ledgerGroupChartType === 'line' && (
                   <LineChart
                     data={ledgerGroupChartData}
+                    formatValue={formatChartValue}
+                    formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -8110,15 +10682,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     }}
                   />
                 )}
-            </div>
+              </div>
+            )}
 
             {/* Salesperson Totals */}
-            <div style={{
+            {isCardVisible('Salesperson Totals') && (
+              <div style={{
               display: 'flex',
               flexDirection: 'column',
               height: isMobile ? '400px' : '550px',
               minHeight: isMobile ? '350px' : '500px',
-              maxHeight: isMobile ? '400px' : '550px',
               overflow: 'hidden'
             }}>
               <div style={{
@@ -8127,7 +10700,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 padding: '12px 16px',
                 border: '1px solid #e2e8f0',
                 boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                height: '100%',
+                flex: 1,
                 display: 'flex',
                 flexDirection: 'column',
                 overflow: 'hidden'
@@ -8152,7 +10725,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     >
                       <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                     </button>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                    <h3 
+                      onClick={() => openFullscreenCard('chart', 'Salesperson Totals')}
+                      style={{ 
+                        margin: 0, 
+                        fontSize: '16px', 
+                        fontWeight: '600', 
+                        color: '#1e293b',
+                        cursor: 'pointer',
+                        transition: 'color 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                      title="Click to open in fullscreen"
+                    >
                       Salesperson Totals
                     </h3>
                     {renderCardFilterBadges('salesperson')}
@@ -8390,26 +10976,21 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </div>
               </div>
             </div>
-          </div>
+            )}
 
-          {/* Row 2: Sales by State and Sales by Country */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
-          }}>
             {/* Region Chart */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
+            {isCardVisible('Sales by State') && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: isMobile ? '400px' : '550px',
+                minHeight: isMobile ? '350px' : '500px',
+                overflow: 'hidden'
+              }}>
               {regionChartType === 'bar' && (
                 <BarChart
                   data={regionChartData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -8427,7 +11008,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Sales by State')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                     Sales by State
                 </h3>
                   {renderCardFilterBadges('region')}
@@ -8448,6 +11042,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   <option value="pie">Pie</option>
                   <option value="treemap">Tree Map</option>
                   <option value="line">Line</option>
+                  <option value="geoMap">Geographic Map</option>
                 </select>
               </div>
                   }
@@ -8468,6 +11063,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {regionChartType === 'pie' && (
                 <PieChart
                   data={regionChartData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -8506,6 +11102,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <option value="pie">Pie</option>
                         <option value="treemap">Tree Map</option>
                         <option value="line">Line</option>
+                        <option value="geoMap">Geographic Map</option>
                       </select>
                     </div>
                   }
@@ -8564,6 +11161,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <option value="pie">Pie</option>
                         <option value="treemap">Tree Map</option>
                         <option value="line">Line</option>
+                        <option value="geoMap">Geographic Map</option>
                       </select>
                     </div>
                   }
@@ -8584,6 +11182,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {regionChartType === 'line' && (
                 <LineChart
                   data={regionChartData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -8622,6 +11222,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <option value="pie">Pie</option>
                         <option value="treemap">Tree Map</option>
                         <option value="line">Line</option>
+                        <option value="geoMap">Geographic Map</option>
                       </select>
                     </div>
                   }
@@ -8639,19 +11240,94 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 />
               )}
-            </div>
+              {regionChartType === 'geoMap' && (
+                <GeoMapChart
+                  data={regionChartData.map(item => ({
+                    name: item.label,
+                    value: item.value
+                  }))}
+                  mapType="state"
+                  chartSubType={regionMapSubType}
+                  isMobile={isMobile}
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('region')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by State
+                        </h3>
+                        {renderCardFilterBadges('region')}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <select
+                          value={regionMapSubType}
+                          onChange={(e) => setRegionMapSubType(e.target.value)}
+                          style={{
+                            padding: '6px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            background: 'white',
+                            color: '#374151'
+                          }}
+                        >
+                          <option value="choropleth">Choropleth Map</option>
+                        </select>
+                        <select
+                          value={regionChartType}
+                          onChange={(e) => setRegionChartType(e.target.value)}
+                          style={{
+                            padding: '6px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            background: 'white',
+                            color: '#374151'
+                          }}
+                        >
+                          <option value="bar">Bar</option>
+                          <option value="pie">Pie</option>
+                          <option value="treemap">Tree Map</option>
+                          <option value="line">Line</option>
+                          <option value="geoMap">Geographic Map</option>
+                        </select>
+                      </div>
+                    </div>
+                  }
+                  onRegionClick={(region) => setSelectedRegion(region)}
+                  onBackClick={() => setSelectedRegion('all')}
+                  showBackButton={selectedRegion !== 'all'}
+                />
+              )}
+              </div>
+            )}
 
             {/* Country Chart */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
+            {isCardVisible('Sales by Country') && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: isMobile ? '400px' : '550px',
+                minHeight: isMobile ? '350px' : '500px',
+                overflow: 'hidden'
+              }}>
               {countryChartType === 'bar' && (
                 <BarChart
                   data={countryChartData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -8669,7 +11345,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Sales by Country')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                     Sales by Country
                 </h3>
                   {renderCardFilterBadges('country')}
@@ -8690,6 +11379,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   <option value="pie">Pie</option>
                   <option value="treemap">Tree Map</option>
                   <option value="line">Line</option>
+                  <option value="geoMap">Geographic Map</option>
                 </select>
               </div>
                   }
@@ -8714,6 +11404,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {countryChartType === 'pie' && (
                 <PieChart
                   data={countryChartData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -8752,6 +11443,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <option value="pie">Pie</option>
                         <option value="treemap">Tree Map</option>
                         <option value="line">Line</option>
+                        <option value="geoMap">Geographic Map</option>
                       </select>
                     </div>
                   }
@@ -8814,6 +11506,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <option value="pie">Pie</option>
                         <option value="treemap">Tree Map</option>
                         <option value="line">Line</option>
+                        <option value="geoMap">Geographic Map</option>
                       </select>
                     </div>
                   }
@@ -8838,6 +11531,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {countryChartType === 'line' && (
                 <LineChart
                   data={countryChartData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -8876,6 +11571,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <option value="pie">Pie</option>
                         <option value="treemap">Tree Map</option>
                         <option value="line">Line</option>
+                        <option value="geoMap">Geographic Map</option>
                       </select>
                     </div>
                   }
@@ -8897,27 +11593,94 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 />
               )}
-            </div>
-          </div>
+              {countryChartType === 'geoMap' && (
+                <GeoMapChart
+                  data={countryChartData.map(item => ({
+                    name: item.label,
+                    value: item.value
+                  }))}
+                  mapType="country"
+                  chartSubType={countryMapSubType}
+                  isMobile={isMobile}
+                  customHeader={
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          onClick={() => openRawData('country')}
+                          style={rawDataIconButtonStyle}
+                          onMouseEnter={handleRawDataButtonMouseEnter}
+                          onMouseLeave={handleRawDataButtonMouseLeave}
+                          title="View raw data"
+                        >
+                          <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                        </button>
+                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                          Sales by Country
+                        </h3>
+                        {renderCardFilterBadges('country')}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <select
+                          value={countryMapSubType}
+                          onChange={(e) => setCountryMapSubType(e.target.value)}
+                          style={{
+                            padding: '6px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            background: 'white',
+                            color: '#374151'
+                          }}
+                        >
+                          <option value="choropleth">Choropleth Map</option>
+                        </select>
+                        <select
+                          value={countryChartType}
+                          onChange={(e) => setCountryChartType(e.target.value)}
+                          style={{
+                            padding: '6px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            background: 'white',
+                            color: '#374151'
+                          }}
+                        >
+                          <option value="bar">Bar</option>
+                          <option value="pie">Pie</option>
+                          <option value="treemap">Tree Map</option>
+                          <option value="line">Line</option>
+                          <option value="geoMap">Geographic Map</option>
+                        </select>
+                      </div>
+                    </div>
+                  }
+                  onRegionClick={(country) => setSelectedCountry(country)}
+                  onBackClick={() => setSelectedCountry('all')}
+                  showBackButton={selectedCountry !== 'all'}
+                />
+              )}
+              </div>
+            )}
 
-          {/* Row 3: Period Chart and Top Customers */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
-          }}>
             {/* Period Chart */}
-            <div style={{ 
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
+            {isCardVisible('Sales by Period') && (
+              <div style={{ 
+                display: 'flex',
+                flexDirection: 'column',
+                height: isMobile ? '400px' : '550px',
+                minHeight: isMobile ? '350px' : '500px',
+                overflow: 'hidden'
+              }}>
               {periodChartType === 'bar' && (
                 <BarChart
                   data={periodChartData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -8988,6 +11751,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {periodChartType === 'pie' && (
                 <PieChart
                   data={periodChartData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -9126,6 +11890,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {periodChartType === 'line' && (
                 <LineChart
                   data={periodChartData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -9192,19 +11958,22 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                    }}
                 />
               )}
-            </div>
+              </div>
+            )}
 
             {/* Top Customers */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
+            {isCardVisible('Top Customers Chart') && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: isMobile ? '400px' : '550px',
+                minHeight: isMobile ? '350px' : '500px',
+                overflow: 'hidden'
+              }}>
               {topCustomersChartType === 'bar' && (
                 <BarChart
                   data={topCustomersData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -9222,7 +11991,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Top Customers Chart')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                   Top Customers Chart
                 </h3>
                   {renderCardFilterBadges('topCustomers')}
@@ -9301,6 +12083,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topCustomersChartType === 'pie' && (
                 <PieChart
                   data={topCustomersData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -9493,6 +12276,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topCustomersChartType === 'line' && (
                 <LineChart
                   data={topCustomersData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -9586,26 +12371,21 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 />
               )}
-            </div>
-          </div>
+              </div>
+            )}
 
-          {/* Row 4: Top Items by Revenue and Top Items by Quantity */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
-          }}>
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
+            {isCardVisible('Top Items by Revenue Chart') && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: isMobile ? '400px' : '550px',
+                minHeight: isMobile ? '350px' : '500px',
+                overflow: 'hidden'
+              }}>
               {topItemsByRevenueChartType === 'bar' && (
                 <BarChart
                   data={topItemsByRevenueData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -9623,7 +12403,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Top Items by Revenue Chart')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                   Top Items by Revenue Chart
                 </h3>
                   {renderCardFilterBadges('topItems')}
@@ -9702,6 +12495,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topItemsByRevenueChartType === 'pie' && (
                 <PieChart
                   data={topItemsByRevenueData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -9894,6 +12688,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topItemsByRevenueChartType === 'line' && (
                 <LineChart
                   data={topItemsByRevenueData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -9987,17 +12783,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 />
               )}
-            </div>
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
+              </div>
+            )}
+            {isCardVisible('Top Items by Quantity Chart') && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: isMobile ? '400px' : '550px',
+                minHeight: isMobile ? '350px' : '500px',
+                overflow: 'hidden'
+              }}>
               {topItemsByQuantityChartType === 'bar' && (
                 <BarChart
                   data={topItemsByQuantityData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -10015,7 +12814,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Top Items by Quantity Chart')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                   Top Items by Quantity Chart
                 </h3>
                   {renderCardFilterBadges('topItems')}
@@ -10095,6 +12907,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topItemsByQuantityChartType === 'pie' && (
                 <PieChart
                   data={topItemsByQuantityData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -10289,6 +13102,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topItemsByQuantityChartType === 'line' && (
                 <LineChart
                   data={topItemsByQuantityData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -10383,26 +13198,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 />
               )}
-            </div>
+              </div>
+            )}
           </div>
 
-          {/* Row 5: Revenue vs Profit (Monthly) and Month-wise Profit */}
+          {/* Profit-related Charts Section */}
           {canShowProfit && (
             <div style={{
               display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-              gap: '24px',
-              marginBottom: '24px'
+              gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)',
+              gap: isMobile ? '16px' : '24px',
+              marginBottom: isMobile ? '16px' : '24px'
             }}>
               {/* Revenue vs Profit Chart */}
-              <div style={{ 
-                display: 'flex',
-                flexDirection: 'column',
-                height: isMobile ? '400px' : '550px',
-                minHeight: isMobile ? '350px' : '500px',
-                overflowY: 'auto',
-                overflowX: 'hidden'
-              }}>
+              {isCardVisible('Revenue vs Profit') && (
+                <div style={{ 
+                  display: 'flex',
+                  flexDirection: 'column',
+                  height: '500px',
+                  overflowY: 'auto',
+                  overflowX: 'hidden'
+                }}>
                 {revenueVsProfitChartType === 'line' && (
                 <div style={{
                   background: 'white',
@@ -10429,7 +13245,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     >
                       <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                     </button>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                    <h3 
+                      onClick={() => openFullscreenCard('chart', 'Revenue vs Profit')}
+                      style={{ 
+                        margin: 0, 
+                        fontSize: '16px', 
+                        fontWeight: '600', 
+                        color: '#1e293b',
+                        cursor: 'pointer',
+                        transition: 'color 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                      title="Click to open in fullscreen"
+                    >
                       Revenue vs Profit (Monthly)
                     </h3>
                     {renderCardFilterBadges('period')}
@@ -10697,7 +13526,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <span style={{ fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>{item.label}</span>
                             <span style={{ fontSize: '12px', color: '#475569' }}>
-                              Revenue: ₹{item.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Profit: ₹{item.profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              Revenue: {formatCurrency(item.revenue)} | Profit: {formatCurrency(item.profit)}
                             </span>
                           </div>
                           <button
@@ -10715,20 +13544,22 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     </div>
                   </div>
                 )}
-              </div>
+                </div>
+              )}
 
               {/* Month-wise Profit Chart */}
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: isMobile ? '400px' : '550px',
-                minHeight: isMobile ? '350px' : '500px',
-                overflowY: 'auto',
+              {isCardVisible('Month-wise Profit') && (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  height: '500px',
+                  overflowY: 'auto',
                 overflowX: 'hidden'
               }}>
                 {monthWiseProfitChartType === 'bar' && (
                    <BarChart
                      data={monthWiseProfitChartData}
+                     formatValue={formatChartValue}
                      customHeader={
                 <div style={{
                   display: 'flex',
@@ -10799,6 +13630,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                  {monthWiseProfitChartType === 'pie' && (
                    <PieChart
                      data={monthWiseProfitChartData}
+                     formatValue={formatChartValue}
                      customHeader={
                        <div style={{
                          display: 'flex',
@@ -10816,7 +13648,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            >
                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                            </button>
-                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                           <h3 
+                             onClick={() => openFullscreenCard('chart', 'Month-wise Profit')}
+                             style={{ 
+                               margin: 0, 
+                               fontSize: '16px', 
+                               fontWeight: '600', 
+                               color: '#1e293b',
+                               cursor: 'pointer',
+                               transition: 'color 0.2s ease'
+                             }}
+                             onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                             onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                             title="Click to open in fullscreen"
+                           >
                              Month-wise Profit
                            </h3>
                            {renderCardFilterBadges('period')}
@@ -10886,7 +13731,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            >
                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                            </button>
-                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                           <h3 
+                             onClick={() => openFullscreenCard('chart', 'Month-wise Profit')}
+                             style={{ 
+                               margin: 0, 
+                               fontSize: '16px', 
+                               fontWeight: '600', 
+                               color: '#1e293b',
+                               cursor: 'pointer',
+                               transition: 'color 0.2s ease'
+                             }}
+                             onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                             onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                             title="Click to open in fullscreen"
+                           >
                              Month-wise Profit
                            </h3>
                            {renderCardFilterBadges('period')}
@@ -10939,6 +13797,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                  {monthWiseProfitChartType === 'line' && (
                    <LineChart
                      data={monthWiseProfitChartData}
+                     formatValue={formatChartValue}
+                     formatCompactValue={formatChartCompactValue}
                      customHeader={
                        <div style={{
                          display: 'flex',
@@ -10956,7 +13816,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            >
                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                            </button>
-                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                           <h3 
+                             onClick={() => openFullscreenCard('chart', 'Month-wise Profit')}
+                             style={{ 
+                               margin: 0, 
+                               fontSize: '16px', 
+                               fontWeight: '600', 
+                               color: '#1e293b',
+                               cursor: 'pointer',
+                               transition: 'color 0.2s ease'
+                             }}
+                             onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                             onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                             title="Click to open in fullscreen"
+                           >
                              Month-wise Profit
                            </h3>
                            {renderCardFilterBadges('period')}
@@ -11006,29 +13879,21 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                      }}
                    />
                  )}
-              </div>
-            </div>
-          )}
+                </div>
+              )}
 
-          {/* Row 6: Top 10 Profitable Items and Top 10 Loss Items */}
-          {canShowProfit && (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px'
-          }}>
             {/* Top 10 Profitable Items */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
+            {isCardVisible('Top Profitable Items') && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: '500px',
+                overflow: 'hidden'
+              }}>
               {topProfitableItemsChartType === 'bar' && (
                 <BarChart
                   data={topProfitableItemsData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -11046,7 +13911,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                  <h3 
+                    onClick={() => openFullscreenCard('chart', 'Top Profitable Items')}
+                    style={{ 
+                      margin: 0, 
+                      fontSize: '16px', 
+                      fontWeight: '600', 
+                      color: '#1e293b',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                    title="Click to open in fullscreen"
+                  >
                     Top 10 Profitable Items
                   </h3>
                   {renderCardFilterBadges('topItems')}
@@ -11088,6 +13966,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topProfitableItemsChartType === 'pie' && (
                 <PieChart
                   data={topProfitableItemsData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -11204,6 +14083,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topProfitableItemsChartType === 'line' && (
                 <LineChart
                   data={topProfitableItemsData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -11259,19 +14140,21 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 />
               )}
-            </div>
+              </div>
+            )}
 
             {/* Top 10 Loss Items */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
+            {isCardVisible('Top Loss Items') && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: '500px',
+                overflow: 'hidden'
+              }}>
               {topLossItemsChartType === 'bar' && (
                 <BarChart
                   data={topLossItemsData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -11289,7 +14172,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                  <h3 
+                    onClick={() => openFullscreenCard('chart', 'Top Loss Items')}
+                    style={{ 
+                      margin: 0, 
+                      fontSize: '16px', 
+                      fontWeight: '600', 
+                      color: '#1e293b',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                    title="Click to open in fullscreen"
+                  >
                     Top 10 Loss Items
                   </h3>
                   {renderCardFilterBadges('topItems')}
@@ -11331,6 +14227,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topLossItemsChartType === 'pie' && (
                 <PieChart
                   data={topLossItemsData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -11429,6 +14326,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topLossItemsChartType === 'line' && (
                 <LineChart
                   data={topLossItemsData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -11475,7 +14374,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   showBackButton={selectedItem !== 'all'}
                 />
               )}
-            </div>
+              </div>
+            )}
           </div>
           )}
 
@@ -11490,19 +14390,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             minWidth: 0
           }}>
             {/* Sales by Stock Group - Position 13 */}
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden',
-              width: '100%',
-              maxWidth: '100%',
-              minWidth: 0
-            }}>
+            {isCardVisible('Sales by Stock Group') && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                height: '500px',
+                overflow: 'hidden',
+                width: '100%',
+                maxWidth: '100%',
+                minWidth: 0
+              }}>
               {categoryChartType === 'bar' && (
                 <BarChart
                   data={categoryChartData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -11557,6 +14458,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 {categoryChartType === 'pie' && (
                   <PieChart
                     data={categoryChartData}
+                    formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -11663,6 +14565,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 {categoryChartType === 'line' && (
                   <LineChart
                     data={categoryChartData}
+                    formatValue={formatChartValue}
+                    formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -11713,53 +14617,66 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     }}
                   />
                 )}
-    </div>
-
-            {/* First Custom Card - Position 14 */}
-            {customCards.length > 0 && (
-              <div 
-                ref={customCards.length === 1 ? customCardsSectionRef : null}
-                style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
-              >
-                <CustomCard
-                  key={customCards[0].id}
-                  card={customCards[0]}
-                  salesData={filteredSales}
-                  generateCustomCardData={generateCustomCardData}
-                  chartType={customCardChartTypes[customCards[0].id] || customCards[0].chartType || 'bar'}
-                  onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [customCards[0].id]: newType }))}
-                  onDelete={() => handleDeleteCustomCard(customCards[0].id)}
-                  onEdit={handleEditCustomCard}
-                  openTransactionRawData={openTransactionRawData}
-                  setSelectedCustomer={setSelectedCustomer}
-                  setSelectedItem={setSelectedItem}
-                  setSelectedStockGroup={setSelectedStockGroup}
-                  setSelectedRegion={setSelectedRegion}
-                  setSelectedCountry={setSelectedCountry}
-                  setSelectedPeriod={setSelectedPeriod}
-                  setSelectedLedgerGroup={setSelectedLedgerGroup}
-                  selectedCustomer={selectedCustomer}
-                  selectedItem={selectedItem}
-                  selectedStockGroup={selectedStockGroup}
-                  selectedRegion={selectedRegion}
-                  selectedCountry={selectedCountry}
-                  selectedPeriod={selectedPeriod}
-                  selectedLedgerGroup={selectedLedgerGroup}
-                  genericFilters={genericFilters}
-                  setGenericFilters={setGenericFilters}
-                  renderCardFilterBadges={renderCardFilterBadges}
-                  customCards={customCards}
-                  isMobile={isMobile}
-                  formatPeriodLabel={formatPeriodLabel}
-                />
               </div>
             )}
+
+            {/* First Custom Card - Position 14 */}
+            {customCards.filter(card => isCardVisible(card.title)).length > 0 && (() => {
+              const visibleCards = customCards.filter(card => isCardVisible(card.title));
+              return (
+                <div 
+                  ref={visibleCards.length === 1 ? customCardsSectionRef : null}
+                  style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
+                >
+                  <CustomCard
+                    key={visibleCards[0].id}
+                    card={visibleCards[0]}
+                    salesData={filteredSales}
+                    generateCustomCardData={generateCustomCardData}
+                    chartType={customCardChartTypes[visibleCards[0].id] || visibleCards[0].chartType || 'bar'}
+                    onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [visibleCards[0].id]: newType }))}
+                    onDelete={() => handleDeleteCustomCard(visibleCards[0].id)}
+                    onEdit={handleEditCustomCard}
+                    openTransactionRawData={openTransactionRawData}
+                    openFullscreenCard={openFullscreenCard}
+                    setSelectedCustomer={setSelectedCustomer}
+                    setSelectedItem={setSelectedItem}
+                    setSelectedStockGroup={setSelectedStockGroup}
+                    setSelectedRegion={setSelectedRegion}
+                    setSelectedCountry={setSelectedCountry}
+                    setSelectedPeriod={setSelectedPeriod}
+                    setSelectedLedgerGroup={setSelectedLedgerGroup}
+                    setDateRange={setDateRange}
+                    selectedCustomer={selectedCustomer}
+                    selectedItem={selectedItem}
+                    selectedStockGroup={selectedStockGroup}
+                    selectedRegion={selectedRegion}
+                    selectedCountry={selectedCountry}
+                    selectedPeriod={selectedPeriod}
+                    selectedLedgerGroup={selectedLedgerGroup}
+                    dateRange={dateRange}
+                    genericFilters={genericFilters}
+                    setGenericFilters={setGenericFilters}
+                    renderCardFilterBadges={renderCardFilterBadges}
+                    customCards={customCards}
+                    isMobile={isMobile}
+                    formatPeriodLabel={formatPeriodLabel}
+                    parseDateFromNewFormat={parseDateFromNewFormat}
+                    parseDateFromAPI={parseDateFromAPI}
+                    formatDateForDisplay={formatDateForDisplay}
+                    formatChartValue={formatChartValue}
+                    formatChartCompactValue={formatChartCompactValue}
+                  />
+                </div>
+              );
+            })()}
           </div>
 
           {/* Additional Custom Cards - Starting from Position 15, continuing sequentially */}
-          {customCards.length > 1 && (() => {
+          {customCards.filter(card => isCardVisible(card.title)).length > 1 && (() => {
             // Process remaining custom cards (starting from index 1) in pairs for 2-column grid layout
-            const remainingCards = customCards.slice(1);
+            const visibleCards = customCards.filter(card => isCardVisible(card.title));
+            const remainingCards = visibleCards.slice(1);
             const cardRows = [];
             for (let i = 0; i < remainingCards.length; i += 2) {
               const rowCards = remainingCards.slice(i, i + 2);
@@ -11797,6 +14714,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         onDelete={() => handleDeleteCustomCard(card.id)}
                         onEdit={handleEditCustomCard}
                         openTransactionRawData={openTransactionRawData}
+                        openFullscreenCard={openFullscreenCard}
                         setSelectedCustomer={setSelectedCustomer}
                         setSelectedItem={setSelectedItem}
                         setSelectedStockGroup={setSelectedStockGroup}
@@ -11804,6 +14722,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         setSelectedCountry={setSelectedCountry}
                         setSelectedPeriod={setSelectedPeriod}
                         setSelectedLedgerGroup={setSelectedLedgerGroup}
+                        setDateRange={setDateRange}
                         selectedCustomer={selectedCustomer}
                         selectedItem={selectedItem}
                         selectedStockGroup={selectedStockGroup}
@@ -11811,12 +14730,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         selectedCountry={selectedCountry}
                         selectedPeriod={selectedPeriod}
                         selectedLedgerGroup={selectedLedgerGroup}
+                        dateRange={dateRange}
                         genericFilters={genericFilters}
                         setGenericFilters={setGenericFilters}
                         renderCardFilterBadges={renderCardFilterBadges}
                         customCards={customCards}
                         isMobile={isMobile}
                         formatPeriodLabel={formatPeriodLabel}
+                        parseDateFromNewFormat={parseDateFromNewFormat}
+                        parseDateFromAPI={parseDateFromAPI}
+                        formatDateForDisplay={formatDateForDisplay}
+                        formatChartValue={formatChartValue}
+                        formatChartCompactValue={formatChartCompactValue}
                       />
                     </div>
                   ))}
@@ -11825,9 +14750,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             });
           })()}
           
-          </div>
-          {/* End of Main Content */}
-
+        </div>
         </form>
     </div>
 
@@ -11878,33 +14801,40 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 {totalRawRows} {totalRawRows === 1 ? 'record' : 'records'}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={closeRawData}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#64748b',
-                borderRadius: '50%',
-                padding: '4px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background 0.2s ease, color 0.2s ease'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#e2e8f0';
-                e.currentTarget.style.color = '#1e293b';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'transparent';
-                e.currentTarget.style.color = '#64748b';
-              }}
-              title="Close"
-            >
-              <span className="material-icons" style={{ fontSize: '22px' }}>close</span>
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: 'auto' }}>
+              {salespersonFormula ? (
+                <div style={{ fontSize: '12px', color: '#475569', whiteSpace: 'nowrap' }}>
+                  Salesperson formula: <span style={{ fontWeight: 600, color: '#1e293b' }}>{salespersonFormula}</span>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                onClick={closeRawData}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  color: '#64748b',
+                  borderRadius: '50%',
+                  padding: '4px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'background 0.2s ease, color 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e2e8f0';
+                  e.currentTarget.style.color = '#1e293b';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = '#64748b';
+                }}
+                title="Close"
+              >
+                <span className="material-icons" style={{ fontSize: '22px' }}>close</span>
+              </button>
+            </div>
           </div>
 
           <div
@@ -11980,6 +14910,176 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </button>
               )}
             </div>
+            {Object.keys(columnFilters).length > 0 && (
+              <button
+                type="button"
+                onClick={clearAllColumnFilters}
+                style={{
+                  background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '10px 16px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  color: '#fff',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  boxShadow: '0 2px 6px rgba(220, 38, 38, 0.2)',
+                  transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 2px 6px rgba(220, 38, 38, 0.2)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>filter_alt_off</span>
+                Clear All Filters ({Object.keys(columnFilters).length})
+              </button>
+            )}
+            <div style={{ position: 'relative' }} data-sort-dropdown>
+              <button
+                type="button"
+                onClick={() => setShowSortDropdown(!showSortDropdown)}
+                style={{
+                  background: rawDataSortBy ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '10px 16px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  color: '#fff',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  boxShadow: '0 2px 6px rgba(99, 102, 241, 0.2)',
+                  transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(99, 102, 241, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 2px 6px rgba(99, 102, 241, 0.2)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>sort</span>
+                Sort{rawDataSortBy ? `: ${rawDataSortBy === 'date' ? 'Date' : rawDataSortBy === 'quantity' ? 'Quantity' : 'Amount'} (${rawDataSortOrder === 'asc' ? '↑' : '↓'})` : ''}
+              </button>
+              {showSortDropdown && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: '4px',
+                    background: '#fff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+                    zIndex: 1000,
+                    minWidth: '200px',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <div style={{
+                    padding: '8px 12px',
+                    borderBottom: '1px solid #f1f5f9',
+                    backgroundColor: '#f8fafc',
+                    fontWeight: 600,
+                    fontSize: 12,
+                    color: '#374151'
+                  }}>
+                    Sort By
+                  </div>
+                  {['date', 'quantity', 'amount'].map((sortKey) => {
+                    const labels = { date: 'Date', quantity: 'Quantity', amount: 'Amount' };
+                    const isActive = rawDataSortBy === sortKey;
+                    return (
+                      <div
+                        key={sortKey}
+                        onClick={() => {
+                          if (isActive) {
+                            // Toggle sort order if same column clicked
+                            setRawDataSortOrder(rawDataSortOrder === 'asc' ? 'desc' : 'asc');
+                          } else {
+                            // Set new sort column and default to ascending
+                            setRawDataSortBy(sortKey);
+                            setRawDataSortOrder('asc');
+                          }
+                          setRawDataPage(1);
+                          setRawDataPageInput('1');
+                        }}
+                        style={{
+                          padding: '12px 16px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          backgroundColor: isActive ? '#eff6ff' : 'transparent',
+                          borderBottom: sortKey !== 'amount' ? '1px solid #f1f5f9' : 'none',
+                          transition: 'background-color 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isActive) {
+                            e.currentTarget.style.backgroundColor = '#f8fafc';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isActive) {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }
+                        }}
+                      >
+                        <span style={{ fontSize: 14, color: '#1e293b', fontWeight: isActive ? 600 : 400 }}>
+                          {labels[sortKey]}
+                        </span>
+                        {isActive && (
+                          <span className="material-icons" style={{ fontSize: 18, color: '#3b82f6' }}>
+                            {rawDataSortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward'}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {rawDataSortBy && (
+                    <div
+                      onClick={() => {
+                        setRawDataSortBy(null);
+                        setRawDataSortOrder('asc');
+                        setRawDataPage(1);
+                        setRawDataPageInput('1');
+                      }}
+                      style={{
+                        padding: '12px 16px',
+                        cursor: 'pointer',
+                        borderTop: '1px solid #e2e8f0',
+                        backgroundColor: '#fee2e2',
+                        fontSize: 14,
+                        color: '#b91c1c',
+                        fontWeight: 600,
+                        transition: 'background-color 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#fecaca';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#fee2e2';
+                      }}
+                    >
+                      Clear Sort
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={exportRawDataToCSV}
@@ -12020,24 +15120,45 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             ) : (
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
+                  {/* Column Labels Row */}
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                     {rawDataModal.columns.map((column) => (
                       <th
                         key={column.key}
                         style={{
-                          padding: '12px 16px',
+                          padding: '8px 16px 4px 16px',
                           textAlign: column.format ? 'right' : 'left',
-                          fontSize: '12px',
+                          fontSize: '11px',
                           color: '#64748b',
                           textTransform: 'uppercase',
                           letterSpacing: '0.05em',
                           fontWeight: 600,
                           position: 'sticky',
                           top: 0,
-                          background: '#f8fafc'
+                          background: '#f8fafc',
+                          zIndex: 2,
+                          whiteSpace: 'nowrap'
                         }}
                       >
                         {column.label}
+                      </th>
+                    ))}
+                  </tr>
+                  {/* Filter Inputs Row */}
+                  <tr style={{ background: '#f8fafc', borderBottom: '2px solid #cbd5e1' }}>
+                    {rawDataModal.columns.map((column) => (
+                      <th
+                        key={`filter-${column.key}`}
+                        style={{
+                          padding: '4px 16px 8px 16px',
+                          textAlign: 'left',
+                          position: 'sticky',
+                          top: '32px',
+                          background: '#f8fafc',
+                          zIndex: 2
+                        }}
+                      >
+                        {renderColumnFilter(column)}
                       </th>
                     ))}
                   </tr>
@@ -12267,6 +15388,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     {showVoucherDetails && (
       <VoucherDetailsModal
         masterId={selectedMasterId}
+        headerActions={salespersonFormula ? (
+          <div style={{ fontSize: '12px', color: '#ffffff', whiteSpace: 'nowrap', opacity: 0.95 }}>
+            Salesperson formula: <span style={{ fontWeight: 600, color: '#ffffff' }}>{salespersonFormula}</span>
+          </div>
+        ) : null}
         onClose={() => {
           setShowVoucherDetails(false);
           setSelectedMasterId(null);
@@ -12530,7 +15656,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           padding: '20px'
         }}
         onClick={(e) => {
-          if (e.target === e.currentTarget) {
+          // Don't close modal if clicking on calendar popover
+          const isCalendarClick = e.target.closest('.MuiPickersPopper-root') ||
+                                   e.target.closest('.MuiPickersCalendar-root') ||
+                                   e.target.closest('[role="dialog"]');
+          
+          if (e.target === e.currentTarget && !isCalendarClick) {
             handleCancelDates();
           }
         }}
@@ -12552,140 +15683,420 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               color: '#1e293b',
               margin: '0 0 6px 0'
             }}>
-              Select Date Range
+              Select Period
             </h2>
             <p style={{
               fontSize: '13px',
               color: '#64748b',
               margin: 0
             }}>
-              Choose the start and end dates for your sales data
+              Choose a period or select custom dates
             </p>
           </div>
 
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '13px',
-              fontWeight: '600',
-              color: '#475569',
-              marginBottom: '6px'
-            }}>
-              From Date
-            </label>
-            <input
-              type="text"
-              value={tempFromDateDisplay}
-              placeholder="1-Apr-25"
-              onChange={(e) => {
-                setTempFromDateDisplay(e.target.value);
-                // Try to parse and update internal format on the fly
-                const parsed = parseDateFromNewFormat(e.target.value);
-                if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
-                  setTempFromDate(parsed);
-                }
-              }}
-              onBlur={(e) => {
-                // Validate and format on blur
-                const value = e.target.value.trim();
-                if (value) {
-                  const parsed = parseDateFromNewFormat(value);
-                  if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
-                    setTempFromDate(parsed);
-                    setTempFromDateDisplay(formatDateForInput(parsed));
-                  } else {
-                    // Invalid format, try to keep what user typed but show error
-                    e.target.style.borderColor = '#ef4444';
-                  }
-                }
-                e.target.style.boxShadow = 'none';
-              }}
-              style={{
-                width: 'calc(100% - 4px)',
-                maxWidth: '100%',
-                padding: '8px 12px',
-                border: '2px solid #e2e8f0',
-                borderRadius: '8px',
-                fontSize: '13px',
-                color: '#1e293b',
-                outline: 'none',
-                transition: 'all 0.2s ease',
-                fontWeight: '500',
-                boxSizing: 'border-box'
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = '#7c3aed';
-                e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
-              }}
-            />
-            {booksFromDate && (
-              <p style={{
-                fontSize: '11px',
-                color: '#64748b',
-                marginTop: '4px',
-                marginBottom: 0
+          {/* Period Selection Options */}
+          {!selectedPeriodType && (
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: '10px',
+                marginBottom: '16px'
               }}>
-                Earliest available date: {formatDateForInput(booksFromDate)}
-              </p>
-            )}
-          </div>
+                {[
+                  { type: 'financial-year', label: 'Financial Yr Start till Date', icon: 'account_balance' },
+                  { type: 'quarter', label: 'Qtr Start till Date', icon: 'view_module' },
+                  { type: 'month', label: 'Month Start till Date', icon: 'calendar_view_month' },
+                  { type: 'today', label: 'Today', icon: 'today' },
+                  { type: 'yesterday', label: 'Yesterday', icon: 'history' },
+                  { type: 'week', label: 'For the week', icon: 'date_range' },
+                  { type: 'custom', label: 'Custom period', icon: 'edit_calendar', colSpan: 2 }
+                ].map((period) => (
+                  <button
+                    key={period.type}
+                    type="button"
+                    onClick={() => handlePeriodSelection(period.type)}
+                    style={{
+                      gridColumn: period.colSpan === 2 ? 'span 2' : 'auto',
+                      padding: '12px 16px',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '10px',
+                      background: 'white',
+                      color: '#475569',
+                      fontSize: '13px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      justifyContent: 'center',
+                      textAlign: 'left'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#f8fafc';
+                      e.target.style.borderColor = '#7c3aed';
+                      e.target.style.color = '#7c3aed';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'white';
+                      e.target.style.borderColor = '#e2e8f0';
+                      e.target.style.color = '#475569';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>{period.icon}</span>
+                    <span>{period.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-          <div style={{ marginBottom: '24px' }}>
-            <label style={{
-              display: 'block',
-              fontSize: '13px',
-              fontWeight: '600',
-              color: '#475569',
-              marginBottom: '6px'
+
+          {/* Show selected period dates preview when a period is selected (not custom) */}
+          {selectedPeriodType && selectedPeriodType !== 'custom' && (
+            <div style={{
+              marginBottom: '24px',
+              padding: '16px',
+              background: '#f8fafc',
+              borderRadius: '10px',
+              border: '2px solid #e2e8f0'
             }}>
-              To Date
-            </label>
-            <input
-              type="text"
-              value={tempToDateDisplay}
-              placeholder="15-Jan-24"
-              onChange={(e) => {
-                setTempToDateDisplay(e.target.value);
-                // Try to parse and update internal format on the fly
-                const parsed = parseDateFromNewFormat(e.target.value);
-                if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
-                  setTempToDate(parsed);
-                }
-              }}
-              onBlur={(e) => {
-                // Validate and format on blur
-                const value = e.target.value.trim();
-                if (value) {
-                  const parsed = parseDateFromNewFormat(value);
-                  if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
-                    setTempToDate(parsed);
-                    setTempToDateDisplay(formatDateForInput(parsed));
-                  } else {
-                    // Invalid format, try to keep what user typed but show error
-                    e.target.style.borderColor = '#ef4444';
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '12px'
+              }}>
+                <span className="material-icons" style={{ fontSize: '18px', color: '#7c3aed' }}>info</span>
+                <span style={{
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#475569'
+                }}>
+                  Selected Period: {
+                    selectedPeriodType === 'financial-year' ? 'Financial Yr Start till Date' :
+                    selectedPeriodType === 'quarter' ? 'Qtr Start till Date' :
+                    selectedPeriodType === 'month' ? 'Month Start till Date' :
+                    selectedPeriodType === 'today' ? 'Today' :
+                    selectedPeriodType === 'yesterday' ? 'Yesterday' :
+                    selectedPeriodType === 'week' ? 'For the week' : ''
                   }
-                }
-                e.target.style.boxShadow = 'none';
-              }}
-              style={{
-                width: 'calc(100% - 4px)',
-                maxWidth: '100%',
-                padding: '8px 12px',
-                border: '2px solid #e2e8f0',
-                borderRadius: '8px',
-                fontSize: '13px',
-                color: '#1e293b',
-                outline: 'none',
-                transition: 'all 0.2s ease',
-                fontWeight: '500',
-                boxSizing: 'border-box'
-              }}
-              onFocus={(e) => {
-                e.target.style.borderColor = '#7c3aed';
-                e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
-              }}
-            />
-          </div>
+                </span>
+              </div>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                fontSize: '12px',
+                color: '#64748b'
+              }}>
+                <div><strong>From:</strong> {tempFromDateDisplay || formatDateForInput(tempFromDate)}</div>
+                <div><strong>To:</strong> {tempToDateDisplay || formatDateForInput(tempToDate)}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedPeriodType(null);
+                  setTempFromDate(fromDate);
+                  setTempToDate(toDate);
+                  setTempFromDateDisplay(formatDateForInput(fromDate));
+                  setTempToDateDisplay(formatDateForInput(toDate));
+                }}
+                style={{
+                  marginTop: '12px',
+                  padding: '6px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  background: 'white',
+                  color: '#64748b',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#f1f5f9';
+                  e.target.style.borderColor = '#cbd5e1';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'white';
+                  e.target.style.borderColor = '#e2e8f0';
+                }}
+              >
+                Change Period
+              </button>
+            </div>
+          )}
+
+          {/* Custom Date Picker - Show only when Custom period is selected */}
+          {selectedPeriodType === 'custom' && (
+            <>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#475569',
+                  marginBottom: '6px'
+                }}>
+                  From Date
+                </label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={tempFromDateDisplay}
+                    placeholder="1-Apr-25"
+                    onChange={(e) => {
+                      setTempFromDateDisplay(e.target.value);
+                      // Try to parse and update internal format on the fly
+                      const parsed = parseDateFromNewFormat(e.target.value);
+                      if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                        setTempFromDate(parsed);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      // Validate and format on blur
+                      const value = e.target.value.trim();
+                      if (value) {
+                        const parsed = parseDateFromNewFormat(value);
+                        if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                          setTempFromDate(parsed);
+                          setTempFromDateDisplay(formatDateForInput(parsed));
+                        } else {
+                          // Invalid format, try to keep what user typed but show error
+                          e.target.style.borderColor = '#ef4444';
+                        }
+                      }
+                      e.target.style.boxShadow = 'none';
+                    }}
+                    style={{
+                      width: 'calc(100% - 44px)',
+                      maxWidth: '100%',
+                      padding: '8px 12px',
+                      paddingRight: '44px',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      color: '#1e293b',
+                      outline: 'none',
+                      transition: 'all 0.2s ease',
+                      fontWeight: '500',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#7c3aed';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
+                    }}
+                  />
+                  <button
+                    ref={fromDateButtonRef}
+                    type="button"
+                    onClick={() => setShowFromDatePicker(!showFromDatePicker)}
+                    style={{
+                      position: 'absolute',
+                      right: '4px',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '6px',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#7c3aed',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#f3e8ff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                    title="Open calendar"
+                  >
+                    <span className="material-icons" style={{ fontSize: '20px' }}>calendar_month</span>
+                  </button>
+                  <div 
+                    ref={fromDatePickerRef}
+                    style={{ position: 'absolute', top: '100%', right: '4px', zIndex: 18000 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <LocalizationProvider dateAdapter={AdapterDateFns}>
+                      <DatePicker
+                        value={stringToDate(tempFromDate)}
+                        onChange={handleFromDateChange}
+                        minDate={booksFromDate ? stringToDate(booksFromDate) : undefined}
+                        open={showFromDatePicker}
+                        onClose={() => setShowFromDatePicker(false)}
+                        closeOnSelect={false}
+                        slotProps={{
+                          textField: {
+                            size: 'small',
+                            sx: { 
+                              position: 'absolute',
+                              top: 0,
+                              right: 0,
+                              width: '1px',
+                              height: '1px',
+                              opacity: 0,
+                              pointerEvents: 'none'
+                            }
+                          },
+                          popper: {
+                            anchorEl: fromDateButtonRef.current,
+                            placement: 'bottom-end',
+                            style: { zIndex: 18000 },
+                            onClick: (e) => e.stopPropagation()
+                          },
+                          actionBar: {
+                            actions: ['clear', 'cancel', 'accept']
+                          }
+                        }}
+                      />
+                    </LocalizationProvider>
+                  </div>
+                </div>
+                {booksFromDate && (
+                  <p style={{
+                    fontSize: '11px',
+                    color: '#64748b',
+                    marginTop: '4px',
+                    marginBottom: 0
+                  }}>
+                    Earliest available date: {formatDateForInput(booksFromDate)}
+                  </p>
+                )}
+              </div>
+
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#475569',
+                  marginBottom: '6px'
+                }}>
+                  To Date
+                </label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={tempToDateDisplay}
+                    placeholder="15-Jan-24"
+                    onChange={(e) => {
+                      setTempToDateDisplay(e.target.value);
+                      // Try to parse and update internal format on the fly
+                      const parsed = parseDateFromNewFormat(e.target.value);
+                      if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                        setTempToDate(parsed);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      // Validate and format on blur
+                      const value = e.target.value.trim();
+                      if (value) {
+                        const parsed = parseDateFromNewFormat(value);
+                        if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                          setTempToDate(parsed);
+                          setTempToDateDisplay(formatDateForInput(parsed));
+                        } else {
+                          // Invalid format, try to keep what user typed but show error
+                          e.target.style.borderColor = '#ef4444';
+                        }
+                      }
+                      e.target.style.boxShadow = 'none';
+                    }}
+                    style={{
+                      width: 'calc(100% - 44px)',
+                      maxWidth: '100%',
+                      padding: '8px 12px',
+                      paddingRight: '44px',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      color: '#1e293b',
+                      outline: 'none',
+                      transition: 'all 0.2s ease',
+                      fontWeight: '500',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#7c3aed';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
+                    }}
+                  />
+                  <button
+                    ref={toDateButtonRef}
+                    type="button"
+                    onClick={() => setShowToDatePicker(!showToDatePicker)}
+                    style={{
+                      position: 'absolute',
+                      right: '4px',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '6px',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#7c3aed',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#f3e8ff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                    title="Open calendar"
+                  >
+                    <span className="material-icons" style={{ fontSize: '20px' }}>calendar_month</span>
+                  </button>
+                  <div 
+                    ref={toDatePickerRef}
+                    style={{ position: 'absolute', top: '100%', right: '4px', zIndex: 18000 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <LocalizationProvider dateAdapter={AdapterDateFns}>
+                      <DatePicker
+                        value={stringToDate(tempToDate)}
+                        onChange={handleToDateChange}
+                        minDate={tempFromDate ? stringToDate(tempFromDate) : (booksFromDate ? stringToDate(booksFromDate) : undefined)}
+                        open={showToDatePicker}
+                        onClose={() => setShowToDatePicker(false)}
+                        closeOnSelect={false}
+                        slotProps={{
+                          textField: {
+                            size: 'small',
+                            sx: { 
+                              position: 'absolute',
+                              top: 0,
+                              right: 0,
+                              width: '1px',
+                              height: '1px',
+                              opacity: 0,
+                              pointerEvents: 'none'
+                            }
+                          },
+                          popper: {
+                            anchorEl: toDateButtonRef.current,
+                            placement: 'bottom-end',
+                            style: { zIndex: 18000 },
+                            onClick: (e) => e.stopPropagation()
+                          },
+                          actionBar: {
+                            actions: ['clear', 'cancel', 'accept']
+                          }
+                        }}
+                      />
+                    </LocalizationProvider>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           <div style={{
             display: 'flex',
@@ -12766,6 +16177,872 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       progress={interruptedProgress || { current: 0, total: 0 }}
       companyName={interruptedProgress?.companyName || 'this company'}
     />
+
+    {/* Settings Modal - Card Titles */}
+    {showSettingsModal && (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          zIndex: 18000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px'
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setShowSettingsModal(false);
+          }
+        }}
+      >
+        <div
+          style={{
+            background: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            padding: '24px',
+            maxWidth: '700px',
+            width: '100%',
+            maxHeight: '85vh',
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column'
+          }}
+        >
+          <div style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <h2 style={{
+                fontSize: '18px',
+                fontWeight: '700',
+                color: '#1e293b',
+                margin: '0 0 4px 0'
+              }}>
+                Dashboard Settings
+              </h2>
+              <p style={{
+                fontSize: '12px',
+                color: '#64748b',
+                margin: 0
+              }}>
+                
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowSettingsModal(false)}
+              style={{
+                background: '#f1f5f9',
+                border: 'none',
+                borderRadius: '8px',
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: '#64748b',
+                transition: 'all 0.2s',
+                flexShrink: 0
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = '#e2e8f0';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = '#f1f5f9';
+              }}
+              title="Close"
+            >
+              <span className="material-icons" style={{ fontSize: '20px' }}>close</span>
+            </button>
+          </div>
+
+          <div style={{
+            flex: 1,
+            overflowY: 'auto',
+            paddingRight: '8px',
+            marginRight: '-8px'
+          }}>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px'
+            }}>
+              {(() => {
+                const sections = getCardTitlesBySection();
+                
+                // Key Metrics Section
+                if (sections.keyMetrics.length > 0) {
+                  return (
+                    <>
+                      <div>
+                        <h3 style={{
+                          fontSize: '13px',
+                          fontWeight: '700',
+                          color: '#1e293b',
+                          margin: '0 0 10px 0',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.05em',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}>
+                          <span className="material-icons" style={{ fontSize: '16px', color: '#3b82f6' }}>analytics</span>
+                          Key Metrics
+                        </h3>
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(2, 1fr)',
+                          gap: '8px'
+                        }}>
+                          {sections.keyMetrics.map((title, index) => {
+                            const isVisible = isCardVisible(title);
+                            return (
+                              <div
+                                key={`metric-${index}`}
+                                style={{
+                                  padding: '8px 10px',
+                                  background: '#f8fafc',
+                                  borderRadius: '6px',
+                                  border: '1px solid #e2e8f0',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '8px',
+                                  transition: 'all 0.2s ease',
+                                  opacity: isVisible ? 1 : 0.6,
+                                  cursor: 'pointer'
+                                }}
+                                onClick={() => toggleCardVisibility(title)}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.background = '#f1f5f9';
+                                  e.currentTarget.style.borderColor = '#cbd5e1';
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.background = '#f8fafc';
+                                  e.currentTarget.style.borderColor = '#e2e8f0';
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isVisible}
+                                  onChange={() => {}}
+                                  style={{
+                                    width: '16px',
+                                    height: '16px',
+                                    cursor: 'pointer',
+                                    accentColor: '#3b82f6',
+                                    flexShrink: 0,
+                                    pointerEvents: 'none'
+                                  }}
+                                />
+                                <span style={{
+                                  fontSize: '13px',
+                                  fontWeight: '500',
+                                  color: '#1e293b',
+                                  flex: 1,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  {title}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Charts Section */}
+                      {sections.charts.length > 0 && (
+                        <div>
+                          <h3 style={{
+                            fontSize: '13px',
+                            fontWeight: '700',
+                            color: '#1e293b',
+                            margin: '0 0 10px 0',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}>
+                            <span className="material-icons" style={{ fontSize: '16px', color: '#10b981' }}>bar_chart</span>
+                            Charts
+                          </h3>
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(2, 1fr)',
+                            gap: '8px'
+                          }}>
+                            {sections.charts.map((title, index) => {
+                              const isVisible = isCardVisible(title);
+                              return (
+                                <div
+                                  key={`chart-${index}`}
+                                  style={{
+                                    padding: '8px 10px',
+                                    background: '#f8fafc',
+                                    borderRadius: '6px',
+                                    border: '1px solid #e2e8f0',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    transition: 'all 0.2s ease',
+                                    opacity: isVisible ? 1 : 0.6,
+                                    cursor: 'pointer'
+                                  }}
+                                  onClick={() => toggleCardVisibility(title)}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = '#f1f5f9';
+                                    e.currentTarget.style.borderColor = '#cbd5e1';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = '#f8fafc';
+                                    e.currentTarget.style.borderColor = '#e2e8f0';
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isVisible}
+                                    onChange={() => {}}
+                                    style={{
+                                      width: '16px',
+                                      height: '16px',
+                                      cursor: 'pointer',
+                                      accentColor: '#10b981',
+                                      flexShrink: 0,
+                                      pointerEvents: 'none'
+                                    }}
+                                  />
+                                  <span style={{
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    color: '#1e293b',
+                                    flex: 1,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    {title}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Custom Cards Section */}
+                      {sections.customCards.length > 0 && (
+                        <div>
+                          <h3 style={{
+                            fontSize: '13px',
+                            fontWeight: '700',
+                            color: '#1e293b',
+                            margin: '0 0 10px 0',
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                          }}>
+                            <span className="material-icons" style={{ fontSize: '16px', color: '#9333ea' }}>dashboard_customize</span>
+                            Custom Cards
+                          </h3>
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(2, 1fr)',
+                            gap: '8px'
+                          }}>
+                            {sections.customCards.map((title, index) => {
+                              const isVisible = isCardVisible(title);
+                              return (
+                                <div
+                                  key={`custom-${index}`}
+                                  style={{
+                                    padding: '8px 10px',
+                                    background: '#f8fafc',
+                                    borderRadius: '6px',
+                                    border: '1px solid #e2e8f0',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    transition: 'all 0.2s ease',
+                                    opacity: isVisible ? 1 : 0.6,
+                                    cursor: 'pointer'
+                                  }}
+                                  onClick={() => toggleCardVisibility(title)}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.background = '#f1f5f9';
+                                    e.currentTarget.style.borderColor = '#cbd5e1';
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.background = '#f8fafc';
+                                    e.currentTarget.style.borderColor = '#e2e8f0';
+                                  }}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={isVisible}
+                                    onChange={() => {}}
+                                    style={{
+                                      width: '16px',
+                                      height: '16px',
+                                      cursor: 'pointer',
+                                      accentColor: '#9333ea',
+                                      flexShrink: 0,
+                                      pointerEvents: 'none'
+                                    }}
+                                  />
+                                  <span style={{
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    color: '#1e293b',
+                                    flex: 1,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    {title}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                }
+                return null;
+              })()}
+              
+              {/* Number Format Section */}
+              <div style={{
+                padding: '16px',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0'
+              }}>
+                <h3 style={{
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  color: '#1e293b',
+                  margin: '0 0 12px 0',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '16px', color: '#8b5cf6' }}>numbers</span>
+                  Number Format
+                </h3>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    background: '#fff',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onClick={() => setNumberFormat('indian')}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f1f5f9';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                  }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                      <span style={{
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#1e293b'
+                      }}>
+                        Lakhs & Crores (Indian)
+                      </span>
+                      <span style={{
+                        fontSize: '12px',
+                        color: '#64748b'
+                      }}>
+                        Example: 1,00,000 (1 Lakh), 1,00,00,000 (1 Crore)
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name="numberFormat"
+                      checked={numberFormat === 'indian'}
+                      onChange={() => setNumberFormat('indian')}
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        cursor: 'pointer',
+                        accentColor: '#8b5cf6',
+                        flexShrink: 0
+                      }}
+                    />
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    background: '#fff',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onClick={() => setNumberFormat('international')}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f1f5f9';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                  }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                      <span style={{
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#1e293b'
+                      }}>
+                        Millions & Billions (International)
+                      </span>
+                      <span style={{
+                        fontSize: '12px',
+                        color: '#64748b'
+                      }}>
+                        Example: 100,000 (100K), 1,000,000 (1M)
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name="numberFormat"
+                      checked={numberFormat === 'international'}
+                      onChange={() => setNumberFormat('international')}
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        cursor: 'pointer',
+                        accentColor: '#8b5cf6',
+                        flexShrink: 0
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            marginTop: '16px',
+            paddingTop: '16px',
+            borderTop: '1px solid #e2e8f0',
+            display: 'flex',
+            justifyContent: 'flex-end'
+          }}>
+            <button
+              type="button"
+              onClick={() => setShowSettingsModal(false)}
+              style={{
+                padding: '8px 18px',
+                border: 'none',
+                borderRadius: '8px',
+                background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                color: 'white',
+                fontSize: '13px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 4px 6px rgba(99, 102, 241, 0.25)'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)';
+                e.target.style.boxShadow = '0 6px 10px rgba(99, 102, 241, 0.35)';
+                e.target.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
+                e.target.style.boxShadow = '0 4px 6px rgba(99, 102, 241, 0.25)';
+                e.target.style.transform = 'translateY(0)';
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Fullscreen Card Modal */}
+    {fullscreenCard && (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 'auto',
+          width: 'auto',
+          background: '#ffffff',
+          zIndex: 13000,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: '20px 24px',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+            background: '#f8fafc'
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#1e293b' }}>
+            {fullscreenCard.title}
+          </h2>
+          <button
+            type="button"
+            onClick={closeFullscreenCard}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#64748b',
+              borderRadius: '50%',
+              padding: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background 0.2s ease, color 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#e2e8f0';
+              e.currentTarget.style.color = '#1e293b';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = '#64748b';
+            }}
+            title="Close fullscreen"
+          >
+            <span className="material-icons" style={{ fontSize: '28px' }}>close</span>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div
+          style={{
+            flex: 1,
+            overflow: 'hidden',
+            padding: '24px',
+            background: '#ffffff',
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0
+          }}
+        >
+          {fullscreenCard.type === 'metric' && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: '100%'
+            }}>
+              {fullscreenCard.title === 'Total Revenue' && isCardVisible('Total Revenue') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(22, 163, 74, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: '#16a34a' }}>
+                    {formatCurrency(totalRevenue)}
+                  </p>
+                </div>
+              )}
+              {fullscreenCard.title === 'Total Invoices' && isCardVisible('Total Invoices') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(236, 72, 153, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: '#ec4899' }}>
+                    {totalOrders.toLocaleString()}
+                  </p>
+                </div>
+              )}
+              {fullscreenCard.title === 'Unique Customers' && isCardVisible('Unique Customers') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(147, 51, 234, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: '#9333ea' }}>
+                    {uniqueCustomers}
+                  </p>
+                </div>
+              )}
+              {fullscreenCard.title === 'Avg Invoice Value' && isCardVisible('Avg Invoice Value') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(217, 119, 6, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: '#d97706' }}>
+                    {formatCurrency(avgOrderValue)}
+                  </p>
+                </div>
+              )}
+              {canShowProfit && fullscreenCard.title === 'Total Profit' && isCardVisible('Total Profit') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: totalProfit >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(37, 99, 235, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: totalProfit >= 0 ? '#2563eb' : '#dc2626' }}>
+                    {formatCurrency(totalProfit)}
+                  </p>
+                </div>
+              )}
+              {canShowProfit && fullscreenCard.title === 'Profit Margin' && isCardVisible('Profit Margin') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: profitMargin >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(234, 88, 12, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: profitMargin >= 0 ? '#ea580c' : '#dc2626' }}>
+                    {profitMargin >= 0 ? '+' : ''}{formatNumber(profitMargin, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                  </p>
+                </div>
+              )}
+              {canShowProfit && fullscreenCard.title === 'Avg Profit per Order' && isCardVisible('Avg Profit per Order') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: avgProfitPerOrder >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(8, 145, 178, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: avgProfitPerOrder >= 0 ? '#0891b2' : '#dc2626' }}>
+                    {formatCurrency(avgProfitPerOrder)}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {fullscreenCard.type === 'chart' && (
+            <div style={{ flex: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              {/* Render the appropriate chart based on title */}
+              {fullscreenCard.title === 'Top Customers Chart' && isCardVisible('Top Customers Chart') && (
+                <>
+                  {topCustomersChartType === 'bar' && (
+                    <BarChart
+                      data={topCustomersData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(customer) => setSelectedCustomer(customer)}
+                      onBackClick={() => setSelectedCustomer('all')}
+                      showBackButton={selectedCustomer !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topCustomersChartType === 'pie' && (
+                    <PieChart
+                      data={topCustomersData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(customer) => setSelectedCustomer(customer)}
+                      onBackClick={() => setSelectedCustomer('all')}
+                      showBackButton={selectedCustomer !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topCustomersChartType === 'treemap' && (
+                    <TreeMap
+                      data={topCustomersData}
+                      customHeader={null}
+                      onBoxClick={(customer) => setSelectedCustomer(customer)}
+                      onBackClick={() => setSelectedCustomer('all')}
+                      showBackButton={selectedCustomer !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topCustomersChartType === 'line' && (
+                    <LineChart
+                      data={topCustomersData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(customer) => setSelectedCustomer(customer)}
+                      onBackClick={() => setSelectedCustomer('all')}
+                      showBackButton={selectedCustomer !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                </>
+              )}
+              {/* Note: For other chart cards, you would add similar blocks. 
+                  For brevity, I'm showing the pattern with Top Customers Chart.
+                  The same pattern can be applied to all other chart cards. */}
+            </div>
+          )}
+
+          {fullscreenCard.type === 'custom' && fullscreenCard.cardId && (
+            <div style={{ flex: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              {(() => {
+                const card = customCards.find(c => c.id === fullscreenCard.cardId);
+                if (!card) return null;
+                return (
+                  <CustomCard
+                    key={card.id}
+                    card={card}
+                    salesData={filteredSales}
+                    generateCustomCardData={generateCustomCardData}
+                    chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
+                    onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
+                    onDelete={() => handleDeleteCustomCard(card.id)}
+                    onEdit={handleEditCustomCard}
+                    openTransactionRawData={openTransactionRawData}
+                    openFullscreenCard={openFullscreenCard}
+                    setSelectedCustomer={setSelectedCustomer}
+                    setSelectedItem={setSelectedItem}
+                    setSelectedStockGroup={setSelectedStockGroup}
+                    setSelectedRegion={setSelectedRegion}
+                    setSelectedCountry={setSelectedCountry}
+                    setSelectedPeriod={setSelectedPeriod}
+                    setSelectedLedgerGroup={setSelectedLedgerGroup}
+                    setDateRange={setDateRange}
+                    selectedCustomer={selectedCustomer}
+                    selectedItem={selectedItem}
+                    selectedStockGroup={selectedStockGroup}
+                    selectedRegion={selectedRegion}
+                    selectedCountry={selectedCountry}
+                    selectedPeriod={selectedPeriod}
+                    selectedLedgerGroup={selectedLedgerGroup}
+                    dateRange={dateRange}
+                    genericFilters={genericFilters}
+                    setGenericFilters={setGenericFilters}
+                    renderCardFilterBadges={renderCardFilterBadges}
+                    customCards={customCards}
+                    isMobile={isMobile}
+                    formatPeriodLabel={formatPeriodLabel}
+                    parseDateFromNewFormat={parseDateFromNewFormat}
+                    parseDateFromAPI={parseDateFromAPI}
+                    formatDateForDisplay={formatDateForDisplay}
+                    formatChartValue={formatChartValue}
+                    formatChartCompactValue={formatChartCompactValue}
+                  />
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      </div>
+    )}
     </>
   );
 };
@@ -12786,6 +17063,7 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   // Initialize form state from editingCard if provided, otherwise use defaults
   const [cardTitle, setCardTitle] = useState(editingCard?.title || '');
   const [chartType, setChartType] = useState(editingCard?.chartType || 'bar');
+  const [mapSubType, setMapSubType] = useState(editingCard?.mapSubType || 'choropleth');
   const [selectedFields, setSelectedFields] = useState(() => {
     // Initialize from editingCard if available
     if (editingCard) {
@@ -12818,12 +17096,13 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     return {};
   });
   const [dateGroupings, setDateGroupings] = useState(() => {
-    // Initialize from editingCard if available
+    // Initialize from editingCard if available, but default to 'day' for new cards
     if (editingCard && editingCard.groupBy === 'date' && editingCard.dateGrouping) {
       return {
         date: editingCard.dateGrouping
       };
     }
+    // Default to empty - will be set to 'day' when date field is selected
     return {};
   });
   // Multiple filters support - array of { field: string, values: Set<string> }
@@ -12840,6 +17119,8 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   // Current filter being configured
   const [currentFilterField, setCurrentFilterField] = useState('');
   const [currentFilterValues, setCurrentFilterValues] = useState(new Set());
+  const [filterValuesSearchTerm, setFilterValuesSearchTerm] = useState('');
+  const [filterFieldSearchTerm, setFilterFieldSearchTerm] = useState('');
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [fieldBeingConfigured, setFieldBeingConfigured] = useState(null);
   const [isDateSettingsModal, setIsDateSettingsModal] = useState(false);
@@ -12849,6 +17130,12 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState(null);
+  
+  // Stacking state
+  const [enableStacking, setEnableStacking] = useState(editingCard?.enableStacking || false);
+  const [segmentBy, setSegmentBy] = useState(editingCard?.segmentBy || '');
+  // Multi-axis series state
+  const [multiAxisSeries, setMultiAxisSeries] = useState(editingCard?.multiAxisSeries || []);
 
   // Update form when editingCard changes
   useEffect(() => {
@@ -12892,17 +17179,52 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       } else {
         setFilters([]);
       }
+      
+      // Set stacking options
+      setEnableStacking(editingCard.enableStacking || false);
+      setSegmentBy(editingCard.segmentBy || '');
+      // Set multi-axis series
+      setMultiAxisSeries(editingCard.multiAxisSeries || []);
     } else {
       // Reset to defaults when not editing
       setCardTitle('');
       setChartType('bar');
+      setMapSubType('choropleth');
       setSelectedFields(new Set());
       setTopN('');
       setFilters([]);
       setCurrentFilterField('');
       setCurrentFilterValues(new Set());
+      setFilterValuesSearchTerm('');
+      setFilterFieldSearchTerm('');
+      setEnableStacking(false);
+      setSegmentBy('');
+      setMultiAxisSeries([]);
     }
   }, [editingCard]);
+
+  // Auto-set mapSubType to 'scatter' for pincode maps
+  useEffect(() => {
+    if (chartType === 'geoMap') {
+      const selectedGroupBy = Array.from(selectedFields).find(f => 
+        f.toLowerCase().includes('pincode')
+      ) || (selectedFields.size > 0 ? Array.from(selectedFields)[0] : '');
+      
+      if (selectedGroupBy && selectedGroupBy.toLowerCase().includes('pincode')) {
+        // Auto-set to scatter for pincode maps if not already set
+        if (mapSubType !== 'scatter') {
+          setMapSubType('scatter');
+        }
+      } else if (selectedGroupBy && (selectedGroupBy.toLowerCase().includes('state') || 
+                                     selectedGroupBy.toLowerCase().includes('region') || 
+                                     selectedGroupBy.toLowerCase().includes('country'))) {
+        // Auto-set to choropleth for state/country maps if not already set
+        if (mapSubType !== 'choropleth') {
+          setMapSubType('choropleth');
+        }
+      }
+    }
+  }, [selectedFields, chartType, mapSubType]);
 
   // Field name to user-friendly label mapping (based on new API field names)
   const fieldLabelMap = {
@@ -12947,6 +17269,10 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     // Date fields
     'date': 'Date',
     'cp_date': 'CP Date',
+    'month': 'Month',
+    'year': 'Year',
+    'quarter': 'Quarter',
+    'week': 'Week',
     
     // Amount/Value fields
     'amount': 'Amount',
@@ -13005,30 +17331,17 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       return [];
     }
 
-    // Get all unique keys from the first sale object
-    // Also check all records to ensure we get all possible field names
-    const firstSale = salesData[0];
-    const allKeysSet = new Set(Object.keys(firstSale));
-    // Check additional records to catch any fields that might not be in the first record
-    salesData.slice(0, Math.min(10, salesData.length)).forEach(sale => {
+    // Get ALL unique keys from ALL records to ensure we capture every field
+    const allKeysSet = new Set();
+    // Check ALL records to get every possible field name
+    salesData.forEach(sale => {
       Object.keys(sale).forEach(key => allKeysSet.add(key));
     });
     const allKeys = Array.from(allKeysSet);
 
-    // Filter out non-groupable fields (dates, IDs, numeric-only fields, etc.) for groupBy
-    // Keep fields that can be used for grouping (strings, categories, etc.)
-    const nonGroupableFields = ['date', 'cp_date', 'vchno', 'masterid', 'issales'];
-    
-    // Also filter out fields that are primarily numeric (but allow them if they might have string values)
-    const numericOnlyFields = ['amount', 'quantity', 'profit', 'cgst', 'sgst', 'roundoff', 'invvalue', 'billedqty', 'rate', 'addlexpense', 'invtrytotal', 'grosscost'];
-    
-    // Fields that should always be treated as categories, even if they're numeric (like pincode)
-    const alwaysCategoryFields = ['pincode', 'pin', 'pincod', 'postalcode', 'postcode'];
-    
-    // Group By fields (X-axis) - can be any field except calculated/numeric-only values
-    // Check all sales records to see which fields have string/categorical values
+    // Determine field types by checking all records
     const fieldTypes = {};
-    salesData.slice(0, Math.min(100, salesData.length)).forEach(sale => {
+    salesData.forEach(sale => {
       allKeys.forEach(key => {
         if (!fieldTypes[key]) {
           const value = sale[key];
@@ -13037,9 +17350,9 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
               // Check if it's a numeric string
               const numValue = parseFloat(value);
               if (isNaN(numValue) || !isFinite(numValue)) {
-                fieldTypes[key] = 'string'; // Non-numeric string - good for grouping
+                fieldTypes[key] = 'string'; // Non-numeric string
               } else {
-                fieldTypes[key] = fieldTypes[key] || 'numeric'; // Could be numeric
+                fieldTypes[key] = 'numeric'; // Numeric string
               }
             } else if (typeof value === 'number') {
               fieldTypes[key] = 'numeric';
@@ -13051,91 +17364,202 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       });
     });
 
-    // Combine all fields into a single list
-    const fields = [];
+    // Include ALL fields from the sales response
+    // Use a Map to ensure no duplicates (case-insensitive)
+    const fieldsMap = new Map();
     
-    // Add date field (grouping will be configured via settings)
-    fields.push(
-      { value: 'date', label: getFieldLabel('date'), type: 'category' }
-    );
+    // Define fields that should ALWAYS be categories (even if they contain numbers)
+    const forceCategoryFields = [
+      // Date fields - ALWAYS categories, never values
+      'date', 'cp_date', 'cpdate', 'cp date', 'transaction_date', 'transactiondate',
+      'voucher_date', 'voucherdate', 'bill_date', 'billdate', 'invoice_date', 'invoicedate',
+      // Location fields
+      'pincode', 'pin_code', 'pin', 'zipcode', 'zip',
+      // Voucher/ID fields
+      'vouchernumber', 'vchno', 'voucher_number', 'voucher_no',
+      'masterid', 'master_id', 'alterid', 'alter_id',
+      'partyledgernameid', 'partyid', 'party_id', 'stockitemnameid', 'itemid', 'item_id',
+      'partygstin', 'gstin', 'gst_no', 'pan', 'pan_no',
+      // Contact fields
+      'phone', 'mobile', 'telephone', 'contact',
+      // Reference fields
+      'reference', 'ref_no', 'invoice_no', 'bill_no',
+      // Address fields
+      'address', 'basicbuyeraddress', 'buyer_address',
+      // Other category fields
+      'reservedname', 'vchtype', 'vouchertypename', 'voucher_type',
+      'issales', 'is_sales'
+    ];
     
-    // Add category fields (for Axis)
-    allKeys
-      .filter(key => {
-        const lowerKey = key.toLowerCase();
-        if (nonGroupableFields.includes(lowerKey)) return false;
-        const fieldType = fieldTypes[key];
-        if (fieldType === 'string' || fieldType === 'other') return true;
-        return !numericOnlyFields.includes(lowerKey);
-      })
-      .forEach(key => {
-        fields.push({
-          value: key,
-          label: getFieldLabel(key),
-          type: 'category'
-        });
-      });
+    // Special handling: Consolidate date fields (cp_date, date, etc.) into a single "date" field
+    // First, identify all date field variations in the data
+    const dateFieldVariations = ['cp_date', 'cpdate', 'date', 'transaction_date', 'transactiondate', 
+                                  'voucher_date', 'voucherdate', 'bill_date', 'billdate'];
+    const foundDateFields = [];
     
-    // Add value fields (for Values bucket)
-    const numericFields = allKeys.filter(key => {
+    // First pass: identify all date fields (be specific to avoid false matches)
+    allKeys.forEach(key => {
       const lowerKey = key.toLowerCase();
-      if (nonGroupableFields.includes(lowerKey)) return false;
-      // Exclude fields that should always be categories (like pincode)
-      if (alwaysCategoryFields.includes(lowerKey)) return false;
-      if (lowerKey === 'cp_temp7' || lowerKey === 'narration') return false;
-      const value = firstSale[key];
-      if (typeof value === 'number') return true;
-      if (typeof value === 'string') {
-        const numValue = parseFloat(value);
-        return !isNaN(numValue) && isFinite(numValue) && value.trim() !== '';
+      // Check if this is a date field variation - be specific
+      // Match exact date field names or fields ending with _date (but not updated_date, created_date, etc.)
+      const isDateField = dateFieldVariations.some(dv => lowerKey === dv) || 
+                          (lowerKey === 'date' || lowerKey === 'cp_date' || 
+                           (lowerKey.endsWith('_date') && !lowerKey.includes('updated') && 
+                            !lowerKey.includes('created') && !lowerKey.includes('modified') &&
+                            !lowerKey.includes('deleted')));
+      if (isDateField) {
+        foundDateFields.push({ original: key, lower: lowerKey });
       }
-      return false;
     });
     
-    numericFields.forEach(key => {
-      fields.push({
+    // Log found date fields for debugging
+    if (foundDateFields.length > 0) {
+      console.log('🔍 Found date field variations in data:', foundDateFields.map(f => f.original));
+    }
+    
+    // If we found any date fields, add a single consolidated "date" field as category
+    // IMPORTANT: Use lowercase 'date' as the key to ensure case-insensitive matching works
+    if (foundDateFields.length > 0) {
+      // Add the consolidated date field with lowercase key
+      fieldsMap.set('date', {
+        value: 'date',
+        label: 'Date',
+        type: 'category'
+      });
+      console.log('📅 Consolidated date fields:', foundDateFields.map(f => f.original), '→ "date" (category)');
+    }
+    
+    // Process each field from the sales data
+    allKeys.forEach(key => {
+      const lowerKey = key.toLowerCase();
+      
+      // Skip if we've already added this field (case-insensitive check)
+      // This includes the consolidated "date" field we just added
+      if (fieldsMap.has(lowerKey)) {
+        return;
+      }
+      
+      // Check if this is a date field variation - if so, skip it (we already added consolidated "date")
+      // This catches any date field variations that weren't caught in the first pass
+      const isDateField = dateFieldVariations.some(dv => lowerKey === dv) || 
+                          (lowerKey === 'date' || lowerKey === 'cp_date' || 
+                           (lowerKey.endsWith('_date') && !lowerKey.includes('updated') && 
+                            !lowerKey.includes('created') && !lowerKey.includes('modified')));
+      if (isDateField) {
+        // Double-check: if we already have "date" in the map, definitely skip
+        if (fieldsMap.has('date')) {
+          return; // Skip - we already have the consolidated "date" field
+        }
+      }
+      
+      // Check if field should be forced to category
+      const shouldBeCategory = forceCategoryFields.some(cat => 
+        lowerKey === cat || lowerKey.includes(cat) || cat.includes(lowerKey)
+      );
+      
+      // Determine if field is numeric based on type analysis (but respect forced categories)
+      const isNumeric = !shouldBeCategory && fieldTypes[key] === 'numeric';
+      
+      // Determine default aggregation for numeric fields
+      let defaultAggregation = 'sum';
+      if (isNumeric) {
+        // Rate, price, margin fields should default to average
+        if (lowerKey.includes('rate') || lowerKey.includes('price') || 
+            lowerKey.includes('margin') || lowerKey.includes('percent')) {
+          defaultAggregation = 'average';
+        }
+      }
+      
+      // Create field entry - include ALL fields regardless of type
+      const field = {
         value: key,
         label: getFieldLabel(key),
-        type: 'value',
-        aggregation: 'sum' // Default aggregation
-      });
+        type: isNumeric ? 'value' : 'category',
+        ...(isNumeric && { aggregation: defaultAggregation }) // Add default aggregation for numeric fields
+      };
+      
+      fieldsMap.set(lowerKey, field);
     });
     
-    // Add count fields
-    fields.push(
+    // Add derived/computed fields (these are calculated, not from response)
+    const derivedFields = [
+      // Count fields
       { value: 'transactions', label: 'Number of Transactions', type: 'value', aggregation: 'count' },
       { value: 'unique_customers', label: 'Number of Unique Customers', type: 'value', aggregation: 'count' },
       { value: 'unique_items', label: 'Number of Unique Items', type: 'value', aggregation: 'count' },
-      { value: 'unique_orders', label: 'Number of Unique Orders', type: 'value', aggregation: 'count' }
-    );
+      { value: 'unique_orders', label: 'Number of Unique Orders', type: 'value', aggregation: 'count' },
+      // Date-derived fields
+      { value: 'month', label: 'Month', type: 'category' },
+      { value: 'year', label: 'Year', type: 'category' },
+      { value: 'quarter', label: 'Quarter', type: 'category' },
+      { value: 'week', label: 'Week', type: 'category' }
+    ];
     
-    // Deduplicate fields by value (case-insensitive)
-    // If a field appears as both category and value, prefer category for alwaysCategoryFields, otherwise prefer value
-    const fieldsMap = new Map();
-    fields.forEach(field => {
-      const key = field.value.toLowerCase();
-      const existing = fieldsMap.get(key);
-      if (!existing) {
-        fieldsMap.set(key, field);
-      } else {
-        // If field is in alwaysCategoryFields, prefer category type
-        if (alwaysCategoryFields.includes(key)) {
-          if (field.type === 'category') {
-            fieldsMap.set(key, field);
-          }
-          // Otherwise keep existing category
+    derivedFields.forEach(field => {
+      const lowerKey = field.value.toLowerCase();
+      if (!fieldsMap.has(lowerKey)) {
+        fieldsMap.set(lowerKey, field);
+      }
+    });
+    
+    // Convert back to array and remove duplicates by label (case-insensitive)
+    // This ensures we don't have multiple fields with the same label (e.g., "Date" appearing twice)
+    const uniqueFields = Array.from(fieldsMap.values());
+    const seenLabels = new Map(); // Use Map to store both label and field for easier replacement
+    
+    uniqueFields.forEach(field => {
+      const labelLower = field.label.toLowerCase();
+      
+      // For "Date" specifically, prioritize the consolidated one (value === 'date')
+      if (labelLower === 'date') {
+        if (!seenLabels.has('date')) {
+          // First "Date" field - add it
+          seenLabels.set('date', field);
         } else {
-          // For other fields, if new one is value type, replace (value fields are more versatile)
-          if (field.type === 'value' && existing.type === 'category') {
-            fieldsMap.set(key, field);
+          // Already have a "Date" field - replace if this is the consolidated one
+          const existing = seenLabels.get('date');
+          if (field.value === 'date' && existing.value !== 'date') {
+            // Replace with consolidated "date" field
+            seenLabels.set('date', field);
           }
+          // Otherwise keep the existing one (which should be the consolidated one)
+        }
+      } else {
+        // For other fields, only add if we haven't seen this label before
+        if (!seenLabels.has(labelLower)) {
+          seenLabels.set(labelLower, field);
         }
       }
     });
     
-    // Convert back to array and sort
-    const uniqueFields = Array.from(fieldsMap.values());
-    return uniqueFields.sort((a, b) => a.label.localeCompare(b.label));
+    const deduplicatedFields = Array.from(seenLabels.values());
+    const sortedFields = deduplicatedFields.sort((a, b) => a.label.localeCompare(b.label));
+    
+    // Log date fields specifically to debug
+    const dateFields = sortedFields.filter(f => f.label.toLowerCase() === 'date');
+    if (dateFields.length > 1) {
+      console.warn('⚠️ Multiple "Date" fields found after deduplication:', dateFields.map(f => ({ value: f.value, type: f.type })));
+      // Force remove duplicates - keep only the one with value "date"
+      const dateFieldIndex = sortedFields.findIndex(f => f.label.toLowerCase() === 'date' && f.value === 'date');
+      if (dateFieldIndex >= 0) {
+        // Remove all other "Date" fields
+        for (let i = sortedFields.length - 1; i >= 0; i--) {
+          if (sortedFields[i].label.toLowerCase() === 'date' && i !== dateFieldIndex) {
+            sortedFields.splice(i, 1);
+          }
+        }
+      }
+    }
+    
+    console.log('📊 Available fields in Custom Card Modal:', {
+      totalFields: sortedFields.length,
+      categoryFields: sortedFields.filter(f => f.type === 'category').length,
+      valueFields: sortedFields.filter(f => f.type === 'value').length,
+      dateFieldsCount: dateFields.length,
+      sampleFields: sortedFields.slice(0, 10).map(f => `${f.label} (${f.type})`)
+    });
+    
+    return sortedFields;
   }, [salesData]);
   
   // AI card generation function
@@ -13495,6 +17919,23 @@ IMPORTANT RULES:
       .filter(field => field && field.type === 'value');
   }, [selectedFields, allFields]);
 
+  // Detect if current card configuration supports map visualization
+  const supportsMapVisualization = useMemo(() => {
+    // Derive groupBy from the first axis field
+    const groupByField = axisFields[0];
+    const groupByLower = groupByField?.value?.toLowerCase() || '';
+    
+    return {
+      isMapEligible: groupByLower.includes('pincode') || 
+                     groupByLower.includes('region') || 
+                     groupByLower.includes('state') || 
+                     groupByLower.includes('country'),
+      mapType: groupByLower.includes('pincode') ? 'pincode' :
+               groupByLower.includes('state') || groupByLower.includes('region') ? 'state' :
+               groupByLower.includes('country') ? 'country' : null
+    };
+  }, [axisFields]);
+
   // Get unique values for the current filter field being configured
   const currentFilterFieldValues = useMemo(() => {
     if (!currentFilterField || !salesData || !Array.isArray(salesData) || salesData.length === 0) {
@@ -13532,11 +17973,34 @@ IMPORTANT RULES:
     });
   }, [currentFilterField, salesData]);
 
+  // Filter values based on search term
+  const filteredFilterFieldValues = useMemo(() => {
+    if (!filterValuesSearchTerm.trim()) {
+      return currentFilterFieldValues;
+    }
+    const searchLower = filterValuesSearchTerm.toLowerCase().trim();
+    return currentFilterFieldValues.filter(value => 
+      value.toLowerCase().includes(searchLower)
+    );
+  }, [currentFilterFieldValues, filterValuesSearchTerm]);
+
   // Get fields that are not already used in filters
   const availableFilterFields = useMemo(() => {
     const usedFields = new Set(filters.map(f => f.field));
     return allFields.filter(field => !usedFields.has(field.value));
   }, [allFields, filters]);
+
+  // Filter available filter fields based on search term
+  const filteredAvailableFilterFields = useMemo(() => {
+    if (!filterFieldSearchTerm.trim()) {
+      return availableFilterFields;
+    }
+    const searchLower = filterFieldSearchTerm.toLowerCase().trim();
+    return availableFilterFields.filter(field => 
+      field.label.toLowerCase().includes(searchLower) ||
+      field.value.toLowerCase().includes(searchLower)
+    );
+  }, [availableFilterFields, filterFieldSearchTerm]);
   
   // Handle field checkbox toggle - Only allow one field per bucket (axis or values)
   const handleFieldToggle = (fieldValue) => {
@@ -13582,6 +18046,14 @@ IMPORTANT RULES:
                 });
               }
             });
+            
+            // Auto-set date grouping to 'day' when date field is selected
+            if (fieldValue === 'date') {
+              setDateGroupings(prev => ({
+                ...prev,
+                [fieldValue]: 'day' // Always default to daily
+              }));
+            }
           } else if (field.type === 'value') {
             // Values bucket - remove any existing value field
             const existingValueFields = Array.from(prev)
@@ -13604,18 +18076,19 @@ IMPORTANT RULES:
         // Add the new field
         newSet.add(fieldValue);
         
+        // Auto-set date grouping to 'day' (daily) when date field is selected
+        if (fieldValue === 'date') {
+          setDateGroupings(prev => ({
+            ...prev,
+            [fieldValue]: 'day' // Always default to daily
+          }));
+        }
+        
         // Set default aggregation for value fields
         if (field && field.type === 'value') {
           setFieldAggregations(prevAggs => ({
             ...prevAggs,
             [fieldValue]: field.aggregation || 'sum'
-          }));
-        }
-        // Set default date grouping for date fields
-        if (fieldValue === 'date') {
-          setDateGroupings(prev => ({
-            ...prev,
-            [fieldValue]: 'month' // Default to monthly
           }));
         }
       }
@@ -13675,6 +18148,8 @@ IMPORTANT RULES:
     // Reset current filter configuration
     setCurrentFilterField('');
     setCurrentFilterValues(new Set());
+    setFilterValuesSearchTerm('');
+    setFilterFieldSearchTerm('');
   };
 
   // Handle removing a filter
@@ -13684,8 +18159,16 @@ IMPORTANT RULES:
 
   // Handle filter field selection for new filter
   const handleFilterFieldChange = (fieldValue) => {
+    // If clicking the same field, deselect it
+    if (currentFilterField === fieldValue) {
+      setCurrentFilterField('');
+      setCurrentFilterValues(new Set());
+      setFilterValuesSearchTerm('');
+    } else {
     setCurrentFilterField(fieldValue);
     setCurrentFilterValues(new Set()); // Clear selected values when field changes
+      setFilterValuesSearchTerm(''); // Clear search term when field changes
+    }
   };
 
   // Handle filter value toggle for current filter being configured
@@ -13746,36 +18229,75 @@ IMPORTANT RULES:
       return;
     }
     
-    if (axisFields.length === 0) {
-      alert('Please select at least one field for Axis (Categories)');
-      return;
-    }
-    
-    if (valueFields.length === 0) {
-      alert('Please select at least one field for Values');
-      return;
+    // For multiAxis charts, validate differently
+    if (chartType === 'multiAxis') {
+      if (!multiAxisSeries || multiAxisSeries.length === 0) {
+        alert('Please add at least one series for Multi-Axis chart');
+        return;
+      }
+      
+      // Validate that each series has required fields
+      const invalidSeries = multiAxisSeries.find(s => !s.field || !s.label);
+      if (invalidSeries) {
+        alert('Each series must have a field and label selected');
+        return;
+      }
+      
+      // For multiAxis, we need a groupBy field from the first axis field, or use a dummy
+      // Actually, multiAxis uses the groupBy from the card config
+      if (axisFields.length === 0) {
+        alert('Please select at least one field for Axis (Categories) for the Multi-Axis chart');
+        return;
+      }
+    } else {
+      // Standard validation for non-multiAxis charts
+      if (axisFields.length === 0) {
+        alert('Please select at least one field for Axis (Categories)');
+        return;
+      }
+      
+      if (valueFields.length === 0) {
+        alert('Please select at least one field for Values');
+        return;
+      }
     }
     
     // Use the first selected field for each bucket
     const groupByField = axisFields[0];
-    const valueField = valueFields[0];
     
-    // Get aggregation from fieldAggregations state
-    const aggregation = fieldAggregations[valueField.value] || valueField.aggregation || 'sum';
-    let dateGrouping = 'month';
+    // For multiAxis, we use a placeholder value field (it's not used since series define their own fields)
+    let valueField, aggregation, mappedValueField;
     
-    // Map valueField to internal field names
-    const mappedValueField = valueField.value;
-    
-    // Set date grouping based on groupBy and dateGroupings state
-    const groupByValue = groupByField.value;
-    if (groupByValue === 'date') {
-      // Use configured date grouping from state, or default to month
-      dateGrouping = dateGroupings[groupByValue] || 'month';
+    if (chartType === 'multiAxis') {
+      // Use first series field as placeholder
+      const firstSeries = multiAxisSeries[0];
+      mappedValueField = firstSeries.field;
+      aggregation = firstSeries.aggregation || 'sum';
+    } else {
+      valueField = valueFields[0];
+      aggregation = fieldAggregations[valueField.value] || valueField.aggregation || 'sum';
+      mappedValueField = valueField.value;
     }
 
     // Normalize date field value to 'date' for groupBy
+    const groupByValue = groupByField.value;
     const normalizedGroupBy = (groupByValue === 'date' || groupByValue.startsWith('date_')) ? 'date' : groupByValue;
+    
+    // Set date grouping - always default to 'day' (daily) for date fields
+    let dateGrouping = 'day'; // Default to daily grouping
+    if (normalizedGroupBy === 'date') {
+      // Use configured date grouping from state if available, otherwise default to 'day'
+      // Check both the normalized 'date' key and the original field value key
+      dateGrouping = dateGroupings['date'] || dateGroupings[groupByValue] || 'day';
+      
+      // Log for debugging
+      console.log('📅 Date grouping configuration:', {
+        groupByValue,
+        normalizedGroupBy,
+        dateGroupingsState: dateGroupings,
+        selectedDateGrouping: dateGrouping
+      });
+    }
     
     // Build filters array from filters state
     const filtersArray = filters.length > 0 ? filters.map(f => ({
@@ -13786,15 +18308,53 @@ IMPORTANT RULES:
     const cardConfig = {
       title: cardTitle.trim(),
       groupBy: normalizedGroupBy,
-      dateGrouping: (normalizedGroupBy === 'date') ? dateGrouping : undefined,
+      // Always set dateGrouping to 'day' for date fields (no configuration needed)
+      dateGrouping: (normalizedGroupBy === 'date') ? 'day' : undefined,
       aggregation,
       valueField: mappedValueField,
       chartType: chartType, // Use chart type from state
       topN: topN ? parseInt(topN, 10) : undefined,
-      filters: filtersArray
+      filters: filtersArray,
+      enableStacking: enableStacking,
+      segmentBy: enableStacking && segmentBy ? segmentBy : undefined,
+      multiAxisSeries: chartType === 'multiAxis' ? multiAxisSeries : undefined,
+      mapSubType: chartType === 'geoMap' ? mapSubType : undefined
     };
+    
+    // Log card config for debugging
+    if (normalizedGroupBy === 'date') {
+      console.log('📅 Card config with date field:', {
+        groupBy: cardConfig.groupBy,
+        dateGrouping: cardConfig.dateGrouping,
+        expected: 'day'
+      });
+    }
 
     onCreate(cardConfig);
+  };
+
+  // Multi-axis series helpers
+  const handleAddSeries = () => {
+    // Get first numeric/value field as default
+    const numericFields = allFields.filter(f => f.type === 'value');
+    const defaultField = numericFields[0]?.value || '';
+    const newSeries = {
+      id: `series-${Date.now()}`,
+      field: defaultField,
+      aggregation: 'sum',
+      type: 'bar',
+      axis: 'left',
+      label: ''
+    };
+    setMultiAxisSeries(prev => [...prev, newSeries]);
+  };
+
+  const handleSeriesChange = (id, key, value) => {
+    setMultiAxisSeries(prev => prev.map(s => s.id === id ? { ...s, [key]: value } : s));
+  };
+
+  const handleSeriesRemove = (id) => {
+    setMultiAxisSeries(prev => prev.filter(s => s.id !== id));
   };
 
   return (
@@ -14218,6 +18778,10 @@ IMPORTANT RULES:
             <option value="pie">Pie Chart</option>
             <option value="treemap">Tree Map</option>
             <option value="line">Line Chart</option>
+            <option value="multiAxis">Multi Axis (Bar/Line)</option>
+            {supportsMapVisualization.isMapEligible && (
+              <option value="geoMap">Geographic Map</option>
+            )}
           </select>
           <p style={{
             margin: '6px 0 0 0',
@@ -14229,7 +18793,8 @@ IMPORTANT RULES:
           </p>
         </div>
 
-        {/* Choose fields to add to report */}
+        {/* Choose fields to add to report - Hide for Multi-Axis */}
+        {chartType !== 'multiAxis' && (
         <div>
           <label style={{
             display: 'block',
@@ -14292,55 +18857,124 @@ IMPORTANT RULES:
                 No fields found
               </div>
             ) : (
-              filteredFields.map((field) => (
-                <div
-                  key={field.value}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '8px',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    transition: 'background 0.15s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = '#f8fafc';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'transparent';
-                  }}
-                  onClick={() => handleFieldToggle(field.value)}
-                >
-                  <div style={{
-                    width: '18px',
-                    height: '18px',
-                    border: selectedFields.has(field.value) ? 'none' : '2px solid #cbd5e1',
-                    borderRadius: '4px',
-                    background: selectedFields.has(field.value) ? '#10b981' : 'transparent',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginRight: '10px',
-                    flexShrink: 0
-                  }}>
-                    {selectedFields.has(field.value) && (
-                      <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
+              (() => {
+                // Group date-related fields together on the same row
+                const dateFields = ['date', 'month', 'year', 'quarter'];
+                const dateFieldsToShow = filteredFields.filter(field => 
+                  dateFields.includes(field.value.toLowerCase())
+                );
+                const otherFields = filteredFields.filter(field => 
+                  !dateFields.includes(field.value.toLowerCase())
+                );
+                
+                return (
+                  <>
+                    {/* Date/Month/Year/Quarter fields on the same row */}
+                    {dateFieldsToShow.length > 0 && (
+                      <div style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '0',
+                        padding: '8px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        transition: 'background 0.15s ease'
+                      }}>
+                        {dateFieldsToShow.map((field, index) => (
+                          <div
+                            key={field.value}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              flex: '1 1 auto',
+                              minWidth: 'fit-content'
+                            }}
+                            onClick={() => handleFieldToggle(field.value)}
+                          >
+                            <div style={{
+                              width: '18px',
+                              height: '18px',
+                              border: selectedFields.has(field.value) ? 'none' : '2px solid #cbd5e1',
+                              borderRadius: '4px',
+                              background: selectedFields.has(field.value) ? '#10b981' : 'transparent',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              marginRight: '10px',
+                              flexShrink: 0
+                            }}>
+                              {selectedFields.has(field.value) && (
+                                <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
+                              )}
+                            </div>
+                            <span style={{
+                              fontSize: '14px',
+                              fontWeight: selectedFields.has(field.value) ? '600' : '400',
+                              color: '#1e293b',
+                              marginRight: index < dateFieldsToShow.length - 1 ? '20px' : '0'
+                            }}>
+                              {field.label}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     )}
-                  </div>
-                  <span style={{
-                    fontSize: '14px',
-                    fontWeight: selectedFields.has(field.value) ? '600' : '400',
-                    color: '#1e293b'
-                  }}>
-                    {field.label}
-                  </span>
-                </div>
-              ))
+                    
+                    {/* Other fields displayed normally */}
+                    {otherFields.map((field) => (
+                      <div
+                        key={field.value}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: '8px',
+                          borderRadius: '4px',
+                          cursor: 'pointer',
+                          transition: 'background 0.15s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#f8fafc';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                        onClick={() => handleFieldToggle(field.value)}
+                      >
+                        <div style={{
+                          width: '18px',
+                          height: '18px',
+                          border: selectedFields.has(field.value) ? 'none' : '2px solid #cbd5e1',
+                          borderRadius: '4px',
+                          background: selectedFields.has(field.value) ? '#10b981' : 'transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: '10px',
+                          flexShrink: 0
+                        }}>
+                          {selectedFields.has(field.value) && (
+                            <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
+                          )}
+                        </div>
+                        <span style={{
+                          fontSize: '14px',
+                          fontWeight: selectedFields.has(field.value) ? '600' : '400',
+                          color: '#1e293b'
+                        }}>
+                          {field.label}
+                        </span>
+                      </div>
+                    ))}
+                  </>
+                );
+              })()
             )}
           </div>
         </div>
+        )}
 
-        {/* Field buckets */}
+        {/* Field buckets - Hide for Multi-Axis */}
+        {chartType !== 'multiAxis' && (
         <div>
           <div style={{
             fontSize: '13px',
@@ -14388,13 +19022,8 @@ IMPORTANT RULES:
               }}>
                 {axisFields.length > 0 && axisFields.map((field) => {
                   const isDateField = field.value === 'date';
-                  const dateGrouping = isDateField ? (dateGroupings[field.value] || 'month') : null;
-                  const groupingLabels = {
-                    day: 'Daily',
-                    week: 'Weekly',
-                    month: 'Monthly',
-                    year: 'Yearly'
-                  };
+                  // Always use 'day' (daily) for date fields - no configuration needed
+                  const dateGrouping = isDateField ? 'day' : null;
                   
                   return (
                     <div
@@ -14414,30 +19043,7 @@ IMPORTANT RULES:
                     >
                       <span>
                         {field.label}
-                        {isDateField && dateGrouping && ` (${groupingLabels[dateGrouping]})`}
                       </span>
-                      {isDateField && (
-                        <span 
-                          className="material-icons" 
-                          style={{ 
-                            fontSize: '14px', 
-                            cursor: 'pointer',
-                            padding: '2px',
-                            borderRadius: '2px',
-                            transition: 'background 0.2s'
-                          }}
-                          onClick={(e) => handleDateSettingsClick(field, e)}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = '#c7d2fe';
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'transparent';
-                          }}
-                          title="Configure date grouping"
-                        >
-                          settings
-                        </span>
-                      )}
                       <span 
                         className="material-icons" 
                         style={{ 
@@ -14566,6 +19172,274 @@ IMPORTANT RULES:
             </div>
           </div>
         </div>
+        )}
+
+        {/* Multi-Axis Series (only for multiAxis chart type) */}
+        {chartType === 'multiAxis' && (
+          <div>
+            {/* Axis (Category) Field Selection for Multi-Axis */}
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569',
+                marginBottom: '8px',
+                letterSpacing: '0.01em'
+              }}>
+                Category Field (X-Axis):
+              </label>
+              <select
+                value={axisFields.length > 0 ? axisFields[0].value : ''}
+                onChange={(e) => {
+                  const newValue = e.target.value;
+                  if (newValue) {
+                    // For multi-axis, we only keep one axis field - replace the current one
+                    const newFields = new Set();
+                    // Keep all value fields (not used in multi-axis but keep for consistency)
+                    valueFields.forEach(vf => newFields.add(vf.value));
+                    // Set the new axis field
+                    newFields.add(newValue);
+                    setSelectedFields(newFields);
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '11px 14px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                  background: '#ffffff',
+                  color: '#1e293b',
+                  boxSizing: 'border-box',
+                  cursor: 'pointer'
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0';
+                  e.target.style.boxShadow = 'none';
+                }}
+              >
+                <option value="">Select category field...</option>
+                {allFields.filter(f => f.type === 'category').map((field) => (
+                  <option key={field.value} value={field.value}>
+                    {field.label}
+                  </option>
+                ))}
+              </select>
+              <p style={{
+                margin: '6px 0 0 0',
+                fontSize: '12px',
+                color: '#64748b',
+                fontStyle: 'italic'
+              }}>
+                This field will be used as the X-axis for all series
+              </p>
+            </div>
+
+            <div style={{
+              fontSize: '13px',
+              fontWeight: '500',
+              color: '#475569',
+              marginBottom: '8px',
+              paddingBottom: '8px',
+              borderBottom: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
+            }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#7c3aed' }}>show_chart</span>
+              Data Series (Y-Axis):
+            </div>
+
+            {multiAxisSeries.length === 0 && (
+              <div style={{
+                padding: '16px',
+                border: '1px dashed #cbd5e1',
+                borderRadius: '8px',
+                color: '#475569',
+                fontSize: '13px',
+                marginBottom: '12px',
+                background: '#f8fafc'
+              }}>
+                <div style={{ fontWeight: '500', marginBottom: '6px', color: '#1e293b' }}>
+                  Add data series to visualize
+                </div>
+                <div style={{ fontSize: '12px', color: '#64748b' }}>
+                  • Add 2+ numeric series (e.g., Amount, Profit, Quantity)
+                  <br />
+                  • Mix bar and line chart types
+                  <br />
+                  • Map each series to left or right Y-axis
+                </div>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              {multiAxisSeries.map((series) => (
+                <div
+                  key={series.id}
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '10px',
+                    padding: '12px',
+                    background: '#ffffff',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                    gap: '10px',
+                    alignItems: 'center'
+                  }}
+                >
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Field (Numeric)</label>
+                    <select
+                      value={series.field}
+                      onChange={(e) => handleSeriesChange(series.id, 'field', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {allFields.filter(f => f.type === 'value').map((field) => (
+                        <option key={field.value} value={field.value}>{field.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Aggregation</label>
+                    <select
+                      value={series.aggregation}
+                      onChange={(e) => handleSeriesChange(series.id, 'aggregation', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="sum">Sum</option>
+                      <option value="count">Count</option>
+                      <option value="avg">Average</option>
+                      <option value="min">Min</option>
+                      <option value="max">Max</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Series Type</label>
+                    <select
+                      value={series.type}
+                      onChange={(e) => handleSeriesChange(series.id, 'type', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="bar">Bar</option>
+                      <option value="line">Line</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Y Axis</label>
+                    <select
+                      value={series.axis}
+                      onChange={(e) => handleSeriesChange(series.id, 'axis', e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '13px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="left">Left</option>
+                      <option value="right">Right</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ display: 'block', fontSize: '12px', color: '#64748b', marginBottom: '4px' }}>Display Name</label>
+                    <input
+                      type="text"
+                      value={series.label || ''}
+                      onChange={(e) => handleSeriesChange(series.id, 'label', e.target.value)}
+                      placeholder="Optional override"
+                      style={{
+                        width: '100%',
+                        padding: '9px 12px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '13px'
+                      }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleSeriesRemove(series.id)}
+                      style={{
+                        border: '1px solid #fecdd3',
+                        background: '#fff1f2',
+                        color: '#be123c',
+                        padding: '8px 10px',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '16px' }}>delete</span>
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ marginTop: '12px' }}>
+              <button
+                type="button"
+                onClick={handleAddSeries}
+                style={{
+                  border: '1px dashed #cbd5e1',
+                  background: '#f8fafc',
+                  color: '#0ea5e9',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>add</span>
+                Add Series
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Filters Section */}
         <div>
@@ -14603,14 +19477,128 @@ IMPORTANT RULES:
               Add Filter:
             </div>
           
-          {/* Filter Field Dropdown */}
+          {/* Filter Field Search & Selection */}
           <div style={{ marginBottom: '12px' }}>
-            <select
-                value={currentFilterField}
-                onChange={(e) => handleFilterFieldChange(e.target.value)}
+            {/* Search Input */}
+            <div style={{ marginBottom: '12px', position: 'relative' }}>
+              <input
+                type="text"
+                value={filterFieldSearchTerm}
+                onChange={(e) => setFilterFieldSearchTerm(e.target.value)}
+                placeholder="Search field to filter..."
               style={{
                 width: '100%',
-                padding: '11px 14px',
+                  padding: '10px 40px 10px 14px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                  background: '#ffffff',
+                  color: '#1e293b',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0';
+                }}
+              />
+              <span className="material-icons" style={{
+                position: 'absolute',
+                right: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                fontSize: '20px',
+                color: '#94a3b8',
+                pointerEvents: 'none'
+              }}>search</span>
+            </div>
+
+            {/* Fields List with Radio/Single Selection */}
+            <div style={{
+              background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '12px',
+              maxHeight: '200px',
+              overflowY: 'auto'
+            }}>
+              {filteredAvailableFilterFields.length === 0 ? (
+                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                  {filterFieldSearchTerm ? 'No fields match your search' : 'No fields available'}
+                </div>
+              ) : (
+                filteredAvailableFilterFields.map((field) => (
+                  <div
+                    key={field.value}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '8px',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      transition: 'background 0.15s ease',
+                      background: currentFilterField === field.value ? '#eff6ff' : 'transparent'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (currentFilterField !== field.value) {
+                        e.currentTarget.style.background = '#f8fafc';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (currentFilterField !== field.value) {
+                        e.currentTarget.style.background = 'transparent';
+                      }
+                    }}
+                    onClick={() => handleFilterFieldChange(field.value)}
+                  >
+                    <div style={{
+                      width: '18px',
+                      height: '18px',
+                      border: currentFilterField === field.value ? 'none' : '2px solid #cbd5e1',
+                      borderRadius: '50%',
+                      background: currentFilterField === field.value ? '#3b82f6' : 'transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginRight: '10px',
+                      flexShrink: 0
+                    }}>
+                      {currentFilterField === field.value && (
+                        <div style={{
+                          width: '6px',
+                          height: '6px',
+                          borderRadius: '50%',
+                          background: 'white'
+                        }}></div>
+                      )}
+                    </div>
+                    <span style={{
+                      fontSize: '14px',
+                      fontWeight: currentFilterField === field.value ? '600' : '400',
+                      color: currentFilterField === field.value ? '#1e40af' : '#1e293b'
+                    }}>
+                      {field.label}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Search input for filter values */}
+          {currentFilterField && currentFilterFieldValues.length > 0 && (
+            <div style={{ marginBottom: '12px' }}>
+              <input
+                type="text"
+                placeholder="Search values..."
+                value={filterValuesSearchTerm}
+                onChange={(e) => setFilterValuesSearchTerm(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
                 border: '1px solid #e2e8f0',
                 borderRadius: '8px',
                 fontSize: '14px',
@@ -14618,8 +19606,7 @@ IMPORTANT RULES:
                 transition: 'all 0.15s ease',
                 background: '#ffffff',
                 color: '#1e293b',
-                boxSizing: 'border-box',
-                cursor: 'pointer'
+                  boxSizing: 'border-box'
               }}
               onFocus={(e) => {
                 e.target.style.borderColor = '#3b82f6';
@@ -14629,18 +19616,12 @@ IMPORTANT RULES:
                 e.target.style.borderColor = '#e2e8f0';
                 e.target.style.boxShadow = 'none';
               }}
-            >
-                <option value="">Select field to filter:</option>
-                {availableFilterFields.map((field) => (
-                <option key={field.value} value={field.value}>
-                  {field.label}
-                </option>
-              ))}
-            </select>
+              />
           </div>
+          )}
 
           {/* Filter Values Checkboxes */}
-            {currentFilterField && currentFilterFieldValues.length > 0 && (
+            {currentFilterField && filteredFilterFieldValues.length > 0 && (
             <div style={{
                 background: '#ffffff',
               border: '1px solid #e2e8f0',
@@ -14657,13 +19638,18 @@ IMPORTANT RULES:
                 marginBottom: '8px'
               }}>
                 Select values to include:
+                {filterValuesSearchTerm && (
+                  <span style={{ fontWeight: '400', color: '#94a3b8' }}>
+                    {' '}({filteredFilterFieldValues.length} of {currentFilterFieldValues.length})
+                  </span>
+                )}
               </div>
               <div style={{
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '6px'
               }}>
-                  {currentFilterFieldValues.map((value) => (
+                  {filteredFilterFieldValues.map((value) => (
                   <div
                     key={value}
                     style={{
@@ -14744,6 +19730,21 @@ IMPORTANT RULES:
                   </button>
                 </div>
               )}
+            </div>
+          )}
+          
+            {currentFilterField && filteredFilterFieldValues.length === 0 && currentFilterFieldValues.length > 0 && (
+            <div style={{
+                background: '#ffffff',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '20px',
+              textAlign: 'center',
+              color: '#94a3b8',
+                fontSize: '13px',
+                marginBottom: '12px'
+            }}>
+              No values match your search.
             </div>
           )}
           
@@ -14934,6 +19935,144 @@ IMPORTANT RULES:
           />
         </div>
 
+        {/* Stacked Bar Options - Hide for Multi-Axis */}
+        {chartType !== 'multiAxis' && (
+        <div>
+          <div style={{
+            fontSize: '13px',
+            fontWeight: '500',
+            color: '#475569',
+            marginBottom: '12px',
+            paddingBottom: '8px',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>stacked_bar_chart</span>
+            Stacked Bar Options <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '400' }}>(Optional)</span>
+          </div>
+          
+          {/* Enable Stacking Checkbox */}
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+            padding: '12px',
+            background: '#f8fafc',
+            borderRadius: '8px',
+            border: '1px solid #e2e8f0',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            marginBottom: '12px'
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = '#f1f5f9';
+            e.currentTarget.style.borderColor = '#cbd5e1';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = '#f8fafc';
+            e.currentTarget.style.borderColor = '#e2e8f0';
+          }}
+          >
+            <input
+              type="checkbox"
+              checked={enableStacking}
+              onChange={(e) => {
+                setEnableStacking(e.target.checked);
+                if (!e.target.checked) {
+                  setSegmentBy(''); // Clear segment field when unchecked
+                }
+              }}
+              style={{
+                width: '18px',
+                height: '18px',
+                cursor: 'pointer',
+                accentColor: '#10b981',
+                flexShrink: 0
+              }}
+            />
+            <div>
+              <div style={{
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#1e293b'
+              }}>
+                Enable Stacked Bars
+              </div>
+              <div style={{
+                fontSize: '12px',
+                color: '#64748b',
+                marginTop: '2px'
+              }}>
+                Stack bars by an additional dimension (works with Bar Chart type)
+              </div>
+            </div>
+          </label>
+          
+          {/* Segment By Field */}
+          {enableStacking && (
+            <div>
+              <label style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569',
+                marginBottom: '6px',
+                letterSpacing: '0.01em'
+              }}>
+                Segment By (Stack By) <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <select
+                value={segmentBy}
+                onChange={(e) => setSegmentBy(e.target.value)}
+                required={enableStacking}
+                style={{
+                  width: '100%',
+                  padding: '11px 14px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                  background: '#ffffff',
+                  color: '#1e293b',
+                  boxSizing: 'border-box',
+                  cursor: 'pointer'
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0';
+                  e.target.style.boxShadow = 'none';
+                }}
+              >
+                <option value="">Select segment field...</option>
+                {allFields
+                  .filter(field => field.type === 'category')
+                  .sort((a, b) => a.label.localeCompare(b.label))
+                  .map(field => (
+                    <option key={field.value} value={field.value}>
+                      {field.label}
+                    </option>
+                  ))
+                }
+              </select>
+              <p style={{
+                margin: '6px 0 0 0',
+                fontSize: '12px',
+                color: '#64748b',
+                fontStyle: 'italic'
+              }}>
+                Each bar will be divided into segments based on this field
+              </p>
+            </div>
+          )}
+        </div>
+        )}
+
         {/* Action Buttons */}
         <div style={{
           display: 'flex',
@@ -15082,7 +20221,7 @@ IMPORTANT RULES:
                 {isDateSettingsModal ? (
                   // Date grouping options
                   ['day', 'week', 'month', 'year'].map((groupingType) => {
-                    const currentGrouping = dateGroupings[fieldBeingConfigured.value] || 'month';
+                    const currentGrouping = dateGroupings[fieldBeingConfigured.value] || 'day';
                     const isSelected = currentGrouping === groupingType;
                     const labels = {
                       day: 'Daily',
@@ -15246,6 +20385,7 @@ const CustomCard = React.memo(({
   onDelete,
   onEdit,
   openTransactionRawData,
+  openFullscreenCard,
   setSelectedCustomer,
   setSelectedItem,
   setSelectedStockGroup,
@@ -15253,6 +20393,7 @@ const CustomCard = React.memo(({
   setSelectedCountry,
   setSelectedPeriod,
   setSelectedLedgerGroup,
+  setDateRange,
   selectedCustomer,
   selectedItem,
   selectedStockGroup,
@@ -15260,14 +20401,110 @@ const CustomCard = React.memo(({
   selectedCountry,
   selectedPeriod,
   selectedLedgerGroup,
+  dateRange,
   genericFilters,
   setGenericFilters,
   renderCardFilterBadges,
   customCards,
   isMobile,
-  formatPeriodLabel
+  formatPeriodLabel,
+  parseDateFromNewFormat,
+  parseDateFromAPI,
+  formatDateForDisplay,
+  formatChartValue,
+  formatChartCompactValue
 }) => {
   const cardData = useMemo(() => generateCustomCardData(card, salesData), [card, salesData, generateCustomCardData]);
+
+  // Multi-axis data builder using existing generateCustomCardData for each series
+  const multiAxisData = useMemo(() => {
+    console.log('🎯 MultiAxisData calculation:', {
+      cardId: card.id,
+      cardTitle: card.title,
+      chartType,
+      hasMultiAxisSeries: !!card.multiAxisSeries,
+      multiAxisSeriesLength: card.multiAxisSeries?.length,
+      multiAxisSeriesData: card.multiAxisSeries
+    });
+    
+    if (chartType !== 'multiAxis' || !Array.isArray(card.multiAxisSeries) || card.multiAxisSeries.length === 0) {
+      console.log('❌ MultiAxisData: Returning null due to condition failure');
+      return null;
+    }
+
+    console.log('✅ MultiAxisData: Building data for', card.multiAxisSeries.length, 'series');
+
+    // Build per-series maps using existing aggregation pipeline
+    const seriesMaps = card.multiAxisSeries.map((series, idx) => {
+      const tempCard = {
+        ...card,
+        valueField: series.field,
+        aggregation: series.aggregation || 'sum',
+        chartType: 'bar',
+        topN: undefined // We'll apply topN after merging
+      };
+      const data = generateCustomCardData(tempCard, salesData) || [];
+      const map = new Map();
+      data.forEach(d => map.set(d.label, d.value));
+      return {
+        def: series,
+        map,
+        color: series.color || ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4'][idx % 7]
+      };
+    });
+
+    // Union of all labels
+    const labelSet = new Set();
+    seriesMaps.forEach(({ map }) => {
+      map.forEach((_, label) => labelSet.add(label));
+    });
+    const labels = Array.from(labelSet);
+
+    // Compute total per label for sorting and topN
+    const totals = labels.map(label => seriesMaps.reduce((sum, { map }) => sum + (map.get(label) || 0), 0));
+    const sorted = labels.map((label, idx) => ({ label, total: totals[idx] })).sort((a, b) => b.total - a.total);
+    const categories = card.topN && card.topN > 0 ? sorted.slice(0, card.topN).map(x => x.label) : sorted.map(x => x.label);
+
+    const series = seriesMaps.map(({ def, map, color }) => ({
+      name: def.label || def.field || 'Series',
+      type: def.type || 'bar',
+      axis: def.axis || 'left',
+      color,
+      data: categories.map(label => map.get(label) || 0)
+    }));
+
+    const result = { categories, series };
+    console.log('✅ MultiAxisData: Final result:', result);
+    return result;
+  }, [card, salesData, generateCustomCardData, chartType]);
+
+  // Prepare data for geographic map visualization
+  const geoMapData = useMemo(() => {
+    if (chartType !== 'geoMap' || !cardData || cardData.length === 0) {
+      return null;
+    }
+    
+    return cardData.map(item => ({
+      name: item.name || item.label, // Region/pincode/country name
+      value: item.value,              // Aggregated value
+      percentage: item.percentage
+    }));
+  }, [chartType, cardData]);
+
+  // Detect if current card supports map visualization based on its groupBy field
+  const supportsMapVisualization = useMemo(() => {
+    const groupByLower = card.groupBy?.toLowerCase() || '';
+    
+    return {
+      isMapEligible: groupByLower.includes('pincode') || 
+                     groupByLower.includes('region') || 
+                     groupByLower.includes('state') || 
+                     groupByLower.includes('country'),
+      mapType: groupByLower.includes('pincode') ? 'pincode' :
+               groupByLower.includes('state') || groupByLower.includes('region') ? 'state' :
+               groupByLower.includes('country') ? 'country' : null
+    };
+  }, [card.groupBy]);
 
   // Map groupBy field to filter setter and current filter value
   // Memoize filterHandler to recalculate when card.groupBy or filter states change
@@ -15334,16 +20571,55 @@ const CustomCard = React.memo(({
           currentValue: selectedPeriod
         };
       } else if (card.dateGrouping === 'day') {
-        // For day grouping, convert label (YYYY-MM-DD) to month format (YYYY-MM) for setSelectedPeriod
+        // For day grouping, parse label (DD-MMM-YY format) back to YYYY-MM-DD and set dateRange for that specific day
         return {
           onClick: (label) => {
-            // Label format: "YYYY-MM-DD", convert to "YYYY-MM" for period filtering
-            const monthLabel = label.substring(0, 7); // Extract "YYYY-MM" from "YYYY-MM-DD"
-            setSelectedPeriod(monthLabel);
+            // Label format is "DD-MMM-YY" (e.g., "04-Apr-25") from formatDateForDisplay
+            // Parse it back to YYYY-MM-DD format for date range filtering
+            let parsedDate = null;
+            
+            // Try to parse the label using parseDateFromNewFormat
+            parsedDate = parseDateFromNewFormat(label);
+            if (parsedDate && /^\d{4}-\d{2}-\d{2}$/.test(parsedDate)) {
+              // Successfully parsed to YYYY-MM-DD, set dateRange for that specific day
+              // Set both start and end to the same date for single day filter
+              setDateRange({ start: parsedDate, end: parsedDate });
+              // Clear period filter when setting specific date range
+              setSelectedPeriod(null);
+              
+              console.log('📅 Date click - setting date range filter for specific day:', {
+                originalLabel: label,
+                parsedDate,
+                dateRange: { start: parsedDate, end: parsedDate }
+              });
+            } else {
+              // Fallback: try to parse as Date object
+              const dateObj = new Date(label);
+              if (!isNaN(dateObj.getTime())) {
+                const year = dateObj.getFullYear();
+                const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+                const day = String(dateObj.getDate()).padStart(2, '0');
+                parsedDate = `${year}-${month}-${day}`;
+                setDateRange({ start: parsedDate, end: parsedDate });
+                setSelectedPeriod(null);
+                
+                console.log('📅 Date click - setting date range filter (fallback):', {
+                  originalLabel: label,
+                  parsedDate,
+                  dateRange: { start: parsedDate, end: parsedDate }
+                });
+              } else {
+                console.warn('⚠️ Could not parse date label for date range filter:', label);
+                return; // Don't set date range if we can't parse the date
+              }
+            }
           },
-          onBackClick: () => setSelectedPeriod(null),
-          showBackButton: selectedPeriod !== null,
-          currentValue: selectedPeriod
+          onBackClick: () => {
+            // Reset date range to empty when clearing filter
+            setDateRange({ start: '', end: '' });
+          },
+          showBackButton: dateRange.start !== '' && dateRange.end !== '' && dateRange.start === dateRange.end,
+          currentValue: dateRange.start === dateRange.end && dateRange.start !== '' ? dateRange.start : null
         };
       } else if (card.dateGrouping === 'week') {
         // For week grouping, extract year-month from week label
@@ -15362,11 +20638,11 @@ const CustomCard = React.memo(({
           currentValue: selectedPeriod
         };
       } else if (card.dateGrouping === 'year') {
-        // For year grouping, convert to month format
+        // For year grouping, set year filter (format: "YYYY")
         return {
           onClick: (label) => {
-            // Label format: "YYYY", convert to "YYYY-01" for period filtering
-            setSelectedPeriod(`${label}-01`);
+            // Label format: "YYYY", use as-is for year filtering
+            setSelectedPeriod(label);
           },
           onBackClick: () => setSelectedPeriod(null),
           showBackButton: selectedPeriod !== null,
@@ -15379,6 +20655,74 @@ const CustomCard = React.memo(({
         onBackClick: () => setSelectedLedgerGroup('all'),
         showBackButton: selectedLedgerGroup !== 'all',
         currentValue: selectedLedgerGroup
+      };
+    } else if (groupByLower === 'month') {
+      // Handle month grouping (format: "Jan-25")
+      return {
+        onClick: (label) => {
+          // Convert "Jan-25" format to "YYYY-MM" format for period filtering
+          const monthMap = {
+            'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04', 'May': '05', 'Jun': '06',
+            'Jul': '07', 'Aug': '08', 'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+          };
+          const parts = label.split('-');
+          if (parts.length === 2) {
+            const monthAbbr = parts[0];
+            const yearShort = parts[1];
+            const monthNum = monthMap[monthAbbr];
+            if (monthNum) {
+              const fullYear = yearShort.length === 2 ? `20${yearShort}` : yearShort;
+              setSelectedPeriod(`${fullYear}-${monthNum}`);
+            }
+          }
+        },
+        onBackClick: () => setSelectedPeriod(null),
+        showBackButton: selectedPeriod !== null,
+        currentValue: selectedPeriod
+      };
+    } else if (groupByLower === 'year') {
+      // Handle year grouping - use year as-is (format: "YYYY")
+      return {
+        onClick: (label) => {
+          // Label format: "YYYY", use as-is for year filtering
+          setSelectedPeriod(label);
+        },
+        onBackClick: () => setSelectedPeriod(null),
+        showBackButton: selectedPeriod !== null,
+        currentValue: selectedPeriod
+      };
+    } else if (groupByLower === 'quarter') {
+      // Handle quarter grouping - store as quarter format (Q1-2024, Q2-2024, etc.)
+      return {
+        onClick: (label) => {
+          const match = label.match(/Q(\d)\s+(\d{4})/);
+          if (match) {
+            const quarter = parseInt(match[1]);
+            const year = match[2];
+            // Store as quarter format so filtering can match all 3 months
+            setSelectedPeriod(`Q${quarter}-${year}`);
+          }
+        },
+        onBackClick: () => setSelectedPeriod(null),
+        showBackButton: selectedPeriod !== null,
+        currentValue: selectedPeriod
+      };
+    } else if (groupByLower === 'week') {
+      // Handle week grouping - convert to approximate month
+      return {
+        onClick: (label) => {
+          const match = label.match(/Week\s+(\d+),\s+(\d{4})/);
+          if (match) {
+            const weekNum = parseInt(match[1]);
+            const year = match[2];
+            const approxMonth = Math.min(12, Math.ceil(weekNum / 4.33));
+            const monthStr = String(approxMonth).padStart(2, '0');
+            setSelectedPeriod(`${year}-${monthStr}`);
+          }
+        },
+        onBackClick: () => setSelectedPeriod(null),
+        showBackButton: selectedPeriod !== null,
+        currentValue: selectedPeriod
       };
     }
     
@@ -15453,6 +20797,37 @@ const CustomCard = React.memo(({
   // Helper function for case-insensitive field access (local to CustomCard)
   const getFieldValueLocal = (item, fieldName) => {
     if (!item || !fieldName) return null;
+    
+    // Handle derived fields that are computed from the date
+    if (fieldName === 'month' || fieldName === 'year' || fieldName === 'quarter' || fieldName === 'week') {
+      const dateValue = item.date || item.Date || item.DATE || 
+                       (Object.keys(item).find(k => k.toLowerCase() === 'date') ? 
+                        item[Object.keys(item).find(k => k.toLowerCase() === 'date')] : null);
+      
+      if (dateValue) {
+        const date = new Date(dateValue);
+        if (!isNaN(date.getTime())) {
+          if (fieldName === 'month') {
+            const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            return `${monthAbbr[date.getMonth()]}-${String(date.getFullYear()).slice(-2)}`;
+          } else if (fieldName === 'year') {
+            return String(date.getFullYear());
+          } else if (fieldName === 'quarter') {
+            const month = date.getMonth();
+            const quarter = Math.floor(month / 3) + 1;
+            return `Q${quarter} ${date.getFullYear()}`;
+          } else if (fieldName === 'week') {
+            const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+            const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+            const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+            return `Week ${weekNum}, ${date.getFullYear()}`;
+          }
+        }
+      }
+      return null;
+    }
+    
     if (item[fieldName] !== undefined) return item[fieldName];
     if (item[fieldName.toLowerCase()] !== undefined) return item[fieldName.toLowerCase()];
     if (item[fieldName.toUpperCase()] !== undefined) return item[fieldName.toUpperCase()];
@@ -15549,25 +20924,104 @@ const CustomCard = React.memo(({
 
       // Then check if sale matches the chart entry filter
       if (card.groupBy === 'date') {
+        // Handle "Unknown" case - match sales with invalid/missing dates
+        if (itemLabel === 'Unknown') {
+          const saleDate = getFieldValueLocal(sale, 'cp_date') || getFieldValueLocal(sale, 'date');
+          if (!saleDate) return true; // Missing date matches Unknown
+          
+          // Try to normalize and parse the date
+          let normalizedDate = saleDate;
+          const parsed = parseDateFromNewFormat(saleDate) || parseDateFromAPI(saleDate);
+          if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+            normalizedDate = parsed;
+          } else if (typeof saleDate === 'string' && saleDate.length === 8 && /^\d+$/.test(saleDate)) {
+            normalizedDate = `${saleDate.substring(0, 4)}-${saleDate.substring(4, 6)}-${saleDate.substring(6, 8)}`;
+          } else if (typeof saleDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+            normalizedDate = saleDate;
+          } else {
+            const directDate = new Date(saleDate);
+            if (!isNaN(directDate.getTime())) {
+              const year = directDate.getFullYear();
+              const month = String(directDate.getMonth() + 1).padStart(2, '0');
+              const day = String(directDate.getDate()).padStart(2, '0');
+              normalizedDate = `${year}-${month}-${day}`;
+            }
+          }
+          
+          // If date is invalid or can't be normalized, it matches Unknown
+          if (!normalizedDate || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+            return true;
+          }
+          const date = new Date(normalizedDate);
+          if (isNaN(date.getTime())) {
+            return true; // Invalid date matches Unknown
+          }
+          return false; // Valid date doesn't match Unknown
+        }
+        
+        // For valid date labels, normalize the sale date and compare
         const saleDate = getFieldValueLocal(sale, 'cp_date') || getFieldValueLocal(sale, 'date');
         if (!saleDate) return false;
-        const date = new Date(saleDate);
-        if (isNaN(date.getTime())) return false;
+        
+        // Normalize date to YYYY-MM-DD format (same as grouping logic)
+        let normalizedDate = saleDate;
+        const parsed = parseDateFromNewFormat(saleDate) || parseDateFromAPI(saleDate);
+        if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+          normalizedDate = parsed;
+        } else if (typeof saleDate === 'string' && saleDate.length === 8 && /^\d+$/.test(saleDate)) {
+          normalizedDate = `${saleDate.substring(0, 4)}-${saleDate.substring(4, 6)}-${saleDate.substring(6, 8)}`;
+        } else if (typeof saleDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+          normalizedDate = saleDate;
+        } else {
+          const directDate = new Date(saleDate);
+          if (!isNaN(directDate.getTime())) {
+            const year = directDate.getFullYear();
+            const month = String(directDate.getMonth() + 1).padStart(2, '0');
+            const day = String(directDate.getDate()).padStart(2, '0');
+            normalizedDate = `${year}-${month}-${day}`;
+          }
+        }
+        
+        if (!normalizedDate || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+          return false; // Invalid date doesn't match any valid date label
+        }
+        
+        const date = new Date(normalizedDate);
+        if (isNaN(date.getTime())) {
+          return false;
+        }
+        
         let groupKey = '';
         if (card.dateGrouping === 'day') {
-          groupKey = saleDate;
+          // Use normalized YYYY-MM-DD format for comparison
+          groupKey = normalizedDate;
+          // But itemLabel is in DD-MMM-YY format, so we need to convert it back
+          const parsedLabel = parseDateFromNewFormat(itemLabel);
+          if (parsedLabel && /^\d{4}-\d{2}-\d{2}$/.test(parsedLabel)) {
+            return parsedLabel === groupKey;
+          }
+          // Fallback: try direct comparison
+          return groupKey === itemLabel || formatDateForDisplay(groupKey) === itemLabel;
         } else if (card.dateGrouping === 'week') {
           const weekStart = new Date(date);
           weekStart.setDate(date.getDate() - date.getDay());
           groupKey = `${weekStart.getFullYear()}-W${Math.ceil((weekStart.getDate() + 6) / 7)}`;
+          return groupKey === itemLabel;
         } else if (card.dateGrouping === 'month') {
           groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+          return groupKey === itemLabel;
         } else if (card.dateGrouping === 'year') {
           groupKey = String(date.getFullYear());
+          return groupKey === itemLabel;
         } else {
-          groupKey = saleDate;
+          // Default to day grouping
+          groupKey = normalizedDate;
+          const parsedLabel = parseDateFromNewFormat(itemLabel);
+          if (parsedLabel && /^\d{4}-\d{2}-\d{2}$/.test(parsedLabel)) {
+            return parsedLabel === groupKey;
         }
-        return groupKey === itemLabel;
+          return groupKey === itemLabel || formatDateForDisplay(groupKey) === itemLabel;
+        }
       } else if (card.groupBy === 'profit_margin') {
         const amount = parseFloat(getFieldValueLocal(sale, 'amount') || 0);
         const profit = parseFloat(getFieldValueLocal(sale, 'profit') || 0);
@@ -15582,6 +21036,11 @@ const CustomCard = React.memo(({
         else if (value < 50000) range = '₹10K - ₹50K';
         else range = '> ₹50K';
         return range === itemLabel;
+      } else if (card.groupBy === 'month' || card.groupBy === 'year' || card.groupBy === 'quarter' || card.groupBy === 'week') {
+        // Handle derived date fields
+        const computedValue = getFieldValueLocal(sale, card.groupBy);
+        if (!computedValue || !itemLabel) return false;
+        return String(computedValue).trim().toLowerCase() === String(itemLabel).trim().toLowerCase();
       } else {
         // Case-insensitive matching for string fields
         const fieldValue = getFieldValueLocal(sale, card.groupBy);
@@ -15643,7 +21102,20 @@ const CustomCard = React.memo(({
         >
           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
         </button>
-        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+        <h3 
+          onClick={() => openFullscreenCard('custom', card.title, card.id)}
+          style={{ 
+            margin: 0, 
+            fontSize: '16px', 
+            fontWeight: '600', 
+            color: '#1e293b',
+            cursor: 'pointer',
+            transition: 'color 0.2s ease'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+          onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+          title="Click to open in fullscreen"
+        >
           {card.title} (Custom Card)
         </h3>
         {renderCardFilterBadges('custom', card.id)}
@@ -15665,6 +21137,10 @@ const CustomCard = React.memo(({
           <option value="pie">Pie</option>
           <option value="treemap">Tree Map</option>
           <option value="line">Line</option>
+          <option value="multiAxis">Multi Axis</option>
+          {supportsMapVisualization.isMapEligible && (
+            <option value="geoMap">Geographic Map</option>
+          )}
         </select>
         {onEdit && (
           <button
@@ -15726,26 +21202,43 @@ const CustomCard = React.memo(({
     </div>
   );
 
+  // Determine if we should show the card
+  const shouldShowCard = chartType === 'multiAxis' 
+    ? (multiAxisData && multiAxisData.series && multiAxisData.series.length > 0)
+    : (cardData.length > 0);
+
+  console.log('🎯 CustomCard Render Decision:', {
+    cardId: card.id,
+    cardTitle: card.title,
+    chartType,
+    shouldShowCard,
+    cardDataLength: cardData.length,
+    hasMultiAxisData: !!multiAxisData,
+    multiAxisSeriesCount: multiAxisData?.series?.length
+  });
+
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
-      height: isMobile ? '400px' : '550px',
-      maxHeight: isMobile ? '400px' : '550px',
-      minHeight: isMobile ? '350px' : '500px',
+      height: '500px',
+      maxHeight: '500px',
+      minHeight: '500px',
       overflow: 'hidden',
       position: 'relative',
       width: '100%',
       maxWidth: '100%',
       minWidth: 0
     }}>
-      {cardData.length > 0 ? (
+      {shouldShowCard ? (
         <>
           {chartType === 'bar' && (
             <BarChart
               data={cardData}
               customHeader={customHeader}
               valuePrefix={valuePrefix}
+              formatValue={formatChartValue}
+              stacked={card.enableStacking || false}
               onBarClick={(label) => {
                 console.log('🔵 Custom card bar click:', { cardTitle: card.title, label, groupBy: card.groupBy, hasHandler: !!filterHandler });
                 filterHandler?.onClick?.(label);
@@ -15762,11 +21255,114 @@ const CustomCard = React.memo(({
               }}
             />
           )}
+          {(() => {
+            console.log('🎨 Render check for multiAxis:', {
+              chartType,
+              isMultiAxis: chartType === 'multiAxis',
+              hasMultiAxisData: !!multiAxisData,
+              multiAxisData
+            });
+            return null;
+          })()}
+          {chartType === 'multiAxis' && multiAxisData && (
+            <div style={{
+              background: 'white',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                padding: '12px 16px',
+                flexShrink: 0
+              }}>
+                {customHeader}
+              </div>
+              <div style={{ 
+                flex: 1, 
+                minHeight: 0, 
+                padding: isMobile ? '8px' : '12px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden'
+              }}>
+                <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+                  <MultiAxisChart
+                    categories={multiAxisData.categories}
+                    series={multiAxisData.series}
+                    isMobile={isMobile}
+                    height={isMobile ? 340 : 450}
+                    onCategoryClick={(category) => {
+                      console.log('🔵 Custom card multi-axis click:', { cardTitle: card.title, category, groupBy: card.groupBy, hasHandler: !!filterHandler });
+                      filterHandler?.onClick?.(category);
+                    }}
+                    onBackClick={() => {
+                      console.log('🔵 Custom card multi-axis back click:', { cardTitle: card.title, groupBy: card.groupBy });
+                      filterHandler?.onBackClick?.();
+                    }}
+                    showBackButton={filterHandler?.showBackButton || false}
+                    formatValue={formatChartValue}
+                    formatCompactValue={formatChartCompactValue}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          {chartType === 'geoMap' && geoMapData && (
+            <div style={{
+              background: 'white',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                padding: '12px 16px',
+                flexShrink: 0
+              }}>
+                {customHeader}
+              </div>
+              <div style={{ 
+                flex: 1, 
+                minHeight: 0, 
+                padding: isMobile ? '8px' : '12px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden'
+              }}>
+                <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+                  <GeoMapChart
+                    mapType={supportsMapVisualization.mapType}
+                    chartSubType={card.mapSubType || 'choropleth'}
+                    data={geoMapData}
+                    height={isMobile ? 340 : 450}
+                    isMobile={isMobile}
+                    onRegionClick={(regionName) => {
+                      console.log('🗺️ Custom card map click:', { cardTitle: card.title, regionName, groupBy: card.groupBy, hasHandler: !!filterHandler });
+                      filterHandler?.onClick?.(regionName);
+                    }}
+                    onBackClick={() => {
+                      console.log('🗺️ Custom card map back click:', { cardTitle: card.title, groupBy: card.groupBy });
+                      filterHandler?.onBackClick?.();
+                    }}
+                    showBackButton={filterHandler?.showBackButton || false}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
           {chartType === 'pie' && (
             <PieChart
               data={cardData}
               customHeader={customHeader}
               valuePrefix={valuePrefix}
+              formatValue={formatChartValue}
               onSliceClick={(label) => {
                 console.log('🔵 Custom card pie click:', { cardTitle: card.title, label, groupBy: card.groupBy, hasHandler: !!filterHandler });
                 filterHandler?.onClick?.(label);
@@ -15809,6 +21405,8 @@ const CustomCard = React.memo(({
               data={cardData}
               customHeader={customHeader}
               valuePrefix={valuePrefix}
+              formatValue={formatChartValue}
+              formatCompactValue={formatChartCompactValue}
               onPointClick={(label) => {
                 console.log('🔵 Custom card line click:', { cardTitle: card.title, label, groupBy: card.groupBy, hasHandler: !!filterHandler });
                 filterHandler?.onClick?.(label);
@@ -15832,15 +21430,13 @@ const CustomCard = React.memo(({
           borderRadius: '12px',
           border: '1px solid #e2e8f0',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          height: isMobile ? '400px' : '550px',
-          minHeight: isMobile ? '350px' : '500px',
+          height: '500px',
           display: 'flex',
           flexDirection: 'column'
         }}>
           {customHeader && (
             <div style={{ 
-              padding: '16px 20px',
-              borderBottom: '2px solid #e2e8f0'
+              padding: '16px 20px'
             }}>
               {customHeader}
             </div>

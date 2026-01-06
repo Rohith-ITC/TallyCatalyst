@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 
-const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton, rowAction, customHeader }) => {
+const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton, rowAction, customHeader, stacked = false }) => {
   const [isMobile, setIsMobile] = React.useState(window.innerWidth <= 768);
-
+  const [hoveredSegment, setHoveredSegment] = useState(null);
+  
   React.useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 768);
@@ -87,7 +88,24 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
     );
   }
 
-  const maxValue = Math.max(...data.map(d => d.value));
+  // Calculate max value based on whether it's stacked or not
+  const maxValue = stacked 
+    ? Math.max(...data.map(d => d.segments?.reduce((sum, seg) => sum + seg.value, 0) || d.value || 0))
+    : Math.max(...data.map(d => d.value));
+
+  // Color palette for stacked segments
+  const segmentColors = [
+    'linear-gradient(90deg, #4ade80 0%, #22c55e 100%)', // Green
+    'linear-gradient(90deg, #3b82f6 0%, #2563eb 100%)', // Blue
+    'linear-gradient(90deg, #f59e0b 0%, #d97706 100%)', // Amber
+    'linear-gradient(90deg, #8b5cf6 0%, #7c3aed 100%)', // Purple
+    'linear-gradient(90deg, #ec4899 0%, #db2777 100%)', // Pink
+    'linear-gradient(90deg, #06b6d4 0%, #0891b2 100%)', // Cyan
+    'linear-gradient(90deg, #84cc16 0%, #65a30d 100%)', // Lime
+    'linear-gradient(90deg, #f97316 0%, #ea580c 100%)', // Orange
+    'linear-gradient(90deg, #6366f1 0%, #4f46e5 100%)', // Indigo
+    'linear-gradient(90deg, #14b8a6 0%, #0d9488 100%)', // Teal
+  ];
 
 
   return (
@@ -176,9 +194,9 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          gap: isMobile ? '12px' : '16px'
+          gap: isMobile ? '6px' : '8px'
         }}>
-          {data.map((item) => (
+          {data.map((item, itemIndex) => (
             <div
               key={item.label}
               onClick={() => onBarClick?.(item.label)}
@@ -188,7 +206,8 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                 gap: isMobile ? '12px' : '16px',
                 cursor: onBarClick ? 'pointer' : 'default',
                 transition: 'all 0.2s ease',
-                padding: isMobile ? '4px 0' : '6px 0'
+                padding: isMobile ? '2px 0' : '3px 0',
+                position: 'relative'
               }}
               onMouseEnter={(e) => {
                 if (onBarClick) {
@@ -220,43 +239,121 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
               <div style={{
                 flex: 1,
                 position: 'relative',
-                height: isMobile ? '28px' : '32px',
+                height: isMobile ? '20px' : '14px',
                 display: 'flex',
-                alignItems: 'center'
+                alignItems: 'center',
+                overflow: 'visible'
               }}>
                 {/* Background bar */}
                 <div style={{
                   position: 'absolute',
                   left: 0,
                   right: 0,
-                  height: isMobile ? '28px' : '32px',
+                  height: isMobile ? '20px' : '14px',
                   background: '#f1f5f9',
-                  borderRadius: '8px'
+                  borderRadius: '6px'
                 }} />
                 
-                {/* Filled bar */}
-                <div style={{
-                  position: 'relative',
-                  height: isMobile ? '28px' : '32px',
-                  width: `${(item.value / maxValue) * 100}%`,
-                  background: 'linear-gradient(90deg, #4ade80 0%, #22c55e 100%)',
-                  borderRadius: '8px',
-                  transition: 'all 0.5s ease-out',
-                  boxShadow: '0 2px 4px rgba(34, 197, 94, 0.2)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'flex-end',
-                  paddingRight: '12px'
-                }}>
-                  <span style={{
-                    fontSize: isMobile ? '11px' : '12px',
-                    fontWeight: '600',
-                    color: 'white',
-                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                {/* Filled bar - stacked or single */}
+                {stacked && item.segments && item.segments.length > 0 ? (
+                  <div style={{
+                    position: 'relative',
+                    height: isMobile ? '20px' : '14px',
+                    width: `${((item.segments.reduce((sum, seg) => sum + seg.value, 0)) / maxValue) * 100}%`,
+                    display: 'flex',
+                    borderRadius: '6px',
+                    overflow: 'visible'
                   }}>
-                    {valuePrefix}{(item.value / 10000000).toFixed(2)}M
-                  </span>
-                </div>
+                    {item.segments.map((segment, segIndex) => {
+                      const segmentTotal = item.segments.reduce((sum, seg) => sum + seg.value, 0);
+                      const segmentWidth = segmentTotal > 0 ? (segment.value / segmentTotal) * 100 : 0;
+                      const colorIndex = segIndex % segmentColors.length;
+                      const isFirst = segIndex === 0;
+                      const isLast = segIndex === item.segments.length - 1;
+                      const isHovered = hoveredSegment?.itemIndex === itemIndex && hoveredSegment?.segIndex === segIndex;
+                      
+                      // Calculate segment center position
+                      let segmentLeftPercent = 0;
+                      for (let i = 0; i < segIndex; i++) {
+                        segmentLeftPercent += (item.segments[i].value / segmentTotal) * 100;
+                      }
+                      const segmentCenterPercent = segmentLeftPercent + (segmentWidth / 2);
+                      
+                      return (
+                        <React.Fragment key={segIndex}>
+                          <div
+                            style={{
+                              width: `${segmentWidth}%`,
+                              height: '100%',
+                              background: segmentColors[colorIndex],
+                              transition: 'all 0.5s ease-out',
+                              boxShadow: segIndex === 0 ? '0 2px 4px rgba(0, 0, 0, 0.15)' : 'none',
+                              borderTopLeftRadius: isFirst ? '6px' : '0',
+                              borderBottomLeftRadius: isFirst ? '6px' : '0',
+                              borderTopRightRadius: isLast ? '6px' : '0',
+                              borderBottomRightRadius: isLast ? '6px' : '0',
+                              borderRight: segIndex < item.segments.length - 1 ? '1px solid rgba(255, 255, 255, 0.3)' : 'none',
+                              position: 'relative',
+                              cursor: 'pointer',
+                              zIndex: isHovered ? 10 : 1
+                            }}
+                            onMouseEnter={() => setHoveredSegment({ itemIndex, segIndex })}
+                            onMouseLeave={() => setHoveredSegment(null)}
+                          />
+                          {/* Tooltip positioned relative to the bar container */}
+                          {isHovered && (
+                            <div style={{
+                              position: 'absolute',
+                              bottom: '100%',
+                              left: `${segmentCenterPercent}%`,
+                              transform: 'translateX(-50%)',
+                              marginBottom: '8px',
+                              padding: '6px 10px',
+                              background: '#1e293b',
+                              color: 'white',
+                              borderRadius: '6px',
+                              fontSize: isMobile ? '11px' : '12px',
+                              fontWeight: '500',
+                              whiteSpace: 'nowrap',
+                              zIndex: 1000,
+                              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
+                              pointerEvents: 'none'
+                            }}>
+                              <div style={{ marginBottom: '2px', fontWeight: '600' }}>
+                                {segment.label || `Segment ${segIndex + 1}`}
+                              </div>
+                              <div style={{ fontSize: isMobile ? '10px' : '11px', opacity: 0.9 }}>
+                                {`${valuePrefix}${(segment.value / 10000000).toFixed(2)}M`}
+                              </div>
+                              {/* Tooltip arrow */}
+                              <div style={{
+                                position: 'absolute',
+                                top: '100%',
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                width: 0,
+                                height: 0,
+                                borderLeft: '6px solid transparent',
+                                borderRight: '6px solid transparent',
+                                borderTop: '6px solid #1e293b'
+                              }} />
+                            </div>
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{
+                    position: 'relative',
+                    height: isMobile ? '20px' : '14px',
+                    width: `${(item.value / maxValue) * 100}%`,
+                    background: 'linear-gradient(90deg, #4ade80 0%, #22c55e 100%)',
+                    borderRadius: '6px',
+                    transition: 'all 0.5s ease-out',
+                    boxShadow: '0 2px 4px rgba(34, 197, 94, 0.2)'
+                  }} />
+                )}
               </div>
 
               {/* Value */}
@@ -271,7 +368,11 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                 justifyContent: 'flex-end',
                 gap: '8px'
               }}>
-                <span>{valuePrefix}{(item.value / 10000000).toFixed(2)}M</span>
+                <span>
+                  {stacked && item.segments && item.segments.length > 0
+                    ? `${valuePrefix}${(item.segments.reduce((sum, seg) => sum + seg.value, 0) / 10000000).toFixed(2)}M`
+                    : `${valuePrefix}${(item.value / 10000000).toFixed(2)}M`}
+                </span>
                 {rowAction && (
                   <button
                     type="button"

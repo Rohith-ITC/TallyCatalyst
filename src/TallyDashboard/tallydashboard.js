@@ -7,7 +7,7 @@ import Header from '../components/Header';
 import Ledgerbook from './Ledgerbook';
 import PlaceOrder from './PlaceOrder';
 import PlaceOrder_ECommerce from './PlaceOrder_ECommerce';
-import SalesDashboard from './salesdashboard';
+import SalesDashboard from './salesdashboard/SalesDashboard';
 import ReceivablesDashboard from '../RecvDashboard';
 import VoucherAuthorization from './vchauth';
 import ReceiptListScreenWrapper from './ReceiptListScreenWrapper';
