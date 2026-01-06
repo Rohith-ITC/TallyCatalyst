@@ -13,10 +13,6 @@ import {
   ResponsiveContainer,
   Treemap,
   Tooltip as RechartsTooltip,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
 } from 'recharts';
 import { Tooltip } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -37,13 +33,10 @@ import ResumeDownloadModal from '../components/ResumeDownloadModal';
 const SalesDashboard = ({ onNavigationAttempt }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   
   useEffect(() => {
     const handleResize = () => {
-      const width = window.innerWidth;
-      setIsMobile(width <= 768);
-      setWindowWidth(width);
+      setIsMobile(window.innerWidth <= 768);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -2621,229 +2614,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     avgProfitPerOrder
   } = metrics;
 
-  // Helper function to get date from sale
-  const getSaleDate = (sale) => {
-    const dateStr = sale.cp_date || sale.date;
-    if (!dateStr) return null;
-    const date = new Date(dateStr);
-    return isNaN(date.getTime()) ? null : date;
-  };
-
-  // Helper function to format date as YYYY-MM-DD for grouping
-  const formatDateKey = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  // Calculate daily trend data for Total Revenue
-  const revenueTrendData = useMemo(() => {
-    const dailyData = new Map();
-    
-    filteredSales.forEach(sale => {
-      const date = getSaleDate(sale);
-      if (!date) return;
-      
-      const dateKey = formatDateKey(date);
-      const current = dailyData.get(dateKey) || 0;
-      dailyData.set(dateKey, current + (sale.amount || 0));
-    });
-    
-    // Convert to array and sort by date
-    const sortedData = Array.from(dailyData.entries())
-      .map(([date, value]) => ({ date, value }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-    
-    // Ensure we have at least a few data points for visualization
-    if (sortedData.length === 0) {
-      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
-    }
-    
-    return sortedData;
-  }, [filteredSales]);
-
-  // Calculate daily trend data for Total Invoices
-  const invoiceTrendData = useMemo(() => {
-    const dailyData = new Map();
-    
-    filteredSalesForOrders.forEach(sale => {
-      const date = getSaleDate(sale);
-      if (!date) return;
-      
-      const dateKey = formatDateKey(date);
-      const orderSet = dailyData.get(dateKey) || new Set();
-      orderSet.add(sale.masterid);
-      dailyData.set(dateKey, orderSet);
-    });
-    
-    // Convert to array and sort by date
-    const sortedData = Array.from(dailyData.entries())
-      .map(([date, orderSet]) => ({ date, value: orderSet.size }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-    
-    if (sortedData.length === 0) {
-      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
-    }
-    
-    return sortedData;
-  }, [filteredSalesForOrders]);
-
-  // Calculate daily trend data for Unique Customers (cumulative unique customers per day)
-  const customerTrendData = useMemo(() => {
-    const dailyData = new Map();
-    const seenCustomers = new Set();
-    
-    // Sort sales by date first
-    const sortedSales = [...filteredSales].sort((a, b) => {
-      const dateA = getSaleDate(a);
-      const dateB = getSaleDate(b);
-      if (!dateA || !dateB) return 0;
-      return dateA - dateB;
-    });
-    
-    sortedSales.forEach(sale => {
-      const date = getSaleDate(sale);
-      if (!date || !sale.customer) return;
-      
-      const dateKey = formatDateKey(date);
-      if (!seenCustomers.has(sale.customer)) {
-        seenCustomers.add(sale.customer);
-        const current = dailyData.get(dateKey) || 0;
-        dailyData.set(dateKey, current + 1);
-      }
-    });
-    
-    // Convert to cumulative counts
-    let cumulative = 0;
-    const sortedData = Array.from(dailyData.entries())
-      .map(([date, newCustomers]) => {
-        cumulative += newCustomers;
-        return { date, value: cumulative };
-      })
-      .sort((a, b) => a.date.localeCompare(b.date));
-    
-    if (sortedData.length === 0) {
-      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
-    }
-    
-    return sortedData;
-  }, [filteredSales]);
-
-  // Calculate daily trend data for Avg Invoice Value
-  const avgInvoiceTrendData = useMemo(() => {
-    const dailyData = new Map();
-    
-    filteredSalesForOrders.forEach(sale => {
-      const date = getSaleDate(sale);
-      if (!date) return;
-      
-      const dateKey = formatDateKey(date);
-      const existing = dailyData.get(dateKey) || { total: 0, count: 0 };
-      existing.total += (sale.amount || 0);
-      existing.count += 1;
-      dailyData.set(dateKey, existing);
-    });
-    
-    // Convert to array with averages
-    const sortedData = Array.from(dailyData.entries())
-      .map(([date, { total, count }]) => ({ 
-        date, 
-        value: count > 0 ? total / count : 0 
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-    
-    if (sortedData.length === 0) {
-      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
-    }
-    
-    return sortedData;
-  }, [filteredSalesForOrders]);
-
-  // Calculate daily trend data for Total Profit
-  const profitTrendData = useMemo(() => {
-    const dailyData = new Map();
-    
-    filteredSales.forEach(sale => {
-      const date = getSaleDate(sale);
-      if (!date) return;
-      
-      const dateKey = formatDateKey(date);
-      const current = dailyData.get(dateKey) || 0;
-      dailyData.set(dateKey, current + (sale.profit || 0));
-    });
-    
-    const sortedData = Array.from(dailyData.entries())
-      .map(([date, value]) => ({ date, value }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-    
-    if (sortedData.length === 0) {
-      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
-    }
-    
-    return sortedData;
-  }, [filteredSales]);
-
-  // Calculate daily trend data for Profit Margin
-  const profitMarginTrendData = useMemo(() => {
-    const dailyData = new Map();
-    
-    filteredSales.forEach(sale => {
-      const date = getSaleDate(sale);
-      if (!date) return;
-      
-      const dateKey = formatDateKey(date);
-      const existing = dailyData.get(dateKey) || { revenue: 0, profit: 0 };
-      existing.revenue += (sale.amount || 0);
-      existing.profit += (sale.profit || 0);
-      dailyData.set(dateKey, existing);
-    });
-    
-    // Convert to array with profit margins
-    const sortedData = Array.from(dailyData.entries())
-      .map(([date, { revenue, profit }]) => ({ 
-        date, 
-        value: revenue > 0 ? (profit / revenue) * 100 : 0 
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-    
-    if (sortedData.length === 0) {
-      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
-    }
-    
-    return sortedData;
-  }, [filteredSales]);
-
-  // Calculate daily trend data for Avg Profit per Order
-  const avgProfitTrendData = useMemo(() => {
-    const dailyData = new Map();
-    
-    filteredSalesForOrders.forEach(sale => {
-      const date = getSaleDate(sale);
-      if (!date) return;
-      
-      const dateKey = formatDateKey(date);
-      const existing = dailyData.get(dateKey) || { totalProfit: 0, count: 0 };
-      existing.totalProfit += (sale.profit || 0);
-      existing.count += 1;
-      dailyData.set(dateKey, existing);
-    });
-    
-    // Convert to array with averages
-    const sortedData = Array.from(dailyData.entries())
-      .map(([date, { totalProfit, count }]) => ({ 
-        date, 
-        value: count > 0 ? totalProfit / count : 0 
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-    
-    if (sortedData.length === 0) {
-      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
-    }
-    
-    return sortedData;
-  }, [filteredSalesForOrders]);
-
   // Function to get all card titles organized by sections
   const getCardTitlesBySection = useCallback(() => {
     const keyMetrics = [];
@@ -4915,8 +4685,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           if (!isNaN(date.getTime())) {
             const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
                               'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            groupKey = `${monthAbbr[date.getMonth()]}-${String(date.getFullYear()).slice(-2)}`;
-            originalKey = groupKey;
+            // Display format: "Nov-25"
+            originalKey = `${monthAbbr[date.getMonth()]}-${String(date.getFullYear()).slice(-2)}`;
+            // Sortable format: "2025-11" for chronological sorting
+            groupKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
           } else {
             groupKey = 'Unknown';
             originalKey = 'Unknown';
@@ -4949,8 +4721,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           if (!isNaN(date.getTime())) {
             const month = date.getMonth();
             const quarter = Math.floor(month / 3) + 1;
-            groupKey = `Q${quarter} ${date.getFullYear()}`;
-            originalKey = groupKey;
+            // Display format: "Q1 2025"
+            originalKey = `Q${quarter} ${date.getFullYear()}`;
+            // Sortable format: "2025-1" for chronological sorting
+            groupKey = `${date.getFullYear()}-${quarter}`;
           } else {
             groupKey = 'Unknown';
             originalKey = 'Unknown';
@@ -4969,8 +4743,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
             const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
             const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
-            groupKey = `Week ${weekNum}, ${date.getFullYear()}`;
-            originalKey = groupKey;
+            // Display format: "Week 1, 2025"
+            originalKey = `Week ${weekNum}, ${date.getFullYear()}`;
+            // Sortable format: "2025-W01" for chronological sorting
+            groupKey = `${date.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
           } else {
             groupKey = 'Unknown';
             originalKey = 'Unknown';
@@ -4993,12 +4769,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         grouped[groupKey] = { 
           items: [], 
           originalKey: originalKey,
+          sortKey: groupKey, // Store sortKey for time-based fields (month, year, quarter, week)
           // Initialize segments if stacking is enabled
           segments: cardConfig.enableStacking && cardConfig.segmentBy ? {} : null
         };
       } else {
         // For case-insensitive fields, keep the most common casing (use first encountered)
-        if (cardConfig.groupBy !== 'date' && cardConfig.groupBy !== 'profit_margin' && cardConfig.groupBy !== 'order_value') {
+        if (cardConfig.groupBy !== 'date' && cardConfig.groupBy !== 'profit_margin' && cardConfig.groupBy !== 'order_value' && 
+            cardConfig.groupBy !== 'month' && cardConfig.groupBy !== 'year' && cardConfig.groupBy !== 'quarter' && cardConfig.groupBy !== 'week') {
           if (grouped[groupKey].originalKey === 'Unknown' && originalKey !== 'Unknown') {
             grouped[groupKey].originalKey = originalKey;
           }
@@ -5278,11 +5056,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         label: displayKey, // Use original key for display (preserves casing)
         value: segments ? segments.reduce((sum, s) => sum + s.value, 0) : value,
         segments: segments, // Add segments array
-        sortKey: key // Store the groupKey for sorting (especially useful for dates in YYYY-MM-DD format)
+        sortKey: groupData.sortKey || key // Store the sortKey for sorting (especially useful for dates and time-based fields)
       };
     });
 
-    // Sort results - chronologically for dates, by value for others
+    // Sort results - chronologically for dates and time-based fields, by value for others
     if (cardConfig.groupBy === 'date') {
       // Sort dates chronologically (oldest first)
       result.sort((a, b) => {
@@ -5313,9 +5091,33 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           return a.sortKey.localeCompare(b.sortKey);
         }
       });
+    } else if (cardConfig.groupBy === 'month' || cardConfig.groupBy === 'year' || 
+               cardConfig.groupBy === 'quarter' || cardConfig.groupBy === 'week') {
+      // Sort time-based fields chronologically (oldest first)
+      result.sort((a, b) => {
+        // Handle 'Unknown' - put it at the end
+        if (a.sortKey === 'Unknown') return 1;
+        if (b.sortKey === 'Unknown') return -1;
+        
+        // Use sortKey which is in standardized format for proper sorting
+        if (cardConfig.groupBy === 'month') {
+          // Format: YYYY-MM - can use string comparison
+          return a.sortKey.localeCompare(b.sortKey);
+        } else if (cardConfig.groupBy === 'year') {
+          // Format: YYYY - compare as numbers
+          return parseInt(a.sortKey) - parseInt(b.sortKey);
+        } else if (cardConfig.groupBy === 'quarter') {
+          // Format: YYYY-Q - can use string comparison
+          return a.sortKey.localeCompare(b.sortKey);
+        } else if (cardConfig.groupBy === 'week') {
+          // Format: YYYY-WN - can use string comparison
+          return a.sortKey.localeCompare(b.sortKey);
+        }
+        return 0;
+      });
     } else {
-      // Sort by value (descending) for non-date fields
-    result.sort((a, b) => b.value - a.value);
+      // Sort by value (descending) for non-date and non-time-based fields
+      result.sort((a, b) => b.value - a.value);
     }
 
     // Extended color palette for custom cards (same as other charts)
@@ -8269,9 +8071,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         {/* Header */}
         <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
         <div style={{
-            padding: isMobile ? '16px 20px' : '10px 20px',
+            padding: isMobile ? '16px 20px' : '20px 28px',
           borderBottom: 'none',
-          background: '#1e3a8a',
+          background: 'linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #60a5fa 100%)',
           borderRadius: '16px',
           position: 'relative',
           marginBottom: isMobile ? '16px' : '28px',
@@ -8314,6 +8116,57 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 }}>
                   Sales Analytics Dashboard
                 </h1>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+                  <p style={{
+                    margin: 0,
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    fontSize: '13px',
+                    fontWeight: '400',
+                    lineHeight: '1.4'
+                  }}>
+                    Comprehensive sales insights
+                  </p>
+                  {/* Date Range Badge */}
+                  {fromDate && toDate && (
+                    <div style={{
+                      display: 'inline-flex',
+                      background: 'rgba(255, 255, 255, 0.25)',
+                      backdropFilter: 'blur(10px)',
+                      color: 'white',
+                      padding: '5px 14px',
+                      borderRadius: '20px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                      border: '1px solid rgba(255, 255, 255, 0.3)'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
+                      {formatDateRangeForHeader(fromDate, toDate)}
+                    </div>
+                  )}
+                  {/* Records Available Badge */}
+                  <div style={{
+                    display: 'inline-flex',
+                    background: 'rgba(255, 255, 255, 0.25)',
+                    backdropFilter: 'blur(10px)',
+                    color: 'white',
+                    padding: '5px 14px',
+                    borderRadius: '20px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    alignItems: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.3)'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: '16px' }}>bar_chart</span>
+                    {filteredSales.length} records
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -8340,19 +8193,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     : '#22c55e',
                   color: sales.length === 0 ? '#9ca3af' : '#fff',
                   border: 'none',
-                  borderRadius: '8px',
-                  padding: '6px 14px',
+                  borderRadius: '10px',
+                  padding: '11px 18px',
                   cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '8px',
                   fontSize: '13px',
                   fontWeight: '600',
                   transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                   whiteSpace: 'nowrap',
                   justifyContent: 'center',
                   width: '100%',
-                  height: '32px',
                   boxShadow: sales.length === 0 ? 'none' : '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)'
                 }}
                 onMouseEnter={(e) => {
@@ -8370,7 +8222,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }
                 }}
               >
-                <span className="material-icons" style={{ fontSize: '16px' }}>add_chart</span>
+                <span className="material-icons" style={{ fontSize: '18px' }}>add_chart</span>
                 <span>Create Custom Card</span>
               </button>
 
@@ -8382,12 +8234,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 style={{
                   background: '#7c3aed',
                   border: 'none',
-                  borderRadius: '8px',
-                  padding: '6px 14px',
+                  borderRadius: '10px',
+                  padding: '11px 18px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '8px',
                   color: '#fff',
                   fontSize: '13px',
                   fontWeight: '600',
@@ -8395,7 +8247,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   justifyContent: 'center',
                   whiteSpace: 'nowrap',
                   width: '100%',
-                  height: '32px',
                   boxShadow: '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)'
                 }}
                 onMouseEnter={(e) => {
@@ -8409,8 +8260,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   e.target.style.transform = 'translateY(0)';
                 }}
               >
-                <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromDate && toDate ? formatDateRangeForHeader(fromDate, toDate) : 'Date Range'}</span>
+                <span className="material-icons" style={{ fontSize: '18px' }}>calendar_today</span>
+                <span>Date Range</span>
               </button>
 
               {/* Last Updated & Refresh - Mobile */}
@@ -8425,18 +8276,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '6px',
+                  gap: '8px',
                   flex: '1 1 0',
-                  padding: '6px 10px',
+                  padding: '10px 12px',
                   background: 'white',
-                  borderRadius: '8px',
+                  borderRadius: '10px',
                   minWidth: 0,
                   overflow: 'hidden',
                   position: 'relative',
                   boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 8px rgba(0, 0, 0, 0.03)',
-                  border: '1px solid rgba(0, 0, 0, 0.05)',
-                  height: '32px'
+                  border: '1px solid rgba(0, 0, 0, 0.05)'
                 }}>
                 {/* Progress Bar Background */}
                 {isDownloadingCache && (() => {
@@ -8469,18 +8318,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '4px',
+                  gap: '6px',
                   flex: '1 1 0',
                   minWidth: 0,
                   overflow: 'hidden',
                   position: 'relative',
                   zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#9ca3af', flexShrink: 0 }}>schedule</span>
+                  <span className="material-icons" style={{ fontSize: '16px', color: isDownloadingCache ? '#10b981' : '#9ca3af', flexShrink: 0 }}>schedule</span>
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '1px',
+                    gap: '2px',
                     flex: '1 1 0',
                     minWidth: 0,
                     overflow: 'hidden'
@@ -8491,8 +8340,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
-                      fontWeight: isDownloadingCache ? '600' : '400',
-                      lineHeight: '1.2'
+                      fontWeight: isDownloadingCache ? '600' : '400'
                     }}>
                       {isDownloadingCache ? (
                         (() => {
@@ -8578,8 +8426,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     flexShrink: 0,
                     whiteSpace: 'nowrap',
-                    position: 'relative',
-                    zIndex: 1,
                     boxShadow: (loading || !fromDate || !toDate || isDownloadingCache) ? 'none' : '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)'
                   }}
                   onMouseEnter={(e) => {
@@ -8605,7 +8451,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   </span>
                   <span>Refresh</span>
                 </button>
-                </div>
               </div>
 
               {/* Download Button and Settings */}
@@ -8766,10 +8611,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         ) : (
           <div style={{
             display: 'flex',
-            flexDirection: windowWidth <= 1100 ? 'column' : 'row',
-            alignItems: windowWidth <= 1100 ? 'stretch' : 'center',
-            gap: windowWidth <= 1100 ? '12px' : '10px',
-            flexWrap: windowWidth <= 1100 ? 'wrap' : 'nowrap',
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: '16px',
+            flexWrap: 'wrap',
             width: '100%',
             position: 'relative',
             overflow: 'visible'
@@ -8778,17 +8623,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '10px',
-              flex: windowWidth <= 1100 ? '0 0 auto' : '0 1 auto',
-              minWidth: windowWidth <= 1100 ? '100%' : '180px',
-              maxWidth: windowWidth <= 1100 ? '100%' : '400px',
-              overflow: 'hidden',
-              width: windowWidth <= 1100 ? '100%' : 'auto'
+              gap: '16px',
+              flex: '0 1 auto',
+              minWidth: '200px',
+              maxWidth: '500px',
+              overflow: 'hidden'
             }}>
               <div style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
+                width: '56px',
+                height: '56px',
+                borderRadius: '14px',
                 background: 'rgba(255, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
                 display: 'flex',
@@ -8798,13 +8642,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
                 border: '1px solid rgba(255, 255, 255, 0.2)'
               }}>
-                <span className="material-icons" style={{ color: 'white', fontSize: '20px' }}>bar_chart</span>
+                <span className="material-icons" style={{ color: 'white', fontSize: '28px' }}>bar_chart</span>
               </div>
               <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
                 <h1 style={{
                   margin: 0,
                   color: 'white',
-                  fontSize: '18px',
+                  fontSize: '28px',
                   fontWeight: '700',
                   lineHeight: '1.2',
                   letterSpacing: '-0.01em',
@@ -8814,20 +8658,77 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 }}>
                   Sales Analytics Dashboard
                 </h1>
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '10px', 
+                  marginTop: '6px', 
+                  flexWrap: 'wrap',
+                  overflow: 'hidden',
+                  minWidth: 0
+                }}>
+                  <p style={{
+                    margin: 0,
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    fontSize: '14px',
+                    fontWeight: '400',
+                    lineHeight: '1.4',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    flex: '0 1 auto'
+                  }}>
+                    Comprehensive sales insights
+                  </p>
+                  {/* Date Range Badge */}
+                  {fromDate && toDate && (
+                    <div style={{
+                      display: 'inline-flex',
+                      background: 'rgba(255, 255, 255, 0.25)',
+                      backdropFilter: 'blur(10px)',
+                      color: 'white',
+                      padding: '5px 14px',
+                      borderRadius: '20px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                      border: '1px solid rgba(255, 255, 255, 0.3)'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
+                      {formatDateRangeForHeader(fromDate, toDate)}
+                    </div>
+                  )}
+                  {/* Records Available Badge */}
+                  <div style={{
+                    display: 'inline-flex',
+                    background: 'rgba(255, 255, 255, 0.25)',
+                    backdropFilter: 'blur(10px)',
+                    color: 'white',
+                    padding: '5px 14px',
+                    borderRadius: '20px',
+                    fontSize: '12px',
+                    fontWeight: '600',
+                    alignItems: 'center',
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
+                    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.3)'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: '16px' }}>bar_chart</span>
+                    {filteredSales.length} records
+                  </div>
+                </div>
               </div>
             </div>
 
             {/* Desktop: Buttons */}
             {/* Create Custom Card Button - Desktop */}
-            <div style={{ 
-              flex: windowWidth <= 1100 ? '0 0 auto' : '0 1 auto', 
-              display: 'flex', 
-              alignItems: 'center', 
-              flexShrink: windowWidth <= 1100 ? 0 : 1, 
-              gap: '8px',
-              width: windowWidth <= 1100 ? '100%' : 'auto',
-              flexWrap: windowWidth <= 900 ? 'wrap' : 'nowrap'
-            }}>
+            <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
                 <button
                   onClick={(e) => {
                     e.preventDefault();
@@ -8842,17 +8743,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       : '#22c55e',
                     color: sales.length === 0 ? '#9ca3af' : '#fff',
                     border: 'none',
-                    borderRadius: '8px',
-                    padding: '6px 14px',
+                    borderRadius: '10px',
+                    padding: '11px 20px',
                     cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '13px',
+                    gap: '8px',
+                    fontSize: '14px',
                     fontWeight: '600',
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     whiteSpace: 'nowrap',
-                    height: '32px',
                     boxShadow: sales.length === 0 ? 'none' : '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)'
                   }}
                   onMouseEnter={(e) => {
@@ -8870,11 +8770,22 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     }
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>add_chart</span>
-                  <span>Create Custom Card</span>
+                  <span className="material-icons" style={{ fontSize: '20px' }}>add_chart</span>
+                  Create Custom Card
                 </button>
+              </div>
 
-              {/* Calendar Button - Desktop */}
+              {/* Center: Calendar Button - Desktop */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                flex: '0 1 auto',
+                justifyContent: 'center',
+                flexWrap: 'wrap',
+                minWidth: '140px',
+                flexShrink: 1
+              }}>
                 <button
                   type="button"
                   onClick={handleOpenCalendar}
@@ -8882,8 +8793,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: '#7c3aed',
                     border: 'none',
-                    borderRadius: '8px',
-                    padding: '6px 14px',
+                    borderRadius: '10px',
+                    padding: '11px 20px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -8892,11 +8803,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     fontSize: '14px',
                     fontWeight: '600',
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    justifyContent: 'center',
-                    height: '32px',
-                    whiteSpace: 'nowrap',
                     minWidth: '140px',
-                    maxWidth: isMobile ? '100%' : '220px',
+                    justifyContent: 'center',
+                    height: '42px',
+                    whiteSpace: 'nowrap',
                     boxShadow: '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)'
                   }}
                   onMouseEnter={(e) => {
@@ -8910,8 +8820,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromDate && toDate ? formatDateRangeForHeader(fromDate, toDate) : 'Date Range'}</span>
+                  <span className="material-icons" style={{ fontSize: '18px' }}>calendar_today</span>
+                  <span>Date Range</span>
                 </button>
               </div>
 
@@ -8919,7 +8829,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
+                gap: '10px',
                 flex: '0 0 auto',
                 whiteSpace: 'nowrap',
                 flexShrink: 0
@@ -8927,18 +8837,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '6px',
-                  padding: '6px 10px',
+                  gap: '8px',
+                  padding: '10px 14px',
                   background: 'white',
-                  borderRadius: '8px',
+                  borderRadius: '10px',
                   position: 'relative',
                   overflow: 'hidden',
                   boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 8px rgba(0, 0, 0, 0.03)',
-                  border: '1px solid rgba(0, 0, 0, 0.05)',
-                  height: '32px',
-                  minWidth: '200px',
-                  maxWidth: isMobile ? '100%' : '320px'
+                  border: '1px solid rgba(0, 0, 0, 0.05)'
                 }}>
                 {/* Progress Bar Background */}
                 {isDownloadingCache && (() => {
@@ -8971,23 +8877,22 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '4px',
+                  gap: '6px',
                   position: 'relative',
                   zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#9ca3af' }}>schedule</span>
+                  <span className="material-icons" style={{ fontSize: '16px', color: isDownloadingCache ? '#10b981' : '#9ca3af' }}>schedule</span>
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '1px',
+                    gap: '2px',
                     minWidth: 0
                   }}>
                     <span style={{
-                      fontSize: '11px',
+                      fontSize: '13px',
                       color: isDownloadingCache ? '#059669' : '#374151',
                       whiteSpace: 'nowrap',
-                      fontWeight: isDownloadingCache ? '600' : '400',
-                      lineHeight: '1.2'
+                      fontWeight: isDownloadingCache ? '600' : '400'
                     }}>
                       {isDownloadingCache ? (
                         (() => {
@@ -9039,15 +8944,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       if (hasTotal) {
                         return (
                           <span style={{
-                            fontSize: '9px',
+                            fontSize: '10px',
                             color: '#059669',
                             opacity: 0.8,
-                            whiteSpace: 'nowrap',
-                            lineHeight: '1.1',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            minWidth: 0,
-                            display: 'block'
+                            whiteSpace: 'nowrap'
                           }}>
                             {current} / {total} chunks
                           </span>
@@ -9067,19 +8967,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       ? '#e5e7eb'
                       : '#3b82f6',
                     border: 'none',
-                    borderRadius: '8px',
-                    padding: '6px 12px',
+                    borderRadius: '10px',
+                    padding: '11px 16px',
                     cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
                     color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
-                    fontSize: '13px',
+                    fontSize: '14px',
                     fontWeight: '600',
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     position: 'relative',
                     zIndex: 1,
-                    height: '32px',
                     boxShadow: (loading || !fromDate || !toDate || isDownloadingCache) ? 'none' : '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)'
                   }}
                   onMouseEnter={(e) => {
@@ -9105,7 +9004,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   </span>
                   <span>Refresh</span>
                 </button>
-                </div>
               </div>
 
               {/* Right: Download Dropdown - Desktop */}
@@ -9115,7 +9013,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 alignItems: 'center',
                 flex: '0 0 auto',
                 justifyContent: 'flex-end',
-                minWidth: '100px',
+                minWidth: '120px',
                 position: 'relative',
                 flexShrink: 0
               }} ref={downloadDropdownRef}>
@@ -9126,8 +9024,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: '#10b981',
                     border: 'none',
-                    borderRadius: '8px',
-                    padding: '6px 12px',
+                    borderRadius: '10px',
+                    padding: '11px 16px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -9136,7 +9034,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     fontSize: '14px',
                     fontWeight: '600',
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    height: '32px',
+                    height: '42px',
                     boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)'
                   }}
                   onMouseEnter={(e) => {
@@ -9150,9 +9048,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>download</span>
+                  <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
                   <span>Export</span>
-                  <span className="material-icons" style={{ fontSize: '16px' }}>
+                  <span className="material-icons" style={{ fontSize: '18px' }}>
                     {showDownloadDropdown ? 'expand_less' : 'expand_more'}
                   </span>
                 </button>
@@ -9167,20 +9065,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
                     border: 'none',
-                    borderRadius: '8px',
-                    padding: '6px',
+                    borderRadius: '10px',
+                    padding: '10px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: '#fff',
-                    fontSize: '16px',
+                    fontSize: '18px',
                     fontWeight: '600',
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     boxShadow: '0 2px 4px rgba(99, 102, 241, 0.2), 0 4px 8px rgba(99, 102, 241, 0.1)',
                     flexShrink: 0,
-                    width: '32px',
-                    height: '32px'
+                    width: '42px',
+                    height: '42px'
                   }}
                   onMouseEnter={(e) => {
                     e.target.style.background = 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)';
@@ -9193,7 +9091,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>settings</span>
+                  <span className="material-icons" style={{ fontSize: '18px' }}>settings</span>
                 </button>
                 
                 {/* Download Dropdown Menu - Desktop */}
@@ -9845,93 +9743,116 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
         {/* Dashboard Content */}
         <div style={{ padding: isMobile ? '12px 16px' : '24px 28px 28px 28px' }}>
+          {/* Date Range Display */}
+          {fromDate && toDate && (
+            <div style={{
+              marginBottom: isMobile ? '16px' : '24px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: isMobile ? '8px' : '12px',
+              fontSize: isMobile ? '14px' : '16px',
+              fontWeight: '600',
+              color: '#475569',
+              flexWrap: 'wrap'
+            }}>
+              <span>
+                {new Date(fromDate).toLocaleDateString('en-IN', { 
+                  day: 'numeric', 
+                  month: 'short', 
+                  year: 'numeric' 
+                })}
+              </span>
+              <span style={{ color: '#94a3b8' }}>→</span>
+              <span>
+                {new Date(toDate).toLocaleDateString('en-IN', { 
+                  day: 'numeric', 
+                  month: 'short', 
+                  year: 'numeric' 
+                })}
+              </span>
+            </div>
+          )}
+          
           {/* KPI Cards */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(7, minmax(0, 1fr))',
-            gap: isMobile ? '12px' : '16px',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
+            gap: isMobile ? '16px' : '24px',
             marginBottom: isMobile ? '16px' : '28px'
           }}>
             {isCardVisible('Total Revenue') && (
               <div style={{
                 background: '#ffffff',
-                borderRadius: '10px',
-                padding: isMobile ? '12px' : '16px',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
-                position: 'relative',
-                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(22, 163, 74, 0.08)',
                 display: 'flex',
-                flexDirection: 'column'
-              }}>
-                {/* Background Area Chart */}
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(22, 163, 74, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = '#bbf7d0';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(22, 163, 74, 0.08)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.borderColor = '#e2e8f0';
+              }}
+              >
+                {/* Accent bar */}
                 <div style={{
                   position: 'absolute',
-                  bottom: 0,
+                  top: 0,
                   left: 0,
-                  right: 0,
-                  height: '50%',
-                  opacity: 0.5,
-                  pointerEvents: 'none'
-                }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={revenueTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#10b981" stopOpacity={0.2} />
-                        </linearGradient>
-                      </defs>
-                      <Area
-                        type="monotone"
-                        dataKey="value"
-                        stroke="none"
-                        fill="url(#revenueGradient)"
-                        fillOpacity={1}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-                
-                {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  width: '4px',
+                  height: '100%',
+                  background: 'linear-gradient(180deg, #16a34a 0%, #22c55e 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Total Revenue')}
                     style={{ 
-                      margin: '0 0 6px 0', 
-                      fontSize: isMobile ? '9px' : '10px', 
+                      margin: '0 0 8px 0', 
+                      fontSize: isMobile ? '11px' : '12px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#64748b', 
                       textTransform: 'uppercase', 
-                      letterSpacing: '0.05em', 
-                      lineHeight: '1.2',
+                      letterSpacing: '0.1em', 
+                      lineHeight: '1.3',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
                     onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
                     title="Click to open in fullscreen"
                   >
-                    TOTAL REVENUE
+                    Total Revenue
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {formatCurrency(totalRevenue)}
                   </p>
-                  
-                  {/* Icon in bottom right */}
-                  <div style={{
-                    width: isMobile ? '32px' : '36px',
-                    height: isMobile ? '32px' : '36px',
-                    borderRadius: '6px',
-                    background: '#dbeafe',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginTop: '8px',
-                    alignSelf: 'flex-end'
-                  }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#3b82f6' }}>account_balance_wallet</span>
-                  </div>
+                </div>
+                <div style={{
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  boxShadow: '0 2px 8px rgba(22, 163, 74, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: '1px solid rgba(22, 163, 74, 0.1)'
+                }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: '#16a34a' }}>shopping_bag</span>
                 </div>
               </div>
             )}
@@ -9939,67 +9860,60 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             {isCardVisible('Total Invoices') && (
               <div style={{
                 background: '#ffffff',
-                borderRadius: '10px',
-                padding: isMobile ? '12px' : '16px',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
-                position: 'relative',
-                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(236, 72, 153, 0.08)',
                 display: 'flex',
-                flexDirection: 'column'
-              }}>
-                {/* Background Area Chart */}
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(236, 72, 153, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = '#fbcfe8';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(236, 72, 153, 0.08)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.borderColor = '#e2e8f0';
+              }}
+              >
+                {/* Accent bar */}
                 <div style={{
                   position: 'absolute',
-                  bottom: 0,
+                  top: 0,
                   left: 0,
-                  right: 0,
-                  height: '50%',
-                  opacity: 0.5,
-                  pointerEvents: 'none'
-                }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={invoiceTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="invoiceGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.2} />
-                        </linearGradient>
-                      </defs>
-                      <Area
-                        type="monotone"
-                        dataKey="value"
-                        stroke="none"
-                        fill="url(#invoiceGradient)"
-                        fillOpacity={1}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-                
-                {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '9px' : '10px', fontWeight: '600', color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
-                    TOTAL INVOICES
+                  width: '4px',
+                  height: '100%',
+                  background: 'linear-gradient(180deg, #ec4899 0%, #f472b6 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: isMobile ? '11px' : '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', lineHeight: '1.3' }}>
+                    Total Invoices
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#ec4899', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {totalOrders}
                   </p>
-                  
-                  {/* Icon in bottom right */}
-                  <div style={{
-                    width: isMobile ? '32px' : '36px',
-                    height: isMobile ? '32px' : '36px',
-                    borderRadius: '6px',
-                    background: '#dcfce7',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginTop: '8px',
-                    alignSelf: 'flex-end'
-                  }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>shopping_cart</span>
-                  </div>
+                </div>
+                <div style={{
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  boxShadow: '0 2px 8px rgba(236, 72, 153, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: '1px solid rgba(236, 72, 153, 0.1)'
+                }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: '#ec4899' }}>description</span>
                 </div>
               </div>
             )}
@@ -10007,83 +9921,76 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             {isCardVisible('Unique Customers') && (
               <div style={{
                 background: '#ffffff',
-                borderRadius: '10px',
-                padding: isMobile ? '12px' : '16px',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
-                position: 'relative',
-                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(147, 51, 234, 0.08)',
                 display: 'flex',
-                flexDirection: 'column'
-              }}>
-                {/* Background Area Chart */}
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(147, 51, 234, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = '#ddd6fe';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(147, 51, 234, 0.08)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.borderColor = '#e2e8f0';
+              }}
+              >
+                {/* Accent bar */}
                 <div style={{
                   position: 'absolute',
-                  bottom: 0,
+                  top: 0,
                   left: 0,
-                  right: 0,
-                  height: '50%',
-                  opacity: 0.5,
-                  pointerEvents: 'none'
-                }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={customerTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="customerGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.2} />
-                        </linearGradient>
-                      </defs>
-                      <Area
-                        type="monotone"
-                        dataKey="value"
-                        stroke="none"
-                        fill="url(#customerGradient)"
-                        fillOpacity={1}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-                
-                {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  width: '4px',
+                  height: '100%',
+                  background: 'linear-gradient(180deg, #9333ea 0%, #a78bfa 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Unique Customers')}
                     style={{ 
-                      margin: '0 0 6px 0', 
-                      fontSize: isMobile ? '9px' : '10px', 
+                      margin: '0 0 8px 0', 
+                      fontSize: isMobile ? '11px' : '12px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#64748b', 
                       textTransform: 'uppercase', 
-                      letterSpacing: '0.05em', 
-                      lineHeight: '1.2',
+                      letterSpacing: '0.1em', 
+                      lineHeight: '1.3',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
                     onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
                     title="Click to open in fullscreen"
                   >
-                    UNIQUE CUSTOMERS
+                    Unique Customers
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#9333ea', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {uniqueCustomers}
                   </p>
-                  
-                  {/* Icon in bottom right */}
-                  <div style={{
-                    width: isMobile ? '32px' : '36px',
-                    height: isMobile ? '32px' : '36px',
-                    borderRadius: '6px',
-                    background: '#e9d5ff',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginTop: '8px',
-                    alignSelf: 'flex-end'
-                  }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#7c3aed' }}>people</span>
-                  </div>
+                </div>
+                <div style={{
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: 'linear-gradient(135deg, #e9d5ff 0%, #ddd6fe 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  boxShadow: '0 2px 8px rgba(147, 51, 234, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: '1px solid rgba(147, 51, 234, 0.1)'
+                }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: '#9333ea' }}>people</span>
                 </div>
               </div>
             )}
@@ -10091,169 +9998,162 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             {isCardVisible('Avg Invoice Value') && (
               <div style={{
                 background: '#ffffff',
-                borderRadius: '10px',
-                padding: isMobile ? '12px' : '16px',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
-                position: 'relative',
-                overflow: 'hidden',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(217, 119, 6, 0.08)',
                 display: 'flex',
-                flexDirection: 'column',
-                minWidth: '0'
-              }}>
-                {/* Background Area Chart */}
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(217, 119, 6, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = '#fde68a';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(217, 119, 6, 0.08)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.borderColor = '#e2e8f0';
+              }}
+              >
+                {/* Accent bar */}
                 <div style={{
                   position: 'absolute',
-                  bottom: 0,
+                  top: 0,
                   left: 0,
-                  right: 0,
-                  height: '50%',
-                  opacity: 0.5,
-                  pointerEvents: 'none'
-                }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={avgInvoiceTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="avgInvoiceGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.2} />
-                        </linearGradient>
-                      </defs>
-                      <Area
-                        type="monotone"
-                        dataKey="value"
-                        stroke="none"
-                        fill="url(#avgInvoiceGradient)"
-                        fillOpacity={1}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-                
-                {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  width: '4px',
+                  height: '100%',
+                  background: 'linear-gradient(180deg, #d97706 0%, #f59e0b 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Avg Invoice Value')}
                     style={{ 
-                      margin: '0 0 6px 0', 
-                      fontSize: isMobile ? '9px' : '10px', 
+                      margin: '0 0 8px 0', 
+                      fontSize: isMobile ? '11px' : '12px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#64748b', 
                       textTransform: 'uppercase', 
-                      letterSpacing: '0.05em', 
-                      lineHeight: '1.2',
+                      letterSpacing: '0.1em', 
+                      lineHeight: '1.3',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
                     onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
                     title="Click to open in fullscreen"
                   >
-                    AVG INVOICE VALUE
+                    Avg Invoice Value
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#d97706', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {formatCurrency(avgOrderValue)}
                   </p>
-                  
-                  {/* Icon in bottom right */}
-                  <div style={{
-                    width: isMobile ? '32px' : '36px',
-                    height: isMobile ? '32px' : '36px',
-                    borderRadius: '6px',
-                    background: '#dcfce7',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginTop: '8px',
-                    alignSelf: 'flex-end'
-                  }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>trending_up</span>
-                  </div>
+                </div>
+                <div style={{
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  boxShadow: '0 2px 8px rgba(217, 119, 6, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: '1px solid rgba(217, 119, 6, 0.1)'
+                }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: '#d97706' }}>receipt</span>
                 </div>
               </div>
             )}
+          </div>
 
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
+            gap: isMobile ? '16px' : '24px',
+            marginBottom: isMobile ? '16px' : '28px'
+          }}>
             {canShowProfit && isCardVisible('Total Profit') && (
               <div style={{
                 background: '#ffffff',
-                borderRadius: '10px',
-                padding: isMobile ? '12px' : '16px',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
-                position: 'relative',
-                overflow: 'hidden',
+                boxShadow: totalProfit >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(37, 99, 235, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
                 display: 'flex',
-                flexDirection: 'column',
-                minWidth: '0'
-              }}>
-                {/* Background Area Chart */}
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = totalProfit >= 0 ? '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(37, 99, 235, 0.15)' : '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(220, 38, 38, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = totalProfit >= 0 ? '#bfdbfe' : '#fecaca';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = totalProfit >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(37, 99, 235, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.borderColor = '#e2e8f0';
+              }}
+              >
+                {/* Accent bar */}
                 <div style={{
                   position: 'absolute',
-                  bottom: 0,
+                  top: 0,
                   left: 0,
-                  right: 0,
-                  height: '50%',
-                  opacity: 0.5,
-                  pointerEvents: 'none'
-                }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={profitTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="profitGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#10b981" stopOpacity={0.2} />
-                        </linearGradient>
-                      </defs>
-                      <Area
-                        type="monotone"
-                        dataKey="value"
-                        stroke="none"
-                        fill="url(#profitGradient)"
-                        fillOpacity={1}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-                
-                {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  width: '4px',
+                  height: '100%',
+                  background: totalProfit >= 0 ? 'linear-gradient(180deg, #2563eb 0%, #3b82f6 100%)' : 'linear-gradient(180deg, #dc2626 0%, #ef4444 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Total Profit')}
                     style={{ 
-                      margin: '0 0 6px 0', 
-                      fontSize: isMobile ? '9px' : '10px', 
+                      margin: '0 0 8px 0', 
+                      fontSize: isMobile ? '11px' : '12px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#64748b', 
                       textTransform: 'uppercase', 
-                      letterSpacing: '0.05em', 
-                      lineHeight: '1.2',
+                      letterSpacing: '0.1em', 
+                      lineHeight: '1.3',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
                     onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
                     title="Click to open in fullscreen"
                   >
-                    TOTAL PROFIT
+                    Total Profit
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: totalProfit >= 0 ? '#2563eb' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {formatCurrency(totalProfit)}
                   </p>
-                  
-                  {/* Icon in bottom right */}
-                  <div style={{
-                    width: isMobile ? '32px' : '36px',
-                    height: isMobile ? '32px' : '36px',
-                    borderRadius: '6px',
-                    background: '#dcfce7',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginTop: '8px',
-                    alignSelf: 'flex-end'
-                  }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>trending_up</span>
-                  </div>
+                </div>
+                <div style={{
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: totalProfit >= 0 ? 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  boxShadow: totalProfit >= 0 ? '0 2px 8px rgba(37, 99, 235, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)' : '0 2px 8px rgba(220, 38, 38, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: totalProfit >= 0 ? '1px solid rgba(37, 99, 235, 0.1)' : '1px solid rgba(220, 38, 38, 0.1)'
+                }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: totalProfit >= 0 ? '#2563eb' : '#dc2626' }}>
+                    {totalProfit >= 0 ? 'attach_money' : 'trending_down'}
+                  </span>
                 </div>
               </div>
             )}
@@ -10261,84 +10161,78 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             {canShowProfit && isCardVisible('Profit Margin') && (
               <div style={{
                 background: '#ffffff',
-                borderRadius: '10px',
-                padding: isMobile ? '12px' : '16px',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
-                position: 'relative',
-                overflow: 'hidden',
+                boxShadow: profitMargin >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(234, 88, 12, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
                 display: 'flex',
-                flexDirection: 'column',
-                minWidth: '0'
-              }}>
-                {/* Background Area Chart */}
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = profitMargin >= 0 ? '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(234, 88, 12, 0.15)' : '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(220, 38, 38, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = profitMargin >= 0 ? '#fdba74' : '#fecaca';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = profitMargin >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(234, 88, 12, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.borderColor = '#e2e8f0';
+              }}
+              >
+                {/* Accent bar */}
                 <div style={{
                   position: 'absolute',
-                  bottom: 0,
+                  top: 0,
                   left: 0,
-                  right: 0,
-                  height: '60%',
-                  opacity: 0.5,
-                  pointerEvents: 'none'
-                }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={profitMarginTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="profitMarginGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#ec4899" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#ec4899" stopOpacity={0.2} />
-                        </linearGradient>
-                      </defs>
-                      <Area
-                        type="monotone"
-                        dataKey="value"
-                        stroke="none"
-                        fill="url(#profitMarginGradient)"
-                        fillOpacity={1}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-                
-                {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  width: '4px',
+                  height: '100%',
+                  background: profitMargin >= 0 ? 'linear-gradient(180deg, #ea580c 0%, #f97316 100%)' : 'linear-gradient(180deg, #dc2626 0%, #ef4444 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Profit Margin')}
                     style={{ 
                       margin: '0 0 8px 0', 
                       fontSize: isMobile ? '11px' : '12px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#64748b', 
                       textTransform: 'uppercase', 
-                      letterSpacing: '0.05em', 
+                      letterSpacing: '0.1em', 
                       lineHeight: '1.3',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
                     onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
                     title="Click to open in fullscreen"
                   >
-                    PROFIT MARGIN
+                    Profit Margin
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: profitMargin >= 0 ? '#ea580c' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {profitMargin >= 0 ? '+' : ''}{formatNumber(profitMargin, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                   </p>
-                  
-                  {/* Icon in bottom right */}
-                  <div style={{
-                    width: isMobile ? '40px' : '48px',
-                    height: isMobile ? '40px' : '48px',
-                    borderRadius: '8px',
-                    background: '#dcfce7',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginTop: 'auto',
-                    alignSelf: 'flex-end'
-                  }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>percent</span>
-                  </div>
+                </div>
+                <div style={{
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: profitMargin >= 0 ? 'linear-gradient(135deg, #fed7aa 0%, #fdba74 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  boxShadow: profitMargin >= 0 ? '0 2px 8px rgba(234, 88, 12, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)' : '0 2px 8px rgba(220, 38, 38, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: profitMargin >= 0 ? '1px solid rgba(234, 88, 12, 0.1)' : '1px solid rgba(220, 38, 38, 0.1)'
+                }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: profitMargin >= 0 ? '#ea580c' : '#dc2626' }}>
+                    {profitMargin >= 0 ? 'percent' : 'remove'}
+                  </span>
                 </div>
               </div>
             )}
@@ -10346,84 +10240,78 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             {canShowProfit && isCardVisible('Avg Profit per Order') && (
               <div style={{
                 background: '#ffffff',
-                borderRadius: '10px',
-                padding: isMobile ? '12px' : '16px',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
-                position: 'relative',
-                overflow: 'hidden',
+                boxShadow: avgProfitPerOrder >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(8, 145, 178, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
                 display: 'flex',
-                flexDirection: 'column',
-                minWidth: '0'
-              }}>
-                {/* Background Area Chart */}
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.boxShadow = avgProfitPerOrder >= 0 ? '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(8, 145, 178, 0.15)' : '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(220, 38, 38, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = avgProfitPerOrder >= 0 ? '#a5f3fc' : '#fecaca';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.boxShadow = avgProfitPerOrder >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(8, 145, 178, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.borderColor = '#e2e8f0';
+              }}
+              >
+                {/* Accent bar */}
                 <div style={{
                   position: 'absolute',
-                  bottom: 0,
+                  top: 0,
                   left: 0,
-                  right: 0,
-                  height: '60%',
-                  opacity: 0.5,
-                  pointerEvents: 'none'
-                }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={avgProfitTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="avgProfitGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#06b6d4" stopOpacity={0.2} />
-                        </linearGradient>
-                      </defs>
-                      <Area
-                        type="monotone"
-                        dataKey="value"
-                        stroke="none"
-                        fill="url(#avgProfitGradient)"
-                        fillOpacity={1}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-                
-                {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  width: '4px',
+                  height: '100%',
+                  background: avgProfitPerOrder >= 0 ? 'linear-gradient(180deg, #0891b2 0%, #06b6d4 100%)' : 'linear-gradient(180deg, #dc2626 0%, #ef4444 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Avg Profit per Order')}
                     style={{ 
                       margin: '0 0 8px 0', 
                       fontSize: isMobile ? '11px' : '12px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#64748b', 
                       textTransform: 'uppercase', 
-                      letterSpacing: '0.05em', 
+                      letterSpacing: '0.1em', 
                       lineHeight: '1.3',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
                     onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#64748b'}
                     title="Click to open in fullscreen"
                   >
-                    AVG PROFIT PER ORDER
+                    Avg Profit per Order
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: avgProfitPerOrder >= 0 ? '#0891b2' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {formatCurrency(avgProfitPerOrder)}
                   </p>
-                  
-                  {/* Icon in bottom right */}
-                  <div style={{
-                    width: isMobile ? '40px' : '48px',
-                    height: isMobile ? '40px' : '48px',
-                    borderRadius: '8px',
-                    background: '#dcfce7',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    marginTop: 'auto',
-                    alignSelf: 'flex-end'
-                  }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>trending_up</span>
-                  </div>
+                </div>
+                <div style={{
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: avgProfitPerOrder >= 0 ? 'linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  boxShadow: avgProfitPerOrder >= 0 ? '0 2px 8px rgba(8, 145, 178, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)' : '0 2px 8px rgba(220, 38, 38, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: avgProfitPerOrder >= 0 ? '1px solid rgba(8, 145, 178, 0.1)' : '1px solid rgba(220, 38, 38, 0.1)'
+                }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: avgProfitPerOrder >= 0 ? '#0891b2' : '#dc2626' }}>
+                    {avgProfitPerOrder >= 0 ? 'trending_up' : 'trending_down'}
+                  </span>
                 </div>
               </div>
             )}
@@ -16878,11 +16766,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           style={{
             flex: 1,
             overflow: 'hidden',
-            padding: '24px',
+            padding: '0',
             background: '#ffffff',
             display: 'flex',
             flexDirection: 'column',
-            minHeight: 0
+            minHeight: 0,
+            height: '100%'
           }}
         >
           {fullscreenCard.type === 'metric' && (
@@ -17022,8 +16911,489 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           )}
 
           {fullscreenCard.type === 'chart' && (
-            <div style={{ flex: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              {/* Render the appropriate chart based on title */}
+            <div style={{ flex: 1, height: '100%', width: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              {/* Sales by Ledger Group */}
+              {fullscreenCard.title === 'Sales by Ledger Group' && isCardVisible('Sales by Ledger Group') && (
+                <>
+                  {ledgerGroupChartType === 'bar' && (
+                    <BarChart
+                      data={ledgerGroupChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                      onBackClick={() => setSelectedLedgerGroup('all')}
+                      showBackButton={selectedLedgerGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
+                  {ledgerGroupChartType === 'pie' && (
+                    <PieChart
+                      data={ledgerGroupChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                      onBackClick={() => setSelectedLedgerGroup('all')}
+                      showBackButton={selectedLedgerGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
+                  {ledgerGroupChartType === 'treemap' && (
+                    <TreeMap
+                      data={ledgerGroupChartData}
+                      customHeader={null}
+                      onBoxClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                      onBackClick={() => setSelectedLedgerGroup('all')}
+                      showBackButton={selectedLedgerGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
+                  {ledgerGroupChartType === 'line' && (
+                    <LineChart
+                      data={ledgerGroupChartData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
+                      onBackClick={() => setSelectedLedgerGroup('all')}
+                      showBackButton={selectedLedgerGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('ledgerGroupItemTransactions', item.label),
+                      }}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* Salesperson Totals */}
+              {fullscreenCard.title === 'Salesperson Totals' && isCardVisible('Salesperson Totals') && (
+                <div style={{ flex: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  {(() => {
+                    const salespersonChartType = 'bar'; // Default for salesperson
+                    if (salespersonChartType === 'bar') {
+                      // Transform salespersonTotals to use 'label' instead of 'name' for BarChart
+                      const transformedData = salespersonTotals.map(item => ({
+                        label: item.name || item.label || 'Unknown',
+                        value: item.value || 0,
+                        billCount: item.billCount || 0
+                      }));
+                      return (
+                        <BarChart
+                          data={transformedData}
+                          formatValue={formatChartValue}
+                          customHeader={null}
+                          onBarClick={(salesperson) => setSelectedSalesperson(salesperson)}
+                          onBackClick={() => setSelectedSalesperson(null)}
+                          showBackButton={selectedSalesperson !== null}
+                          rowAction={{
+                            icon: 'table_view',
+                            title: 'View raw data',
+                            onClick: (item) => openRawData('salesperson', item.label),
+                          }}
+                        />
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
+              )}
+
+              {/* Sales by State */}
+              {fullscreenCard.title === 'Sales by State' && isCardVisible('Sales by State') && (
+                <>
+                  {regionChartType === 'bar' && (
+                    <BarChart
+                      data={regionChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(region) => setSelectedRegion(region)}
+                      onBackClick={() => setSelectedRegion('all')}
+                      showBackButton={selectedRegion !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {regionChartType === 'pie' && (
+                    <PieChart
+                      data={regionChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(region) => setSelectedRegion(region)}
+                      onBackClick={() => setSelectedRegion('all')}
+                      showBackButton={selectedRegion !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {regionChartType === 'treemap' && (
+                    <TreeMap
+                      data={regionChartData}
+                      customHeader={null}
+                      onBoxClick={(region) => setSelectedRegion(region)}
+                      onBackClick={() => setSelectedRegion('all')}
+                      showBackButton={selectedRegion !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {regionChartType === 'line' && (
+                    <LineChart
+                      data={regionChartData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(region) => setSelectedRegion(region)}
+                      onBackClick={() => setSelectedRegion('all')}
+                      showBackButton={selectedRegion !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.region && String(sale.region).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {regionChartType === 'geoMap' && (
+                    <GeoMapChart
+                      data={regionChartData.map(item => ({
+                        name: item.label,
+                        value: item.value
+                      }))}
+                      mapType="state"
+                      chartSubType={regionMapSubType}
+                      isMobile={isMobile}
+                      customHeader={null}
+                      onRegionClick={(regionName) => setSelectedRegion(regionName)}
+                      onBackClick={() => setSelectedRegion('all')}
+                      showBackButton={selectedRegion !== 'all'}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* Sales by Country */}
+              {fullscreenCard.title === 'Sales by Country' && isCardVisible('Sales by Country') && (
+                <>
+                  {countryChartType === 'bar' && (
+                    <BarChart
+                      data={countryChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(country) => setSelectedCountry(country)}
+                      onBackClick={() => setSelectedCountry('all')}
+                      showBackButton={selectedCountry !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.country && String(sale.country).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {countryChartType === 'pie' && (
+                    <PieChart
+                      data={countryChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(country) => setSelectedCountry(country)}
+                      onBackClick={() => setSelectedCountry('all')}
+                      showBackButton={selectedCountry !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.country && String(sale.country).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {countryChartType === 'treemap' && (
+                    <TreeMap
+                      data={countryChartData}
+                      customHeader={null}
+                      onBoxClick={(country) => setSelectedCountry(country)}
+                      onBackClick={() => setSelectedCountry('all')}
+                      showBackButton={selectedCountry !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.country && String(sale.country).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {countryChartType === 'line' && (
+                    <LineChart
+                      data={countryChartData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(country) => setSelectedCountry(country)}
+                      onBackClick={() => setSelectedCountry('all')}
+                      showBackButton={selectedCountry !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.country && String(sale.country).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {countryChartType === 'geoMap' && (
+                    <GeoMapChart
+                      data={countryChartData.map(item => ({
+                        name: item.label,
+                        value: item.value
+                      }))}
+                      mapType="world"
+                      chartSubType={countryMapSubType}
+                      isMobile={isMobile}
+                      customHeader={null}
+                      onRegionClick={(countryName) => setSelectedCountry(countryName)}
+                      onBackClick={() => setSelectedCountry('all')}
+                      showBackButton={selectedCountry !== 'all'}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* Sales by Period */}
+              {fullscreenCard.title === 'Sales by Period' && isCardVisible('Sales by Period') && (
+                <>
+                  {periodChartType === 'bar' && (
+                    <BarChart
+                      data={periodChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(period) => {
+                        const clickedPeriod = periodChartData.find(p => p.label === period);
+                        if (clickedPeriod && clickedPeriod.originalLabel) {
+                          setSelectedPeriod(clickedPeriod.originalLabel);
+                        }
+                      }}
+                      onBackClick={() => setSelectedPeriod(null)}
+                      showBackButton={selectedPeriod !== null}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                            (sale) => {
+                              const saleDate = sale.cp_date || sale.date;
+                              const date = new Date(saleDate);
+                              const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                              return yearMonth === (item.originalLabel || item.label);
+                            }
+                          ),
+                      }}
+                    />
+                  )}
+                  {periodChartType === 'pie' && (
+                    <PieChart
+                      data={periodChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(period) => {
+                        const clickedPeriod = periodChartData.find(p => p.label === period);
+                        if (clickedPeriod && clickedPeriod.originalLabel) {
+                          setSelectedPeriod(clickedPeriod.originalLabel);
+                        }
+                      }}
+                      onBackClick={() => setSelectedPeriod(null)}
+                      showBackButton={selectedPeriod !== null}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                            (sale) => {
+                              const saleDate = sale.cp_date || sale.date;
+                              const date = new Date(saleDate);
+                              const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                              return yearMonth === (item.originalLabel || item.label);
+                            }
+                          ),
+                      }}
+                    />
+                  )}
+                  {periodChartType === 'treemap' && (
+                    <TreeMap
+                      data={periodChartData}
+                      customHeader={null}
+                      onBoxClick={(period) => {
+                        const clickedPeriod = periodChartData.find(p => p.label === period);
+                        if (clickedPeriod && clickedPeriod.originalLabel) {
+                          setSelectedPeriod(clickedPeriod.originalLabel);
+                        }
+                      }}
+                      onBackClick={() => setSelectedPeriod(null)}
+                      showBackButton={selectedPeriod !== null}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                            (sale) => {
+                              const saleDate = sale.cp_date || sale.date;
+                              const date = new Date(saleDate);
+                              const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                              return yearMonth === (item.originalLabel || item.label);
+                            }
+                          ),
+                      }}
+                    />
+                  )}
+                  {periodChartType === 'line' && (
+                    <LineChart
+                      data={periodChartData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(period) => {
+                        const clickedPeriod = periodChartData.find(p => p.label === period);
+                        if (clickedPeriod && clickedPeriod.originalLabel) {
+                          setSelectedPeriod(clickedPeriod.originalLabel);
+                        }
+                      }}
+                      onBackClick={() => setSelectedPeriod(null)}
+                      showBackButton={selectedPeriod !== null}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                            (sale) => {
+                              const saleDate = sale.cp_date || sale.date;
+                              const date = new Date(saleDate);
+                              const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                              return yearMonth === (item.originalLabel || item.label);
+                            }
+                          ),
+                      }}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* Sales by Stock Group */}
+              {fullscreenCard.title === 'Sales by Stock Group' && isCardVisible('Sales by Stock Group') && (
+                <>
+                  {categoryChartType === 'bar' && (
+                    <BarChart
+                      data={categoryChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                      onBackClick={() => setSelectedStockGroup('all')}
+                      showBackButton={selectedStockGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('stockGroup', item.label),
+                      }}
+                    />
+                  )}
+                  {categoryChartType === 'pie' && (
+                    <PieChart
+                      data={categoryChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                      onBackClick={() => setSelectedStockGroup('all')}
+                      showBackButton={selectedStockGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('stockGroup', item.label),
+                      }}
+                    />
+                  )}
+                  {categoryChartType === 'treemap' && (
+                    <TreeMap
+                      data={categoryChartData}
+                      customHeader={null}
+                      onBoxClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                      onBackClick={() => setSelectedStockGroup('all')}
+                      showBackButton={selectedStockGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('stockGroup', item.label),
+                      }}
+                    />
+                  )}
+                  {categoryChartType === 'line' && (
+                    <LineChart
+                      data={categoryChartData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
+                      onBackClick={() => setSelectedStockGroup('all')}
+                      showBackButton={selectedStockGroup !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) => openRawData('stockGroup', item.label),
+                      }}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* Top Customers Chart */}
               {fullscreenCard.title === 'Top Customers Chart' && isCardVisible('Top Customers Chart') && (
                 <>
                   {topCustomersChartType === 'bar' && (
@@ -17104,20 +17474,821 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   )}
                 </>
               )}
-              {/* Note: For other chart cards, you would add similar blocks. 
-                  For brevity, I'm showing the pattern with Top Customers Chart.
-                  The same pattern can be applied to all other chart cards. */}
+
+              {/* Top Items by Revenue Chart */}
+              {fullscreenCard.title === 'Top Items by Revenue Chart' && isCardVisible('Top Items by Revenue Chart') && (
+                <>
+                  {topItemsByRevenueChartType === 'bar' && (
+                    <BarChart
+                      data={topItemsByRevenueData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topItemsByRevenueChartType === 'pie' && (
+                    <PieChart
+                      data={topItemsByRevenueData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topItemsByRevenueChartType === 'treemap' && (
+                    <TreeMap
+                      data={topItemsByRevenueData}
+                      customHeader={null}
+                      onBoxClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topItemsByRevenueChartType === 'line' && (
+                    <LineChart
+                      data={topItemsByRevenueData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* Top Items by Quantity Chart */}
+              {fullscreenCard.title === 'Top Items by Quantity Chart' && isCardVisible('Top Items by Quantity Chart') && (
+                <>
+                  {topItemsByQuantityChartType === 'bar' && (
+                    <BarChart
+                      data={topItemsByQuantityData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topItemsByQuantityChartType === 'pie' && (
+                    <PieChart
+                      data={topItemsByQuantityData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topItemsByQuantityChartType === 'treemap' && (
+                    <TreeMap
+                      data={topItemsByQuantityData}
+                      customHeader={null}
+                      onBoxClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topItemsByQuantityChartType === 'line' && (
+                    <LineChart
+                      data={topItemsByQuantityData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* Revenue vs Profit */}
+              {canShowProfit && fullscreenCard.title === 'Revenue vs Profit' && isCardVisible('Revenue vs Profit') && (
+                <div style={{ flex: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  {revenueVsProfitChartType === 'line' && (
+                    <div style={{
+                      background: 'white',
+                      borderRadius: '12px',
+                      padding: '12px 16px',
+                      border: '1px solid #e2e8f0',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: '12px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => openRawData('revenueVsProfit')}
+                            style={rawDataIconButtonStyle}
+                            onMouseEnter={handleRawDataButtonMouseEnter}
+                            onMouseLeave={handleRawDataButtonMouseLeave}
+                            title="View raw data"
+                          >
+                            <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                          </button>
+                          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                            Revenue vs Profit (Monthly)
+                          </h3>
+                          {renderCardFilterBadges('period')}
+                        </div>
+                        <select
+                          value={revenueVsProfitChartType}
+                          onChange={(e) => setRevenueVsProfitChartType(e.target.value)}
+                          style={{
+                            padding: '6px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            background: 'white',
+                            color: '#374151'
+                          }}
+                        >
+                          <option value="line">Line</option>
+                          <option value="bar">Bar</option>
+                        </select>
+                      </div>
+                      <div style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px', maxHeight: '100%' }}>
+                          {/* Grid lines */}
+                          {[0, 1, 2, 3, 4].map((i) => {
+                            const y = 40 + (i / 4) * 240;
+                            return (
+                              <line
+                                key={i}
+                                x1="40"
+                                y1={y}
+                                x2="560"
+                                y2={y}
+                                stroke="#e5e7eb"
+                                strokeWidth="1"
+                              />
+                            );
+                          })}
+                          
+                          {/* X-axis labels */}
+                          {revenueVsProfitChartData.map((item, index) => {
+                            const x = 40 + (index / Math.max(revenueVsProfitChartData.length - 1, 1)) * 520;
+                            return (
+                              <text
+                                key={index}
+                                x={x}
+                                y={290}
+                                textAnchor="middle"
+                                style={{ fontSize: '10px', fill: '#6b7280' }}
+                                transform={`rotate(-45 ${x} 290)`}
+                              >
+                                {item.label}
+                              </text>
+                            );
+                          })}
+                          
+                          {/* Revenue line */}
+                          {revenueVsProfitChartData.length > 0 && (() => {
+                            const maxRevenue = Math.max(...revenueVsProfitChartData.map(d => d.revenue));
+                            const maxProfit = Math.max(...revenueVsProfitChartData.map(d => Math.abs(d.profit)));
+                            const maxValue = Math.max(maxRevenue, maxProfit, 1);
+                            const minProfit = Math.min(...revenueVsProfitChartData.map(d => d.profit));
+                            const minValue = Math.min(0, minProfit);
+                            const range = Math.max(maxValue - minValue, 1);
+                            const dataLength = Math.max(revenueVsProfitChartData.length - 1, 1);
+                            
+                            const revenuePoints = revenueVsProfitChartData.map((item, index) => {
+                              const x = 40 + (index / dataLength) * 520;
+                              const y = 40 + 240 - ((item.revenue - minValue) / range) * 240;
+                              return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
+                            }).join(' ');
+                            
+                            const profitPoints = revenueVsProfitChartData.map((item, index) => {
+                              const x = 40 + (index / dataLength) * 520;
+                              const y = 40 + 240 - ((item.profit - minValue) / range) * 240;
+                              return `${index === 0 ? 'M' : 'L'} ${x} ${y}`;
+                            }).join(' ');
+                            
+                            return (
+                              <>
+                                <path
+                                  d={revenuePoints}
+                                  fill="none"
+                                  stroke="#3b82f6"
+                                  strokeWidth="2"
+                                />
+                                <path
+                                  d={profitPoints}
+                                  fill="none"
+                                  stroke={profitMargin >= 0 ? '#10b981' : '#ef4444'}
+                                  strokeWidth="2"
+                                  strokeDasharray="5,5"
+                                />
+                                {revenueVsProfitChartData.map((item, index) => {
+                                  const dataLength = Math.max(revenueVsProfitChartData.length - 1, 1);
+                                  const x = 40 + (index / dataLength) * 520;
+                                  const revenueY = 40 + 240 - ((item.revenue - minValue) / range) * 240;
+                                  const profitY = 40 + 240 - ((item.profit - minValue) / range) * 240;
+                                  return (
+                                    <g key={index}>
+                                      <circle
+                                        cx={x}
+                                        cy={revenueY}
+                                        r="4"
+                                        fill="#3b82f6"
+                                      />
+                                      <circle
+                                        cx={x}
+                                        cy={profitY}
+                                        r="4"
+                                        fill={profitMargin >= 0 ? '#10b981' : '#ef4444'}
+                                      />
+                                    </g>
+                                  );
+                                })}
+                              </>
+                            );
+                          })()}
+                          
+                          {/* Legend */}
+                          <g transform="translate(20, 20)">
+                            <line x1="0" y1="0" x2="20" y2="0" stroke="#3b82f6" strokeWidth="2" />
+                            <text x="25" y="4" style={{ fontSize: '12px', fill: '#1e293b' }}>Revenue</text>
+                            <line x1="0" y1="15" x2="20" y2="15" stroke={profitMargin >= 0 ? '#10b981' : '#ef4444'} strokeWidth="2" strokeDasharray="5,5" />
+                            <text x="25" y="19" style={{ fontSize: '12px', fill: '#1e293b' }}>Profit</text>
+                          </g>
+                        </svg>
+                      </div>
+                    </div>
+                  )}
+                  {revenueVsProfitChartType === 'bar' && (
+                    <div style={{
+                      background: 'white',
+                      borderRadius: '12px',
+                      padding: '12px 16px',
+                      border: '1px solid #e2e8f0',
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
+                      flex: 1,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: '12px'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <button
+                            type="button"
+                            onClick={() => openRawData('revenueVsProfit')}
+                            style={rawDataIconButtonStyle}
+                            onMouseEnter={handleRawDataButtonMouseEnter}
+                            onMouseLeave={handleRawDataButtonMouseLeave}
+                            title="View raw data"
+                          >
+                            <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                          </button>
+                          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                            Revenue vs Profit (Monthly)
+                          </h3>
+                          {renderCardFilterBadges('period')}
+                        </div>
+                        <select
+                          value={revenueVsProfitChartType}
+                          onChange={(e) => setRevenueVsProfitChartType(e.target.value)}
+                          style={{
+                            padding: '6px 12px',
+                            border: '1px solid #d1d5db',
+                            borderRadius: '6px',
+                            fontSize: '12px',
+                            background: 'white',
+                            color: '#374151'
+                          }}
+                        >
+                          <option value="line">Line</option>
+                          <option value="bar">Bar</option>
+                        </select>
+                      </div>
+                      <div style={{ flex: 1, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px', maxHeight: '100%' }}>
+                          {revenueVsProfitChartData.map((item, index) => {
+                            const maxRevenue = Math.max(...revenueVsProfitChartData.map(d => d.revenue));
+                            const maxProfit = Math.max(...revenueVsProfitChartData.map(d => Math.abs(d.profit)));
+                            const maxValue = Math.max(maxRevenue, maxProfit);
+                            const barWidth = 480 / revenueVsProfitChartData.length;
+                            const x = 60 + index * barWidth;
+                            const revenueHeight = (item.revenue / maxValue) * 200;
+                            const profitHeight = (Math.abs(item.profit) / maxValue) * 200;
+                            
+                            return (
+                              <g key={index}>
+                                <rect
+                                  x={x + 5}
+                                  y={240 - revenueHeight}
+                                  width={barWidth / 2 - 10}
+                                  height={revenueHeight}
+                                  fill="#3b82f6"
+                                  onClick={() =>
+                                    openTransactionRawData(
+                                      `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                                      (sale) => {
+                                        const saleDate = sale.cp_date || sale.date;
+                                        const date = new Date(saleDate);
+                                        const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                                        return yearMonth === (item.originalLabel || item.label);
+                                      }
+                                    )
+                                  }
+                                  style={{ cursor: 'pointer' }}
+                                />
+                                <rect
+                                  x={x + barWidth / 2 + 5}
+                                  y={240 - profitHeight}
+                                  width={barWidth / 2 - 10}
+                                  height={profitHeight}
+                                  fill={item.profit >= 0 ? '#10b981' : '#ef4444'}
+                                  onClick={() =>
+                                    openTransactionRawData(
+                                      `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                                      (sale) => {
+                                        const saleDate = sale.cp_date || sale.date;
+                                        const date = new Date(saleDate);
+                                        const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                                        return yearMonth === (item.originalLabel || item.label);
+                                      }
+                                    )
+                                  }
+                                  style={{ cursor: 'pointer' }}
+                                />
+                                <text
+                                  x={x + barWidth / 2}
+                                  y={280}
+                                  textAnchor="middle"
+                                  style={{ fontSize: '8px', fill: '#6b7280' }}
+                                  transform={`rotate(-45 ${x + barWidth / 2} 280)`}
+                                >
+                                  {item.label}
+                                </text>
+                              </g>
+                            );
+                          })}
+                          
+                          {/* Legend */}
+                          <g transform="translate(20, 20)">
+                            <rect x="0" y="0" width="15" height="10" fill="#3b82f6" />
+                            <text x="20" y="9" style={{ fontSize: '12px', fill: '#1e293b' }}>Revenue</text>
+                            <rect x="0" y="15" width="15" height="10" fill="#10b981" />
+                            <text x="20" y="24" style={{ fontSize: '12px', fill: '#1e293b' }}>Profit</text>
+                          </g>
+                        </svg>
+                      </div>
+                      <div style={{
+                        marginTop: '16px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px',
+                        maxHeight: '200px',
+                        overflowY: 'auto'
+                      }}>
+                        {revenueVsProfitChartData.map((item) => (
+                          <div
+                            key={item.originalLabel}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '8px 12px',
+                              border: '1px solid #e2e8f0',
+                              borderRadius: '8px',
+                              background: '#f8fafc'
+                            }}
+                          >
+                            <div style={{ display: 'flex', flexDirection: 'column' }}>
+                              <span style={{ fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>{item.label}</span>
+                              <span style={{ fontSize: '12px', color: '#475569' }}>
+                                Revenue: {formatCurrency(item.revenue)} | Profit: {formatCurrency(item.profit)}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => openRawData('revenueVsProfit', item.originalLabel)}
+                              style={rawDataIconButtonStyle}
+                              onMouseEnter={handleRawDataButtonMouseEnter}
+                              onMouseLeave={handleRawDataButtonMouseLeave}
+                              title="View raw data"
+                            >
+                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Month-wise Profit */}
+              {canShowProfit && fullscreenCard.title === 'Month-wise Profit' && isCardVisible('Month-wise Profit') && (
+                <>
+                  {monthWiseProfitChartType === 'bar' && (
+                    <BarChart
+                      data={monthWiseProfitChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(periodLabel) => {
+                        const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
+                        if (clickedPeriod && clickedPeriod.originalLabel) {
+                          setSelectedPeriod(clickedPeriod.originalLabel);
+                        }
+                      }}
+                      onBackClick={() => setSelectedPeriod(null)}
+                      showBackButton={selectedPeriod !== null}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                            (sale) => {
+                              const saleDate = sale.cp_date || sale.date;
+                              const date = new Date(saleDate);
+                              const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                              return yearMonth === (item.originalLabel || item.label);
+                            }
+                          ),
+                      }}
+                    />
+                  )}
+                  {monthWiseProfitChartType === 'pie' && (
+                    <PieChart
+                      data={monthWiseProfitChartData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(periodLabel) => {
+                        const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
+                        if (clickedPeriod && clickedPeriod.originalLabel) {
+                          setSelectedPeriod(clickedPeriod.originalLabel);
+                        }
+                      }}
+                      onBackClick={() => setSelectedPeriod(null)}
+                      showBackButton={selectedPeriod !== null}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                            (sale) => {
+                              const saleDate = sale.cp_date || sale.date;
+                              const date = new Date(saleDate);
+                              const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                              return yearMonth === (item.originalLabel || item.label);
+                            }
+                          ),
+                      }}
+                    />
+                  )}
+                  {monthWiseProfitChartType === 'treemap' && (
+                    <TreeMap
+                      data={monthWiseProfitChartData}
+                      customHeader={null}
+                      onBoxClick={(periodLabel) => {
+                        const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
+                        if (clickedPeriod && clickedPeriod.originalLabel) {
+                          setSelectedPeriod(clickedPeriod.originalLabel);
+                        }
+                      }}
+                      onBackClick={() => setSelectedPeriod(null)}
+                      showBackButton={selectedPeriod !== null}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                            (sale) => {
+                              const saleDate = sale.cp_date || sale.date;
+                              const date = new Date(saleDate);
+                              const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                              return yearMonth === (item.originalLabel || item.label);
+                            }
+                          ),
+                      }}
+                    />
+                  )}
+                  {monthWiseProfitChartType === 'line' && (
+                    <LineChart
+                      data={monthWiseProfitChartData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(periodLabel) => {
+                        const clickedPeriod = monthWiseProfitChartData.find(p => p.label === periodLabel);
+                        if (clickedPeriod && clickedPeriod.originalLabel) {
+                          setSelectedPeriod(clickedPeriod.originalLabel);
+                        }
+                      }}
+                      onBackClick={() => setSelectedPeriod(null)}
+                      showBackButton={selectedPeriod !== null}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${formatPeriodLabel(item.originalLabel || item.label)}`,
+                            (sale) => {
+                              const saleDate = sale.cp_date || sale.date;
+                              const date = new Date(saleDate);
+                              const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+                              return yearMonth === (item.originalLabel || item.label);
+                            }
+                          ),
+                      }}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* Top Profitable Items */}
+              {canShowProfit && fullscreenCard.title === 'Top Profitable Items' && isCardVisible('Top Profitable Items') && (
+                <>
+                  {topProfitableItemsChartType === 'bar' && (
+                    <BarChart
+                      data={topProfitableItemsData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topProfitableItemsChartType === 'pie' && (
+                    <PieChart
+                      data={topProfitableItemsData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topProfitableItemsChartType === 'treemap' && (
+                    <TreeMap
+                      data={topProfitableItemsData}
+                      customHeader={null}
+                      onBoxClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topProfitableItemsChartType === 'line' && (
+                    <LineChart
+                      data={topProfitableItemsData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                </>
+              )}
+
+              {/* Top Loss Items */}
+              {canShowProfit && fullscreenCard.title === 'Top Loss Items' && isCardVisible('Top Loss Items') && (
+                <>
+                  {topLossItemsChartType === 'bar' && (
+                    <BarChart
+                      data={topLossItemsData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topLossItemsChartType === 'pie' && (
+                    <PieChart
+                      data={topLossItemsData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topLossItemsChartType === 'treemap' && (
+                    <TreeMap
+                      data={topLossItemsData}
+                      customHeader={null}
+                      onBoxClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topLossItemsChartType === 'line' && (
+                    <LineChart
+                      data={topLossItemsData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(item) => setSelectedItem(item)}
+                      onBackClick={() => setSelectedItem('all')}
+                      showBackButton={selectedItem !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                </>
+              )}
             </div>
           )}
 
           {fullscreenCard.type === 'custom' && fullscreenCard.cardId && (
-            <div style={{ flex: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ flex: 1, height: '100%', width: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
               {(() => {
                 const card = customCards.find(c => c.id === fullscreenCard.cardId);
                 if (!card) return null;
                 return (
-                  <CustomCard
-                    key={card.id}
+                  <div style={{ flex: 1, height: '100%', width: '100%', display: 'flex', flexDirection: 'column', minHeight: 0, overflow: 'hidden' }}>
+                    <div 
+                      style={{ flex: 1, height: '100%', width: '100%', display: 'flex', flexDirection: 'column', minHeight: 0 }}
+                      ref={(el) => {
+                        if (el) {
+                          // Find the CustomCard's root div and override its height
+                          const updateHeight = () => {
+                            const customCardDiv = el.firstElementChild;
+                            if (customCardDiv && customCardDiv.style) {
+                              const height = customCardDiv.style.height;
+                              if (height === '500px' || height === '500px' || customCardDiv.style.maxHeight === '500px') {
+                                customCardDiv.style.height = '100%';
+                                customCardDiv.style.maxHeight = '100%';
+                                customCardDiv.style.minHeight = '0';
+                              }
+                            }
+                          };
+                          // Try immediately and after a short delay
+                          updateHeight();
+                          setTimeout(updateHeight, 10);
+                          setTimeout(updateHeight, 100);
+                        }
+                      }}
+                    >
+                      <CustomCard
+                      key={card.id}
                     card={card}
                     salesData={filteredSales}
                     generateCustomCardData={generateCustomCardData}
@@ -17154,7 +18325,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     formatDateForDisplay={formatDateForDisplay}
                     formatChartValue={formatChartValue}
                     formatChartCompactValue={formatChartCompactValue}
-                  />
+                      />
+                    </div>
+                  </div>
                 );
               })()}
             </div>
