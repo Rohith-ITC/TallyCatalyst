@@ -1,6 +1,6 @@
   .receivables-page {
     min-height: 100vh;
-    padding: 2rem;
+    padding: 0.5rem 2rem 2rem 2rem;
     max-width: 1400px;
     margin: 0 auto;
     box-sizing: border-box;
@@ -28,7 +28,7 @@
 }
 
 .page-header {
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
   flex-shrink: 0;
   display: flex;
   justify-content: space-between;

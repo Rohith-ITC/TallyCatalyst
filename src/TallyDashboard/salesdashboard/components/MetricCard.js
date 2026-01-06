@@ -1,14 +1,16 @@
 import React from 'react';
 
-const MetricCard = ({ title, value, icon: Icon, subtitle, color = 'blue' }) => {
+const MetricCard = ({ title, value, icon: Icon, subtitle, color = 'teal' }) => {
   const colorStyles = {
+    teal: { background: '#ccfbf1', color: '#0d6464' },
     blue: { background: '#dbeafe', color: '#3b82f6' },
     green: { background: '#dcfce7', color: '#16a34a' },
-    orange: { background: '#fed7aa', color: '#ea580c' },
-    purple: { background: '#e9d5ff', color: '#9333ea' },
+    orange: { background: '#fed7aa', color: '#c55a39' },
+    coral: { background: '#fed7aa', color: '#c55a39' },
+    purple: { background: '#e9d5ff', color: '#7c3aed' },
   };
 
-  const iconStyle = colorStyles[color] || colorStyles.blue;
+  const iconStyle = colorStyles[color] || colorStyles.teal;
 
   return (
     <div style={{

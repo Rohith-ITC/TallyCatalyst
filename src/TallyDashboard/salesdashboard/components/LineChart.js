@@ -4,7 +4,7 @@ import { ResponsiveLine } from '@nivo/line';
 const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick, showBackButton, rowAction, customHeader, formatValue, formatCompactValue }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  
+
   useEffect(() => {
     const handleResize = () => {
       setIsMobile(window.innerWidth <= 768);
@@ -35,7 +35,7 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
     }
     // Find the maximum value to estimate the longest Y-axis label
     const maxValue = Math.max(...data.map(item => Math.abs(item.value || 0)));
-    
+
     // Format the max value to estimate width
     let formattedMax;
     const absValue = Math.abs(maxValue);
@@ -52,25 +52,25 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
         formattedMax = `${valuePrefix}${maxValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
       }
     }
-    
+
     // Estimate Y-axis label width: ~7-8px per character, plus padding
     const charWidth = isMobile ? 7 : 8;
     const yAxisWidth = formattedMax.length * charWidth + (isMobile ? 20 : 30);
-    
+
     // Also account for rotated X-axis labels that extend to the left
     // Find the longest X-axis label
     const maxXLabelLength = Math.max(...data.map(item => (item.label || '').length));
     const xAxisCharWidth = isMobile ? 6 : 7;
     const fontSize = isMobile ? 10 : 12;
     const xAxisTextWidth = maxXLabelLength * xAxisCharWidth;
-    
+
     // For -45 degree rotation, the horizontal projection to the left is approximately:
     // textWidth * sin(45°) = textWidth * 0.707
     const rotatedHorizontalSpace = (xAxisTextWidth * 0.707) + (fontSize * 0.707);
-    
+
     // Use the maximum of Y-axis width and rotated X-axis space, plus extra padding
     const estimatedWidth = Math.max(yAxisWidth, rotatedHorizontalSpace) + (isMobile ? 15 : 25);
-    
+
     // Set minimum and maximum bounds
     const minMargin = isMobile ? 50 : 60;
     const maxMargin = isMobile ? 180 : 250;
@@ -84,29 +84,29 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
     }
     // Find the longest label (X-axis category name)
     const maxLabelLength = Math.max(...data.map(item => (item.label || '').length));
-    
+
     // For rotated labels at -45 degrees, we need to account for:
     // 1. Text width when rotated (diagonal projection)
     // 2. Text height
     // 3. Padding for spacing
-    
+
     // Character width for rotated text
     const charWidth = isMobile ? 6 : 7;
     const fontSize = isMobile ? 10 : 12;
-    
+
     // Estimate text width
     const textWidth = maxLabelLength * charWidth;
-    
+
     // For -45 degree rotation, the vertical space needed is approximately:
     // The diagonal projection = sqrt(width² + height²) * sin(45°)
     // Simplified: we need space for both width and height components
     // A practical approximation: textWidth * 0.707 (sin/cos of 45°) + fontSize * 0.707
     const rotatedVerticalSpace = (textWidth * 0.707) + (fontSize * 0.707);
-    
+
     // Add padding for spacing between labels and chart edge
     const padding = isMobile ? 25 : 35;
     const estimatedHeight = rotatedVerticalSpace + padding;
-    
+
     // Set minimum and maximum bounds
     const minMargin = isMobile ? 70 : 80;
     const maxMargin = isMobile ? 120 : 150;
@@ -117,27 +117,19 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
   if (!data || data.length === 0) {
     return (
       <div style={{
-        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-        borderRadius: isMobile ? '12px' : '16px',
-        padding: '0',
-        border: '1px solid #e2e8f0',
-        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
         overflow: 'hidden',
         width: '100%',
-        maxWidth: '100%'
+        maxWidth: '100%',
+        background: 'white',
+        borderRadius: '12px',
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
       }}>
         {customHeader ? (
-          <div style={{ 
-            padding: isMobile ? '12px 16px' : '16px 20px',
-            position: 'sticky',
-            top: 0,
-            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-            zIndex: 10,
-            marginBottom: '0'
-          }}>
+          <div>
             {customHeader}
           </div>
         ) : (
@@ -145,12 +137,6 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            padding: isMobile ? '12px 16px' : '16px 20px',
-            position: 'sticky',
-            top: 0,
-            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-            zIndex: 10,
-            marginBottom: '0',
             gap: isMobile ? '8px' : '12px'
           }}>
             <h3 style={{
@@ -213,16 +199,13 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
           minHeight: 0,
           background: 'radial-gradient(circle at top, rgba(59, 130, 246, 0.03) 0%, transparent 50%)'
         }}>
-          <div style={{ 
-            height: isMobile ? '280px' : 'min(400px, calc(100% - 40px))', 
+          <div style={{
+            height: isMobile ? '280px' : 'min(400px, calc(100% - 40px))',
             minHeight: isMobile ? '280px' : '320px',
             maxHeight: isMobile ? '350px' : '500px',
             width: '100%',
             maxWidth: '100%',
-            borderRadius: isMobile ? '8px' : '12px',
-            background: 'white',
             padding: '0',
-            boxShadow: 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.06)',
             overflow: 'hidden',
             flexShrink: 0
           }} />
@@ -241,42 +224,28 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
 
   return (
     <div style={{
-      background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-      borderRadius: isMobile ? '12px' : '16px',
-      padding: '0',
-      border: '1px solid #e2e8f0',
-      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
       display: 'flex',
       flexDirection: 'column',
       height: '100%',
       overflow: 'hidden',
       width: '100%',
-      maxWidth: '100%'
+      maxWidth: '100%',
+      background: 'white',
+      borderRadius: '12px',
+      border: '1px solid #e2e8f0',
+      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
     }}>
-      {customHeader ? (
-        <div style={{ 
-          padding: isMobile ? '12px 16px' : '16px 20px',
-          position: 'sticky',
-          top: 0,
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-          zIndex: 10,
-          marginBottom: '0'
-        }}>
-          {customHeader}
-        </div>
-      ) : (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: isMobile ? '12px 16px' : '16px 20px',
-          position: 'sticky',
-          top: 0,
-          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-          zIndex: 10,
-          marginBottom: '0',
-          gap: isMobile ? '8px' : '12px'
-        }}>
+        {customHeader ? (
+          <div>
+            {customHeader}
+          </div>
+        ) : (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: isMobile ? '8px' : '12px'
+          }}>
           <h3 style={{
             margin: 0,
             fontSize: isMobile ? '16px' : '18px',
@@ -297,27 +266,12 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
                 display: 'flex',
                 alignItems: 'center',
                 gap: '4px',
-                padding: isMobile ? '6px 10px' : '8px 14px',
-                background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
-                border: '1px solid #cbd5e1',
-                borderRadius: '8px',
+                border: 'none',
                 color: '#475569',
                 fontSize: isMobile ? '11px' : '13px',
                 fontWeight: '600',
                 cursor: 'pointer',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
                 flexShrink: 0
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = 'linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)';
-                e.target.style.transform = 'translateY(-1px)';
-                e.target.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
-                e.target.style.transform = 'translateY(0)';
-                e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
               }}
             >
               <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px' }}>arrow_back</span>
@@ -337,16 +291,13 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
         minHeight: 0,
         background: 'radial-gradient(circle at top, rgba(59, 130, 246, 0.03) 0%, transparent 50%)'
       }}>
-        <div style={{ 
-          height: isMobile ? '280px' : 'min(400px, calc(100% - 40px))', 
+        <div style={{
+          height: isMobile ? '280px' : 'min(400px, calc(100% - 40px))',
           minHeight: isMobile ? '280px' : '320px',
           maxHeight: isMobile ? '350px' : '500px',
           width: '100%',
           maxWidth: '100%',
-          borderRadius: isMobile ? '8px' : '12px',
-          background: 'white',
           padding: '0',
-          boxShadow: 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.06)',
           overflow: 'hidden',
           flexShrink: 0
         }}>
@@ -391,7 +342,7 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
                 // Use abbreviated format for Y-axis labels to prevent overlap
                 const absValue = Math.abs(value);
                 let formatted;
-                
+
                 // Use abbreviated format for large numbers
                 if (formatCompactValue) {
                   formatted = formatCompactValue(value, valuePrefix);
@@ -406,20 +357,20 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
                     formatted = `${valuePrefix}${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
                   }
                 }
-                
+
                 return formatted;
               }
             }}
             pointSize={isMobile ? 8 : 10}
             pointColor="#ffffff"
             pointBorderWidth={isMobile ? 2.5 : 3}
-            pointBorderColor="#3b82f6"
+            pointBorderColor="#0d6464"
             pointLabelYOffset={-12}
             enableArea={true}
             areaOpacity={0.25}
             areaBaselineValue={Math.min(...data.map(d => d.value || 0))}
             useMesh={true}
-            colors={['#3b82f6']}
+            colors={['#0d6464']}
             lineWidth={isMobile ? 3 : 4}
             enableGridX={false}
             enableGridY={true}
@@ -443,9 +394,9 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
                   minWidth: isMobile ? '140px' : '180px',
                   maxWidth: isMobile ? '200px' : 'none'
                 }}>
-                  <div style={{ 
-                    fontWeight: '700', 
-                    marginBottom: isMobile ? '4px' : '8px', 
+                  <div style={{
+                    fontWeight: '700',
+                    marginBottom: isMobile ? '4px' : '8px',
                     color: '#1e293b',
                     fontSize: isMobile ? '12px' : '14px',
                     letterSpacing: '-0.025em',
@@ -455,7 +406,7 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
                   }}>
                     {point.data.x}
                   </div>
-                  <div style={{ 
+                  <div style={{
                     color: '#475569',
                     fontSize: isMobile ? '13px' : '15px',
                     fontWeight: '600'
@@ -535,16 +486,17 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '8px' : '12px', flex: 1, minWidth: 0 }}>
                   <div style={{
-                    width: isMobile ? '8px' : '10px',
-                    height: isMobile ? '8px' : '10px',
-                    borderRadius: '50%',
-                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                    boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)',
-                    flexShrink: 0
+                    width: isMobile ? '12px' : '16px',
+                    height: isMobile ? '12px' : '16px',
+                    borderRadius: '4px',
+                    flexShrink: 0,
+                    background: 'linear-gradient(135deg, #0d6464 0%, #0d6464dd 100%)',
+                    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                    border: '1px solid rgba(255, 255, 255, 0.3)'
                   }} />
-                  <span style={{ 
-                    fontSize: isMobile ? '11px' : '13px', 
-                    fontWeight: '600', 
+                  <span style={{
+                    fontSize: isMobile ? '11px' : '13px',
+                    fontWeight: '600',
                     color: '#475569',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -554,9 +506,9 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
                   </span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? '6px' : '12px', flexShrink: 0 }}>
-                  <span style={{ 
-                    fontSize: isMobile ? '11px' : '13px', 
-                    fontWeight: '700', 
+                  <span style={{
+                    fontSize: isMobile ? '11px' : '13px',
+                    fontWeight: '700',
                     color: '#1e293b'
                   }}>
                     {formatValue ? formatValue(point.value || 0, valuePrefix) : `${valuePrefix}${(point.value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}

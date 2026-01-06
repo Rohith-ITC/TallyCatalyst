@@ -7,7 +7,7 @@ import Header from '../components/Header';
 import Ledgerbook from './Ledgerbook';
 import PlaceOrder from './PlaceOrder';
 import PlaceOrder_ECommerce from './PlaceOrder_ECommerce';
-import SalesDashboard from './salesdashboard';
+import SalesDashboard from './salesdashboard/SalesDashboard';
 import ReceivablesDashboard from '../RecvDashboard';
 import VoucherAuthorization from './vchauth';
 import ReceiptListScreenWrapper from './ReceiptListScreenWrapper';
@@ -20,6 +20,7 @@ import CacheManagement from './CacheManagement';
 import SalesOrderReport from './SalesOrderReport';
 import PaymentVoucherReport from './PaymentVoucherReport';
 import VendorExpenses from './VendorExpenses';
+import GmailJsonViewer from './GmailJsonViewer';
 import {
   MODULE_SEQUENCE,
   hasModuleAccess,
@@ -2493,6 +2494,7 @@ function TallyDashboard() {
             {activeSidebar === 'master_form' && <MasterForm key="master-form" />}
             {activeSidebar === 'master_authorization' && <MasterAuthorization />}
             {activeSidebar === 'master_list' && <MasterList />}
+            {activeSidebar === 'gmail_json' && <GmailJsonViewer />}
           </>
         </div>
       </main>
