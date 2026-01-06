@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton, rowAction, customHeader, stacked = false }) => {
+const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton, rowAction, customHeader, stacked = false, formatValue }) => {
   const [isMobile, setIsMobile] = React.useState(window.innerWidth <= 768);
   const [hoveredSegment, setHoveredSegment] = useState(null);
   
@@ -281,7 +281,7 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                       fontWeight: '600',
                       color: '#1e293b'
                     }}>
-                      {valuePrefix}{totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {formatValue ? formatValue(totalValue, valuePrefix) : `${valuePrefix}${totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                     </span>
                     {rowAction && (
                       <button
@@ -353,7 +353,7 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                           }}
                           onMouseEnter={() => setHoveredSegment(`${item.label}-${idx}`)}
                           onMouseLeave={() => setHoveredSegment(null)}
-                          title={`${segment.label || `Segment ${idx + 1}`}: ${valuePrefix}${segment.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                          title={`${segment.label || `Segment ${idx + 1}`}: ${formatValue ? formatValue(segment.value, valuePrefix) : `${valuePrefix}${segment.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}`}
                         />
                       ))}
                     </div>
@@ -382,8 +382,7 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                     borderRadius: '4px',
                     display: 'inline-block'
                   }}>
-                    {item.segments[parseInt(hoveredSegment.split('-').pop())].label}: {valuePrefix}
-                    {item.segments[parseInt(hoveredSegment.split('-').pop())].value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {item.segments[parseInt(hoveredSegment.split('-').pop())].label}: {formatValue ? formatValue(item.segments[parseInt(hoveredSegment.split('-').pop())].value, valuePrefix) : `${valuePrefix}${item.segments[parseInt(hoveredSegment.split('-').pop())].value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </div>
                 )}
               </div>

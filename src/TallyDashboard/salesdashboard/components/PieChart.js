@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { ResponsivePie } from '@nivo/pie';
 
-const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick, showBackButton, rowAction, customHeader }) => {
+const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick, showBackButton, rowAction, customHeader, formatValue }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   
@@ -319,7 +319,7 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
                     fontWeight: '600',
                     marginBottom: isMobile ? '2px' : '4px'
                   }}>
-                    {valuePrefix}{datum.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatValue ? formatValue(datum.value, valuePrefix) : `${valuePrefix}${datum.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </div>
                   <div style={{ 
                     color: '#64748b', 
@@ -452,7 +452,7 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
                     fontWeight: '700',
                     color: '#1e293b'
                   }}>
-                    {valuePrefix}{slice.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatValue ? formatValue(slice.value, valuePrefix) : `${valuePrefix}${slice.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </span>
                   {rowAction && (
                     <button
