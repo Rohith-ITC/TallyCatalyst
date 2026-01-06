@@ -6265,7 +6265,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           <div style={{
             background: 'linear-gradient(90deg, #1e40af 0%, #1e3a8a 100%)',
             borderRadius: '16px',
-            padding: isMobile ? '16px' : '24px',
+            padding: isMobile ? '12px' : '16px',
             boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
             marginBottom: '24px'
           }}>
@@ -6278,7 +6278,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               alignItems: 'center',
               gap: '8px',
               width: '100%',
-              marginBottom: '12px'
+              marginBottom: '8px'
             }}>
               <div style={{
                 width: '36px',
@@ -6305,16 +6305,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 }}>
                   Sales Analytics Dashboard
                 </h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
-                  <p style={{
-                    margin: 0,
-                    color: '#ffffff',
-                    fontSize: '11px',
-                    fontWeight: '500',
-                    lineHeight: '1.4'
-                  }}>
-                    Comprehensive sales insights
-                  </p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
                   {/* Date Range Badge */}
                   {fromDate && toDate && (
                     <div style={{
@@ -6760,15 +6751,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
+              gap: '10px',
               flex: '0 1 auto',
               minWidth: '200px',
               maxWidth: '400px',
               overflow: 'hidden'
             }}>
               <div style={{
-                width: '44px',
-                height: '44px',
+                width: '40px',
+                height: '40px',
                 borderRadius: '10px',
                 background: 'rgba(255, 255, 255, 0.2)',
                 backdropFilter: 'blur(10px)',
@@ -6778,13 +6769,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 flexShrink: 0,
                 border: '1px solid rgba(255, 255, 255, 0.3)'
               }}>
-                <span className="material-icons" style={{ color: '#ffffff', fontSize: '22px' }}>bar_chart</span>
+                <span className="material-icons" style={{ color: '#ffffff', fontSize: '20px' }}>bar_chart</span>
               </div>
               <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
                 <h1 style={{
                   margin: 0,
                   color: '#ffffff',
-                  fontSize: '24px',
+                  fontSize: '22px',
                   fontWeight: '800',
                   lineHeight: '1.2',
                   letterSpacing: '-0.02em',
@@ -6798,24 +6789,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   display: 'flex', 
                   alignItems: 'center', 
                   gap: '10px', 
-                  marginTop: '8px', 
+                  marginTop: '4px', 
                   flexWrap: 'wrap',
                   overflow: 'hidden',
                   minWidth: 0
                 }}>
-                  <p style={{
-                    margin: 0,
-                    color: '#ffffff',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    lineHeight: '1.4',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    flex: '0 1 auto'
-                  }}>
-                    Comprehensive sales insights
-                  </p>
                   {/* Date Range Badge */}
                   {fromDate && toDate && (
                     <div style={{
@@ -7788,12 +7766,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           )}
 
         {/* Dashboard Content */}
-          {/* KPI Cards Row */}
+          {/* KPI Cards Row - All in one row */}
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(4, 1fr)',
-            gap: isMobile ? '12px' : '16px',
-            marginBottom: isMobile ? '16px' : '24px'
+            display: 'flex',
+            flexDirection: isMobile ? 'column' : 'row',
+            flexWrap: isMobile ? 'nowrap' : 'wrap',
+            gap: isMobile ? '12px' : '12px',
+            marginBottom: isMobile ? '16px' : '24px',
+            overflowX: isMobile ? 'visible' : 'auto',
+            overflowY: 'visible'
           }}>
             <KPICard
               title="Total Revenue"
@@ -7839,55 +7820,48 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               iconBgColor="#dcfce7"
               iconColor="#16a34a"
             />
+            {canShowProfit && (
+              <>
+                <KPICard
+                  title="Total Profit"
+                  value={totalProfit}
+                  period={kpiPeriodLabel}
+                  trendData={kpiTrendData.profit}
+                  format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  status={totalProfit >= 0 ? 'met' : 'below'}
+                  isMobile={isMobile}
+                  iconName="trending_up"
+                  iconBgColor="#dcfce7"
+                  iconColor="#16a34a"
+                />
+                <KPICard
+                  title="Profit Margin"
+                  value={profitMargin}
+                  period={kpiPeriodLabel}
+                  trendData={kpiTrendData.profitMargin}
+                  format={(val) => `${val >= 0 ? '+' : ''}${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  unit="%"
+                  status={profitMargin >= 0 ? 'met' : 'below'}
+                  isMobile={isMobile}
+                  iconName="percent"
+                  iconBgColor="#dcfce7"
+                  iconColor="#16a34a"
+                />
+                <KPICard
+                  title="Avg Profit per Order"
+                  value={avgProfitPerOrder}
+                  period={kpiPeriodLabel}
+                  trendData={kpiTrendData.avgProfitPerOrder}
+                  format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                  status={avgProfitPerOrder >= 0 ? 'met' : 'below'}
+                  isMobile={isMobile}
+                  iconName="trending_up"
+                  iconBgColor="#dcfce7"
+                  iconColor="#16a34a"
+                />
+              </>
+            )}
           </div>
-
-          {/* Profit KPI Cards Row */}
-          {canShowProfit && (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)',
-              gap: isMobile ? '12px' : '16px',
-              marginBottom: isMobile ? '20px' : '28px'
-            }}>
-              <KPICard
-                title="Total Profit"
-                value={totalProfit}
-                period={kpiPeriodLabel}
-                trendData={kpiTrendData.profit}
-                format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                status={totalProfit >= 0 ? 'met' : 'below'}
-                isMobile={isMobile}
-                iconName="trending_up"
-                iconBgColor="#dcfce7"
-                iconColor="#16a34a"
-              />
-              <KPICard
-                title="Profit Margin"
-                value={profitMargin}
-                period={kpiPeriodLabel}
-                trendData={kpiTrendData.profitMargin}
-                format={(val) => `${val >= 0 ? '+' : ''}${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                unit="%"
-                status={profitMargin >= 0 ? 'met' : 'below'}
-                isMobile={isMobile}
-                iconName="percent"
-                iconBgColor="#dcfce7"
-                iconColor="#16a34a"
-              />
-              <KPICard
-                title="Avg Profit per Order"
-                value={avgProfitPerOrder}
-                period={kpiPeriodLabel}
-                trendData={kpiTrendData.avgProfitPerOrder}
-                format={(val) => `₹${val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                status={avgProfitPerOrder >= 0 ? 'met' : 'below'}
-                isMobile={isMobile}
-                iconName="trending_up"
-                iconBgColor="#dcfce7"
-                iconColor="#16a34a"
-              />
-            </div>
-          )}
 
           {/* Main Content: Charts */}
           <div style={{

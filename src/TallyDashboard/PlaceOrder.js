@@ -8352,7 +8352,7 @@ function PlaceOrder() {
 
       background: 'transparent',
 
-      padding: isMobile ? '16px' : isTablet ? '20px' : isSmallDesktop ? '20px' : '24px',
+      padding: isMobile ? '8px 16px 16px 16px' : isTablet ? '8px 20px 20px 20px' : isSmallDesktop ? '8px 20px 20px 20px' : '8px 24px 24px 24px',
 
       margin: 0,
 
@@ -8496,7 +8496,7 @@ function PlaceOrder() {
 
       {/* Page Header - Matching Receivables Dashboard */}
       <div className="page-header" style={{
-        marginBottom: isMobile ? '0.75rem' : '2rem',
+        marginBottom: isMobile ? '0.5rem' : '1rem',
         flexShrink: 0,
         display: 'flex',
         justifyContent: 'space-between',
@@ -8509,23 +8509,6 @@ function PlaceOrder() {
       }}>
         <div className="page-header-left" style={{ width: isMobile ? '100%' : 'auto' }}>
           <div className="page-header-titles">
-            <h1 style={{
-              fontSize: isMobile ? '1.375rem' : '2.5rem',
-              marginBottom: isMobile ? '0.25rem' : '0.5rem',
-              fontWeight: '700',
-              color: '#1a202c',
-              margin: 0,
-            }}>
-              Place Order
-            </h1>
-            <p className="subtitle" style={{
-              fontSize: isMobile ? '0.875rem' : '1.1rem',
-              color: '#718096',
-              fontWeight: '600',
-              margin: 0,
-            }}>
-              {currentCompany?.company || 'Select a company'}
-            </p>
           </div>
         </div>
         <div className="page-header-actions" style={{
@@ -8535,45 +8518,6 @@ function PlaceOrder() {
           gap: '0.75rem',
           flexShrink: 0,
         }}>
-          <button
-            onClick={() => {
-              setRefreshStockItems(prev => prev + 1);
-              setRefreshCustomers(prev => prev + 1);
-            }}
-            className="refresh-button"
-            title="Refresh data"
-            style={{
-              width: isMobile ? '100%' : 'auto',
-              padding: isMobile ? '12px 20px' : '12px 24px',
-              height: isMobile ? '44px' : '48px',
-              fontSize: isMobile ? '14px' : '15px',
-              borderRadius: '8px',
-              WebkitTapHighlightColor: 'transparent',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              border: 'none',
-              background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-              color: '#fff',
-              fontWeight: '600',
-              boxShadow: '0 12px 20px rgba(37, 99, 235, 0.25)',
-              cursor: 'pointer',
-              transition: 'transform 0.2s, box-shadow 0.2s, background 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = '0 16px 24px rgba(37, 99, 235, 0.25)';
-              e.currentTarget.style.background = 'linear-gradient(135deg, #1d4ed8, #1e40af)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 12px 20px rgba(37, 99, 235, 0.25)';
-              e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb, #1d4ed8)';
-            }}
-          >
-            <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>refresh</span>
-            <span>Refresh Data</span>
-          </button>
         </div>
       </div>
 
@@ -8594,7 +8538,7 @@ function PlaceOrder() {
           minWidth: isMobile || isTablet || isSmallDesktop ? 'auto' : '600px',
           maxWidth: '100%',
           width: isMobile || isTablet || isSmallDesktop ? '100%' : 'auto',
-          padding: isMobile ? '16px' : isTablet ? '20px' : isSmallDesktop ? '20px' : '24px',
+          padding: isMobile ? '8px 16px 16px 16px' : isTablet ? '8px 20px 20px 20px' : isSmallDesktop ? '8px 20px 20px 20px' : '8px 24px 24px 24px',
           display: 'flex',
           flexDirection: 'column',
           gap: isMobile ? '20px' : isTablet ? '24px' : isSmallDesktop ? '24px' : '32px',
@@ -8606,22 +8550,6 @@ function PlaceOrder() {
 
             {/* Customer Details Section */}
             <div style={{ maxWidth: '100%', boxSizing: 'border-box' }}>
-              <h2 style={{
-                margin: '0 0 4px 0',
-                fontSize: isMobile ? '18px' : '20px',
-                fontWeight: '600',
-                color: '#1f2937'
-              }}>
-                Customer Details
-              </h2>
-              <p style={{
-                margin: '0 0 16px 0',
-                fontSize: isMobile ? '13px' : '14px',
-                color: '#6b7280',
-                fontWeight: '400'
-              }}>
-                Select customer and order type
-              </p>
 
 
 
@@ -10109,22 +10037,6 @@ function PlaceOrder() {
                     onMouseLeave={(e) => {
                       e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
                     }}>
-                    <h2 style={{
-                      margin: '0 0 4px 0',
-                      fontSize: isMobile ? '18px' : '20px',
-                      fontWeight: '600',
-                      color: '#1f2937'
-                    }}>
-                      Order Items
-                    </h2>
-                    <p style={{
-                      margin: '0 0 16px 0',
-                      fontSize: isMobile ? '13px' : '14px',
-                      color: '#6b7280',
-                      fontWeight: '400'
-                    }}>
-                      Add products to the order
-                    </p>
 
                     <div style={{
 
@@ -13254,11 +13166,11 @@ function PlaceOrder() {
           width: isMobile || isTablet || isSmallDesktop ? '100%' : isMedium ? '360px' : '380px',
           maxWidth: '100%',
           position: isMobile || isTablet || isSmallDesktop ? 'relative' : 'sticky',
-          top: isMobile || isTablet || isSmallDesktop ? 'auto' : '24px',
+          top: isMobile || isTablet || isSmallDesktop ? 'auto' : '8px',
           alignSelf: isMobile || isTablet || isSmallDesktop ? 'auto' : 'flex-start',
           maxHeight: isMobile || isTablet || isSmallDesktop ? 'none' : 'calc(100vh - 48px)',
           overflowY: isMobile || isTablet || isSmallDesktop ? 'visible' : 'auto',
-          padding: isMobile ? '16px' : isTablet ? '20px' : isSmallDesktop ? '20px' : '24px',
+          padding: isMobile ? '8px 16px 16px 16px' : isTablet ? '8px 20px 20px 20px' : isSmallDesktop ? '8px 20px 20px 20px' : '8px 24px 24px 24px',
           display: 'flex',
           flexDirection: 'column',
           gap: isMobile ? '16px' : '20px',

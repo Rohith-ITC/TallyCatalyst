@@ -30,6 +30,21 @@ const KPICard = ({
   const valueColor = displayStatus === 'met' ? '#16a34a' : '#ea580c';
 
   const formattedValue = useMemo(() => format(value), [value, format]);
+  
+  // Calculate width based on value length
+  const valueLength = (formattedValue + unit).length;
+  
+  // Base width calculation: minimum 120px, add ~15px per character over 8
+  const baseWidth = 120;
+  const charWidth = 15;
+  const minChars = 8;
+  const calculatedWidth = Math.max(
+    baseWidth,
+    baseWidth + (Math.max(0, valueLength - minChars) * charWidth)
+  );
+  
+  // Cap at reasonable maximum
+  const cardWidth = Math.min(calculatedWidth, 220);
   const formattedTarget = useMemo(() => target !== undefined && target !== null ? format(target) : null, [target, format]);
 
   const difference = useMemo(() => {
@@ -80,15 +95,17 @@ const KPICard = ({
       style={{
         position: 'relative',
         background: 'white',
-        borderRadius: '10px',
-        padding: isMobile ? '12px' : '14px',
+        borderRadius: '8px',
+        padding: isMobile ? '10px' : '12px',
         border: '1px solid #e2e8f0',
         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column',
         justifyContent: 'space-between',
-        minHeight: isMobile ? '100px' : '110px',
+        minHeight: isMobile ? '85px' : '95px',
+        width: isMobile ? '100%' : `${cardWidth}px`,
+        flex: isMobile ? '1 1 100%' : '0 0 auto',
       }}
     >
       {trendData.length > 1 && (
@@ -114,11 +131,11 @@ const KPICard = ({
         <div
           style={{
             position: 'absolute',
-            bottom: isMobile ? '10px' : '12px',
-            right: isMobile ? '10px' : '12px',
-            width: isMobile ? '36px' : '44px',
-            height: isMobile ? '36px' : '44px',
-            borderRadius: '10px',
+            bottom: isMobile ? '8px' : '10px',
+            right: isMobile ? '8px' : '10px',
+            width: isMobile ? '28px' : '32px',
+            height: isMobile ? '28px' : '32px',
+            borderRadius: '8px',
             background: iconBgColor,
             display: 'flex',
             alignItems: 'center',
@@ -127,7 +144,7 @@ const KPICard = ({
             boxShadow: `0 2px 8px ${iconColor}26`,
           }}
         >
-          <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '22px', color: iconColor }}>
+          <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: iconColor }}>
             {iconName}
           </span>
         </div>
@@ -136,8 +153,8 @@ const KPICard = ({
       <div style={{ position: 'relative', zIndex: 1 }}>
         <p
           style={{
-            margin: '0 0 3px 0',
-            fontSize: isMobile ? '9px' : '11px',
+            margin: '0 0 2px 0',
+            fontSize: isMobile ? '8px' : '9px',
             fontWeight: '600',
             color: '#64748b',
             textTransform: 'uppercase',
@@ -146,14 +163,16 @@ const KPICard = ({
         >
           {title}
         </p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '2px', flexWrap: 'wrap' }}>
           <p
             style={{
               margin: 0,
-              fontSize: isMobile ? '22px' : '26px',
+              fontSize: isMobile ? '16px' : (valueLength > 15 ? '16px' : valueLength > 10 ? '18px' : '20px'),
               fontWeight: '700',
               color: valueColor,
               lineHeight: 1,
+              wordBreak: 'break-word',
+              overflowWrap: 'break-word',
             }}
           >
             {formattedValue}
@@ -162,14 +181,14 @@ const KPICard = ({
         </div>
 
         {formattedTarget && (
-          <p style={{ margin: 0, fontSize: isMobile ? '10px' : '12px', color: '#64748b' }}>
+          <p style={{ margin: 0, fontSize: isMobile ? '9px' : '10px', color: '#64748b' }}>
             Target: {formattedTarget}
             {unit} {difference && <span style={{ color: valueColor }}>({difference})</span>}
           </p>
         )}
 
         {additionalData !== undefined && additionalData !== null && (
-          <p style={{ margin: '3px 0 0 0', fontSize: isMobile ? '10px' : '12px', color: '#475569' }}>
+          <p style={{ margin: '2px 0 0 0', fontSize: isMobile ? '9px' : '10px', color: '#475569' }}>
             {additionalData.toLocaleString()}
           </p>
         )}
