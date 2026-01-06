@@ -111,7 +111,6 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
             top: 0,
             background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
             zIndex: 10,
-            borderBottom: '2px solid #e2e8f0',
             marginBottom: '0'
           }}>
             {customHeader}
@@ -126,7 +125,6 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
             top: 0,
             background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
             zIndex: 10,
-            borderBottom: '2px solid #e2e8f0',
             marginBottom: '0',
             gap: isMobile ? '8px' : '12px'
           }}>
@@ -234,7 +232,6 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
           top: 0,
           background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           zIndex: 10,
-          borderBottom: '2px solid #e2e8f0',
           marginBottom: '0'
         }}>
           {customHeader}
@@ -249,7 +246,6 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
           top: 0,
           background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           zIndex: 10,
-          borderBottom: '2px solid #e2e8f0',
           marginBottom: '0',
           gap: isMobile ? '8px' : '12px'
         }}>

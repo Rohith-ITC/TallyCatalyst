@@ -36,7 +36,6 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
             top: 0,
             background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
             zIndex: 10,
-            borderBottom: '2px solid #e2e8f0',
             marginBottom: '0'
           }}>
             {customHeader}
@@ -51,7 +50,6 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
             top: 0,
             background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
             zIndex: 10,
-            borderBottom: '2px solid #e2e8f0',
             marginBottom: '0',
             gap: isMobile ? '8px' : '12px'
           }}>
@@ -151,7 +149,6 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
           top: 0,
           background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           zIndex: 10,
-          borderBottom: '2px solid #e2e8f0',
           marginBottom: '0'
         }}>
           {customHeader}
@@ -166,7 +163,6 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
           top: 0,
           background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           zIndex: 10,
-          borderBottom: '2px solid #e2e8f0',
           marginBottom: '0',
           gap: isMobile ? '8px' : '12px'
         }}>
@@ -224,7 +220,8 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
         overflowY: 'auto',
         overflowX: 'hidden',
         flex: '1 1 0',
-        minHeight: 0
+        minHeight: 0,
+        height: 0
       }}>
         <div style={{ 
           display: 'flex', 
@@ -329,8 +326,8 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                 <div style={{
                   width: '100%',
                   background: '#e2e8f0',
-                  borderRadius: '4px',
-                  height: '8px',
+                  borderRadius: '6px',
+                  height: '18px',
                   overflow: 'hidden',
                   position: 'relative'
                 }}>
@@ -338,16 +335,16 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                     // Stacked segments
                     <div style={{
                       display: 'flex',
-                      height: '8px',
+                      height: '18px',
                       width: `${(totalValue / maxValue) * 100}%`,
-                      borderRadius: '4px',
+                      borderRadius: '6px',
                       overflow: 'hidden'
                     }}>
                       {item.segments.map((segment, idx) => (
                         <div
                           key={`${item.label}-segment-${idx}`}
                           style={{
-                            height: '8px',
+                            height: '18px',
                             width: `${(segment.value / totalValue) * 100}%`,
                             backgroundColor: segment.color || '#3b82f6',
                             transition: 'all 0.3s ease',
@@ -364,8 +361,8 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                     // Regular single bar
                     <div
                       style={{
-                        height: '8px',
-                        borderRadius: '4px',
+                        height: '18px',
+                        borderRadius: '6px',
                         transition: 'all 0.5s ease-out',
                         width: `${(item.value / maxValue) * 100}%`,
                         backgroundColor: item.color || '#3b82f6',

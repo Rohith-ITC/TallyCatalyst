@@ -306,63 +306,88 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
       <div
         style={{
           background: '#fff',
-          borderRadius: isMobile ? '12px' : '18px',
+          borderRadius: isMobile ? '8px' : '10px',
           width: isMobile ? '95%' : '96%',
           maxWidth: '900px',
           maxHeight: isMobile ? '95vh' : '90vh',
           display: 'flex',
           flexDirection: 'column',
-          boxShadow: '0 20px 50px rgba(15, 23, 42, 0.25)',
+          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05)',
           overflow: 'hidden',
-          border: '1px solid #e2e8f0',
+          border: '1px solid #cbd5e1',
           margin: isMobile ? 'auto' : '0'
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Blue Header Bar */}
+        {/* Tally-style Header Bar */}
         <div
           style={{
-            background: '#2563eb',
+            background: 'linear-gradient(135deg, #1e40af 0%, #1e3a8a 100%)',
             color: '#fff',
-            padding: isMobile ? '12px 16px' : '16px 24px',
+            padding: isMobile ? '14px 16px' : '18px 24px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            flexShrink: 0
+            flexShrink: 0,
+            borderBottom: '2px solid rgba(255, 255, 255, 0.1)',
+            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
           }}
         >
           <div>
-            <div style={{ fontSize: isMobile ? '16px' : '18px', fontWeight: 600, marginBottom: '4px' }}>
+            <div style={{ 
+              fontSize: isMobile ? '17px' : '19px', 
+              fontWeight: 700, 
+              marginBottom: '6px',
+              letterSpacing: '0.3px',
+              textShadow: '0 1px 2px rgba(0, 0, 0, 0.2)'
+            }}>
               Voucher Details
             </div>
-            <div style={{ fontSize: isMobile ? '14px' : '16px', fontWeight: 500, opacity: 0.95 }}>
+            <div style={{ 
+              fontSize: isMobile ? '13px' : '15px', 
+              fontWeight: 500, 
+              opacity: 0.95,
+              marginBottom: '3px'
+            }}>
               {voucherNumber} - {voucherType}
             </div>
-            <div style={{ fontSize: isMobile ? '12px' : '13px', opacity: 0.9, marginTop: '2px' }}>
+            <div style={{ 
+              fontSize: isMobile ? '11px' : '12px', 
+              opacity: 0.85, 
+              marginTop: '2px',
+              fontStyle: 'italic'
+            }}>
               Ledger: {partyLedgerName}
-              </div>
+            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {headerActions}
             <button
               onClick={onClose}
               style={{
-                background: 'transparent',
-                border: 'none',
+                background: 'rgba(255, 255, 255, 0.15)',
+                border: '1px solid rgba(255, 255, 255, 0.25)',
                 cursor: 'pointer',
                 color: '#fff',
-                width: 32,
-                height: 32,
-                borderRadius: '4px',
+                width: 34,
+                height: 34,
+                borderRadius: '6px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                transition: 'background 0.2s',
-                fontSize: '20px',
-                fontWeight: 'bold'
+                transition: 'all 0.2s',
+                fontSize: '22px',
+                fontWeight: 'bold',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.2)'
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)')}
-              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.4)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.25)';
+              }}
             >
               ×
             </button>
@@ -370,15 +395,22 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
         </div>
 
         {/* Main Content */}
-        <div style={{ flex: 1, overflow: 'auto', padding: isMobile ? '16px' : '24px', WebkitOverflowScrolling: 'touch', background: '#f8fafc' }}>
+        <div style={{ 
+          flex: 1, 
+          overflow: 'auto', 
+          padding: isMobile ? '16px' : '24px', 
+          WebkitOverflowScrolling: 'touch', 
+          background: '#f1f5f9'
+        }}>
           {/* Voucher Identification Section */}
           <div
             style={{
               marginBottom: isMobile ? '20px' : '24px',
               background: '#fff',
-              padding: isMobile ? '16px' : '20px',
-              borderRadius: '8px',
-              border: '1px solid #e2e8f0'
+              padding: isMobile ? '18px' : '22px',
+              borderRadius: '6px',
+              border: '1px solid #cbd5e1',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)'
             }}
           >
             <div
@@ -390,20 +422,56 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
               }}
             >
               <div>
-                <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Voucher Type</div>
-                <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 600 }}>
+                <div style={{ 
+                  fontSize: isMobile ? '11px' : '12px', 
+                  color: '#475569', 
+                  fontWeight: 600, 
+                  marginBottom: '8px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>Voucher Type</div>
+                <div style={{ 
+                  fontSize: isMobile ? '15px' : '17px', 
+                  color: '#0f172a', 
+                  fontWeight: 700,
+                  fontFamily: 'system-ui, -apple-system, sans-serif'
+                }}>
                   {voucherType}
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Voucher No.</div>
-                <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 600 }}>
+                <div style={{ 
+                  fontSize: isMobile ? '11px' : '12px', 
+                  color: '#475569', 
+                  fontWeight: 600, 
+                  marginBottom: '8px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>Voucher No.</div>
+                <div style={{ 
+                  fontSize: isMobile ? '15px' : '17px', 
+                  color: '#0f172a', 
+                  fontWeight: 700,
+                  fontFamily: 'system-ui, -apple-system, sans-serif'
+                }}>
                   {voucherNumber}
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Date</div>
-                <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 600 }}>
+                <div style={{ 
+                  fontSize: isMobile ? '11px' : '12px', 
+                  color: '#475569', 
+                  fontWeight: 600, 
+                  marginBottom: '8px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>Date</div>
+                <div style={{ 
+                  fontSize: isMobile ? '15px' : '17px', 
+                  color: '#0f172a', 
+                  fontWeight: 700,
+                  fontFamily: 'system-ui, -apple-system, sans-serif'
+                }}>
                   {voucherDate}
                 </div>
               </div>
@@ -417,15 +485,41 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
               }}
             >
               <div>
-                <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Particulars</div>
-                <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 500 }}>
+                <div style={{ 
+                  fontSize: isMobile ? '11px' : '12px', 
+                  color: '#475569', 
+                  fontWeight: 600, 
+                  marginBottom: '8px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>Particulars</div>
+                <div style={{ 
+                  fontSize: isMobile ? '15px' : '17px', 
+                  color: '#0f172a', 
+                  fontWeight: 600,
+                  fontFamily: 'system-ui, -apple-system, sans-serif'
+                }}>
                   {partyLedgerName}
                 </div>
               </div>
               {partyLedger && (partyLedger.ISPARTYLEDGER || partyLedger.ispartyledger || '').toString().toLowerCase().trim() === 'yes' && (voucher.ADDRESS || voucher.address || voucher.BASICBUYERADDRESS || voucher.basicbuyeraddress) && (
                 <div style={{ gridColumn: isMobile ? 'auto' : '2 / 4' }}>
-                  <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Party Ledger Address</div>
-                  <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 500, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                  <div style={{ 
+                    fontSize: isMobile ? '11px' : '12px', 
+                    color: '#475569', 
+                    fontWeight: 600, 
+                    marginBottom: '8px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
+                  }}>Party Ledger Address</div>
+                  <div style={{ 
+                    fontSize: isMobile ? '14px' : '15px', 
+                    color: '#0f172a', 
+                    fontWeight: 500, 
+                    whiteSpace: 'pre-wrap', 
+                    wordBreak: 'break-word',
+                    lineHeight: '1.6'
+                  }}>
                     {voucher.ADDRESS || voucher.address || voucher.BASICBUYERADDRESS || voucher.basicbuyeraddress || '-'}
                   </div>
                 </div>
@@ -434,8 +528,22 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
             {/* Narration */}
             {(voucher.NARRATION || voucher.narration) && (
               <div>
-                <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#64748b', fontWeight: 500, marginBottom: '6px' }}>Narration</div>
-                <div style={{ fontSize: isMobile ? '14px' : '16px', color: '#1e293b', fontWeight: 500, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                <div style={{ 
+                  fontSize: isMobile ? '11px' : '12px', 
+                  color: '#475569', 
+                  fontWeight: 600, 
+                  marginBottom: '8px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}>Narration</div>
+                <div style={{ 
+                  fontSize: isMobile ? '14px' : '15px', 
+                  color: '#0f172a', 
+                  fontWeight: 500, 
+                  whiteSpace: 'pre-wrap', 
+                  wordBreak: 'break-word',
+                  lineHeight: '1.6'
+                }}>
                   {voucher.NARRATION || voucher.narration}
                 </div>
               </div>
@@ -454,18 +562,26 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
               }}>
                 Inventory Allocations
               </div>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', background: '#fff' }}>
+              <div style={{ 
+                border: '1px solid #cbd5e1', 
+                borderRadius: '4px', 
+                overflow: 'hidden', 
+                background: '#fff',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)'
+              }}>
                 <div
                   style={{
                     display: 'grid',
                     gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
-                  padding: isMobile ? '10px 12px' : '12px 16px',
-                  background: '#f8fafc',
-                    borderBottom: '1px solid #e2e8f0',
-                    fontWeight: 600,
-                    fontSize: isMobile ? '11px' : '13px',
-                    color: '#1e293b',
-                    gap: isMobile ? '8px' : '12px'
+                    padding: isMobile ? '12px 14px' : '14px 18px',
+                    background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+                    borderBottom: '2px solid #cbd5e1',
+                    fontWeight: 700,
+                    fontSize: isMobile ? '11px' : '12px',
+                    color: '#0f172a',
+                    gap: isMobile ? '8px' : '12px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
                   }}
                 >
                   <div>Item Name</div>
@@ -494,30 +610,60 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                       style={{
                         display: 'grid',
                         gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
-                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        padding: isMobile ? '12px 14px' : '14px 18px',
                         borderBottom: idx === inventoryEntries.length - 1 ? 'none' : '1px solid #e2e8f0',
-                        fontSize: isMobile ? '12px' : '14px',
-                        color: '#1e293b',
+                        fontSize: isMobile ? '13px' : '14px',
+                        color: '#0f172a',
                         gap: isMobile ? '8px' : '12px',
                         alignItems: 'center',
-                        background: '#fff'
+                        background: idx % 2 === 0 ? '#fff' : '#fafbfc',
+                        transition: 'background 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (idx % 2 === 0) {
+                          e.currentTarget.style.background = '#f8fafc';
+                        } else {
+                          e.currentTarget.style.background = '#f1f5f9';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = idx % 2 === 0 ? '#fff' : '#fafbfc';
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: 500 }}>{itemName}</div>
+                        <div style={{ 
+                          fontWeight: 600, 
+                          color: '#0f172a',
+                          fontSize: isMobile ? '13px' : '14px'
+                        }}>{itemName}</div>
                         <div style={{ 
                           fontStyle: 'italic', 
                           fontSize: isMobile ? '11px' : '12px', 
                           color: '#64748b',
-                          marginTop: '4px'
+                          marginTop: '4px',
+                          fontWeight: 400
                         }}>
                           {description || '- Description not found'}
                         </div>
                       </div>
-                      <div style={{ textAlign: 'right', fontWeight: 500 }}>{formatNumber(quantity)}</div>
-                      <div style={{ textAlign: 'left', fontWeight: 500, fontSize: isMobile ? '11px' : '12px', color: '#64748b' }}>{uom || '-'}</div>
+                      <div style={{ 
+                        textAlign: 'right', 
+                        fontWeight: 600,
+                        color: '#0f172a',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>{formatNumber(quantity)}</div>
+                      <div style={{ 
+                        textAlign: 'left', 
+                        fontWeight: 500, 
+                        fontSize: isMobile ? '11px' : '12px', 
+                        color: '#64748b' 
+                      }}>{uom || '-'}</div>
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontWeight: 500 }}>{formatNumber(rate)}</div>
+                        <div style={{ 
+                          fontWeight: 600,
+                          color: '#0f172a',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>{formatNumber(rate)}</div>
                         {rateUom && (
                           <div style={{ 
                             fontSize: isMobile ? '10px' : '11px', 
@@ -529,33 +675,52 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                           </div>
                         )}
                       </div>
-                      <div style={{ textAlign: 'right', fontWeight: 500 }}>{formatNumber(discount)}</div>
-                      <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(amount)}</div>
+                      <div style={{ 
+                        textAlign: 'right', 
+                        fontWeight: 600,
+                        color: '#0f172a',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>{formatNumber(discount)}</div>
+                      <div style={{ 
+                        textAlign: 'right', 
+                        fontWeight: 700,
+                        color: '#0f172a',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>{formatCurrencyAmount(amount)}</div>
                     </div>
                   );
                 })}
                 
                 {/* Tax and Round Off Section */}
-                <div style={{ borderTop: '2px solid #e2e8f0', background: '#fff' }}>
+                <div style={{ 
+                  borderTop: '2px solid #cbd5e1', 
+                  background: '#fff'
+                }}>
                   {totalCgst > 0 && (
                     <div
                       style={{
                         display: 'grid',
                         gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
-                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        padding: isMobile ? '12px 14px' : '14px 18px',
                         borderTop: '1px solid #e2e8f0',
-                        fontSize: isMobile ? '12px' : '14px',
-                        color: '#1e293b',
+                        fontSize: isMobile ? '13px' : '14px',
+                        color: '#0f172a',
                         gap: isMobile ? '8px' : '12px',
-                        alignItems: 'center'
+                        alignItems: 'center',
+                        background: '#fafbfc'
                       }}
                     >
-                      <div style={{ fontWeight: 500 }}>CGST</div>
+                      <div style={{ fontWeight: 600 }}>CGST</div>
                       <div style={{ textAlign: 'right' }}></div>
                       <div style={{ textAlign: 'left' }}></div>
                       <div style={{ textAlign: 'right' }}></div>
                       <div style={{ textAlign: 'right' }}></div>
-                      <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(totalCgst)}</div>
+                      <div style={{ 
+                        textAlign: 'right', 
+                        fontWeight: 700,
+                        color: '#0f172a',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>{formatCurrencyAmount(totalCgst)}</div>
                     </div>
                   )}
                   {totalSgst > 0 && (
@@ -563,40 +728,52 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                       style={{
                         display: 'grid',
                         gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
-                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        padding: isMobile ? '12px 14px' : '14px 18px',
                         borderTop: '1px solid #e2e8f0',
-                        fontSize: isMobile ? '12px' : '14px',
-                        color: '#1e293b',
+                        fontSize: isMobile ? '13px' : '14px',
+                        color: '#0f172a',
                         gap: isMobile ? '8px' : '12px',
-                        alignItems: 'center'
+                        alignItems: 'center',
+                        background: '#fff'
                       }}
                     >
-                      <div style={{ fontWeight: 500 }}>SGST</div>
+                      <div style={{ fontWeight: 600 }}>SGST</div>
                       <div style={{ textAlign: 'right' }}></div>
                       <div style={{ textAlign: 'left' }}></div>
                       <div style={{ textAlign: 'right' }}></div>
                       <div style={{ textAlign: 'right' }}></div>
-                      <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(totalSgst)}</div>
+                      <div style={{ 
+                        textAlign: 'right', 
+                        fontWeight: 700,
+                        color: '#0f172a',
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>{formatCurrencyAmount(totalSgst)}</div>
                     </div>
                   )}
                   <div
                     style={{
                       display: 'grid',
                       gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
-                      padding: isMobile ? '10px 12px' : '12px 16px',
+                      padding: isMobile ? '12px 14px' : '14px 18px',
                       borderTop: '1px solid #e2e8f0',
-                      fontSize: isMobile ? '12px' : '14px',
-                      color: '#1e293b',
+                      fontSize: isMobile ? '13px' : '14px',
+                      color: '#0f172a',
                       gap: isMobile ? '8px' : '12px',
-                      alignItems: 'center'
+                      alignItems: 'center',
+                      background: '#fafbfc'
                     }}
                   >
-                    <div style={{ fontWeight: 500 }}>ROUND OFF</div>
+                    <div style={{ fontWeight: 600 }}>ROUND OFF</div>
                     <div style={{ textAlign: 'right' }}></div>
                     <div style={{ textAlign: 'left' }}></div>
                     <div style={{ textAlign: 'right' }}></div>
                     <div style={{ textAlign: 'right' }}></div>
-                    <div style={{ textAlign: 'right', fontWeight: 600 }}>{formatCurrencyAmount(totalRoundoff)}</div>
+                    <div style={{ 
+                      textAlign: 'right', 
+                      fontWeight: 700,
+                      color: '#0f172a',
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>{formatCurrencyAmount(totalRoundoff)}</div>
                   </div>
                 </div>
                 
@@ -607,14 +784,16 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                       style={{
                         display: 'grid',
                         gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
-                        padding: isMobile ? '10px 12px' : '12px 16px',
-                        background: '#f8fafc',
-                        borderTop: '2px solid #e2e8f0',
-                        borderBottom: '1px solid #e2e8f0',
-                        fontWeight: 600,
-                        fontSize: isMobile ? '11px' : '13px',
-                        color: '#1e293b',
-                        gap: isMobile ? '8px' : '12px'
+                        padding: isMobile ? '12px 14px' : '14px 18px',
+                        background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+                        borderTop: '2px solid #cbd5e1',
+                        borderBottom: '1px solid #cbd5e1',
+                        fontWeight: 700,
+                        fontSize: isMobile ? '11px' : '12px',
+                        color: '#0f172a',
+                        gap: isMobile ? '8px' : '12px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
                       }}
                     >
                       <div>Ledger Name</div>
@@ -632,20 +811,39 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                           style={{
                             display: 'grid',
                             gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
-                            padding: isMobile ? '10px 12px' : '12px 16px',
+                            padding: isMobile ? '12px 14px' : '14px 18px',
                             borderBottom: idx === filteredLedgerEntries.length - 1 ? 'none' : '1px solid #e2e8f0',
-                            fontSize: isMobile ? '12px' : '14px',
-                            color: '#1e293b',
+                            fontSize: isMobile ? '13px' : '14px',
+                            color: '#0f172a',
                             gap: isMobile ? '8px' : '12px',
                             alignItems: 'center',
-                            background: '#fff'
+                            background: idx % 2 === 0 ? '#fff' : '#fafbfc',
+                            transition: 'background 0.15s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (idx % 2 === 0) {
+                              e.currentTarget.style.background = '#f8fafc';
+                            } else {
+                              e.currentTarget.style.background = '#f1f5f9';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = idx % 2 === 0 ? '#fff' : '#fafbfc';
                           }}
                         >
-                          <div style={{ fontWeight: 500 }}>{ledgerName}</div>
-                          <div style={{ textAlign: 'right', fontWeight: 500 }}>
+                          <div style={{ fontWeight: 600 }}>{ledgerName}</div>
+                          <div style={{ 
+                            textAlign: 'right', 
+                            fontWeight: 600,
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
                             {debitAmt > 0 ? formatCurrencyAmount(debitAmt) : ''}
                           </div>
-                          <div style={{ textAlign: 'right', fontWeight: 500 }}>
+                          <div style={{ 
+                            textAlign: 'right', 
+                            fontWeight: 600,
+                            fontFamily: 'system-ui, -apple-system, sans-serif'
+                          }}>
                             {creditAmt > 0 ? formatCurrencyAmount(creditAmt) : ''}
                           </div>
                         </div>
@@ -653,40 +851,56 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                     })}
                     
                     {/* Totals Section */}
-                    <div style={{ borderTop: '2px solid #e2e8f0', background: '#fff' }}>
+                    <div style={{ 
+                      borderTop: '2px solid #cbd5e1', 
+                      background: '#fff'
+                    }}>
                       <div
                         style={{
                           display: 'grid',
                           gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
-                          padding: isMobile ? '10px 12px' : '12px 16px',
+                          padding: isMobile ? '12px 14px' : '14px 18px',
                           borderTop: '1px solid #e2e8f0',
-                          fontSize: isMobile ? '12px' : '14px',
-                          color: '#1e293b',
+                          fontSize: isMobile ? '13px' : '14px',
+                          color: '#0f172a',
                           gap: isMobile ? '8px' : '12px',
                           alignItems: 'center',
-                          fontWeight: 600
+                          fontWeight: 700,
+                          background: '#fafbfc'
                         }}
                       >
                         <div>Total</div>
-                        <div style={{ textAlign: 'right' }}>{formatCurrencyAmount(totalDebit)}</div>
-                        <div style={{ textAlign: 'right' }}>{formatCurrencyAmount(totalCredit)}</div>
+                        <div style={{ 
+                          textAlign: 'right',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>{formatCurrencyAmount(totalDebit)}</div>
+                        <div style={{ 
+                          textAlign: 'right',
+                          fontFamily: 'system-ui, -apple-system, sans-serif'
+                        }}>{formatCurrencyAmount(totalCredit)}</div>
                       </div>
                       <div
                         style={{
                           display: 'grid',
                           gridTemplateColumns: isMobile ? '2fr 1fr 1fr' : '3fr 1fr 1fr',
-                          padding: isMobile ? '10px 12px' : '12px 16px',
-                          borderTop: '1px solid #e2e8f0',
-                          fontSize: isMobile ? '12px' : '14px',
-                          color: '#1e293b',
+                          padding: isMobile ? '12px 14px' : '14px 18px',
+                          borderTop: '2px solid #cbd5e1',
+                          fontSize: isMobile ? '14px' : '15px',
+                          color: '#0f172a',
                           gap: isMobile ? '8px' : '12px',
                           alignItems: 'center',
-                          fontWeight: 600,
-                          background: '#f8fafc'
+                          fontWeight: 800,
+                          background: 'linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%)',
+                          borderBottom: '2px solid #cbd5e1'
                         }}
                       >
-                        <div>Grand Total</div>
-                        <div style={{ textAlign: 'right', gridColumn: '2 / 4' }}>{formatCurrencyAmount(grandTotal)}</div>
+                        <div style={{ fontSize: isMobile ? '13px' : '14px' }}>Grand Total</div>
+                        <div style={{ 
+                          textAlign: 'right', 
+                          gridColumn: '2 / 4',
+                          fontFamily: 'system-ui, -apple-system, sans-serif',
+                          color: '#1e40af'
+                        }}>{formatCurrencyAmount(grandTotal)}</div>
                       </div>
                     </div>
                   </>
@@ -699,29 +913,41 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
           {hasPartyLedger && billAllocations.length > 0 && (
             <div style={{ marginBottom: isMobile ? '20px' : '24px' }}>
               <div style={{ 
-                fontSize: isMobile ? '14px' : '16px', 
-                fontWeight: 600, 
-                color: '#1e293b', 
-                marginBottom: isMobile ? '12px' : '16px',
+                fontSize: isMobile ? '15px' : '17px', 
+                fontWeight: 700, 
+                color: '#0f172a', 
+                marginBottom: isMobile ? '14px' : '18px',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px'
+                gap: '8px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                paddingBottom: '8px',
+                borderBottom: '2px solid #cbd5e1'
               }}>
                 <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>receipt</span>
                 Bill Allocations
               </div>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden', background: '#fff' }}>
+              <div style={{ 
+                border: '1px solid #cbd5e1', 
+                borderRadius: '4px', 
+                overflow: 'hidden', 
+                background: '#fff',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)'
+              }}>
                 <div
                   style={{
                     display: 'grid',
                     gridTemplateColumns: isMobile ? '2fr 1fr' : '3fr 1fr',
-                    padding: isMobile ? '10px 12px' : '12px 16px',
-                    background: '#f8fafc',
-                    borderBottom: '1px solid #e2e8f0',
-                    fontWeight: 600,
-                    fontSize: isMobile ? '11px' : '13px',
-                    color: '#1e293b',
-                    gap: isMobile ? '8px' : '12px'
+                    padding: isMobile ? '12px 14px' : '14px 18px',
+                    background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+                    borderBottom: '2px solid #cbd5e1',
+                    fontWeight: 700,
+                    fontSize: isMobile ? '11px' : '12px',
+                    color: '#0f172a',
+                    gap: isMobile ? '8px' : '12px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.5px'
                   }}
                 >
                   <div>Bill Name</div>
@@ -736,17 +962,32 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                       style={{
                         display: 'grid',
                         gridTemplateColumns: isMobile ? '2fr 1fr' : '3fr 1fr',
-                        padding: isMobile ? '10px 12px' : '12px 16px',
+                        padding: isMobile ? '12px 14px' : '14px 18px',
                         borderBottom: billIdx === billAllocations.length - 1 ? 'none' : '1px solid #e2e8f0',
-                        fontSize: isMobile ? '12px' : '14px',
-                        color: '#1e293b',
+                        fontSize: isMobile ? '13px' : '14px',
+                        color: '#0f172a',
                         gap: isMobile ? '8px' : '12px',
                         alignItems: 'center',
-                        background: '#fff'
+                        background: billIdx % 2 === 0 ? '#fff' : '#fafbfc',
+                        transition: 'background 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (billIdx % 2 === 0) {
+                          e.currentTarget.style.background = '#f8fafc';
+                        } else {
+                          e.currentTarget.style.background = '#f1f5f9';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = billIdx % 2 === 0 ? '#fff' : '#fafbfc';
                       }}
                     >
-                      <div style={{ fontWeight: 500 }}>{billName}</div>
-                      <div style={{ textAlign: 'right', fontWeight: 500 }}>
+                      <div style={{ fontWeight: 600 }}>{billName}</div>
+                      <div style={{ 
+                        textAlign: 'right', 
+                        fontWeight: 600,
+                        fontFamily: 'system-ui, -apple-system, sans-serif'
+                      }}>
                         {billAmount > 0 ? formatCurrencyAmount(billAmount) : ''}
                       </div>
                     </div>
@@ -759,35 +1000,62 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
           {/* Totals Summary */}
           <div style={{ 
             marginTop: isMobile ? '16px' : '20px',
-            padding: isMobile ? '12px' : '16px',
-            border: '1px solid #e2e8f0',
-            borderRadius: '8px',
-            background: '#f8fafc'
+            padding: isMobile ? '16px' : '20px',
+            border: '1px solid #cbd5e1',
+            borderRadius: '4px',
+            background: 'linear-gradient(180deg, #fff 0%, #f8fafc 100%)',
+            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.08)'
           }}>
             <div style={{ 
               display: 'flex', 
               alignItems: 'center', 
               justifyContent: 'space-between',
-              fontWeight: 600,
+              fontWeight: 700,
               fontSize: isMobile ? '13px' : '14px',
-              marginBottom: isMobile ? '8px' : '12px',
-              color: '#1e293b'
+              marginBottom: isMobile ? '12px' : '16px',
+              color: '#0f172a',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              paddingBottom: '12px',
+              borderBottom: '2px solid #cbd5e1'
             }}>
               <span>Transaction Totals</span>
             </div>
             <div style={{ 
               display: 'grid',
               gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr',
-              rowGap: isMobile ? '8px' : '10px',
-              fontSize: isMobile ? '12px' : '14px',
-              color: '#111827'
+              rowGap: isMobile ? '12px' : '14px',
+              fontSize: isMobile ? '13px' : '14px',
+              color: '#0f172a'
             }}>
-              <div style={{ fontWeight: 500 }}>Item Total</div>
-              <div style={{ textAlign: 'right', fontWeight: 700 }}>{formatCurrencyAmount(totalAmount)}</div>
-              <div style={{ fontWeight: 500 }}>Ledger Total</div>
-              <div style={{ textAlign: 'right', fontWeight: 700 }}>{formatCurrencyAmount(ledgerTotal)}</div>
-              <div style={{ fontWeight: 600 }}>Transaction Total</div>
-              <div style={{ textAlign: 'right', fontWeight: 800, color: '#1d4ed8' }}>{formatCurrencyAmount(transactionTotal)}</div>
+              <div style={{ fontWeight: 600 }}>Item Total</div>
+              <div style={{ 
+                textAlign: 'right', 
+                fontWeight: 700,
+                fontFamily: 'system-ui, -apple-system, sans-serif'
+              }}>{formatCurrencyAmount(totalAmount)}</div>
+              <div style={{ fontWeight: 600 }}>Ledger Total</div>
+              <div style={{ 
+                textAlign: 'right', 
+                fontWeight: 700,
+                fontFamily: 'system-ui, -apple-system, sans-serif'
+              }}>{formatCurrencyAmount(ledgerTotal)}</div>
+              <div style={{ 
+                fontWeight: 800,
+                fontSize: isMobile ? '14px' : '15px',
+                color: '#1e40af',
+                paddingTop: '8px',
+                borderTop: '2px solid #cbd5e1'
+              }}>Transaction Total</div>
+              <div style={{ 
+                textAlign: 'right', 
+                fontWeight: 800, 
+                color: '#1e40af',
+                fontSize: isMobile ? '14px' : '15px',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
+                paddingTop: '8px',
+                borderTop: '2px solid #cbd5e1'
+              }}>{formatCurrencyAmount(transactionTotal)}</div>
             </div>
           </div>
         </div>

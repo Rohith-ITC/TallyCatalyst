@@ -780,38 +780,100 @@ const GeoMapChart = ({
     };
   }, []);
 
+  const isMobileState = isMobile || window.innerWidth <= 768;
+
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      {customHeader}
-      {showBackButton && onBackClick && (
-        <button
-          onClick={onBackClick}
+    <div style={{
+      background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+      borderRadius: isMobileState ? '12px' : '16px',
+      padding: '0',
+      border: '1px solid #e2e8f0',
+      boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
+      maxHeight: '100%',
+      overflow: 'hidden',
+      width: '100%',
+      maxWidth: '100%',
+      position: 'relative'
+    }}>
+      {customHeader ? (
+        <div style={{ 
+          padding: isMobileState ? '12px 16px' : '16px 20px',
+          position: 'sticky',
+          top: 0,
+          background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+          zIndex: 10,
+          marginBottom: '0'
+        }}>
+          {customHeader}
+        </div>
+      ) : null}
+      <div style={{
+        padding: '0',
+        flex: 1,
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        background: 'radial-gradient(circle at top, rgba(59, 130, 246, 0.03) 0%, transparent 50%)',
+        width: '100%',
+        maxWidth: '100%',
+        position: 'relative'
+      }}>
+        {showBackButton && onBackClick && (
+          <button
+            onClick={onBackClick}
+            style={{
+              position: 'absolute',
+              top: '10px',
+              right: '10px',
+              zIndex: 10,
+              padding: '6px 12px',
+              background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+              color: '#475569',
+              border: '1px solid #cbd5e1',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontSize: isMobileState ? '11px' : '13px',
+              fontWeight: '600',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = 'linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)';
+              e.target.style.transform = 'translateY(-1px)';
+              e.target.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
+              e.target.style.transform = 'translateY(0)';
+              e.target.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobileState ? '16px' : '18px' }}>arrow_back</span>
+            {!isMobileState && <span>Back</span>}
+          </button>
+        )}
+        <div
+          ref={chartRef}
           style={{
-            position: 'absolute',
-            top: customHeader ? 50 : 10,
-            right: 10,
-            zIndex: 10,
-            padding: '6px 12px',
-            background: '#2196F3',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '12px',
-            fontWeight: '500',
+            width: '100%',
+            height: '100%',
+            minHeight: isMobileState ? '280px' : '320px',
+            flex: 1,
+            borderRadius: isMobileState ? '8px' : '12px',
+            overflow: 'hidden',
+            background: 'white',
+            boxShadow: 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.06)'
           }}
-        >
-          ← Back
-        </button>
-      )}
-      <div
-        ref={chartRef}
-        style={{
-          width: '100%',
-          height: `${height}px`,
-          minHeight: '300px',
-        }}
-      />
+        />
+      </div>
     </div>
   );
 };

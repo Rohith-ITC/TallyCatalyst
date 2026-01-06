@@ -7257,8 +7257,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return filteredRawRows.slice(start, start + rawDataPageSize);
   }, [filteredRawRows, rawDataModal.open, rawDataPage, rawDataPageSize]);
 
-  // Dropdown position for portals
-  const [filterDropdownPosition, setFilterDropdownPosition] = useState(null);
   // Draft values for date inputs (avoid applying until Enter/blur with valid date)
   const [dateDrafts, setDateDrafts] = useState({});
 
@@ -7311,16 +7309,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               onClick={(e) => {
                 e.stopPropagation();
                 setFilterDropdownOpen(isOpen ? null : columnKey);
-                if (!isOpen) {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setFilterDropdownPosition({
-                    left: rect.left + window.scrollX,
-                    top: rect.bottom + window.scrollY + 4,
-                    width: rect.width
-                  });
-                } else {
-                  setFilterDropdownPosition(null);
-                }
               }}
               style={{
                 ...commonInputStyle,
@@ -7344,17 +7332,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             {isOpen && (
               <div
                 style={{
-                  position: 'fixed',
-                  top: filterDropdownPosition?.top || 0,
-                  left: filterDropdownPosition?.left || 0,
-                  width: Math.max(filterDropdownPosition?.width || 200, 220),
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  width: '100%',
+                  minWidth: '100%',
+                  marginTop: '4px',
                   background: '#fff',
                   border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
                   maxHeight: '280px',
                   overflowY: 'auto',
-                  zIndex: 3000
+                  zIndex: 3000,
+                  boxSizing: 'border-box'
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -7651,6 +7642,50 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return `${day}-${month}-${year}`;
   };
 
+  // Format date range in format: "1 Apr 2025 → 31 Dec 2025"
+  const formatDateRangeForHeader = (fromDateStr, toDateStr) => {
+    if (!fromDateStr || !toDateStr) return '';
+    
+    const formatDate = (dateStr) => {
+      let dateObj = null;
+      
+      // Try to parse various date formats
+      if (typeof dateStr === 'string') {
+        // Format: YYYYMMDD
+        if (dateStr.length === 8 && /^\d+$/.test(dateStr)) {
+          const year = dateStr.substring(0, 4);
+          const month = dateStr.substring(4, 6);
+          const day = dateStr.substring(6, 8);
+          dateObj = new Date(`${year}-${month}-${day}`);
+        }
+        // Format: YYYY-MM-DD
+        else if (dateStr.includes('-') && dateStr.length >= 10) {
+          dateObj = new Date(dateStr);
+        }
+      }
+      
+      // If we couldn't parse it, try Date constructor directly
+      if (!dateObj || isNaN(dateObj.getTime())) {
+        dateObj = new Date(dateStr);
+      }
+      
+      // If still invalid, return original string
+      if (isNaN(dateObj.getTime())) {
+        return dateStr;
+      }
+      
+      // Format to "D MMM YYYY" (e.g., "1 Apr 2025")
+      const day = dateObj.getDate();
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const month = monthNames[dateObj.getMonth()];
+      const year = dateObj.getFullYear();
+      
+      return `${day} ${month} ${year}`;
+    };
+    
+    return `${formatDate(fromDateStr)} → ${formatDate(toDateStr)}`;
+  };
+
   const renderRawDataCell = (row, column) => {
     const value = row[column.key];
     if (value === null || value === undefined || value === '') {
@@ -7819,26 +7854,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
          overflowX: 'hidden',
        }}
      >
-       <div
-         style={{
-           width: '100%',
-           margin: '0 auto',
-           maxWidth: '100%',
-           background: 'white',
-           borderRadius: '16px',
-           boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-           overflow: 'visible',
-           border: '1px solid #e2e8f0',
-           position: 'relative',
-         }}
-       >
         {/* Header */}
         <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
         <div style={{
-            padding: isMobile ? '12px 16px' : '18px 24px',
-          borderBottom: '1px solid #f1f5f9',
-          background: 'transparent',
-          position: 'relative'
+            padding: isMobile ? '16px 20px' : '20px 28px',
+          borderBottom: 'none',
+          background: 'linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #60a5fa 100%)',
+          borderRadius: '16px',
+          position: 'relative',
+          marginBottom: isMobile ? '16px' : '28px',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.07), 0 10px 24px rgba(37, 99, 235, 0.15)'
           }}>
             {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
         {isMobile ? (
@@ -7852,64 +7877,79 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               marginBottom: '12px'
             }}>
               <div style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
-                background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+                width: '48px',
+                height: '48px',
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                flexShrink: 0
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
-              }}
-              >
-                <span className="material-icons" style={{ color: 'white', fontSize: '18px' }}>analytics</span>
+                flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.2)'
+              }}>
+                <span className="material-icons" style={{ color: 'white', fontSize: '24px' }}>bar_chart</span>
               </div>
               <div style={{ flex: '1' }}>
                 <h1 style={{
                   margin: 0,
-                  color: '#0f172a',
-                  fontSize: '18px',
-                  fontWeight: '800',
+                  color: 'white',
+                  fontSize: '24px',
+                  fontWeight: '700',
                   lineHeight: '1.2',
-                  letterSpacing: '-0.02em'
+                  letterSpacing: '-0.01em'
                 }}>
                   Sales Analytics Dashboard
                 </h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
                   <p style={{
                     margin: 0,
-                    color: '#64748b',
-                    fontSize: '11px',
-                    fontWeight: '500',
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    fontSize: '13px',
+                    fontWeight: '400',
                     lineHeight: '1.4'
                   }}>
                     Comprehensive sales insights
                   </p>
-                  {/* Records Available Badge - Inline */}
+                  {/* Date Range Badge */}
+                  {fromDate && toDate && (
+                    <div style={{
+                      display: 'inline-flex',
+                      background: 'rgba(255, 255, 255, 0.25)',
+                      backdropFilter: 'blur(10px)',
+                      color: 'white',
+                      padding: '5px 14px',
+                      borderRadius: '20px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                      border: '1px solid rgba(255, 255, 255, 0.3)'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
+                      {formatDateRangeForHeader(fromDate, toDate)}
+                    </div>
+                  )}
+                  {/* Records Available Badge */}
                   <div style={{
                     display: 'inline-flex',
-                    background: '#f0f9ff',
-                    color: '#0369a1',
-                    padding: '4px 10px',
-                    borderRadius: '16px',
-                    fontSize: '11px',
+                    background: 'rgba(255, 255, 255, 0.25)',
+                    backdropFilter: 'blur(10px)',
+                    color: 'white',
+                    padding: '5px 14px',
+                    borderRadius: '20px',
+                    fontSize: '12px',
                     fontWeight: '600',
                     alignItems: 'center',
-                    gap: '5px',
-                    border: '1px solid #bae6fd',
-                    whiteSpace: 'nowrap'
+                    gap: '6px',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.3)'
                   }}>
-                    <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
+                    <span className="material-icons" style={{ fontSize: '16px' }}>bar_chart</span>
                     {filteredSales.length} records
                   </div>
                 </div>
@@ -7936,35 +7976,35 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 style={{
                   background: sales.length === 0 
                     ? '#e5e7eb' 
-                    : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    : '#22c55e',
                   color: sales.length === 0 ? '#9ca3af' : '#fff',
                   border: 'none',
-                  borderRadius: '8px',
-                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  padding: '11px 18px',
                   cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '8px',
                   fontSize: '13px',
                   fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: sales.length === 0 
-                    ? 'none' 
-                    : '0 2px 4px rgba(16, 185, 129, 0.2)',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                   whiteSpace: 'nowrap',
                   justifyContent: 'center',
-                  width: '100%'
+                  width: '100%',
+                  boxShadow: sales.length === 0 ? 'none' : '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)'
                 }}
                 onMouseEnter={(e) => {
                   if (sales.length > 0) {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
+                    e.currentTarget.style.background = '#16a34a';
+                    e.currentTarget.style.boxShadow = '0 4px 6px rgba(34, 197, 94, 0.25), 0 8px 12px rgba(34, 197, 94, 0.15)';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (sales.length > 0) {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
+                    e.currentTarget.style.background = '#22c55e';
+                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)';
+                    e.currentTarget.style.transform = 'translateY(0)';
                   }
                 }}
               >
@@ -7978,10 +8018,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 onClick={handleOpenCalendar}
                 title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
                 style={{
-                  background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                  background: '#7c3aed',
                   border: 'none',
-                  borderRadius: '8px',
-                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  padding: '11px 18px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -7989,25 +8029,25 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   color: '#fff',
                   fontSize: '13px',
                   fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 3px 8px rgba(124, 58, 237, 0.3)',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                   justifyContent: 'center',
                   whiteSpace: 'nowrap',
-                  width: '100%'
+                  width: '100%',
+                  boxShadow: '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)'
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
-                  e.target.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)';
+                  e.target.style.background = '#6d28d9';
+                  e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25), 0 8px 12px rgba(124, 58, 237, 0.15)';
                   e.target.style.transform = 'translateY(-1px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
-                  e.target.style.boxShadow = '0 3px 8px rgba(124, 58, 237, 0.3)';
+                  e.target.style.background = '#7c3aed';
+                  e.target.style.boxShadow = '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)';
                   e.target.style.transform = 'translateY(0)';
                 }}
               >
-                <span className="material-icons" style={{ fontSize: '18px' }}>calendar_month</span>
-                <span>Period</span>
+                <span className="material-icons" style={{ fontSize: '18px' }}>calendar_today</span>
+                <span>Date Range</span>
               </button>
 
               {/* Last Updated & Refresh - Mobile */}
@@ -8017,14 +8057,22 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 justifyContent: 'space-between',
                 gap: '8px',
                 width: '100%',
-                padding: '10px 12px',
-                background: '#f8fafc',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
-                boxSizing: 'border-box',
-                position: 'relative',
-                overflow: 'hidden'
+                boxSizing: 'border-box'
               }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  flex: '1 1 0',
+                  padding: '10px 12px',
+                  background: 'white',
+                  borderRadius: '10px',
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  position: 'relative',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 8px rgba(0, 0, 0, 0.03)',
+                  border: '1px solid rgba(0, 0, 0, 0.05)'
+                }}>
                 {/* Progress Bar Background */}
                 {isDownloadingCache && (() => {
                   const current = cacheDownloadProgress.current || 0;
@@ -8063,7 +8111,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   position: 'relative',
                   zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '16px', color: isDownloadingCache ? '#10b981' : '#64748b', flexShrink: 0 }}>schedule</span>
+                  <span className="material-icons" style={{ fontSize: '16px', color: isDownloadingCache ? '#10b981' : '#9ca3af', flexShrink: 0 }}>schedule</span>
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
@@ -8074,7 +8122,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}>
                     <span style={{
                       fontSize: '11px',
-                      color: isDownloadingCache ? '#059669' : '#64748b',
+                      color: isDownloadingCache ? '#059669' : '#374151',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
@@ -8142,6 +8190,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     })()}
                   </div>
                 </div>
+                </div>
                 <button
                   type="button"
                   onClick={handleRefresh}
@@ -8149,48 +8198,44 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: loading || !fromDate || !toDate || isDownloadingCache
                       ? '#e5e7eb'
-                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                      : '#3b82f6',
                     border: 'none',
-                    borderRadius: '6px',
-                    padding: '6px 10px',
+                    borderRadius: '10px',
+                    padding: '11px 16px',
                     cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '4px',
+                    gap: '6px',
                     color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
-                    fontSize: '11px',
+                    fontSize: '13px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: loading || !fromDate || !toDate || isDownloadingCache
-                      ? 'none'
-                      : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     flexShrink: 0,
                     whiteSpace: 'nowrap',
-                    position: 'relative',
-                    zIndex: 1
+                    boxShadow: (loading || !fromDate || !toDate || isDownloadingCache) ? 'none' : '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)'
                   }}
                   onMouseEnter={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                      e.target.style.background = '#2563eb';
+                      e.target.style.boxShadow = '0 4px 6px rgba(59, 130, 246, 0.25), 0 8px 12px rgba(59, 130, 246, 0.15)';
+                      e.target.style.transform = 'translateY(-1px)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                      e.target.style.background = '#3b82f6';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)';
+                      e.target.style.transform = 'translateY(0)';
                     }
                   }}
                 >
                   <span className="material-icons" style={{
-                    fontSize: '16px',
+                    fontSize: '18px',
                     animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
                   }}>
-                    {downloadStatus === 'none' ? 'download' : downloadStatus === 'interrupted' ? 'play_arrow' : 'refresh'}
+                    refresh
                   </span>
-                  <span>
-                    {downloadStatus === 'none' ? 'Download' : downloadStatus === 'interrupted' ? 'Continue Download' : 'Refresh'}
-                  </span>
+                  <span>Refresh</span>
                 </button>
               </div>
 
@@ -8199,13 +8244,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{ position: 'relative', flex: '1' }} ref={downloadDropdownRef}>
                   <button
                     type="button"
-                    title="Download"
+                    title="Export"
                     onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
                     style={{
-                      background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                      background: '#10b981',
                       border: 'none',
-                      borderRadius: '8px',
-                      padding: '10px 16px',
+                      borderRadius: '10px',
+                      padding: '11px 16px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -8213,24 +8258,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       color: '#fff',
                       fontSize: '13px',
                       fontWeight: '600',
-                      transition: 'all 0.2s ease',
-                      boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                       width: '100%',
-                      justifyContent: 'center'
+                      justifyContent: 'center',
+                      boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)';
-                      e.target.style.boxShadow = '0 3px 10px rgba(5, 150, 105, 0.35)';
+                      e.target.style.background = '#059669';
+                      e.target.style.boxShadow = '0 4px 6px rgba(16, 185, 129, 0.25), 0 8px 12px rgba(16, 185, 129, 0.15)';
                       e.target.style.transform = 'translateY(-1px)';
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                      e.target.style.boxShadow = '0 2px 6px rgba(5, 150, 105, 0.25)';
+                      e.target.style.background = '#10b981';
+                      e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)';
                       e.target.style.transform = 'translateY(0)';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
-                    <span>Download</span>
+                    <span>Export</span>
                     <span className="material-icons" style={{ fontSize: '18px' }}>
                       {showDownloadDropdown ? 'expand_less' : 'expand_more'}
                     </span>
@@ -8364,43 +8409,35 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
+              gap: '16px',
               flex: '0 1 auto',
               minWidth: '200px',
-              maxWidth: '400px',
+              maxWidth: '500px',
               overflow: 'hidden'
             }}>
               <div style={{
-                width: '44px',
-                height: '44px',
-                borderRadius: '10px',
-                background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+                width: '56px',
+                height: '56px',
+                borderRadius: '14px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                flexShrink: 0
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
-              }}
-              >
-                <span className="material-icons" style={{ color: 'white', fontSize: '22px' }}>analytics</span>
+                flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.2)'
+              }}>
+                <span className="material-icons" style={{ color: 'white', fontSize: '28px' }}>bar_chart</span>
               </div>
               <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
                 <h1 style={{
                   margin: 0,
-                  color: '#0f172a',
-                  fontSize: '24px',
-                  fontWeight: '800',
+                  color: 'white',
+                  fontSize: '28px',
+                  fontWeight: '700',
                   lineHeight: '1.2',
-                  letterSpacing: '-0.02em',
+                  letterSpacing: '-0.01em',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis'
@@ -8411,16 +8448,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   display: 'flex', 
                   alignItems: 'center', 
                   gap: '10px', 
-                  marginTop: '4px', 
+                  marginTop: '6px', 
                   flexWrap: 'wrap',
                   overflow: 'hidden',
                   minWidth: 0
                 }}>
                   <p style={{
                     margin: 0,
-                    color: '#64748b',
-                    fontSize: '13px',
-                    fontWeight: '500',
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    fontSize: '14px',
+                    fontWeight: '400',
                     lineHeight: '1.4',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
@@ -8429,22 +8466,46 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}>
                     Comprehensive sales insights
                   </p>
-                  {/* Records Available Badge - Inline */}
+                  {/* Date Range Badge */}
+                  {fromDate && toDate && (
+                    <div style={{
+                      display: 'inline-flex',
+                      background: 'rgba(255, 255, 255, 0.25)',
+                      backdropFilter: 'blur(10px)',
+                      color: 'white',
+                      padding: '5px 14px',
+                      borderRadius: '20px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      alignItems: 'center',
+                      gap: '6px',
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                      boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                      border: '1px solid rgba(255, 255, 255, 0.3)'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
+                      {formatDateRangeForHeader(fromDate, toDate)}
+                    </div>
+                  )}
+                  {/* Records Available Badge */}
                   <div style={{
                     display: 'inline-flex',
-                    background: '#f0f9ff',
-                    color: '#0369a1',
-                    padding: '4px 10px',
-                    borderRadius: '16px',
-                    fontSize: '11px',
+                    background: 'rgba(255, 255, 255, 0.25)',
+                    backdropFilter: 'blur(10px)',
+                    color: 'white',
+                    padding: '5px 14px',
+                    borderRadius: '20px',
+                    fontSize: '12px',
                     fontWeight: '600',
                     alignItems: 'center',
-                    gap: '5px',
-                    border: '1px solid #bae6fd',
+                    gap: '6px',
                     whiteSpace: 'nowrap',
-                    flexShrink: 0
+                    flexShrink: 0,
+                    boxShadow: '0 2px 6px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.3)'
                   }}>
-                    <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
+                    <span className="material-icons" style={{ fontSize: '16px' }}>bar_chart</span>
                     {filteredSales.length} records
                   </div>
                 </div>
@@ -8465,33 +8526,33 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: sales.length === 0 
                       ? '#e5e7eb' 
-                      : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      : '#22c55e',
                     color: sales.length === 0 ? '#9ca3af' : '#fff',
                     border: 'none',
                     borderRadius: '10px',
-                    padding: '10px 20px',
+                    padding: '11px 20px',
                     cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '8px',
                     fontSize: '14px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: sales.length === 0 
-                      ? 'none' 
-                      : '0 2px 4px rgba(16, 185, 129, 0.2)',
-                    whiteSpace: 'nowrap'
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    whiteSpace: 'nowrap',
+                    boxShadow: sales.length === 0 ? 'none' : '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)'
                   }}
                   onMouseEnter={(e) => {
                     if (sales.length > 0) {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
+                      e.currentTarget.style.background = '#16a34a';
+                      e.currentTarget.style.boxShadow = '0 4px 6px rgba(34, 197, 94, 0.25), 0 8px 12px rgba(34, 197, 94, 0.15)';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (sales.length > 0) {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
+                      e.currentTarget.style.background = '#22c55e';
+                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)';
+                      e.currentTarget.style.transform = 'translateY(0)';
                     }
                   }}
                 >
@@ -8516,37 +8577,37 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   onClick={handleOpenCalendar}
                   title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
                   style={{
-                    background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                    background: '#7c3aed',
                     border: 'none',
                     borderRadius: '10px',
-                    padding: '9px 18px',
+                    padding: '11px 20px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
+                    gap: '8px',
                     color: '#fff',
-                    fontSize: '13px',
+                    fontSize: '14px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 3px 8px rgba(124, 58, 237, 0.3)',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     minWidth: '140px',
                     justifyContent: 'center',
-                    height: '40px',
-                    whiteSpace: 'nowrap'
+                    height: '42px',
+                    whiteSpace: 'nowrap',
+                    boxShadow: '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)'
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
-                    e.target.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)';
+                    e.target.style.background = '#6d28d9';
+                    e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25), 0 8px 12px rgba(124, 58, 237, 0.15)';
                     e.target.style.transform = 'translateY(-1px)';
                   }}
                   onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
-                    e.target.style.boxShadow = '0 3px 8px rgba(124, 58, 237, 0.3)';
+                    e.target.style.background = '#7c3aed';
+                    e.target.style.boxShadow = '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)';
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>calendar_month</span>
-                  <span>Period</span>
+                  <span className="material-icons" style={{ fontSize: '18px' }}>calendar_today</span>
+                  <span>Date Range</span>
                 </button>
               </div>
 
@@ -8556,15 +8617,21 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 alignItems: 'center',
                 gap: '10px',
                 flex: '0 0 auto',
-                padding: '6px 12px',
-                background: '#f8fafc',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
                 whiteSpace: 'nowrap',
-                flexShrink: 0,
-                position: 'relative',
-                overflow: 'hidden'
+                flexShrink: 0
               }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 14px',
+                  background: 'white',
+                  borderRadius: '10px',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 8px rgba(0, 0, 0, 0.03)',
+                  border: '1px solid rgba(0, 0, 0, 0.05)'
+                }}>
                 {/* Progress Bar Background */}
                 {isDownloadingCache && (() => {
                   const current = cacheDownloadProgress.current || 0;
@@ -8600,7 +8667,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   position: 'relative',
                   zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#64748b' }}>schedule</span>
+                  <span className="material-icons" style={{ fontSize: '16px', color: isDownloadingCache ? '#10b981' : '#9ca3af' }}>schedule</span>
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
@@ -8608,8 +8675,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     minWidth: 0
                   }}>
                     <span style={{
-                      fontSize: '12px',
-                      color: isDownloadingCache ? '#059669' : '#64748b',
+                      fontSize: '13px',
+                      color: isDownloadingCache ? '#059669' : '#374151',
                       whiteSpace: 'nowrap',
                       fontWeight: isDownloadingCache ? '600' : '400'
                     }}>
@@ -8676,6 +8743,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     })()}
                   </div>
                 </div>
+                </div>
                 <button
                   type="button"
                   onClick={handleRefresh}
@@ -8683,46 +8751,44 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: loading || !fromDate || !toDate || isDownloadingCache
                       ? '#e5e7eb'
-                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                      : '#3b82f6',
                     border: 'none',
-                    borderRadius: '6px',
-                    padding: '6px 12px',
+                    borderRadius: '10px',
+                    padding: '11px 16px',
                     cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
+                    gap: '8px',
                     color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
-                    fontSize: '12px',
+                    fontSize: '14px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: loading || !fromDate || !toDate || isDownloadingCache
-                      ? 'none'
-                      : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     position: 'relative',
-                    zIndex: 1
+                    zIndex: 1,
+                    boxShadow: (loading || !fromDate || !toDate || isDownloadingCache) ? 'none' : '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)'
                   }}
                   onMouseEnter={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                      e.target.style.background = '#2563eb';
+                      e.target.style.boxShadow = '0 4px 6px rgba(59, 130, 246, 0.25), 0 8px 12px rgba(59, 130, 246, 0.15)';
+                      e.target.style.transform = 'translateY(-1px)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                      e.target.style.background = '#3b82f6';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)';
+                      e.target.style.transform = 'translateY(0)';
                     }
                   }}
                 >
                   <span className="material-icons" style={{
-                    fontSize: '16px',
+                    fontSize: '18px',
                     animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
                   }}>
-                    {downloadStatus === 'none' ? 'download' : downloadStatus === 'interrupted' ? 'play_arrow' : 'refresh'}
+                    refresh
                   </span>
-                  <span>
-                    {downloadStatus === 'none' ? 'Download' : downloadStatus === 'interrupted' ? 'Continue Download' : 'Refresh'}
-                  </span>
+                  <span>Refresh</span>
                 </button>
               </div>
 
@@ -8739,37 +8805,37 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               }} ref={downloadDropdownRef}>
                 <button
                   type="button"
-                  title="Download"
+                  title="Export"
                   onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
                   style={{
-                    background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                    background: '#10b981',
                     border: 'none',
-                    borderRadius: '8px',
-                    padding: '8px 16px',
+                    borderRadius: '10px',
+                    padding: '11px 16px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
+                    gap: '8px',
                     color: '#fff',
-                    fontSize: '13px',
+                    fontSize: '14px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
-                    height: '40px'
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    height: '42px',
+                    boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)'
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)';
-                    e.target.style.boxShadow = '0 3px 10px rgba(5, 150, 105, 0.35)';
+                    e.target.style.background = '#059669';
+                    e.target.style.boxShadow = '0 4px 6px rgba(16, 185, 129, 0.25), 0 8px 12px rgba(16, 185, 129, 0.15)';
                     e.target.style.transform = 'translateY(-1px)';
                   }}
                   onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                    e.target.style.boxShadow = '0 2px 6px rgba(5, 150, 105, 0.25)';
+                    e.target.style.background = '#10b981';
+                    e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)';
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
                   <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
-                  <span>Download</span>
+                  <span>Export</span>
                   <span className="material-icons" style={{ fontSize: '18px' }}>
                     {showDownloadDropdown ? 'expand_less' : 'expand_more'}
                   </span>
@@ -8785,8 +8851,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
                     border: 'none',
-                    borderRadius: '8px',
-                    padding: '8px',
+                    borderRadius: '10px',
+                    padding: '10px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -8794,20 +8860,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     color: '#fff',
                     fontSize: '18px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 6px rgba(99, 102, 241, 0.25)',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    boxShadow: '0 2px 4px rgba(99, 102, 241, 0.2), 0 4px 8px rgba(99, 102, 241, 0.1)',
                     flexShrink: 0,
-                    width: '40px',
-                    height: '40px'
+                    width: '42px',
+                    height: '42px'
                   }}
                   onMouseEnter={(e) => {
                     e.target.style.background = 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)';
-                    e.target.style.boxShadow = '0 3px 10px rgba(99, 102, 241, 0.35)';
+                    e.target.style.boxShadow = '0 4px 6px rgba(99, 102, 241, 0.25), 0 8px 12px rgba(99, 102, 241, 0.15)';
                     e.target.style.transform = 'translateY(-1px)';
                   }}
                   onMouseLeave={(e) => {
                     e.target.style.background = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
-                    e.target.style.boxShadow = '0 2px 6px rgba(99, 102, 241, 0.25)';
+                    e.target.style.boxShadow = '0 2px 4px rgba(99, 102, 241, 0.2), 0 4px 8px rgba(99, 102, 241, 0.1)';
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
@@ -9497,197 +9563,249 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           <div style={{
             display: 'grid',
             gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: isMobile ? '12px' : '20px',
+            gap: isMobile ? '16px' : '24px',
             marginBottom: isMobile ? '16px' : '28px'
           }}>
             {isCardVisible('Total Revenue') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(22, 163, 74, 0.08)',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(22, 163, 74, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = '#bbf7d0';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(22, 163, 74, 0.08)';
                 e.currentTarget.style.transform = 'translateY(0)';
                 e.currentTarget.style.borderColor = '#e2e8f0';
               }}
               >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                {/* Accent bar */}
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '4px',
+                  height: '100%',
+                  background: 'linear-gradient(180deg, #16a34a 0%, #22c55e 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: isMobile ? '11px' : '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', lineHeight: '1.3' }}>
                     Total Revenue
                   </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     ₹{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
-                  boxShadow: '0 2px 8px rgba(59, 130, 246, 0.15)'
+                  boxShadow: '0 2px 8px rgba(22, 163, 74, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: '1px solid rgba(22, 163, 74, 0.1)'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>account_balance_wallet</span>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: '#16a34a' }}>shopping_bag</span>
                 </div>
               </div>
             )}
 
             {isCardVisible('Total Invoices') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(236, 72, 153, 0.08)',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(236, 72, 153, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = '#fbcfe8';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(236, 72, 153, 0.08)';
                 e.currentTarget.style.transform = 'translateY(0)';
                 e.currentTarget.style.borderColor = '#e2e8f0';
               }}
               >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                {/* Accent bar */}
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '4px',
+                  height: '100%',
+                  background: 'linear-gradient(180deg, #ec4899 0%, #f472b6 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: isMobile ? '11px' : '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', lineHeight: '1.3' }}>
                     Total Invoices
                   </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#ec4899', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {totalOrders}
                   </p>
                 </div>
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
-                  boxShadow: '0 2px 8px rgba(22, 163, 74, 0.15)'
+                  boxShadow: '0 2px 8px rgba(236, 72, 153, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: '1px solid rgba(236, 72, 153, 0.1)'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>shopping_cart</span>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: '#ec4899' }}>description</span>
                 </div>
               </div>
             )}
 
             {isCardVisible('Unique Customers') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(147, 51, 234, 0.08)',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(147, 51, 234, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = '#ddd6fe';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(147, 51, 234, 0.08)';
                 e.currentTarget.style.transform = 'translateY(0)';
                 e.currentTarget.style.borderColor = '#e2e8f0';
               }}
               >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                {/* Accent bar */}
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '4px',
+                  height: '100%',
+                  background: 'linear-gradient(180deg, #9333ea 0%, #a78bfa 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: isMobile ? '11px' : '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', lineHeight: '1.3' }}>
                     Unique Customers
                   </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#9333ea', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {uniqueCustomers}
                   </p>
                 </div>
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
                   background: 'linear-gradient(135deg, #e9d5ff 0%, #ddd6fe 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
-                  boxShadow: '0 2px 8px rgba(147, 51, 234, 0.15)'
+                  boxShadow: '0 2px 8px rgba(147, 51, 234, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: '1px solid rgba(147, 51, 234, 0.1)'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#9333ea' }}>people</span>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: '#9333ea' }}>people</span>
                 </div>
               </div>
             )}
 
             {isCardVisible('Avg Invoice Value') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(217, 119, 6, 0.08)',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
+                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(217, 119, 6, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = '#fde68a';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(217, 119, 6, 0.08)';
                 e.currentTarget.style.transform = 'translateY(0)';
                 e.currentTarget.style.borderColor = '#e2e8f0';
               }}
               >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                {/* Accent bar */}
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '4px',
+                  height: '100%',
+                  background: 'linear-gradient(180deg, #d97706 0%, #f59e0b 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: isMobile ? '11px' : '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', lineHeight: '1.3' }}>
                     Avg Invoice Value
                   </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#d97706', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     ₹{avgOrderValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
-                  boxShadow: '0 2px 8px rgba(22, 163, 74, 0.15)'
+                  boxShadow: '0 2px 8px rgba(217, 119, 6, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: '1px solid rgba(217, 119, 6, 0.1)'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>trending_up</span>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: '#d97706' }}>receipt</span>
                 </div>
               </div>
             )}
@@ -9695,55 +9813,68 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: '20px',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
+            gap: isMobile ? '16px' : '24px',
             marginBottom: isMobile ? '16px' : '28px'
           }}>
             {canShowProfit && isCardVisible('Total Profit') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: totalProfit >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(37, 99, 235, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
+                e.currentTarget.style.boxShadow = totalProfit >= 0 ? '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(37, 99, 235, 0.15)' : '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(220, 38, 38, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = totalProfit >= 0 ? '#bfdbfe' : '#fecaca';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                e.currentTarget.style.boxShadow = totalProfit >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(37, 99, 235, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)';
                 e.currentTarget.style.transform = 'translateY(0)';
                 e.currentTarget.style.borderColor = '#e2e8f0';
               }}
               >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                {/* Accent bar */}
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '4px',
+                  height: '100%',
+                  background: totalProfit >= 0 ? 'linear-gradient(180deg, #2563eb 0%, #3b82f6 100%)' : 'linear-gradient(180deg, #dc2626 0%, #ef4444 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: isMobile ? '11px' : '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', lineHeight: '1.3' }}>
                     Total Profit
                   </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: totalProfit >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: totalProfit >= 0 ? '#2563eb' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     ₹{totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: totalProfit >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: totalProfit >= 0 ? 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
-                  boxShadow: totalProfit >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
+                  boxShadow: totalProfit >= 0 ? '0 2px 8px rgba(37, 99, 235, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)' : '0 2px 8px rgba(220, 38, 38, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: totalProfit >= 0 ? '1px solid rgba(37, 99, 235, 0.1)' : '1px solid rgba(220, 38, 38, 0.1)'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: totalProfit >= 0 ? '#16a34a' : '#dc2626' }}>
-                    {totalProfit >= 0 ? 'trending_up' : 'trending_down'}
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: totalProfit >= 0 ? '#2563eb' : '#dc2626' }}>
+                    {totalProfit >= 0 ? 'attach_money' : 'trending_down'}
                   </span>
                 </div>
               </div>
@@ -9751,48 +9882,61 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
             {canShowProfit && isCardVisible('Profit Margin') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: profitMargin >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(234, 88, 12, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
+                e.currentTarget.style.boxShadow = profitMargin >= 0 ? '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(234, 88, 12, 0.15)' : '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(220, 38, 38, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = profitMargin >= 0 ? '#fdba74' : '#fecaca';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                e.currentTarget.style.boxShadow = profitMargin >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(234, 88, 12, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)';
                 e.currentTarget.style.transform = 'translateY(0)';
                 e.currentTarget.style.borderColor = '#e2e8f0';
               }}
               >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                {/* Accent bar */}
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '4px',
+                  height: '100%',
+                  background: profitMargin >= 0 ? 'linear-gradient(180deg, #ea580c 0%, #f97316 100%)' : 'linear-gradient(180deg, #dc2626 0%, #ef4444 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: isMobile ? '11px' : '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', lineHeight: '1.3' }}>
                     Profit Margin
                   </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: profitMargin >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: profitMargin >= 0 ? '#ea580c' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {profitMargin >= 0 ? '+' : ''}{profitMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                   </p>
                 </div>
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: profitMargin >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: profitMargin >= 0 ? 'linear-gradient(135deg, #fed7aa 0%, #fdba74 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
-                  boxShadow: profitMargin >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
+                  boxShadow: profitMargin >= 0 ? '0 2px 8px rgba(234, 88, 12, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)' : '0 2px 8px rgba(220, 38, 38, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: profitMargin >= 0 ? '1px solid rgba(234, 88, 12, 0.1)' : '1px solid rgba(220, 38, 38, 0.1)'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: profitMargin >= 0 ? '#16a34a' : '#dc2626' }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: profitMargin >= 0 ? '#ea580c' : '#dc2626' }}>
                     {profitMargin >= 0 ? 'percent' : 'remove'}
                   </span>
                 </div>
@@ -9801,48 +9945,61 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
             {canShowProfit && isCardVisible('Avg Profit per Order') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: isMobile ? '16px' : '18px',
+                padding: isMobile ? '20px' : '24px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: avgProfitPerOrder >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(8, 145, 178, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
                 display: 'flex',
-                alignItems: 'center',
+                alignItems: 'flex-start',
                 justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                cursor: 'default',
+                position: 'relative',
+                overflow: 'hidden'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
+                e.currentTarget.style.boxShadow = avgProfitPerOrder >= 0 ? '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(8, 145, 178, 0.15)' : '0 4px 6px rgba(0, 0, 0, 0.07), 0 12px 24px rgba(220, 38, 38, 0.15)';
+                e.currentTarget.style.transform = 'translateY(-4px)';
+                e.currentTarget.style.borderColor = avgProfitPerOrder >= 0 ? '#a5f3fc' : '#fecaca';
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                e.currentTarget.style.boxShadow = avgProfitPerOrder >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(8, 145, 178, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)';
                 e.currentTarget.style.transform = 'translateY(0)';
                 e.currentTarget.style.borderColor = '#e2e8f0';
               }}
               >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
+                {/* Accent bar */}
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '4px',
+                  height: '100%',
+                  background: avgProfitPerOrder >= 0 ? 'linear-gradient(180deg, #0891b2 0%, #06b6d4 100%)' : 'linear-gradient(180deg, #dc2626 0%, #ef4444 100%)',
+                  borderRadius: '18px 0 0 18px'
+                }} />
+                <div style={{ flex: 1, marginLeft: '8px' }}>
+                  <p style={{ margin: '0 0 8px 0', fontSize: isMobile ? '11px' : '12px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.1em', lineHeight: '1.3' }}>
                     Avg Profit per Order
                   </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                  <p style={{ margin: '0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: avgProfitPerOrder >= 0 ? '#0891b2' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     ₹{avgProfitPerOrder.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: avgProfitPerOrder >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
+                  width: isMobile ? '48px' : '56px',
+                  height: isMobile ? '48px' : '56px',
+                  borderRadius: '14px',
+                  background: avgProfitPerOrder >= 0 ? 'linear-gradient(135deg, #cffafe 0%, #a5f3fc 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
-                  boxShadow: avgProfitPerOrder >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
+                  boxShadow: avgProfitPerOrder >= 0 ? '0 2px 8px rgba(8, 145, 178, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)' : '0 2px 8px rgba(220, 38, 38, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.4)',
+                  border: avgProfitPerOrder >= 0 ? '1px solid rgba(8, 145, 178, 0.1)' : '1px solid rgba(220, 38, 38, 0.1)'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626' }}>
+                  <span className="material-icons" style={{ fontSize: isMobile ? '22px' : '28px', color: avgProfitPerOrder >= 0 ? '#0891b2' : '#dc2626' }}>
                     {avgProfitPerOrder >= 0 ? 'trending_up' : 'trending_down'}
                   </span>
                 </div>
@@ -10096,7 +10253,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: '500px',
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               <div style={{
@@ -13955,7 +14113,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           
         </div>
         </form>
-      </div>
     </div>
 
     {rawDataModal.open && (
@@ -19845,7 +20002,6 @@ const CustomCard = React.memo(({
             }}>
               <div style={{
                 padding: '12px 16px',
-                borderBottom: '1px solid #e2e8f0',
                 flexShrink: 0
               }}>
                 {customHeader}
@@ -19891,7 +20047,6 @@ const CustomCard = React.memo(({
             }}>
               <div style={{
                 padding: '12px 16px',
-                borderBottom: '1px solid #e2e8f0',
                 flexShrink: 0
               }}>
                 {customHeader}
@@ -20001,8 +20156,7 @@ const CustomCard = React.memo(({
         }}>
           {customHeader && (
             <div style={{ 
-              padding: '16px 20px',
-              borderBottom: '2px solid #e2e8f0'
+              padding: '16px 20px'
             }}>
               {customHeader}
             </div>
