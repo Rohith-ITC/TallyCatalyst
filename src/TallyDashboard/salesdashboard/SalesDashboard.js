@@ -8556,6 +8556,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     })()}
                   </div>
                 </div>
+                </div>
                 <button
                   type="button"
                   onClick={handleRefresh}
@@ -8886,9 +8887,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
+                    gap: '8px',
                     color: '#fff',
-                    fontSize: '13px',
+                    fontSize: '14px',
                     fontWeight: '600',
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     justifyContent: 'center',
@@ -9056,6 +9057,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     })()}
                   </div>
                 </div>
+                </div>
                 <button
                   type="button"
                   onClick={handleRefresh}
@@ -9070,7 +9072,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
+                    gap: '8px',
                     color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
                     fontSize: '13px',
                     fontWeight: '600',
@@ -9096,7 +9098,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 >
                   <span className="material-icons" style={{
-                    fontSize: '16px',
+                    fontSize: '18px',
                     animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
                   }}>
                     refresh
@@ -9129,9 +9131,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '6px',
+                    gap: '8px',
                     color: '#fff',
-                    fontSize: '13px',
+                    fontSize: '14px',
                     fontWeight: '600',
                     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     height: '32px',
@@ -11698,7 +11700,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Sales by Period')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                   Period Chart
                 </h3>
                   {renderCardFilterBadges('period')}
@@ -11769,7 +11784,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         >
                           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                         </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                        <h3 
+                          onClick={() => openFullscreenCard('chart', 'Sales by Period')}
+                          style={{ 
+                            margin: 0, 
+                            fontSize: '16px', 
+                            fontWeight: '600', 
+                            color: '#1e293b',
+                            cursor: 'pointer',
+                            transition: 'color 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                          onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                          title="Click to open in fullscreen"
+                        >
                           Period Chart
                         </h3>
                       </div>
@@ -11838,7 +11866,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         >
                           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                         </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                        <h3 
+                          onClick={() => openFullscreenCard('chart', 'Sales by Period')}
+                          style={{ 
+                            margin: 0, 
+                            fontSize: '16px', 
+                            fontWeight: '600', 
+                            color: '#1e293b',
+                            cursor: 'pointer',
+                            transition: 'color 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                          onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                          title="Click to open in fullscreen"
+                        >
                           Period Chart
                         </h3>
                       </div>
@@ -11909,7 +11950,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         >
                           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                         </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                        <h3 
+                          onClick={() => openFullscreenCard('chart', 'Sales by Period')}
+                          style={{ 
+                            margin: 0, 
+                            fontSize: '16px', 
+                            fontWeight: '600', 
+                            color: '#1e293b',
+                            cursor: 'pointer',
+                            transition: 'color 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                          onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                          title="Click to open in fullscreen"
+                        >
                           Period Chart
                         </h3>
                       </div>
@@ -13412,7 +13466,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         >
                           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                         </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                        <h3 
+                          onClick={() => openFullscreenCard('chart', 'Revenue vs Profit')}
+                          style={{ 
+                            margin: 0, 
+                            fontSize: '16px', 
+                            fontWeight: '600', 
+                            color: '#1e293b',
+                            cursor: 'pointer',
+                            transition: 'color 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                          onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                          title="Click to open in fullscreen"
+                        >
                           Revenue vs Profit (Monthly)
                         </h3>
                         {renderCardFilterBadges('period')}
@@ -14421,7 +14488,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Sales by Stock Group')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                     Sales by Stock Group
                 </h3>
                   {renderCardFilterBadges('stockGroup')}
@@ -14476,7 +14556,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         >
                           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                         </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                        <h3 
+                          onClick={() => openFullscreenCard('chart', 'Sales by Stock Group')}
+                          style={{ 
+                            margin: 0, 
+                            fontSize: '16px', 
+                            fontWeight: '600', 
+                            color: '#1e293b',
+                            cursor: 'pointer',
+                            transition: 'color 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                          onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                          title="Click to open in fullscreen"
+                        >
                           Sales by Stock Group
                         </h3>
                       </div>
@@ -14529,7 +14622,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         >
                           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                         </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                        <h3 
+                          onClick={() => openFullscreenCard('chart', 'Sales by Stock Group')}
+                          style={{ 
+                            margin: 0, 
+                            fontSize: '16px', 
+                            fontWeight: '600', 
+                            color: '#1e293b',
+                            cursor: 'pointer',
+                            transition: 'color 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                          onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                          title="Click to open in fullscreen"
+                        >
                           Sales by Stock Group
                         </h3>
                       </div>
@@ -14584,7 +14690,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         >
                           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                         </button>
-                        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                        <h3 
+                          onClick={() => openFullscreenCard('chart', 'Sales by Stock Group')}
+                          style={{ 
+                            margin: 0, 
+                            fontSize: '16px', 
+                            fontWeight: '600', 
+                            color: '#1e293b',
+                            cursor: 'pointer',
+                            transition: 'color 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                          onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                          title="Click to open in fullscreen"
+                        >
                           Sales by Stock Group
                         </h3>
                       </div>

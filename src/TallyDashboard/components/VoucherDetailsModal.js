@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiPost } from '../../utils/apiUtils';
+import { apiPost, apiGet } from '../../utils/apiUtils';
 import VoucherDetailsModalBase from '../../RecvDashboard/components/VoucherDetailsModal';
 
 const VoucherDetailsModal = ({
@@ -16,6 +16,7 @@ const VoucherDetailsModal = ({
   const [voucherDetailsData, setVoucherDetailsData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
 
   // Get company info from sessionStorage
   const getCompanyInfo = () => {
@@ -28,6 +29,154 @@ const VoucherDetailsModal = ({
     }
 
     return { tallyloc_id, company, guid };
+  };
+
+  // Download PDF function for voucher
+  const downloadPDF = async () => {
+    if (!masterId) {
+      alert('❌ Unable to download PDF: Missing voucher information');
+      return;
+    }
+
+    try {
+      const companyInfo = getCompanyInfo();
+      
+      // Validate company info
+      if (!companyInfo.tallyloc_id || companyInfo.tallyloc_id === 0) {
+        alert('❌ Unable to download PDF: Invalid tallyloc_id. Please select a company first.');
+        return;
+      }
+      
+      if (!companyInfo.company || !companyInfo.guid) {
+        alert('❌ Unable to download PDF: Missing company information. Please select a company first.');
+        return;
+      }
+
+      // Validate masterId
+      if (!masterId || (typeof masterId !== 'string' && typeof masterId !== 'number')) {
+        alert('❌ Unable to download PDF: Invalid voucher ID');
+        return;
+      }
+
+      setIsDownloadingPDF(true);
+
+      // Step 1: Request PDF generation
+      const requestPayload = {
+        tallyloc_id: companyInfo.tallyloc_id,
+        company: companyInfo.company,
+        guid: companyInfo.guid,
+        master_id: String(masterId) // Convert to string to match API expectations
+      };
+
+      console.log('Requesting PDF generation:', requestPayload);
+      const requestResult = await apiPost('/api/tally/pdf/request', requestPayload);
+
+      if (!requestResult) {
+        throw new Error('No response from PDF generation service');
+      }
+
+      if (!requestResult.success) {
+        throw new Error(requestResult?.message || 'Failed to request PDF generation');
+      }
+
+      if (!requestResult.request_id) {
+        throw new Error('PDF generation request failed: No request ID returned');
+      }
+
+      const requestId = requestResult.request_id;
+      console.log('PDF request ID:', requestId);
+
+      // Step 2: Poll PDF status until ready (with timeout)
+      let statusResult = null;
+      const maxAttempts = 30; // Maximum 30 attempts
+      const pollInterval = 1000; // Check every 1 second
+      let attempts = 0;
+
+      while (attempts < maxAttempts) {
+        // Wait before checking (except first attempt)
+        if (attempts > 0) {
+          await new Promise(resolve => setTimeout(resolve, pollInterval));
+        }
+
+        statusResult = await apiGet(`/api/tally/pdf/status/${requestId}`);
+
+        if (statusResult && statusResult.status === 'ready' && statusResult.pdf_base64) {
+          console.log(`PDF ready after ${attempts + 1} attempt(s)`);
+          break;
+        }
+
+        if (statusResult && statusResult.status === 'error') {
+          throw new Error(statusResult?.message || 'PDF generation failed');
+        }
+
+        attempts++;
+        console.log(`PDF status: ${statusResult?.status || 'unknown'}, attempt ${attempts}/${maxAttempts}`);
+      }
+
+      // Step 3: Verify PDF is ready
+      if (!statusResult || statusResult.status !== 'ready' || !statusResult.pdf_base64) {
+        throw new Error(statusResult?.message || 'PDF generation timed out. Please try again later.');
+      }
+
+      // Step 4: Decode base64 and download PDF
+      const pdfBase64 = statusResult.pdf_base64;
+      
+      if (!pdfBase64 || typeof pdfBase64 !== 'string') {
+        throw new Error('Invalid PDF data received from server');
+      }
+
+      console.log('PDF base64 length:', pdfBase64.length);
+      
+      // Convert base64 to binary
+      let binaryString;
+      try {
+        binaryString = atob(pdfBase64);
+      } catch (error) {
+        throw new Error('Failed to decode PDF data. The PDF may be corrupted.');
+      }
+      
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      // Create blob and download
+      const blob = new Blob([bytes], { type: 'application/pdf' });
+      
+      // Verify blob size (should be > 0)
+      if (blob.size === 0) {
+        throw new Error('Generated PDF is empty. Please try again.');
+      }
+      
+      console.log('PDF blob size:', blob.size, 'bytes');
+      
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      
+      // Generate filename from voucher number if available
+      // Try multiple possible fields for voucher number
+      const voucherNumber = voucherDetailsData?.VOUCHERS?.VOUCHERNUMBER || 
+                           voucherDetailsData?.VOUCHERS?.vouchernumber || 
+                           masterId;
+      
+      // Sanitize filename: replace invalid characters (/, \, :, *, ?, ", <, >, |) with underscores
+      const sanitizedVoucherNumber = String(voucherNumber).replace(/[\/\\:*?"<>|]/g, '_');
+      a.download = `Voucher_${sanitizedVoucherNumber}.pdf`;
+      
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      console.log('PDF downloaded successfully:', a.download);
+
+    } catch (error) {
+      console.error('Error downloading PDF:', error);
+      alert(`❌ Error downloading PDF: ${error.message}`);
+    } finally {
+      setIsDownloadingPDF(false);
+    }
   };
 
   // Fetch voucher details
@@ -154,6 +303,45 @@ const VoucherDetailsModal = ({
     }
   }, [masterId]);
 
+  // Create download PDF button
+  const downloadPDFButton = masterId ? (
+    <button
+      onClick={downloadPDF}
+      disabled={isDownloadingPDF || loading}
+      style={{
+        background: isDownloadingPDF || loading ? '#cbd5e1' : '#3b82f6',
+        color: '#fff',
+        border: 'none',
+        cursor: isDownloadingPDF || loading ? 'not-allowed' : 'pointer',
+        padding: '10px 20px',
+        borderRadius: '8px',
+        fontSize: 14,
+        fontWeight: 600,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        transition: 'background 0.2s',
+        opacity: isDownloadingPDF || loading ? 0.7 : 1,
+        whiteSpace: 'nowrap'
+      }}
+      onMouseEnter={(e) => {
+        if (!isDownloadingPDF && !loading) {
+          e.currentTarget.style.background = '#2563eb';
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!isDownloadingPDF && !loading) {
+          e.currentTarget.style.background = '#3b82f6';
+        }
+      }}
+    >
+      <span className="material-icons" style={{ fontSize: 18 }}>
+        {isDownloadingPDF ? 'hourglass_empty' : 'download'}
+      </span>
+      {isDownloadingPDF ? 'Downloading...' : 'Download PDF'}
+    </button>
+  ) : null;
+
   // Create header actions (approve/reject buttons) if showApproveReject is true
   const approveRejectActions = showApproveReject ? (
     <>
@@ -234,9 +422,10 @@ const VoucherDetailsModal = ({
     </>
   ) : null;
 
-  // Combine external header actions with approve/reject actions (if any)
+  // Combine external header actions with download PDF, approve/reject actions (if any)
   const combinedHeaderActions = (
     <>
+      {downloadPDFButton}
       {externalHeaderActions}
       {approveRejectActions}
     </>

@@ -10,6 +10,8 @@ const MultiAxisChart = ({
   onBackClick,
   showBackButton = false,
   customHeader,
+  formatValue,
+  formatCompactValue,
 }) => {
   const chartRef = useRef(null);
   const instanceRef = useRef(null);
@@ -60,6 +62,18 @@ const MultiAxisChart = ({
         textStyle: {
           fontSize: isMobile ? 11 : 12,
         },
+        formatter: (params) => {
+          if (!params || !Array.isArray(params)) return '';
+          let result = params[0]?.axisValue || '';
+          params.forEach((param) => {
+            const value = param.value;
+            const formattedValue = formatValue 
+              ? formatValue(value, '₹')
+              : `₹${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            result += `<br/>${param.marker}${param.seriesName}: ${formattedValue}`;
+          });
+          return result;
+        },
       },
       legend: {
         top: 10,
@@ -95,7 +109,25 @@ const MultiAxisChart = ({
           type: 'value',
           name: 'Left Axis',
           position: 'left',
-          axisLabel: { fontSize: isMobile ? 10 : 11 },
+          axisLabel: { 
+            fontSize: isMobile ? 10 : 11,
+            formatter: (value) => {
+              if (formatCompactValue) {
+                return formatCompactValue(value, '');
+              }
+              // Default formatting
+              const absValue = Math.abs(value);
+              if (absValue >= 10000000) {
+                return `${(value / 10000000).toFixed(1)}Cr`;
+              } else if (absValue >= 100000) {
+                return `${(value / 100000).toFixed(1)}L`;
+              } else if (absValue >= 1000) {
+                return `${(value / 1000).toFixed(1)}K`;
+              } else {
+                return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+              }
+            },
+          },
           nameTextStyle: { fontSize: isMobile ? 10 : 11 },
           splitLine: { show: true },
         },
@@ -103,7 +135,25 @@ const MultiAxisChart = ({
           type: 'value',
           name: 'Right Axis',
           position: 'right',
-          axisLabel: { fontSize: isMobile ? 10 : 11 },
+          axisLabel: { 
+            fontSize: isMobile ? 10 : 11,
+            formatter: (value) => {
+              if (formatCompactValue) {
+                return formatCompactValue(value, '');
+              }
+              // Default formatting
+              const absValue = Math.abs(value);
+              if (absValue >= 10000000) {
+                return `${(value / 10000000).toFixed(1)}Cr`;
+              } else if (absValue >= 100000) {
+                return `${(value / 100000).toFixed(1)}L`;
+              } else if (absValue >= 1000) {
+                return `${(value / 1000).toFixed(1)}K`;
+              } else {
+                return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+              }
+            },
+          },
           nameTextStyle: { fontSize: isMobile ? 10 : 11 },
           splitLine: { show: false },
         },
@@ -151,7 +201,7 @@ const MultiAxisChart = ({
         instanceRef.current.off('click', handleClick);
       }
     };
-  }, [isReady, categories, series, isMobile, onCategoryClick]);
+  }, [isReady, categories, series, isMobile, onCategoryClick, formatValue, formatCompactValue]);
 
   // Handle window resize
   useEffect(() => {

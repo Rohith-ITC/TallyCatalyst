@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { ResponsiveLine } from '@nivo/line';
 
-const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick, showBackButton, rowAction, customHeader }) => {
+const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick, showBackButton, rowAction, customHeader, formatValue, formatCompactValue }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
@@ -39,14 +39,18 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
     // Format the max value to estimate width
     let formattedMax;
     const absValue = Math.abs(maxValue);
-    if (absValue >= 10000000) {
-      formattedMax = `${valuePrefix}${(maxValue / 10000000).toFixed(1)}Cr`;
-    } else if (absValue >= 100000) {
-      formattedMax = `${valuePrefix}${(maxValue / 100000).toFixed(1)}L`;
-    } else if (absValue >= 1000) {
-      formattedMax = `${valuePrefix}${(maxValue / 1000).toFixed(1)}K`;
+    if (formatCompactValue) {
+      formattedMax = formatCompactValue(maxValue, valuePrefix);
     } else {
-      formattedMax = `${valuePrefix}${maxValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+      if (absValue >= 10000000) {
+        formattedMax = `${valuePrefix}${(maxValue / 10000000).toFixed(1)}Cr`;
+      } else if (absValue >= 100000) {
+        formattedMax = `${valuePrefix}${(maxValue / 100000).toFixed(1)}L`;
+      } else if (absValue >= 1000) {
+        formattedMax = `${valuePrefix}${(maxValue / 1000).toFixed(1)}K`;
+      } else {
+        formattedMax = `${valuePrefix}${maxValue.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+      }
     }
 
     // Estimate Y-axis label width: ~7-8px per character, plus padding
@@ -340,14 +344,18 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
                 let formatted;
 
                 // Use abbreviated format for large numbers
-                if (absValue >= 10000000) {
-                  formatted = `${valuePrefix}${(value / 10000000).toFixed(1)}Cr`;
-                } else if (absValue >= 100000) {
-                  formatted = `${valuePrefix}${(value / 100000).toFixed(1)}L`;
-                } else if (absValue >= 1000) {
-                  formatted = `${valuePrefix}${(value / 1000).toFixed(1)}K`;
+                if (formatCompactValue) {
+                  formatted = formatCompactValue(value, valuePrefix);
                 } else {
-                  formatted = `${valuePrefix}${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+                  if (absValue >= 10000000) {
+                    formatted = `${valuePrefix}${(value / 10000000).toFixed(1)}Cr`;
+                  } else if (absValue >= 100000) {
+                    formatted = `${valuePrefix}${(value / 100000).toFixed(1)}L`;
+                  } else if (absValue >= 1000) {
+                    formatted = `${valuePrefix}${(value / 1000).toFixed(1)}K`;
+                  } else {
+                    formatted = `${valuePrefix}${value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+                  }
                 }
 
                 return formatted;
@@ -403,7 +411,7 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
                     fontSize: isMobile ? '13px' : '15px',
                     fontWeight: '600'
                   }}>
-                    {valuePrefix}{point.data.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatValue ? formatValue(point.data.y, valuePrefix) : `${valuePrefix}${point.data.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </div>
                 </div>
               );
@@ -503,7 +511,7 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
                     fontWeight: '700',
                     color: '#1e293b'
                   }}>
-                    {valuePrefix}{(point.value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatValue ? formatValue(point.value || 0, valuePrefix) : `${valuePrefix}${(point.value || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </span>
                   <button
                     type="button"

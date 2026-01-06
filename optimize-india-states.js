@@ -71,3 +71,8 @@ const outputPath = path.join(__dirname, "src/TallyDashboard/salesdashboard/data/
 
 optimizeGeoJSON(inputPath, outputPath, 6); // 6 decimal places = ~10cm accuracy, sufficient for maps
 
+
+
+
+
+

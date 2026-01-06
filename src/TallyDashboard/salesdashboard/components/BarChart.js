@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton, rowAction, customHeader, stacked = false }) => {
+const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton, rowAction, customHeader, stacked = false, formatValue }) => {
   const [isMobile, setIsMobile] = React.useState(window.innerWidth <= 768);
   const [hoveredSegment, setHoveredSegment] = useState(null);
   
@@ -130,7 +130,6 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
           top: 0,
           background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           zIndex: 10,
-          borderBottom: '2px solid #e2e8f0',
           marginBottom: '0'
         }}>
           {customHeader}
@@ -145,7 +144,6 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
           top: 0,
           background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
           zIndex: 10,
-          borderBottom: '2px solid #e2e8f0',
           marginBottom: '0',
           gap: isMobile ? '8px' : '12px'
         }}>
