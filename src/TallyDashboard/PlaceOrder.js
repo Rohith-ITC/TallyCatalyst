@@ -8,17 +8,25 @@ import '../RecvDashboard/ReceivablesPage.css';
 
 function PlaceOrder() {
 
-  // Mobile detection
+  // Enhanced responsive breakpoints detection
 
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [isTablet, setIsTablet] = useState(window.innerWidth > 768 && window.innerWidth <= 1024);
+  const [isSmallDesktop, setIsSmallDesktop] = useState(window.innerWidth > 1024 && window.innerWidth <= 1200);
+  const [isMedium, setIsMedium] = useState(window.innerWidth > 1200 && window.innerWidth <= 1280);
+  const [isDesktop, setIsDesktop] = useState(window.innerWidth > 1280);
 
 
 
   useEffect(() => {
 
     const handleResize = () => {
-
-      setIsMobile(window.innerWidth <= 768);
+      const width = window.innerWidth;
+      setIsMobile(width <= 768);
+      setIsTablet(width > 768 && width <= 1024);
+      setIsSmallDesktop(width > 1024 && width <= 1200);
+      setIsMedium(width > 1200 && width <= 1280);
+      setIsDesktop(width > 1280);
 
     };
 
@@ -8479,17 +8487,21 @@ function PlaceOrder() {
 
       background: 'transparent',
 
-      padding: isMobile ? '20px' : '24px',
+      padding: isMobile ? '8px 16px 16px 16px' : isTablet ? '8px 20px 20px 20px' : isSmallDesktop ? '8px 20px 20px 20px' : '8px 24px 24px 24px',
 
       margin: 0,
 
-      maxWidth: '1400px',
+      maxWidth: isMobile ? '100%' : isTablet ? '100%' : isSmallDesktop ? '100%' : isMedium ? '1280px' : '1400px',
 
       marginLeft: 'auto',
 
       marginRight: 'auto',
 
       boxSizing: 'border-box',
+
+      overflowX: 'hidden',
+
+      overflowY: 'auto'
 
     }}>
 
@@ -8619,34 +8631,19 @@ function PlaceOrder() {
 
       {/* Page Header - Matching Receivables Dashboard */}
       <div className="page-header" style={{
-        marginBottom: isMobile ? '0.75rem' : '2rem',
+        marginBottom: isMobile ? '0.5rem' : '1rem',
         flexShrink: 0,
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        gap: '1.5rem',
-        flexWrap: isMobile ? 'wrap' : 'nowrap',
+        gap: isMobile ? '1rem' : '1.5rem',
+        flexWrap: isMobile || isTablet ? 'wrap' : 'nowrap',
         width: '100%',
+        maxWidth: '100%',
+        boxSizing: 'border-box',
       }}>
         <div className="page-header-left" style={{ width: isMobile ? '100%' : 'auto' }}>
           <div className="page-header-titles">
-            <h1 style={{
-              fontSize: isMobile ? '1.375rem' : '2.5rem',
-              marginBottom: isMobile ? '0.25rem' : '0.5rem',
-              fontWeight: '700',
-              color: '#1a202c',
-              margin: 0,
-            }}>
-              Place Order
-            </h1>
-            <p className="subtitle" style={{
-              fontSize: isMobile ? '0.875rem' : '1.1rem',
-              color: '#718096',
-              fontWeight: '600',
-              margin: 0,
-            }}>
-              {currentCompany?.company || 'Select a company'}
-            </p>
           </div>
         </div>
         <div className="page-header-actions" style={{
@@ -8656,102 +8653,38 @@ function PlaceOrder() {
           gap: '0.75rem',
           flexShrink: 0,
         }}>
-          <button
-            onClick={() => {
-              setRefreshStockItems(prev => prev + 1);
-              setRefreshCustomers(prev => prev + 1);
-            }}
-            className="refresh-button"
-            title="Refresh data"
-            style={{
-              width: isMobile ? '100%' : 'auto',
-              padding: isMobile ? '12px 20px' : '12px 24px',
-              height: isMobile ? '44px' : '48px',
-              fontSize: isMobile ? '14px' : '15px',
-              borderRadius: '8px',
-              WebkitTapHighlightColor: 'transparent',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.5rem',
-              border: 'none',
-              background: 'linear-gradient(135deg, #2563eb, #1d4ed8)',
-              color: '#fff',
-              fontWeight: '600',
-              boxShadow: '0 12px 20px rgba(37, 99, 235, 0.25)',
-              cursor: 'pointer',
-              transition: 'transform 0.2s, box-shadow 0.2s, background 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'translateY(-1px)';
-              e.currentTarget.style.boxShadow = '0 16px 24px rgba(37, 99, 235, 0.25)';
-              e.currentTarget.style.background = 'linear-gradient(135deg, #1d4ed8, #1e40af)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 12px 20px rgba(37, 99, 235, 0.25)';
-              e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb, #1d4ed8)';
-            }}
-          >
-            <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>refresh</span>
-            <span>Refresh Data</span>
-          </button>
         </div>
       </div>
 
       {/* Company, Customer, and Place Order Section */}
       <div className="receivables-content" style={{
-        display: isMobile ? 'block' : 'flex',
-        flexDirection: isMobile ? 'column' : 'row',
+        display: 'flex',
+        flexDirection: isMobile || isTablet || isSmallDesktop ? 'column' : 'row',
         width: '100%',
+        maxWidth: '100%',
         boxSizing: 'border-box',
         overflowX: 'hidden',
-        gap: '24px'
+        gap: isMobile ? '16px' : isTablet ? '20px' : isSmallDesktop ? '20px' : '24px',
+        alignItems: isMobile || isTablet || isSmallDesktop ? 'stretch' : 'flex-start'
       }}>
         {/* Left Content Area */}
         <div style={{
-          flex: isMobile ? 'none' : '1 1 0',
-          minWidth: 0,
-          width: isMobile ? '100%' : 'auto',
-          padding: isMobile ? '20px' : '24px',
+          flex: isMobile || isTablet || isSmallDesktop ? '1 1 100%' : '1 1 auto',
+          minWidth: isMobile || isTablet || isSmallDesktop ? 'auto' : '600px',
+          maxWidth: '100%',
+          width: isMobile || isTablet || isSmallDesktop ? '100%' : 'auto',
+          padding: isMobile ? '8px 16px 16px 16px' : isTablet ? '8px 20px 20px 20px' : isSmallDesktop ? '8px 20px 20px 20px' : '8px 24px 24px 24px',
           display: 'flex',
           flexDirection: 'column',
-          gap: isMobile ? '24px' : '32px',
-          boxSizing: 'border-box'
+          gap: isMobile ? '20px' : isTablet ? '24px' : isSmallDesktop ? '24px' : '32px',
+          boxSizing: 'border-box',
+          overflowX: 'hidden'
         }}>
           {/* Form - Place Order */}
-          <form id="order-form" onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
+          <form id="order-form" onSubmit={handleSubmit} style={{ width: '100%', maxWidth: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
 
             {/* Customer Details Section */}
-            <div style={{
-              background: '#ffffff',
-              borderRadius: '0.75rem',
-              padding: isMobile ? '20px' : '24px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
-              transition: 'all 0.2s ease',
-            }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
-              }}>
-              <h2 style={{
-                margin: '0 0 4px 0',
-                fontSize: isMobile ? '18px' : '20px',
-                fontWeight: '600',
-                color: '#1f2937'
-              }}>
-                Customer Details
-              </h2>
-              <p style={{
-                margin: '0 0 16px 0',
-                fontSize: isMobile ? '13px' : '14px',
-                color: '#6b7280',
-                fontWeight: '400'
-              }}>
-                Select customer and order type
-              </p>
+            <div style={{ maxWidth: '100%', boxSizing: 'border-box' }}>
 
 
 
@@ -8761,20 +8694,32 @@ function PlaceOrder() {
               <div style={{
                 display: 'flex',
                 flexDirection: isMobile ? 'column' : 'row',
+                flexWrap: isTablet || isSmallDesktop ? 'wrap' : 'nowrap',
                 gap: '16px',
-                alignItems: isMobile ? 'stretch' : 'flex-end',
+                alignItems: isMobile ? 'stretch' : 'flex-start',
                 position: 'relative',
-                width: '100%'
+                width: '100%',
+                maxWidth: '100%'
               }}>
 
                 {/* VoucherType */}
                 <div style={{
                   position: 'relative',
-                  flex: isMobile ? '1 1 100%' : '1 1 0',
+                  flex: isMobile ? '1 1 100%' : (isTablet || isSmallDesktop) ? '1 1 calc(50% - 8px)' : '1 1 0',
                   width: isMobile ? '100%' : 'auto',
-                  minWidth: isMobile ? 'auto' : '200px',
-                  maxWidth: isMobile ? '100%' : '240px'
+                  minWidth: isMobile ? 'auto' : (isTablet || isSmallDesktop) ? 'auto' : '200px',
+                  maxWidth: isMobile || isTablet || isSmallDesktop ? '100%' : '240px'
                 }}>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: voucherTypeFocused || selectedVoucherType ? '#7c3aed' : '#374151',
+                    transition: 'color 0.2s ease'
+                  }}>
+                    Order Type
+                  </label>
 
                   <div style={{
 
@@ -8782,16 +8727,33 @@ function PlaceOrder() {
 
                     background: 'white',
 
-                    borderRadius: '8px',
+                    borderRadius: '12px',
 
-                    border: showVoucherTypeDropdown ? '2px solid #7c3aed' : '1px solid #e2e8f0',
+                    border: showVoucherTypeDropdown ? '2px solid #7c3aed' : '1px solid #e5e7eb',
 
-                    transition: 'all 0.2s ease',
+                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
 
-                    boxShadow: showVoucherTypeDropdown ? '0 0 0 3px rgba(124, 58, 237, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                    boxShadow: showVoucherTypeDropdown ? '0 0 0 4px rgba(124, 58, 237, 0.1), 0 4px 12px rgba(124, 58, 237, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.08)',
 
-                    zIndex: showVoucherTypeDropdown ? 1001 : 'auto'
+                    zIndex: showVoucherTypeDropdown ? 1001 : 'auto',
 
+                    ':hover': {
+                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
+                      borderColor: showVoucherTypeDropdown ? '#7c3aed' : '#d1d5db'
+                    }
+
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!showVoucherTypeDropdown) {
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
+                      e.currentTarget.style.borderColor = '#d1d5db';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!showVoucherTypeDropdown) {
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
+                      e.currentTarget.style.borderColor = '#e5e7eb';
+                    }
                   }}>
 
                     <input
@@ -8870,7 +8832,7 @@ function PlaceOrder() {
 
                         border: 'none',
 
-                        borderRadius: '8px',
+                        borderRadius: '12px',
 
                         fontSize: isMobile ? '14px' : '15px',
 
@@ -8886,29 +8848,13 @@ function PlaceOrder() {
 
                         boxSizing: 'border-box',
 
-                        fontWeight: '400'
+                        fontWeight: '500'
 
                       }}
 
                       placeholder={voucherTypesLoading ? 'Loading voucher types...' : 'Select Voucher Type'}
 
                     />
-
-                    <label style={{
-                      position: 'absolute',
-                      left: '16px',
-                      top: '-8px',
-                      fontSize: '12px',
-                      fontWeight: '500',
-                      color: voucherTypeFocused || selectedVoucherType ? '#7c3aed' : '#6b7280',
-                      backgroundColor: 'white',
-                      padding: '0 6px',
-                      transition: 'all 0.2s ease',
-                      pointerEvents: 'none',
-                      zIndex: 1
-                    }}>
-                      Order Type
-                    </label>
 
                     {selectedVoucherType && (
 
@@ -8934,7 +8880,7 @@ function PlaceOrder() {
 
                           transform: 'translateY(-50%)',
 
-                          background: 'none',
+                          background: '#f3f4f6',
 
                           border: 'none',
 
@@ -8946,8 +8892,30 @@ function PlaceOrder() {
 
                           lineHeight: 1,
 
-                          padding: '4px'
+                          padding: '6px',
 
+                          borderRadius: '6px',
+
+                          width: '28px',
+
+                          height: '28px',
+
+                          display: 'flex',
+
+                          alignItems: 'center',
+
+                          justifyContent: 'center',
+
+                          transition: 'all 0.2s ease'
+
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#e5e7eb';
+                          e.currentTarget.style.color = '#374151';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#f3f4f6';
+                          e.currentTarget.style.color = '#6b7280';
                         }}
 
                         title="Clear selection"
@@ -9102,23 +9070,44 @@ function PlaceOrder() {
 
                 </div>
 
-                {/* Class Name */}
-                {availableClasses.length > 0 && (
+                    {/* Class Name */}
                   <div style={{
                     position: 'relative',
-                    flex: isMobile ? '1 1 100%' : '1 1 0',
+                    flex: isMobile ? '1 1 100%' : (isTablet || isSmallDesktop) ? '1 1 calc(50% - 8px)' : '1 1 0',
                     width: isMobile ? '100%' : 'auto',
-                    minWidth: isMobile ? 'auto' : '200px',
-                    maxWidth: isMobile ? '100%' : '240px'
+                    minWidth: isMobile ? 'auto' : (isTablet || isSmallDesktop) ? 'auto' : '200px',
+                    maxWidth: isMobile || isTablet || isSmallDesktop ? '100%' : '240px'
                   }}>
+                    <label style={{
+                      display: 'block',
+                      marginBottom: '8px',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      color: classNameFocused || selectedClassName ? '#7c3aed' : '#374151',
+                      transition: 'color 0.2s ease'
+                    }}>
+                      Class Name
+                    </label>
                     <div style={{
                       position: 'relative',
                       background: 'white',
-                      borderRadius: '8px',
-                      border: showClassNameDropdown ? '2px solid #7c3aed' : '1px solid #e2e8f0',
-                      transition: 'all 0.2s ease',
-                      boxShadow: showClassNameDropdown ? '0 0 0 3px rgba(124, 58, 237, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                      borderRadius: '12px',
+                      border: showClassNameDropdown ? '2px solid #7c3aed' : '1px solid #e5e7eb',
+                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                      boxShadow: showClassNameDropdown ? '0 0 0 4px rgba(124, 58, 237, 0.1), 0 4px 12px rgba(124, 58, 237, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.08)',
                       zIndex: showClassNameDropdown ? 1001 : 'auto'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!showClassNameDropdown) {
+                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
+                        e.currentTarget.style.borderColor = '#d1d5db';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!showClassNameDropdown) {
+                        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
+                        e.currentTarget.style.borderColor = '#e5e7eb';
+                      }
                     }}>
                       <input
                         type="text"
@@ -9126,11 +9115,15 @@ function PlaceOrder() {
                         onChange={e => {
                           const inputValue = e.target.value;
                           setSelectedClassName(inputValue);
-                          setShowClassNameDropdown(true);
+                          if (availableClasses.length > 0) {
+                            setShowClassNameDropdown(true);
+                          }
                         }}
                         onFocus={() => {
                           setClassNameFocused(true);
-                          setShowClassNameDropdown(true);
+                          if (availableClasses.length > 0) {
+                            setShowClassNameDropdown(true);
+                          }
                         }}
                         onBlur={() => {
                           setClassNameFocused(false);
@@ -9143,37 +9136,23 @@ function PlaceOrder() {
                             e.target.blur();
                           }
                         }}
+                        disabled={availableClasses.length === 0}
                         style={{
                           width: '100%',
                           padding: isMobile ? '12px 16px' : '14px 16px',
                           border: 'none',
-                          borderRadius: '8px',
+                          borderRadius: '12px',
                           fontSize: isMobile ? '14px' : '15px',
-                          color: '#111827',
+                          color: availableClasses.length === 0 ? '#9ca3af' : '#111827',
                           outline: 'none',
-                          background: 'transparent',
-                          cursor: 'text',
+                          background: availableClasses.length === 0 ? '#f9fafb' : 'transparent',
+                          cursor: availableClasses.length === 0 ? 'not-allowed' : 'text',
                           height: isMobile ? '44px' : '48px',
                           boxSizing: 'border-box',
-                          fontWeight: '400'
+                          fontWeight: '500'
                         }}
-                        placeholder=""
+                        placeholder={availableClasses.length === 0 ? 'No classes available' : ''}
                       />
-                      <label style={{
-                        position: 'absolute',
-                        left: '16px',
-                        top: '-8px',
-                        fontSize: '12px',
-                        fontWeight: '500',
-                        color: classNameFocused || selectedClassName ? '#7c3aed' : '#6b7280',
-                        backgroundColor: 'white',
-                        padding: '0 6px',
-                        transition: 'all 0.2s ease',
-                        pointerEvents: 'none',
-                        zIndex: 1
-                      }}>
-                        Class Name
-                      </label>
                       {selectedClassName && (
                         <button
                           type="button"
@@ -9186,13 +9165,28 @@ function PlaceOrder() {
                             right: '12px',
                             top: '50%',
                             transform: 'translateY(-50%)',
-                            background: 'none',
+                            background: '#f3f4f6',
                             border: 'none',
                             cursor: 'pointer',
                             color: '#6b7280',
                             fontSize: '18px',
                             lineHeight: 1,
-                            padding: '4px'
+                            padding: '6px',
+                            borderRadius: '6px',
+                            width: '28px',
+                            height: '28px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'all 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#e5e7eb';
+                            e.currentTarget.style.color = '#374151';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = '#f3f4f6';
+                            e.currentTarget.style.color = '#6b7280';
                           }}
                           title="Clear selection"
                         >
@@ -9253,7 +9247,6 @@ function PlaceOrder() {
                       </div>
                     )}
                   </div>
-                )}
 
 
 
@@ -9263,13 +9256,25 @@ function PlaceOrder() {
 
                   position: 'relative',
 
-                  flex: isMobile ? '1 1 100%' : '1 1 0',
+                  flex: isMobile ? '1 1 100%' : (isTablet || isSmallDesktop) ? '1 1 100%' : '1 1 0',
 
-                  minWidth: isMobile ? 'auto' : '250px',
+                  minWidth: isMobile ? 'auto' : (isTablet || isSmallDesktop) ? 'auto' : '250px',
 
-                  width: isMobile ? '100%' : 'auto'
+                  width: isMobile || isTablet || isSmallDesktop ? '100%' : 'auto',
+
+                  maxWidth: '100%'
 
                 }}>
+                  <label style={{
+                    display: 'block',
+                    marginBottom: '8px',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    color: customerFocused || !!selectedCustomer ? '#7c3aed' : '#374151',
+                    transition: 'color 0.2s ease'
+                  }}>
+                    Customer
+                  </label>
 
                   <div style={{
 
@@ -9277,16 +9282,28 @@ function PlaceOrder() {
 
                     background: 'white',
 
-                    borderRadius: '8px',
+                    borderRadius: '12px',
 
-                    border: showCustomerDropdown ? '2px solid #7c3aed' : '1px solid #e2e8f0',
+                    border: showCustomerDropdown ? '2px solid #7c3aed' : '1px solid #e5e7eb',
 
-                    transition: 'all 0.2s ease',
+                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
 
-                    boxShadow: showCustomerDropdown ? '0 0 0 3px rgba(124, 58, 237, 0.1)' : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                    boxShadow: showCustomerDropdown ? '0 0 0 4px rgba(124, 58, 237, 0.1), 0 4px 12px rgba(124, 58, 237, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.08)',
 
                     zIndex: showCustomerDropdown ? 1001 : 'auto'
 
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!showCustomerDropdown) {
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
+                      e.currentTarget.style.borderColor = '#d1d5db';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!showCustomerDropdown) {
+                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
+                      e.currentTarget.style.borderColor = '#e5e7eb';
+                    }
                   }}>
 
                     <input
@@ -9393,11 +9410,11 @@ function PlaceOrder() {
 
                         padding: isMobile ? '12px 16px' : '14px 16px',
 
-                        paddingRight: selectedCustomer ? '50px' : '40px',
+                        paddingRight: selectedCustomer ? '50px' : '48px',
 
                         border: 'none',
 
-                        borderRadius: '8px',
+                        borderRadius: '12px',
 
                         fontSize: isMobile ? '14px' : '15px',
 
@@ -9413,7 +9430,7 @@ function PlaceOrder() {
 
                         boxSizing: 'border-box',
 
-                        fontWeight: '400'
+                        fontWeight: '500'
 
                       }}
 
@@ -9441,13 +9458,15 @@ function PlaceOrder() {
 
                           transform: 'translateY(-50%)',
 
-                          color: showCustomerDropdown ? '#3b82f6' : '#9ca3af',
+                          color: showCustomerDropdown ? '#7c3aed' : '#9ca3af',
 
-                          fontSize: '20px',
+                          fontSize: '22px',
 
                           pointerEvents: 'none',
 
-                          transition: 'color 0.2s ease'
+                          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+
+                          opacity: 0.7
 
                         }}
 
@@ -9499,23 +9518,23 @@ function PlaceOrder() {
 
                           position: 'absolute',
 
-                          right: '8px',
+                          right: '12px',
 
                           top: '50%',
 
                           transform: 'translateY(-50%)',
 
-                          background: 'none',
+                          background: '#f3f4f6',
 
                           border: 'none',
 
                           cursor: 'pointer',
 
-                          padding: '4px',
+                          padding: '6px',
 
-                          borderRadius: '50%',
+                          borderRadius: '6px',
 
-                          color: '#64748b',
+                          color: '#6b7280',
 
                           fontSize: '18px',
 
@@ -9525,8 +9544,20 @@ function PlaceOrder() {
 
                           justifyContent: 'center',
 
-                          transition: 'color 0.2s ease'
+                          transition: 'all 0.2s ease',
 
+                          width: '28px',
+
+                          height: '28px'
+
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#e5e7eb';
+                          e.currentTarget.style.color = '#374151';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = '#f3f4f6';
+                          e.currentTarget.style.color = '#6b7280';
                         }}
 
                         title="Clear customer"
@@ -9541,35 +9572,6 @@ function PlaceOrder() {
 
 
 
-                    <label style={{
-
-                      position: 'absolute',
-
-                      left: isMobile ? '16px' : '16px',
-
-                      top: '-8px',
-
-                      fontSize: '12px',
-
-                      fontWeight: '500',
-
-                      color: customerFocused || !!selectedCustomer ? '#7c3aed' : '#6b7280',
-
-                      backgroundColor: 'white',
-
-                      padding: '0 6px',
-
-                      transition: 'all 0.2s ease',
-
-                      pointerEvents: 'none',
-
-                      zIndex: 1
-
-                    }}>
-
-                      Customer
-
-                    </label>
 
 
 
@@ -9969,105 +9971,6 @@ function PlaceOrder() {
 
                 </div>
 
-                {/* Submit Button */}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  flex: isMobile ? '1 1 100%' : '0 0 auto',
-                  width: isMobile ? '100%' : 'auto',
-                  flexShrink: 0,
-                  marginLeft: isMobile ? '0' : 'auto'
-                }}>
-
-                  <button
-
-                    type="submit"
-
-                    disabled={!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder}
-
-                    style={{
-
-                      background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
-
-                      color: '#fff',
-
-                      border: 'none',
-
-                      borderRadius: '8px',
-
-                      padding: isMobile ? '12px 20px' : '12px 24px',
-
-                      height: isMobile ? '44px' : '48px',
-
-                      cursor: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'not-allowed' : 'pointer',
-
-                      fontSize: isMobile ? '14px' : '15px',
-
-                      fontWeight: '600',
-
-                      boxShadow: '0 4px 6px rgba(59, 130, 246, 0.25)',
-
-                      display: 'flex',
-
-                      alignItems: 'center',
-
-                      justifyContent: 'center',
-
-                      gap: '8px',
-
-                      opacity: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 0.5 : 1,
-
-                      transition: 'all 0.2s ease',
-
-                      width: isMobile ? '100%' : 'auto',
-
-                      boxSizing: 'border-box'
-
-                    }}
-
-                  >
-
-                    {isSubmittingOrder ? (
-
-                      <>
-
-                        <div style={{
-
-                          width: '18px',
-
-                          height: '18px',
-
-                          border: '2px solid #ffffff',
-
-                          borderTop: '2px solid transparent',
-
-                          borderRadius: '50%',
-
-                          animation: 'spin 1s linear infinite'
-
-                        }} />
-
-                        Processing...
-
-                      </>
-
-                    ) : (
-
-                      <>
-
-                        <span className="material-icons" style={{ fontSize: '18px' }}>shopping_cart</span>
-
-                        Place Order
-
-                      </>
-
-                    )}
-
-                  </button>
-
-                </div>
-
               </div>
 
               {/* Credit Limit Information Line - Below the main row */}
@@ -10231,7 +10134,9 @@ function PlaceOrder() {
               {/* Order Items Section - Table Container */}
               <div style={{
                 width: '100%',
-                boxSizing: 'border-box'
+                maxWidth: '100%',
+                boxSizing: 'border-box',
+                overflowX: 'hidden'
               }}>
 
                 {/* Add Item Form */}
@@ -10267,22 +10172,6 @@ function PlaceOrder() {
                     onMouseLeave={(e) => {
                       e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
                     }}>
-                    <h2 style={{
-                      margin: '0 0 4px 0',
-                      fontSize: isMobile ? '18px' : '20px',
-                      fontWeight: '600',
-                      color: '#1f2937'
-                    }}>
-                      Order Items
-                    </h2>
-                    <p style={{
-                      margin: '0 0 16px 0',
-                      fontSize: isMobile ? '13px' : '14px',
-                      color: '#6b7280',
-                      fontWeight: '400'
-                    }}>
-                      Add products to the order
-                    </p>
 
                     <div style={{
 
@@ -12633,33 +12522,16 @@ function PlaceOrder() {
               width: '100%',
               maxWidth: '100%',
               boxSizing: 'border-box',
-              overflowX: 'auto',
+              overflowX: isMobile || isTablet ? 'auto' : 'visible',
               overflowY: 'visible',
               position: 'relative',
-              background: 'white',
-              borderRadius: '0.75rem',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
               marginTop: '1rem',
+              WebkitOverflowScrolling: 'touch'
             }}>
 
               <div style={{
-
-                background: 'white',
-
-                borderRadius: isMobile ? '0 0 16px 16px' : '2px',
-
-                border: '1px solid #e2e8f0',
-
-                overflow: 'hidden',
-
-                boxShadow: isMobile ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.1)',
-
-                width: '100%',
-                maxWidth: '100%',
                 boxSizing: 'border-box',
                 position: 'relative'
-
               }}>
 
                 {/* Table Header - Hidden on mobile, shown on desktop */}
@@ -12687,7 +12559,6 @@ function PlaceOrder() {
                     letterSpacing: '0.025em',
 
                     minWidth: 0,
-                    width: '100%',
                     boxSizing: 'border-box'
 
                   }}>
@@ -13426,27 +13297,30 @@ function PlaceOrder() {
 
         {/* Right Sidebar */}
         <div style={{
-          flex: isMobile ? 'none' : '0 0 380px',
-          width: isMobile ? '100%' : '380px',
-          position: isMobile ? 'relative' : 'sticky',
-          top: isMobile ? 'auto' : '24px',
-          alignSelf: isMobile ? 'auto' : 'flex-start',
-          maxHeight: isMobile ? 'none' : 'calc(100vh - 48px)',
-          overflowY: isMobile ? 'visible' : 'auto',
-          padding: isMobile ? '20px' : '24px',
+          flex: isMobile || isTablet || isSmallDesktop ? '1 1 100%' : isMedium ? '0 0 360px' : '0 0 380px',
+          width: isMobile || isTablet || isSmallDesktop ? '100%' : isMedium ? '360px' : '380px',
+          maxWidth: '100%',
+          position: isMobile || isTablet || isSmallDesktop ? 'relative' : 'sticky',
+          top: isMobile || isTablet || isSmallDesktop ? 'auto' : '8px',
+          alignSelf: isMobile || isTablet || isSmallDesktop ? 'auto' : 'flex-start',
+          maxHeight: isMobile || isTablet || isSmallDesktop ? 'none' : 'calc(100vh - 48px)',
+          overflowY: isMobile || isTablet || isSmallDesktop ? 'visible' : 'auto',
+          padding: isMobile ? '8px 16px 16px 16px' : isTablet ? '8px 20px 20px 20px' : isSmallDesktop ? '8px 20px 20px 20px' : '8px 24px 24px 24px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '20px',
+          gap: isMobile ? '16px' : '20px',
           boxSizing: 'border-box'
         }}>
-          {/* Order Summary */}
+          {/* Transaction Summary */}
           <div style={{
             background: '#fff',
             borderRadius: '0.75rem',
             border: '1px solid #e2e8f0',
-            padding: isMobile ? '20px' : '24px',
+            padding: isMobile ? '16px' : isTablet ? '20px' : isSmallDesktop ? '20px' : '24px',
             boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
             transition: 'all 0.2s ease',
+            maxWidth: '100%',
+            boxSizing: 'border-box'
           }}
             onMouseEnter={(e) => {
               e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
@@ -13456,11 +13330,11 @@ function PlaceOrder() {
             }}>
             <h3 style={{
               margin: '0 0 16px 0',
-              fontSize: '18px',
+              fontSize: isMobile ? '16px' : '18px',
               fontWeight: '600',
               color: '#1f2937'
             }}>
-              Order Summary
+              Transaction Summary
             </h3>
             {(() => {
               const totals = calculateTotals();
@@ -14073,54 +13947,19 @@ function PlaceOrder() {
                   </>
                 )}
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  // Save as Draft functionality
-                  console.log('Save as Draft');
-                }}
-                style={{
-                  background: '#fff',
-                  color: '#374151',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  padding: '12px 24px',
-                  height: '48px',
-                  cursor: 'pointer',
-                  fontSize: '15px',
-                  fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
-                  boxSizing: 'border-box'
-                }}
-              >
-                Save as Draft
-              </button>
             </div>
-
-            {/* Info Message */}
-            {(!selectedCustomer || orderItems.length === 0) && (
-              <div style={{
-                background: '#fef3c7',
-                border: '1px solid #fde68a',
-                borderRadius: '8px',
-                padding: '12px',
-                fontSize: '14px',
-                color: '#92400e'
-              }}>
-                Select a customer and add items to place order
-              </div>
-            )}
           </div>
 
-          {/* Order Information */}
+          {/* Transaction Information */}
           <div style={{
             background: '#fff',
             borderRadius: '0.75rem',
             border: '1px solid #e2e8f0',
-            padding: isMobile ? '20px' : '24px',
+            padding: isMobile ? '16px' : isTablet ? '20px' : isSmallDesktop ? '20px' : '24px',
             boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
             transition: 'all 0.2s ease',
+            maxWidth: '100%',
+            boxSizing: 'border-box'
           }}
             onMouseEnter={(e) => {
               e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
@@ -14130,11 +13969,11 @@ function PlaceOrder() {
             }}>
             <h3 style={{
               margin: '0 0 16px 0',
-              fontSize: '18px',
+              fontSize: isMobile ? '16px' : '18px',
               fontWeight: '600',
               color: '#1f2937'
             }}>
-              Order Information
+              Transaction Information
             </h3>
             <div style={{
               display: 'flex',

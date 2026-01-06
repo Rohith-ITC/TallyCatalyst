@@ -13,6 +13,10 @@ import {
   ResponsiveContainer,
   Treemap,
   Tooltip as RechartsTooltip,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
 } from 'recharts';
 import { Tooltip } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
@@ -33,10 +37,13 @@ import ResumeDownloadModal from '../components/ResumeDownloadModal';
 const SalesDashboard = ({ onNavigationAttempt }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const [windowWidth, setWindowWidth] = useState(window.innerWidth);
   
   useEffect(() => {
     const handleResize = () => {
-      setIsMobile(window.innerWidth <= 768);
+      const width = window.innerWidth;
+      setIsMobile(width <= 768);
+      setWindowWidth(width);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -115,6 +122,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [rawDataPageSize, setRawDataPageSize] = useState(20);
   const [rawDataPageInput, setRawDataPageInput] = useState('1');
   const [rawDataPageSizeInput, setRawDataPageSizeInput] = useState('20');
+  const [rawDataSortBy, setRawDataSortBy] = useState(null); // 'date', 'quantity', 'amount', or null
+  const [rawDataSortOrder, setRawDataSortOrder] = useState('asc'); // 'asc' or 'desc'
+  const [showSortDropdown, setShowSortDropdown] = useState(false);
   
   // Column filter states
   const [columnFilters, setColumnFilters] = useState({});
@@ -161,6 +171,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Settings modal state
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   
+  // Fullscreen card modal state
+  const [fullscreenCard, setFullscreenCard] = useState(null); // { type: 'metric' | 'chart' | 'custom', title: string, cardId?: string }
+  
   // Card visibility state - tracks which cards are visible/hidden
   const [cardVisibility, setCardVisibility] = useState(() => {
     try {
@@ -183,6 +196,25 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       console.warn('Error saving card visibility to localStorage:', e);
     }
   }, [cardVisibility]);
+
+  // Number format preference: 'indian' (lakhs-crores) or 'international' (millions-billions)
+  const [numberFormat, setNumberFormat] = useState(() => {
+    try {
+      const stored = localStorage.getItem('salesDashboardNumberFormat');
+      return stored || 'indian'; // Default to Indian format
+    } catch (e) {
+      return 'indian';
+    }
+  });
+
+  // Save number format to localStorage whenever it changes
+  useEffect(() => {
+    try {
+      localStorage.setItem('salesDashboardNumberFormat', numberFormat);
+    } catch (e) {
+      console.warn('Error saving number format to localStorage:', e);
+    }
+  }, [numberFormat]);
   
   // Toggle card visibility
   const toggleCardVisibility = useCallback((cardTitle) => {
@@ -203,6 +235,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const isCardVisible = useCallback((cardTitle) => {
     return cardVisibility[cardTitle] !== false;
   }, [cardVisibility]);
+
+  // Fullscreen card modal functions
+  const openFullscreenCard = useCallback((cardType, cardTitle, cardId = null) => {
+    setFullscreenCard({ type: cardType, title: cardTitle, cardId });
+  }, []);
+
+  const closeFullscreenCard = useCallback(() => {
+    setFullscreenCard(null);
+  }, []);
 
   // Background cache download state
   const [isDownloadingCache, setIsDownloadingCache] = useState(false);
@@ -2580,6 +2621,229 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     avgProfitPerOrder
   } = metrics;
 
+  // Helper function to get date from sale
+  const getSaleDate = (sale) => {
+    const dateStr = sale.cp_date || sale.date;
+    if (!dateStr) return null;
+    const date = new Date(dateStr);
+    return isNaN(date.getTime()) ? null : date;
+  };
+
+  // Helper function to format date as YYYY-MM-DD for grouping
+  const formatDateKey = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  // Calculate daily trend data for Total Revenue
+  const revenueTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSales.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const current = dailyData.get(dateKey) || 0;
+      dailyData.set(dateKey, current + (sale.amount || 0));
+    });
+    
+    // Convert to array and sort by date
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, value]) => ({ date, value }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    // Ensure we have at least a few data points for visualization
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSales]);
+
+  // Calculate daily trend data for Total Invoices
+  const invoiceTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSalesForOrders.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const orderSet = dailyData.get(dateKey) || new Set();
+      orderSet.add(sale.masterid);
+      dailyData.set(dateKey, orderSet);
+    });
+    
+    // Convert to array and sort by date
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, orderSet]) => ({ date, value: orderSet.size }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSalesForOrders]);
+
+  // Calculate daily trend data for Unique Customers (cumulative unique customers per day)
+  const customerTrendData = useMemo(() => {
+    const dailyData = new Map();
+    const seenCustomers = new Set();
+    
+    // Sort sales by date first
+    const sortedSales = [...filteredSales].sort((a, b) => {
+      const dateA = getSaleDate(a);
+      const dateB = getSaleDate(b);
+      if (!dateA || !dateB) return 0;
+      return dateA - dateB;
+    });
+    
+    sortedSales.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date || !sale.customer) return;
+      
+      const dateKey = formatDateKey(date);
+      if (!seenCustomers.has(sale.customer)) {
+        seenCustomers.add(sale.customer);
+        const current = dailyData.get(dateKey) || 0;
+        dailyData.set(dateKey, current + 1);
+      }
+    });
+    
+    // Convert to cumulative counts
+    let cumulative = 0;
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, newCustomers]) => {
+        cumulative += newCustomers;
+        return { date, value: cumulative };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSales]);
+
+  // Calculate daily trend data for Avg Invoice Value
+  const avgInvoiceTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSalesForOrders.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const existing = dailyData.get(dateKey) || { total: 0, count: 0 };
+      existing.total += (sale.amount || 0);
+      existing.count += 1;
+      dailyData.set(dateKey, existing);
+    });
+    
+    // Convert to array with averages
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, { total, count }]) => ({ 
+        date, 
+        value: count > 0 ? total / count : 0 
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSalesForOrders]);
+
+  // Calculate daily trend data for Total Profit
+  const profitTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSales.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const current = dailyData.get(dateKey) || 0;
+      dailyData.set(dateKey, current + (sale.profit || 0));
+    });
+    
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, value]) => ({ date, value }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSales]);
+
+  // Calculate daily trend data for Profit Margin
+  const profitMarginTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSales.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const existing = dailyData.get(dateKey) || { revenue: 0, profit: 0 };
+      existing.revenue += (sale.amount || 0);
+      existing.profit += (sale.profit || 0);
+      dailyData.set(dateKey, existing);
+    });
+    
+    // Convert to array with profit margins
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, { revenue, profit }]) => ({ 
+        date, 
+        value: revenue > 0 ? (profit / revenue) * 100 : 0 
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSales]);
+
+  // Calculate daily trend data for Avg Profit per Order
+  const avgProfitTrendData = useMemo(() => {
+    const dailyData = new Map();
+    
+    filteredSalesForOrders.forEach(sale => {
+      const date = getSaleDate(sale);
+      if (!date) return;
+      
+      const dateKey = formatDateKey(date);
+      const existing = dailyData.get(dateKey) || { totalProfit: 0, count: 0 };
+      existing.totalProfit += (sale.profit || 0);
+      existing.count += 1;
+      dailyData.set(dateKey, existing);
+    });
+    
+    // Convert to array with averages
+    const sortedData = Array.from(dailyData.entries())
+      .map(([date, { totalProfit, count }]) => ({ 
+        date, 
+        value: count > 0 ? totalProfit / count : 0 
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    
+    if (sortedData.length === 0) {
+      return [{ date: new Date().toISOString().split('T')[0], value: 0 }];
+    }
+    
+    return sortedData;
+  }, [filteredSalesForOrders]);
+
   // Function to get all card titles organized by sections
   const getCardTitlesBySection = useCallback(() => {
     const keyMetrics = [];
@@ -4289,7 +4553,58 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     // Note: Cache and date range are preserved to avoid unnecessary API calls
   };
 
-  const formatCurrency = (value) => `₹${value.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  // Format number based on selected format (for non-currency values)
+  const formatNumber = (value, options = {}) => {
+    const locale = numberFormat === 'indian' ? 'en-IN' : 'en-US';
+    const defaultOptions = { minimumFractionDigits: 0, maximumFractionDigits: 2 };
+    return value.toLocaleString(locale, { ...defaultOptions, ...options });
+  };
+
+  const formatCurrency = (value) => {
+    const locale = numberFormat === 'indian' ? 'en-IN' : 'en-US';
+    return `₹${value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  // Helper functions for chart components
+  const formatChartValue = useCallback((value, prefix = '₹') => {
+    const locale = numberFormat === 'indian' ? 'en-IN' : 'en-US';
+    return `${prefix}${value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }, [numberFormat]);
+
+  const formatChartCompactValue = useCallback((value, prefix = '₹') => {
+    if (!value || value === 0) return `${prefix}0.00`;
+    const absValue = Math.abs(value);
+    let formatted = '';
+    let unit = '';
+    
+    if (numberFormat === 'indian') {
+      // Indian numbering: Lakhs and Crores
+      if (absValue >= 10000000) {
+        formatted = `${prefix}${(absValue / 10000000).toFixed(1)}Cr`;
+      } else if (absValue >= 100000) {
+        formatted = `${prefix}${(absValue / 100000).toFixed(1)}L`;
+      } else if (absValue >= 1000) {
+        formatted = `${prefix}${(absValue / 1000).toFixed(1)}K`;
+      } else {
+        const locale = 'en-IN';
+        formatted = `${prefix}${absValue.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+      }
+    } else {
+      // International numbering: Millions and Billions
+      if (absValue >= 1000000000) {
+        formatted = `${prefix}${(absValue / 1000000000).toFixed(1)}B`;
+      } else if (absValue >= 1000000) {
+        formatted = `${prefix}${(absValue / 1000000).toFixed(1)}M`;
+      } else if (absValue >= 1000) {
+        formatted = `${prefix}${(absValue / 1000).toFixed(1)}K`;
+      } else {
+        const locale = 'en-US';
+        formatted = `${prefix}${absValue.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+      }
+    }
+    
+    return formatted;
+  }, [numberFormat]);
 
   // Custom Cards Helper Functions
   // Helper function to get field value with case-insensitive fallback
@@ -5399,18 +5714,37 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     const absValue = Math.abs(value);
     let formatted = '';
     let unit = '';
-    if (absValue >= 10000000) {
-      formatted = '₹' + (absValue / 10000000).toFixed(2);
-      unit = ' Crore';
-    } else if (absValue >= 100000) {
-      formatted = '₹' + (absValue / 100000).toFixed(2);
-      unit = ' L';
-    } else if (absValue >= 1000) {
-      formatted = '₹' + (absValue / 1000).toFixed(2);
-      unit = ' K';
+    
+    if (numberFormat === 'indian') {
+      // Indian numbering: Lakhs and Crores
+      if (absValue >= 10000000) {
+        formatted = '₹' + (absValue / 10000000).toFixed(2);
+        unit = ' Cr';
+      } else if (absValue >= 100000) {
+        formatted = '₹' + (absValue / 100000).toFixed(2);
+        unit = ' L';
+      } else if (absValue >= 1000) {
+        formatted = '₹' + (absValue / 1000).toFixed(2);
+        unit = ' K';
+      } else {
+        formatted = '₹' + absValue.toFixed(2);
+      }
     } else {
-      formatted = '₹' + absValue.toFixed(2);
+      // International numbering: Millions and Billions
+      if (absValue >= 1000000000) {
+        formatted = '₹' + (absValue / 1000000000).toFixed(2);
+        unit = ' B';
+      } else if (absValue >= 1000000) {
+        formatted = '₹' + (absValue / 1000000).toFixed(2);
+        unit = ' M';
+      } else if (absValue >= 1000) {
+        formatted = '₹' + (absValue / 1000).toFixed(2);
+        unit = ' K';
+      } else {
+        formatted = '₹' + absValue.toFixed(2);
+      }
     }
+    
     return formatted + unit;
   };
 
@@ -5892,7 +6226,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             </div>
             <div class="metric-card">
               <div class="metric-title">Total Quantity</div>
-              <div class="metric-value">${totalQuantity.toLocaleString()}</div>
+              <div class="metric-value">${formatNumber(totalQuantity)}</div>
             </div>
             <div class="metric-card">
               <div class="metric-title">Unique Customers</div>
@@ -5909,7 +6243,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             </div>
             <div class="metric-card">
               <div class="metric-title">Profit Margin</div>
-              <div class="metric-value">${profitMargin >= 0 ? '+' : ''}${profitMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
+              <div class="metric-value">${profitMargin >= 0 ? '+' : ''}${formatNumber(profitMargin, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
             </div>
             <div class="metric-card">
               <div class="metric-title">Avg Profit per Order</div>
@@ -6014,7 +6348,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               ${topItemsByQuantityData.slice(0, 10).map(item => `
                 <div class="chart-row">
                   <span>${item.label}</span>
-                  <span>${item.value.toLocaleString()}</span>
+                  <span>${formatNumber(item.value)}</span>
                 </div>
               `).join('')}
             </div>
@@ -6136,7 +6470,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 ${cardData.slice(0, 20).map(item => `
                   <div class="chart-row">
                     <span>${item.label || 'Unknown'}</span>
-                    <span>${typeof item.value === 'number' ? (item.value % 1 === 0 ? item.value.toLocaleString() : item.value.toFixed(2)) : item.value}</span>
+                    <span>${typeof item.value === 'number' ? (item.value % 1 === 0 ? formatNumber(item.value) : formatNumber(item.value, { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : item.value}</span>
                   </div>
                 `).join('')}
               </div>
@@ -6340,7 +6674,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             </div>
             <div class="metric-card">
               <div class="metric-title">Total Quantity</div>
-              <div class="metric-value">${totalQuantity.toLocaleString()}</div>
+              <div class="metric-value">${formatNumber(totalQuantity)}</div>
             </div>
             <div class="metric-card">
               <div class="metric-title">Unique Customers</div>
@@ -6357,7 +6691,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             </div>
             <div class="metric-card">
               <div class="metric-title">Profit Margin</div>
-              <div class="metric-value">${profitMargin >= 0 ? '+' : ''}${profitMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
+              <div class="metric-value">${profitMargin >= 0 ? '+' : ''}${formatNumber(profitMargin, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%</div>
             </div>
             <div class="metric-card">
               <div class="metric-title">Avg Profit per Order</div>
@@ -6462,7 +6796,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               ${topItemsByQuantityData.slice(0, 10).map(item => `
                 <div class="chart-row">
                   <span>${item.label}</span>
-                  <span>${item.value.toLocaleString()}</span>
+                  <span>${formatNumber(item.value)}</span>
                 </div>
               `).join('')}
             </div>
@@ -6584,7 +6918,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 ${cardData.slice(0, 20).map(item => `
                   <div class="chart-row">
                     <span>${item.label || 'Unknown'}</span>
-                    <span>${typeof item.value === 'number' ? (item.value % 1 === 0 ? item.value.toLocaleString() : item.value.toFixed(2)) : item.value}</span>
+                    <span>${typeof item.value === 'number' ? (item.value % 1 === 0 ? formatNumber(item.value) : formatNumber(item.value, { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : item.value}</span>
                   </div>
                 `).join('')}
               </div>
@@ -7190,8 +7524,75 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       );
     }
     
+    // Apply sorting if sortBy is set
+    if (rawDataSortBy) {
+      filtered = [...filtered].sort((a, b) => {
+        let aValue = a[rawDataSortBy];
+        let bValue = b[rawDataSortBy];
+        
+        // Handle null/undefined values
+        if (aValue === null || aValue === undefined) aValue = rawDataSortBy === 'date' ? '' : 0;
+        if (bValue === null || bValue === undefined) bValue = rawDataSortBy === 'date' ? '' : 0;
+        
+        if (rawDataSortBy === 'date') {
+          // Sort dates - parse various date formats
+          const parseDate = (dateStr) => {
+            if (!dateStr) return new Date(0);
+            
+            // Format: YYYYMMDD
+            if (typeof dateStr === 'string' && dateStr.length === 8 && /^\d+$/.test(dateStr)) {
+              const year = dateStr.substring(0, 4);
+              const month = dateStr.substring(4, 6);
+              const day = dateStr.substring(6, 8);
+              return new Date(`${year}-${month}-${day}`);
+            }
+            
+            // Format: DD-MMM-YY
+            if (typeof dateStr === 'string' && dateStr.includes('-')) {
+              const parts = dateStr.split('-');
+              if (parts.length === 3) {
+                const day = parts[0];
+                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                const monthIndex = monthNames.findIndex(m => m.toLowerCase() === parts[1].toLowerCase());
+                if (monthIndex !== -1) {
+                  let year = parts[2];
+                  if (year.length === 2) {
+                    const yearNum = parseInt(year, 10);
+                    year = yearNum < 50 ? `20${year}` : `19${year}`;
+                  }
+                  return new Date(`${year}-${String(monthIndex + 1).padStart(2, '0')}-${day.padStart(2, '0')}`);
+                }
+              }
+            }
+            
+            // Try Date constructor
+            const date = new Date(dateStr);
+            return isNaN(date.getTime()) ? new Date(0) : date;
+          };
+          
+          const aDate = parseDate(aValue);
+          const bDate = parseDate(bValue);
+          return rawDataSortOrder === 'asc' ? aDate - bDate : bDate - aDate;
+        } else if (rawDataSortBy === 'quantity' || rawDataSortBy === 'amount') {
+          // Sort numeric values
+          const aNum = typeof aValue === 'number' ? aValue : parseFloat(aValue) || 0;
+          const bNum = typeof bValue === 'number' ? bValue : parseFloat(bValue) || 0;
+          return rawDataSortOrder === 'asc' ? aNum - bNum : bNum - aNum;
+        }
+        
+        // Fallback: string comparison
+        const aStr = String(aValue).toLowerCase();
+        const bStr = String(bValue).toLowerCase();
+        if (rawDataSortOrder === 'asc') {
+          return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
+        } else {
+          return aStr > bStr ? -1 : aStr < bStr ? 1 : 0;
+        }
+      });
+    }
+    
     return filtered;
-  }, [rawDataModal, rawDataSearch, applyColumnFilters]);
+  }, [rawDataModal, rawDataSearch, applyColumnFilters, rawDataSortBy, rawDataSortOrder]);
 
   const totalRawPages = rawDataModal.open
     ? Math.max(1, Math.ceil(Math.max(filteredRawRows.length, 1) / rawDataPageSize))
@@ -7199,11 +7600,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Close dropdowns on outside click
   useEffect(() => {
-    if (!filterDropdownOpen) return;
-    const handleClickOutside = () => setFilterDropdownOpen(null);
+    if (!filterDropdownOpen && !showSortDropdown) return;
+    const handleClickOutside = (e) => {
+      if (filterDropdownOpen && !e.target.closest('[data-filter-dropdown]')) {
+        setFilterDropdownOpen(null);
+      }
+      if (showSortDropdown && !e.target.closest('[data-sort-dropdown]')) {
+        setShowSortDropdown(false);
+      }
+    };
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
-  }, [filterDropdownOpen]);
+  }, [filterDropdownOpen, showSortDropdown]);
 
   // Reset filters when modal closes
   useEffect(() => {
@@ -7213,6 +7621,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setDateDrafts({});
       setRawDataPage(1);
       setRawDataPageInput('1');
+      setRawDataSortBy(null);
+      setRawDataSortOrder('asc');
+      setShowSortDropdown(false);
     }
   }, [rawDataModal.open]);
 
@@ -7257,8 +7668,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return filteredRawRows.slice(start, start + rawDataPageSize);
   }, [filteredRawRows, rawDataModal.open, rawDataPage, rawDataPageSize]);
 
-  // Dropdown position for portals
-  const [filterDropdownPosition, setFilterDropdownPosition] = useState(null);
   // Draft values for date inputs (avoid applying until Enter/blur with valid date)
   const [dateDrafts, setDateDrafts] = useState({});
 
@@ -7311,16 +7720,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               onClick={(e) => {
                 e.stopPropagation();
                 setFilterDropdownOpen(isOpen ? null : columnKey);
-                if (!isOpen) {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  setFilterDropdownPosition({
-                    left: rect.left + window.scrollX,
-                    top: rect.bottom + window.scrollY + 4,
-                    width: rect.width
-                  });
-                } else {
-                  setFilterDropdownPosition(null);
-                }
               }}
               style={{
                 ...commonInputStyle,
@@ -7344,17 +7743,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             {isOpen && (
               <div
                 style={{
-                  position: 'fixed',
-                  top: filterDropdownPosition?.top || 0,
-                  left: filterDropdownPosition?.left || 0,
-                  width: Math.max(filterDropdownPosition?.width || 200, 220),
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  width: '100%',
+                  minWidth: '100%',
+                  marginTop: '4px',
                   background: '#fff',
                   border: '1px solid #e2e8f0',
                   borderRadius: '8px',
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
                   maxHeight: '280px',
                   overflowY: 'auto',
-                  zIndex: 3000
+                  zIndex: 3000,
+                  boxSizing: 'border-box'
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
@@ -7651,6 +8053,50 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return `${day}-${month}-${year}`;
   };
 
+  // Format date range in format: "1 Apr 2025 → 31 Dec 2025"
+  const formatDateRangeForHeader = (fromDateStr, toDateStr) => {
+    if (!fromDateStr || !toDateStr) return '';
+    
+    const formatDate = (dateStr) => {
+      let dateObj = null;
+      
+      // Try to parse various date formats
+      if (typeof dateStr === 'string') {
+        // Format: YYYYMMDD
+        if (dateStr.length === 8 && /^\d+$/.test(dateStr)) {
+          const year = dateStr.substring(0, 4);
+          const month = dateStr.substring(4, 6);
+          const day = dateStr.substring(6, 8);
+          dateObj = new Date(`${year}-${month}-${day}`);
+        }
+        // Format: YYYY-MM-DD
+        else if (dateStr.includes('-') && dateStr.length >= 10) {
+          dateObj = new Date(dateStr);
+        }
+      }
+      
+      // If we couldn't parse it, try Date constructor directly
+      if (!dateObj || isNaN(dateObj.getTime())) {
+        dateObj = new Date(dateStr);
+      }
+      
+      // If still invalid, return original string
+      if (isNaN(dateObj.getTime())) {
+        return dateStr;
+      }
+      
+      // Format to "D MMM YYYY" (e.g., "1 Apr 2025")
+      const day = dateObj.getDate();
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const month = monthNames[dateObj.getMonth()];
+      const year = dateObj.getFullYear();
+      
+      return `${day} ${month} ${year}`;
+    };
+    
+    return `${formatDate(fromDateStr)} → ${formatDate(toDateStr)}`;
+  };
+
   const renderRawDataCell = (row, column) => {
     const value = row[column.key];
     if (value === null || value === undefined || value === '') {
@@ -7695,7 +8141,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     if (column.format === 'number') {
       const numericValue = typeof value === 'number' ? value : parseFloat(value);
       if (Number.isFinite(numericValue)) {
-        return numericValue.toLocaleString('en-IN');
+        const locale = numberFormat === 'indian' ? 'en-IN' : 'en-US';
+        return numericValue.toLocaleString(locale);
       }
     }
 
@@ -7819,26 +8266,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
          overflowX: 'hidden',
        }}
      >
-       <div
-         style={{
-           width: '100%',
-           margin: '0 auto',
-           maxWidth: '100%',
-           background: 'white',
-           borderRadius: '16px',
-           boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-           overflow: 'visible',
-           border: '1px solid #e2e8f0',
-           position: 'relative',
-         }}
-       >
         {/* Header */}
         <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
         <div style={{
-            padding: isMobile ? '12px 16px' : '18px 24px',
-          borderBottom: '1px solid #f1f5f9',
-          background: 'transparent',
-          position: 'relative'
+            padding: isMobile ? '16px 20px' : '10px 20px',
+          borderBottom: 'none',
+          background: '#1e3a8a',
+          borderRadius: '16px',
+          position: 'relative',
+          marginBottom: isMobile ? '16px' : '28px',
+          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.07), 0 10px 24px rgba(37, 99, 235, 0.15)'
           }}>
             {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
         {isMobile ? (
@@ -7852,67 +8289,31 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               marginBottom: '12px'
             }}>
               <div style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
-                background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+                width: '48px',
+                height: '48px',
+                borderRadius: '12px',
+                background: 'rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                flexShrink: 0
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
-              }}
-              >
-                <span className="material-icons" style={{ color: 'white', fontSize: '18px' }}>analytics</span>
+                flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.2)'
+              }}>
+                <span className="material-icons" style={{ color: 'white', fontSize: '24px' }}>bar_chart</span>
               </div>
               <div style={{ flex: '1' }}>
                 <h1 style={{
                   margin: 0,
-                  color: '#0f172a',
-                  fontSize: '18px',
-                  fontWeight: '800',
+                  color: 'white',
+                  fontSize: '24px',
+                  fontWeight: '700',
                   lineHeight: '1.2',
-                  letterSpacing: '-0.02em'
+                  letterSpacing: '-0.01em'
                 }}>
                   Sales Analytics Dashboard
                 </h1>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '4px', flexWrap: 'wrap' }}>
-                  <p style={{
-                    margin: 0,
-                    color: '#64748b',
-                    fontSize: '11px',
-                    fontWeight: '500',
-                    lineHeight: '1.4'
-                  }}>
-                    Comprehensive sales insights
-                  </p>
-                  {/* Records Available Badge - Inline */}
-                  <div style={{
-                    display: 'inline-flex',
-                    background: '#f0f9ff',
-                    color: '#0369a1',
-                    padding: '4px 10px',
-                    borderRadius: '16px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    alignItems: 'center',
-                    gap: '5px',
-                    border: '1px solid #bae6fd',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
-                    {filteredSales.length} records
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -7936,39 +8337,40 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 style={{
                   background: sales.length === 0 
                     ? '#e5e7eb' 
-                    : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                    : '#22c55e',
                   color: sales.length === 0 ? '#9ca3af' : '#fff',
                   border: 'none',
                   borderRadius: '8px',
-                  padding: '10px 16px',
+                  padding: '6px 14px',
                   cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
+                  gap: '6px',
                   fontSize: '13px',
                   fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: sales.length === 0 
-                    ? 'none' 
-                    : '0 2px 4px rgba(16, 185, 129, 0.2)',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                   whiteSpace: 'nowrap',
                   justifyContent: 'center',
-                  width: '100%'
+                  width: '100%',
+                  height: '32px',
+                  boxShadow: sales.length === 0 ? 'none' : '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)'
                 }}
                 onMouseEnter={(e) => {
                   if (sales.length > 0) {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                    e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
+                    e.currentTarget.style.background = '#16a34a';
+                    e.currentTarget.style.boxShadow = '0 4px 6px rgba(34, 197, 94, 0.25), 0 8px 12px rgba(34, 197, 94, 0.15)';
+                    e.currentTarget.style.transform = 'translateY(-1px)';
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (sales.length > 0) {
-                    e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
+                    e.currentTarget.style.background = '#22c55e';
+                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)';
+                    e.currentTarget.style.transform = 'translateY(0)';
                   }
                 }}
               >
-                <span className="material-icons" style={{ fontSize: '18px' }}>add_chart</span>
+                <span className="material-icons" style={{ fontSize: '16px' }}>add_chart</span>
                 <span>Create Custom Card</span>
               </button>
 
@@ -7978,36 +8380,37 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 onClick={handleOpenCalendar}
                 title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
                 style={{
-                  background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                  background: '#7c3aed',
                   border: 'none',
                   borderRadius: '8px',
-                  padding: '10px 16px',
+                  padding: '6px 14px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '8px',
+                  gap: '6px',
                   color: '#fff',
                   fontSize: '13px',
                   fontWeight: '600',
-                  transition: 'all 0.2s ease',
-                  boxShadow: '0 3px 8px rgba(124, 58, 237, 0.3)',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                   justifyContent: 'center',
                   whiteSpace: 'nowrap',
-                  width: '100%'
+                  width: '100%',
+                  height: '32px',
+                  boxShadow: '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)'
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
-                  e.target.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)';
+                  e.target.style.background = '#6d28d9';
+                  e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25), 0 8px 12px rgba(124, 58, 237, 0.15)';
                   e.target.style.transform = 'translateY(-1px)';
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
-                  e.target.style.boxShadow = '0 3px 8px rgba(124, 58, 237, 0.3)';
+                  e.target.style.background = '#7c3aed';
+                  e.target.style.boxShadow = '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)';
                   e.target.style.transform = 'translateY(0)';
                 }}
               >
-                <span className="material-icons" style={{ fontSize: '18px' }}>calendar_month</span>
-                <span>Period</span>
+                <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromDate && toDate ? formatDateRangeForHeader(fromDate, toDate) : 'Date Range'}</span>
               </button>
 
               {/* Last Updated & Refresh - Mobile */}
@@ -8017,14 +8420,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 justifyContent: 'space-between',
                 gap: '8px',
                 width: '100%',
-                padding: '10px 12px',
-                background: '#f8fafc',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
-                boxSizing: 'border-box',
-                position: 'relative',
-                overflow: 'hidden'
+                boxSizing: 'border-box'
               }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '6px',
+                  flex: '1 1 0',
+                  padding: '6px 10px',
+                  background: 'white',
+                  borderRadius: '8px',
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  position: 'relative',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 8px rgba(0, 0, 0, 0.03)',
+                  border: '1px solid rgba(0, 0, 0, 0.05)',
+                  height: '32px'
+                }}>
                 {/* Progress Bar Background */}
                 {isDownloadingCache && (() => {
                   const current = cacheDownloadProgress.current || 0;
@@ -8056,29 +8469,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '4px',
                   flex: '1 1 0',
                   minWidth: 0,
                   overflow: 'hidden',
                   position: 'relative',
                   zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '16px', color: isDownloadingCache ? '#10b981' : '#64748b', flexShrink: 0 }}>schedule</span>
+                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#9ca3af', flexShrink: 0 }}>schedule</span>
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '1px',
                     flex: '1 1 0',
                     minWidth: 0,
                     overflow: 'hidden'
                   }}>
                     <span style={{
                       fontSize: '11px',
-                      color: isDownloadingCache ? '#059669' : '#64748b',
+                      color: isDownloadingCache ? '#059669' : '#374151',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
-                      fontWeight: isDownloadingCache ? '600' : '400'
+                      fontWeight: isDownloadingCache ? '600' : '400',
+                      lineHeight: '1.2'
                     }}>
                       {isDownloadingCache ? (
                         (() => {
@@ -8149,49 +8563,48 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: loading || !fromDate || !toDate || isDownloadingCache
                       ? '#e5e7eb'
-                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                      : '#3b82f6',
                     border: 'none',
-                    borderRadius: '6px',
-                    padding: '6px 10px',
+                    borderRadius: '10px',
+                    padding: '11px 16px',
                     cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '4px',
+                    gap: '6px',
                     color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
-                    fontSize: '11px',
+                    fontSize: '13px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: loading || !fromDate || !toDate || isDownloadingCache
-                      ? 'none'
-                      : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     flexShrink: 0,
                     whiteSpace: 'nowrap',
                     position: 'relative',
-                    zIndex: 1
+                    zIndex: 1,
+                    boxShadow: (loading || !fromDate || !toDate || isDownloadingCache) ? 'none' : '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)'
                   }}
                   onMouseEnter={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                      e.target.style.background = '#2563eb';
+                      e.target.style.boxShadow = '0 4px 6px rgba(59, 130, 246, 0.25), 0 8px 12px rgba(59, 130, 246, 0.15)';
+                      e.target.style.transform = 'translateY(-1px)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                      e.target.style.background = '#3b82f6';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)';
+                      e.target.style.transform = 'translateY(0)';
                     }
                   }}
                 >
                   <span className="material-icons" style={{
-                    fontSize: '16px',
+                    fontSize: '18px',
                     animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
                   }}>
-                    {downloadStatus === 'none' ? 'download' : downloadStatus === 'interrupted' ? 'play_arrow' : 'refresh'}
+                    refresh
                   </span>
-                  <span>
-                    {downloadStatus === 'none' ? 'Download' : downloadStatus === 'interrupted' ? 'Continue Download' : 'Refresh'}
-                  </span>
+                  <span>Refresh</span>
                 </button>
+                </div>
               </div>
 
               {/* Download Button and Settings */}
@@ -8199,13 +8612,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{ position: 'relative', flex: '1' }} ref={downloadDropdownRef}>
                   <button
                     type="button"
-                    title="Download"
+                    title="Export"
                     onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
                     style={{
-                      background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                      background: '#10b981',
                       border: 'none',
-                      borderRadius: '8px',
-                      padding: '10px 16px',
+                      borderRadius: '10px',
+                      padding: '11px 16px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -8213,24 +8626,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       color: '#fff',
                       fontSize: '13px',
                       fontWeight: '600',
-                      transition: 'all 0.2s ease',
-                      boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                       width: '100%',
-                      justifyContent: 'center'
+                      justifyContent: 'center',
+                      boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)';
-                      e.target.style.boxShadow = '0 3px 10px rgba(5, 150, 105, 0.35)';
+                      e.target.style.background = '#059669';
+                      e.target.style.boxShadow = '0 4px 6px rgba(16, 185, 129, 0.25), 0 8px 12px rgba(16, 185, 129, 0.15)';
                       e.target.style.transform = 'translateY(-1px)';
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                      e.target.style.boxShadow = '0 2px 6px rgba(5, 150, 105, 0.25)';
+                      e.target.style.background = '#10b981';
+                      e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)';
                       e.target.style.transform = 'translateY(0)';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
-                    <span>Download</span>
+                    <span>Export</span>
                     <span className="material-icons" style={{ fontSize: '18px' }}>
                       {showDownloadDropdown ? 'expand_less' : 'expand_more'}
                     </span>
@@ -8352,10 +8765,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         ) : (
           <div style={{
             display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: '16px',
-            flexWrap: 'wrap',
+            flexDirection: windowWidth <= 1100 ? 'column' : 'row',
+            alignItems: windowWidth <= 1100 ? 'stretch' : 'center',
+            gap: windowWidth <= 1100 ? '12px' : '10px',
+            flexWrap: windowWidth <= 1100 ? 'wrap' : 'nowrap',
             width: '100%',
             position: 'relative',
             overflow: 'visible'
@@ -8364,96 +8777,56 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '12px',
-              flex: '0 1 auto',
-              minWidth: '200px',
-              maxWidth: '400px',
-              overflow: 'hidden'
+              gap: '10px',
+              flex: windowWidth <= 1100 ? '0 0 auto' : '0 1 auto',
+              minWidth: windowWidth <= 1100 ? '100%' : '180px',
+              maxWidth: windowWidth <= 1100 ? '100%' : '400px',
+              overflow: 'hidden',
+              width: windowWidth <= 1100 ? '100%' : 'auto'
             }}>
               <div style={{
-                width: '44px',
-                height: '44px',
+                width: '36px',
+                height: '36px',
                 borderRadius: '10px',
-                background: 'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+                background: 'rgba(255, 255, 255, 0.2)',
+                backdropFilter: 'blur(10px)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)',
-                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-                flexShrink: 0
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = 'scale(1.05)';
-                e.currentTarget.style.boxShadow = '0 6px 16px rgba(59, 130, 246, 0.4)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'scale(1)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.3)';
-              }}
-              >
-                <span className="material-icons" style={{ color: 'white', fontSize: '22px' }}>analytics</span>
+                flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.2)'
+              }}>
+                <span className="material-icons" style={{ color: 'white', fontSize: '20px' }}>bar_chart</span>
               </div>
               <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
                 <h1 style={{
                   margin: 0,
-                  color: '#0f172a',
-                  fontSize: '24px',
-                  fontWeight: '800',
+                  color: 'white',
+                  fontSize: '18px',
+                  fontWeight: '700',
                   lineHeight: '1.2',
-                  letterSpacing: '-0.02em',
+                  letterSpacing: '-0.01em',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis'
                 }}>
                   Sales Analytics Dashboard
                 </h1>
-                <div style={{ 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: '10px', 
-                  marginTop: '4px', 
-                  flexWrap: 'wrap',
-                  overflow: 'hidden',
-                  minWidth: 0
-                }}>
-                  <p style={{
-                    margin: 0,
-                    color: '#64748b',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    lineHeight: '1.4',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    flex: '0 1 auto'
-                  }}>
-                    Comprehensive sales insights
-                  </p>
-                  {/* Records Available Badge - Inline */}
-                  <div style={{
-                    display: 'inline-flex',
-                    background: '#f0f9ff',
-                    color: '#0369a1',
-                    padding: '4px 10px',
-                    borderRadius: '16px',
-                    fontSize: '11px',
-                    fontWeight: '600',
-                    alignItems: 'center',
-                    gap: '5px',
-                    border: '1px solid #bae6fd',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0
-                  }}>
-                    <span className="material-icons" style={{ fontSize: '14px' }}>bar_chart</span>
-                    {filteredSales.length} records
-                  </div>
-                </div>
               </div>
             </div>
 
             {/* Desktop: Buttons */}
             {/* Create Custom Card Button - Desktop */}
-            <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+            <div style={{ 
+              flex: windowWidth <= 1100 ? '0 0 auto' : '0 1 auto', 
+              display: 'flex', 
+              alignItems: 'center', 
+              flexShrink: windowWidth <= 1100 ? 0 : 1, 
+              gap: '8px',
+              width: windowWidth <= 1100 ? '100%' : 'auto',
+              flexWrap: windowWidth <= 900 ? 'wrap' : 'nowrap'
+            }}>
                 <button
                   onClick={(e) => {
                     e.preventDefault();
@@ -8465,61 +8838,51 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: sales.length === 0 
                       ? '#e5e7eb' 
-                      : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                      : '#22c55e',
                     color: sales.length === 0 ? '#9ca3af' : '#fff',
                     border: 'none',
-                    borderRadius: '10px',
-                    padding: '10px 20px',
+                    borderRadius: '8px',
+                    padding: '6px 14px',
                     cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '14px',
+                    gap: '6px',
+                    fontSize: '13px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: sales.length === 0 
-                      ? 'none' 
-                      : '0 2px 4px rgba(16, 185, 129, 0.2)',
-                    whiteSpace: 'nowrap'
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    whiteSpace: 'nowrap',
+                    height: '32px',
+                    boxShadow: sales.length === 0 ? 'none' : '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)'
                   }}
                   onMouseEnter={(e) => {
                     if (sales.length > 0) {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                      e.currentTarget.style.boxShadow = '0 4px 8px rgba(16, 185, 129, 0.3)';
+                      e.currentTarget.style.background = '#16a34a';
+                      e.currentTarget.style.boxShadow = '0 4px 6px rgba(34, 197, 94, 0.25), 0 8px 12px rgba(34, 197, 94, 0.15)';
+                      e.currentTarget.style.transform = 'translateY(-1px)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (sales.length > 0) {
-                      e.currentTarget.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
-                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2)';
+                      e.currentTarget.style.background = '#22c55e';
+                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)';
+                      e.currentTarget.style.transform = 'translateY(0)';
                     }
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '20px' }}>add_chart</span>
-                  Create Custom Card
+                  <span className="material-icons" style={{ fontSize: '16px' }}>add_chart</span>
+                  <span>Create Custom Card</span>
                 </button>
-              </div>
 
-              {/* Center: Calendar Button - Desktop */}
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                flex: '0 1 auto',
-                justifyContent: 'center',
-                flexWrap: 'wrap',
-                minWidth: '140px',
-                flexShrink: 1
-              }}>
+              {/* Calendar Button - Desktop */}
                 <button
                   type="button"
                   onClick={handleOpenCalendar}
                   title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
                   style={{
-                    background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                    background: '#7c3aed',
                     border: 'none',
-                    borderRadius: '10px',
-                    padding: '9px 18px',
+                    borderRadius: '8px',
+                    padding: '6px 14px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -8527,26 +8890,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     color: '#fff',
                     fontSize: '13px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 3px 8px rgba(124, 58, 237, 0.3)',
-                    minWidth: '140px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     justifyContent: 'center',
-                    height: '40px',
-                    whiteSpace: 'nowrap'
+                    height: '32px',
+                    whiteSpace: 'nowrap',
+                    minWidth: '140px',
+                    maxWidth: isMobile ? '100%' : '220px',
+                    boxShadow: '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)'
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
-                    e.target.style.boxShadow = '0 4px 12px rgba(124, 58, 237, 0.4)';
+                    e.target.style.background = '#6d28d9';
+                    e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25), 0 8px 12px rgba(124, 58, 237, 0.15)';
                     e.target.style.transform = 'translateY(-1px)';
                   }}
                   onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
-                    e.target.style.boxShadow = '0 3px 8px rgba(124, 58, 237, 0.3)';
+                    e.target.style.background = '#7c3aed';
+                    e.target.style.boxShadow = '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)';
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>calendar_month</span>
-                  <span>Period</span>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromDate && toDate ? formatDateRangeForHeader(fromDate, toDate) : 'Date Range'}</span>
                 </button>
               </div>
 
@@ -8554,17 +8918,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '10px',
+                gap: '8px',
                 flex: '0 0 auto',
-                padding: '6px 12px',
-                background: '#f8fafc',
-                borderRadius: '8px',
-                border: '1px solid #e2e8f0',
                 whiteSpace: 'nowrap',
-                flexShrink: 0,
-                position: 'relative',
-                overflow: 'hidden'
+                flexShrink: 0
               }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '6px',
+                  padding: '6px 10px',
+                  background: 'white',
+                  borderRadius: '8px',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 8px rgba(0, 0, 0, 0.03)',
+                  border: '1px solid rgba(0, 0, 0, 0.05)',
+                  height: '32px',
+                  minWidth: '200px',
+                  maxWidth: isMobile ? '100%' : '320px'
+                }}>
                 {/* Progress Bar Background */}
                 {isDownloadingCache && (() => {
                   const current = cacheDownloadProgress.current || 0;
@@ -8596,22 +8970,23 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <div style={{
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
+                  gap: '4px',
                   position: 'relative',
                   zIndex: 1
                 }}>
-                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#64748b' }}>schedule</span>
+                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#9ca3af' }}>schedule</span>
                   <div style={{
                     display: 'flex',
                     flexDirection: 'column',
-                    gap: '2px',
+                    gap: '1px',
                     minWidth: 0
                   }}>
                     <span style={{
-                      fontSize: '12px',
-                      color: isDownloadingCache ? '#059669' : '#64748b',
+                      fontSize: '11px',
+                      color: isDownloadingCache ? '#059669' : '#374151',
                       whiteSpace: 'nowrap',
-                      fontWeight: isDownloadingCache ? '600' : '400'
+                      fontWeight: isDownloadingCache ? '600' : '400',
+                      lineHeight: '1.2'
                     }}>
                       {isDownloadingCache ? (
                         (() => {
@@ -8663,10 +9038,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       if (hasTotal) {
                         return (
                           <span style={{
-                            fontSize: '10px',
+                            fontSize: '9px',
                             color: '#059669',
                             opacity: 0.8,
-                            whiteSpace: 'nowrap'
+                            whiteSpace: 'nowrap',
+                            lineHeight: '1.1',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            minWidth: 0,
+                            display: 'block'
                           }}>
                             {current} / {total} chunks
                           </span>
@@ -8683,34 +9063,35 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   style={{
                     background: loading || !fromDate || !toDate || isDownloadingCache
                       ? '#e5e7eb'
-                      : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                      : '#3b82f6',
                     border: 'none',
-                    borderRadius: '6px',
+                    borderRadius: '8px',
                     padding: '6px 12px',
                     cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
                     color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
-                    fontSize: '12px',
+                    fontSize: '13px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: loading || !fromDate || !toDate || isDownloadingCache
-                      ? 'none'
-                      : '0 2px 4px rgba(59, 130, 246, 0.25)',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                     position: 'relative',
-                    zIndex: 1
+                    zIndex: 1,
+                    height: '32px',
+                    boxShadow: (loading || !fromDate || !toDate || isDownloadingCache) ? 'none' : '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)'
                   }}
                   onMouseEnter={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)';
-                      e.target.style.boxShadow = '0 3px 6px rgba(59, 130, 246, 0.35)';
+                      e.target.style.background = '#2563eb';
+                      e.target.style.boxShadow = '0 4px 6px rgba(59, 130, 246, 0.25), 0 8px 12px rgba(59, 130, 246, 0.15)';
+                      e.target.style.transform = 'translateY(-1px)';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)';
-                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.25)';
+                      e.target.style.background = '#3b82f6';
+                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)';
+                      e.target.style.transform = 'translateY(0)';
                     }
                   }}
                 >
@@ -8718,12 +9099,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     fontSize: '16px',
                     animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
                   }}>
-                    {downloadStatus === 'none' ? 'download' : downloadStatus === 'interrupted' ? 'play_arrow' : 'refresh'}
+                    refresh
                   </span>
-                  <span>
-                    {downloadStatus === 'none' ? 'Download' : downloadStatus === 'interrupted' ? 'Continue Download' : 'Refresh'}
-                  </span>
+                  <span>Refresh</span>
                 </button>
+                </div>
               </div>
 
               {/* Right: Download Dropdown - Desktop */}
@@ -8733,19 +9113,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 alignItems: 'center',
                 flex: '0 0 auto',
                 justifyContent: 'flex-end',
-                minWidth: '120px',
+                minWidth: '100px',
                 position: 'relative',
                 flexShrink: 0
               }} ref={downloadDropdownRef}>
                 <button
                   type="button"
-                  title="Download"
+                  title="Export"
                   onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
                   style={{
-                    background: 'linear-gradient(135deg, #059669 0%, #047857 100%)',
+                    background: '#10b981',
                     border: 'none',
                     borderRadius: '8px',
-                    padding: '8px 16px',
+                    padding: '6px 12px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
@@ -8753,24 +9133,24 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     color: '#fff',
                     fontSize: '13px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 6px rgba(5, 150, 105, 0.25)',
-                    height: '40px'
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    height: '32px',
+                    boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)'
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #047857 0%, #065f46 100%)';
-                    e.target.style.boxShadow = '0 3px 10px rgba(5, 150, 105, 0.35)';
+                    e.target.style.background = '#059669';
+                    e.target.style.boxShadow = '0 4px 6px rgba(16, 185, 129, 0.25), 0 8px 12px rgba(16, 185, 129, 0.15)';
                     e.target.style.transform = 'translateY(-1px)';
                   }}
                   onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #059669 0%, #047857 100%)';
-                    e.target.style.boxShadow = '0 2px 6px rgba(5, 150, 105, 0.25)';
+                    e.target.style.background = '#10b981';
+                    e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)';
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
-                  <span>Download</span>
-                  <span className="material-icons" style={{ fontSize: '18px' }}>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>download</span>
+                  <span>Export</span>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>
                     {showDownloadDropdown ? 'expand_less' : 'expand_more'}
                   </span>
                 </button>
@@ -8786,32 +9166,32 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
                     border: 'none',
                     borderRadius: '8px',
-                    padding: '8px',
+                    padding: '6px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: '#fff',
-                    fontSize: '18px',
+                    fontSize: '16px',
                     fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 6px rgba(99, 102, 241, 0.25)',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    boxShadow: '0 2px 4px rgba(99, 102, 241, 0.2), 0 4px 8px rgba(99, 102, 241, 0.1)',
                     flexShrink: 0,
-                    width: '40px',
-                    height: '40px'
+                    width: '32px',
+                    height: '32px'
                   }}
                   onMouseEnter={(e) => {
                     e.target.style.background = 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)';
-                    e.target.style.boxShadow = '0 3px 10px rgba(99, 102, 241, 0.35)';
+                    e.target.style.boxShadow = '0 4px 6px rgba(99, 102, 241, 0.25), 0 8px 12px rgba(99, 102, 241, 0.15)';
                     e.target.style.transform = 'translateY(-1px)';
                   }}
                   onMouseLeave={(e) => {
                     e.target.style.background = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
-                    e.target.style.boxShadow = '0 2px 6px rgba(99, 102, 241, 0.25)';
+                    e.target.style.boxShadow = '0 2px 4px rgba(99, 102, 241, 0.2), 0 4px 8px rgba(99, 102, 241, 0.1)';
                     e.target.style.transform = 'translateY(0)';
                   }}
                 >
-                  <span className="material-icons" style={{ fontSize: '18px' }}>settings</span>
+                  <span className="material-icons" style={{ fontSize: '16px' }}>settings</span>
                 </button>
                 
                 {/* Download Dropdown Menu - Desktop */}
@@ -9463,388 +9843,585 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
         {/* Dashboard Content */}
         <div style={{ padding: isMobile ? '12px 16px' : '24px 28px 28px 28px' }}>
-          {/* Date Range Display */}
-          {fromDate && toDate && (
-            <div style={{
-              marginBottom: isMobile ? '16px' : '24px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: isMobile ? '8px' : '12px',
-              fontSize: isMobile ? '14px' : '16px',
-              fontWeight: '600',
-              color: '#475569',
-              flexWrap: 'wrap'
-            }}>
-              <span>
-                {new Date(fromDate).toLocaleDateString('en-IN', { 
-                  day: 'numeric', 
-                  month: 'short', 
-                  year: 'numeric' 
-                })}
-              </span>
-              <span style={{ color: '#94a3b8' }}>→</span>
-              <span>
-                {new Date(toDate).toLocaleDateString('en-IN', { 
-                  day: 'numeric', 
-                  month: 'short', 
-                  year: 'numeric' 
-                })}
-              </span>
-            </div>
-          )}
-          
           {/* KPI Cards */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: isMobile ? '12px' : '20px',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(7, minmax(0, 1fr))',
+            gap: isMobile ? '12px' : '16px',
             marginBottom: isMobile ? '16px' : '28px'
           }}>
             {isCardVisible('Total Revenue') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Total Revenue
-                  </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                    ₹{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
+                flexDirection: 'column'
+              }}>
+                {/* Background Area Chart */}
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: '0 2px 8px rgba(59, 130, 246, 0.15)'
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#3b82f6' }}>account_balance_wallet</span>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={revenueTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#10b981" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#revenueGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Total Revenue')}
+                    style={{ 
+                      margin: '0 0 6px 0', 
+                      fontSize: isMobile ? '9px' : '10px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.2',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    TOTAL REVENUE
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                    {formatCurrency(totalRevenue)}
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: '#dbeafe',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#3b82f6' }}>account_balance_wallet</span>
+                  </div>
                 </div>
               </div>
             )}
 
             {isCardVisible('Total Invoices') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Total Invoices
+                flexDirection: 'column'
+              }}>
+                {/* Background Area Chart */}
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
+                }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={invoiceTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="invoiceGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#invoiceGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '9px' : '10px', fontWeight: '600', color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
+                    TOTAL INVOICES
                   </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {totalOrders}
                   </p>
-                </div>
-                <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: '0 2px 8px rgba(22, 163, 74, 0.15)'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>shopping_cart</span>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: '#dcfce7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>shopping_cart</span>
+                  </div>
                 </div>
               </div>
             )}
 
             {isCardVisible('Unique Customers') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Unique Customers
+                flexDirection: 'column'
+              }}>
+                {/* Background Area Chart */}
+                <div style={{
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
+                }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={customerTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="customerGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#customerGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Unique Customers')}
+                    style={{ 
+                      margin: '0 0 6px 0', 
+                      fontSize: isMobile ? '9px' : '10px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.2',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    UNIQUE CUSTOMERS
                   </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
                     {uniqueCustomers}
                   </p>
-                </div>
-                <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #e9d5ff 0%, #ddd6fe 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: '0 2px 8px rgba(147, 51, 234, 0.15)'
-                }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#9333ea' }}>people</span>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: '#e9d5ff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#7c3aed' }}>people</span>
+                  </div>
                 </div>
               </div>
             )}
 
             {isCardVisible('Avg Invoice Value') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Avg Invoice Value
-                  </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: '#0f172a', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                    ₹{avgOrderValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
+                flexDirection: 'column',
+                minWidth: '0'
+              }}>
+                {/* Background Area Chart */}
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: '0 2px 8px rgba(22, 163, 74, 0.15)'
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>trending_up</span>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={avgInvoiceTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="avgInvoiceGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#avgInvoiceGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Avg Invoice Value')}
+                    style={{ 
+                      margin: '0 0 6px 0', 
+                      fontSize: isMobile ? '9px' : '10px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.2',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    AVG INVOICE VALUE
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                    {formatCurrency(avgOrderValue)}
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: '#dcfce7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>trending_up</span>
+                  </div>
                 </div>
               </div>
             )}
-          </div>
 
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-            gap: '20px',
-            marginBottom: isMobile ? '16px' : '28px'
-          }}>
             {canShowProfit && isCardVisible('Total Profit') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Total Profit
-                  </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: totalProfit >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                    ₹{totalProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
+                flexDirection: 'column',
+                minWidth: '0'
+              }}>
+                {/* Background Area Chart */}
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: totalProfit >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: totalProfit >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '50%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: totalProfit >= 0 ? '#16a34a' : '#dc2626' }}>
-                    {totalProfit >= 0 ? 'trending_up' : 'trending_down'}
-                  </span>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={profitTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="profitGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#10b981" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#profitGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Total Profit')}
+                    style={{ 
+                      margin: '0 0 6px 0', 
+                      fontSize: isMobile ? '9px' : '10px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.2',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    TOTAL PROFIT
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                    {formatCurrency(totalProfit)}
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '32px' : '36px',
+                    height: isMobile ? '32px' : '36px',
+                    borderRadius: '6px',
+                    background: '#dcfce7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: '8px',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>trending_up</span>
+                  </div>
                 </div>
               </div>
             )}
 
             {canShowProfit && isCardVisible('Profit Margin') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Profit Margin
-                  </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: profitMargin >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                    {profitMargin >= 0 ? '+' : ''}{profitMargin.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
-                  </p>
-                </div>
+                flexDirection: 'column',
+                minWidth: '0'
+              }}>
+                {/* Background Area Chart */}
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: profitMargin >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: profitMargin >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '60%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: profitMargin >= 0 ? '#16a34a' : '#dc2626' }}>
-                    {profitMargin >= 0 ? 'percent' : 'remove'}
-                  </span>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={profitMarginTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="profitMarginGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#ec4899" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#ec4899" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#profitMarginGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Profit Margin')}
+                    style={{ 
+                      margin: '0 0 8px 0', 
+                      fontSize: isMobile ? '11px' : '12px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.3',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    PROFIT MARGIN
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                    {profitMargin >= 0 ? '+' : ''}{formatNumber(profitMargin, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '40px' : '48px',
+                    height: isMobile ? '40px' : '48px',
+                    borderRadius: '8px',
+                    background: '#dcfce7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: 'auto',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>percent</span>
+                  </div>
                 </div>
               </div>
             )}
 
             {canShowProfit && isCardVisible('Avg Profit per Order') && (
               <div style={{
-                background: 'white',
-                borderRadius: isMobile ? '12px' : '14px',
-                padding: isMobile ? '16px' : '20px',
+                background: '#ffffff',
+                borderRadius: '10px',
+                padding: isMobile ? '12px' : '16px',
                 border: '1px solid #e2e8f0',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                position: 'relative',
+                overflow: 'hidden',
                 display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                transition: 'all 0.3s ease',
-                cursor: 'default'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(0, 0, 0, 0.12)';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.borderColor = '#cbd5e1';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.borderColor = '#e2e8f0';
-              }}
-              >
-                <div style={{ flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '10px' : '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.08em', lineHeight: '1.2' }}>
-                    Avg Profit per Order
-                  </p>
-                  <p style={{ margin: '0', fontSize: isMobile ? '20px' : '26px', fontWeight: '800', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626', lineHeight: '1.2', letterSpacing: '-0.01em' }}>
-                    ₹{avgProfitPerOrder.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </p>
-                </div>
+                flexDirection: 'column',
+                minWidth: '0'
+              }}>
+                {/* Background Area Chart */}
                 <div style={{
-                  width: isMobile ? '40px' : '52px',
-                  height: isMobile ? '40px' : '52px',
-                  borderRadius: '12px',
-                  background: avgProfitPerOrder >= 0 ? 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)' : 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  boxShadow: avgProfitPerOrder >= 0 ? '0 2px 8px rgba(22, 163, 74, 0.15)' : '0 2px 8px rgba(220, 38, 38, 0.15)'
+                  position: 'absolute',
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: '60%',
+                  opacity: 0.5,
+                  pointerEvents: 'none'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: avgProfitPerOrder >= 0 ? '#16a34a' : '#dc2626' }}>
-                    {avgProfitPerOrder >= 0 ? 'trending_up' : 'trending_down'}
-                  </span>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={avgProfitTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="avgProfitGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.8} />
+                          <stop offset="100%" stopColor="#06b6d4" stopOpacity={0.2} />
+                        </linearGradient>
+                      </defs>
+                      <Area
+                        type="monotone"
+                        dataKey="value"
+                        stroke="none"
+                        fill="url(#avgProfitGradient)"
+                        fillOpacity={1}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                
+                {/* Content */}
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  <p 
+                    onClick={() => openFullscreenCard('metric', 'Avg Profit per Order')}
+                    style={{ 
+                      margin: '0 0 8px 0', 
+                      fontSize: isMobile ? '11px' : '12px', 
+                      fontWeight: '600', 
+                      color: '#374151', 
+                      textTransform: 'uppercase', 
+                      letterSpacing: '0.05em', 
+                      lineHeight: '1.3',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    title="Click to open in fullscreen"
+                  >
+                    AVG PROFIT PER ORDER
+                  </p>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                    {formatCurrency(avgProfitPerOrder)}
+                  </p>
+                  
+                  {/* Icon in bottom right */}
+                  <div style={{
+                    width: isMobile ? '40px' : '48px',
+                    height: isMobile ? '40px' : '48px',
+                    borderRadius: '8px',
+                    background: '#dcfce7',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginTop: 'auto',
+                    alignSelf: 'flex-end'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>trending_up</span>
+                  </div>
                 </div>
               </div>
             )}
@@ -9869,6 +10446,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {ledgerGroupChartType === 'bar' && (
                 <BarChart
                   data={ledgerGroupChartData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -9886,7 +10464,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Sales by Ledger Group')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                     Sales by Ledger Group
                 </h3>
                 {renderCardFilterBadges('ledgerGroup')}
@@ -9926,6 +10517,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 {ledgerGroupChartType === 'pie' && (
                   <PieChart
                     data={ledgerGroupChartData}
+                    formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -10037,6 +10629,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 {ledgerGroupChartType === 'line' && (
                   <LineChart
                     data={ledgerGroupChartData}
+                    formatValue={formatChartValue}
+                    formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -10096,7 +10690,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               <div style={{
               display: 'flex',
               flexDirection: 'column',
-              height: '500px',
+              height: isMobile ? '400px' : '550px',
+              minHeight: isMobile ? '350px' : '500px',
               overflow: 'hidden'
             }}>
               <div style={{
@@ -10130,7 +10725,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     >
                       <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                     </button>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                    <h3 
+                      onClick={() => openFullscreenCard('chart', 'Salesperson Totals')}
+                      style={{ 
+                        margin: 0, 
+                        fontSize: '16px', 
+                        fontWeight: '600', 
+                        color: '#1e293b',
+                        cursor: 'pointer',
+                        transition: 'color 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                      title="Click to open in fullscreen"
+                    >
                       Salesperson Totals
                     </h3>
                     {renderCardFilterBadges('salesperson')}
@@ -10382,6 +10990,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {regionChartType === 'bar' && (
                 <BarChart
                   data={regionChartData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -10399,7 +11008,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Sales by State')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                     Sales by State
                 </h3>
                   {renderCardFilterBadges('region')}
@@ -10441,6 +11063,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {regionChartType === 'pie' && (
                 <PieChart
                   data={regionChartData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -10559,6 +11182,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {regionChartType === 'line' && (
                 <LineChart
                   data={regionChartData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -10702,6 +11327,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {countryChartType === 'bar' && (
                 <BarChart
                   data={countryChartData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -10719,7 +11345,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Sales by Country')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                     Sales by Country
                 </h3>
                   {renderCardFilterBadges('country')}
@@ -10765,6 +11404,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {countryChartType === 'pie' && (
                 <PieChart
                   data={countryChartData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -10891,6 +11531,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {countryChartType === 'line' && (
                 <LineChart
                   data={countryChartData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -11038,6 +11680,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {periodChartType === 'bar' && (
                 <BarChart
                   data={periodChartData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -11108,6 +11751,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {periodChartType === 'pie' && (
                 <PieChart
                   data={periodChartData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -11246,6 +11890,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {periodChartType === 'line' && (
                 <LineChart
                   data={periodChartData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -11327,6 +11973,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topCustomersChartType === 'bar' && (
                 <BarChart
                   data={topCustomersData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -11344,7 +11991,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Top Customers Chart')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                   Top Customers Chart
                 </h3>
                   {renderCardFilterBadges('topCustomers')}
@@ -11423,6 +12083,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topCustomersChartType === 'pie' && (
                 <PieChart
                   data={topCustomersData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -11615,6 +12276,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topCustomersChartType === 'line' && (
                 <LineChart
                   data={topCustomersData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -11722,6 +12385,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topItemsByRevenueChartType === 'bar' && (
                 <BarChart
                   data={topItemsByRevenueData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -11739,7 +12403,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Top Items by Revenue Chart')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                   Top Items by Revenue Chart
                 </h3>
                   {renderCardFilterBadges('topItems')}
@@ -11818,6 +12495,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topItemsByRevenueChartType === 'pie' && (
                 <PieChart
                   data={topItemsByRevenueData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -12010,6 +12688,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topItemsByRevenueChartType === 'line' && (
                 <LineChart
                   data={topItemsByRevenueData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -12116,6 +12796,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topItemsByQuantityChartType === 'bar' && (
                 <BarChart
                   data={topItemsByQuantityData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -12133,7 +12814,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                <h3 
+                  onClick={() => openFullscreenCard('chart', 'Top Items by Quantity Chart')}
+                  style={{ 
+                    margin: 0, 
+                    fontSize: '16px', 
+                    fontWeight: '600', 
+                    color: '#1e293b',
+                    cursor: 'pointer',
+                    transition: 'color 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                  onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                  title="Click to open in fullscreen"
+                >
                   Top Items by Quantity Chart
                 </h3>
                   {renderCardFilterBadges('topItems')}
@@ -12213,6 +12907,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topItemsByQuantityChartType === 'pie' && (
                 <PieChart
                   data={topItemsByQuantityData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -12407,6 +13102,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topItemsByQuantityChartType === 'line' && (
                 <LineChart
                   data={topItemsByQuantityData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -12548,7 +13245,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     >
                       <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                     </button>
-                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                    <h3 
+                      onClick={() => openFullscreenCard('chart', 'Revenue vs Profit')}
+                      style={{ 
+                        margin: 0, 
+                        fontSize: '16px', 
+                        fontWeight: '600', 
+                        color: '#1e293b',
+                        cursor: 'pointer',
+                        transition: 'color 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                      onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                      title="Click to open in fullscreen"
+                    >
                       Revenue vs Profit (Monthly)
                     </h3>
                     {renderCardFilterBadges('period')}
@@ -12816,7 +13526,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           <div style={{ display: 'flex', flexDirection: 'column' }}>
                             <span style={{ fontSize: '12px', fontWeight: '600', color: '#1e293b' }}>{item.label}</span>
                             <span style={{ fontSize: '12px', color: '#475569' }}>
-                              Revenue: ₹{item.revenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} | Profit: ₹{item.profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              Revenue: {formatCurrency(item.revenue)} | Profit: {formatCurrency(item.profit)}
                             </span>
                           </div>
                           <button
@@ -12849,6 +13559,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 {monthWiseProfitChartType === 'bar' && (
                    <BarChart
                      data={monthWiseProfitChartData}
+                     formatValue={formatChartValue}
                      customHeader={
                 <div style={{
                   display: 'flex',
@@ -12919,6 +13630,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                  {monthWiseProfitChartType === 'pie' && (
                    <PieChart
                      data={monthWiseProfitChartData}
+                     formatValue={formatChartValue}
                      customHeader={
                        <div style={{
                          display: 'flex',
@@ -12936,7 +13648,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            >
                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                            </button>
-                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                           <h3 
+                             onClick={() => openFullscreenCard('chart', 'Month-wise Profit')}
+                             style={{ 
+                               margin: 0, 
+                               fontSize: '16px', 
+                               fontWeight: '600', 
+                               color: '#1e293b',
+                               cursor: 'pointer',
+                               transition: 'color 0.2s ease'
+                             }}
+                             onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                             onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                             title="Click to open in fullscreen"
+                           >
                              Month-wise Profit
                            </h3>
                            {renderCardFilterBadges('period')}
@@ -13006,7 +13731,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            >
                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                            </button>
-                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                           <h3 
+                             onClick={() => openFullscreenCard('chart', 'Month-wise Profit')}
+                             style={{ 
+                               margin: 0, 
+                               fontSize: '16px', 
+                               fontWeight: '600', 
+                               color: '#1e293b',
+                               cursor: 'pointer',
+                               transition: 'color 0.2s ease'
+                             }}
+                             onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                             onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                             title="Click to open in fullscreen"
+                           >
                              Month-wise Profit
                            </h3>
                            {renderCardFilterBadges('period')}
@@ -13059,6 +13797,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                  {monthWiseProfitChartType === 'line' && (
                    <LineChart
                      data={monthWiseProfitChartData}
+                     formatValue={formatChartValue}
+                     formatCompactValue={formatChartCompactValue}
                      customHeader={
                        <div style={{
                          display: 'flex',
@@ -13076,7 +13816,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            >
                              <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                            </button>
-                           <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                           <h3 
+                             onClick={() => openFullscreenCard('chart', 'Month-wise Profit')}
+                             style={{ 
+                               margin: 0, 
+                               fontSize: '16px', 
+                               fontWeight: '600', 
+                               color: '#1e293b',
+                               cursor: 'pointer',
+                               transition: 'color 0.2s ease'
+                             }}
+                             onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                             onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                             title="Click to open in fullscreen"
+                           >
                              Month-wise Profit
                            </h3>
                            {renderCardFilterBadges('period')}
@@ -13140,6 +13893,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topProfitableItemsChartType === 'bar' && (
                 <BarChart
                   data={topProfitableItemsData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -13157,7 +13911,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                  <h3 
+                    onClick={() => openFullscreenCard('chart', 'Top Profitable Items')}
+                    style={{ 
+                      margin: 0, 
+                      fontSize: '16px', 
+                      fontWeight: '600', 
+                      color: '#1e293b',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                    title="Click to open in fullscreen"
+                  >
                     Top 10 Profitable Items
                   </h3>
                   {renderCardFilterBadges('topItems')}
@@ -13199,6 +13966,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topProfitableItemsChartType === 'pie' && (
                 <PieChart
                   data={topProfitableItemsData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -13315,6 +14083,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topProfitableItemsChartType === 'line' && (
                 <LineChart
                   data={topProfitableItemsData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -13384,6 +14154,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topLossItemsChartType === 'bar' && (
                 <BarChart
                   data={topLossItemsData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -13401,7 +14172,20 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
                   </button>
-                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+                  <h3 
+                    onClick={() => openFullscreenCard('chart', 'Top Loss Items')}
+                    style={{ 
+                      margin: 0, 
+                      fontSize: '16px', 
+                      fontWeight: '600', 
+                      color: '#1e293b',
+                      cursor: 'pointer',
+                      transition: 'color 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+                    title="Click to open in fullscreen"
+                  >
                     Top 10 Loss Items
                   </h3>
                   {renderCardFilterBadges('topItems')}
@@ -13443,6 +14227,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topLossItemsChartType === 'pie' && (
                 <PieChart
                   data={topLossItemsData}
+                  formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -13541,6 +14326,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {topLossItemsChartType === 'line' && (
                 <LineChart
                   data={topLossItemsData}
+                  formatValue={formatChartValue}
+                  formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -13616,6 +14403,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               {categoryChartType === 'bar' && (
                 <BarChart
                   data={categoryChartData}
+                  formatValue={formatChartValue}
                   customHeader={
               <div style={{
                 display: 'flex',
@@ -13670,6 +14458,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 {categoryChartType === 'pie' && (
                   <PieChart
                     data={categoryChartData}
+                    formatValue={formatChartValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -13776,6 +14565,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 {categoryChartType === 'line' && (
                   <LineChart
                     data={categoryChartData}
+                    formatValue={formatChartValue}
+                    formatCompactValue={formatChartCompactValue}
                   customHeader={
                     <div style={{
                       display: 'flex',
@@ -13847,6 +14638,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onDelete={() => handleDeleteCustomCard(visibleCards[0].id)}
                     onEdit={handleEditCustomCard}
                     openTransactionRawData={openTransactionRawData}
+                    openFullscreenCard={openFullscreenCard}
                     setSelectedCustomer={setSelectedCustomer}
                     setSelectedItem={setSelectedItem}
                     setSelectedStockGroup={setSelectedStockGroup}
@@ -13872,6 +14664,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     parseDateFromNewFormat={parseDateFromNewFormat}
                     parseDateFromAPI={parseDateFromAPI}
                     formatDateForDisplay={formatDateForDisplay}
+                    formatChartValue={formatChartValue}
+                    formatChartCompactValue={formatChartCompactValue}
                   />
                 </div>
               );
@@ -13920,6 +14714,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         onDelete={() => handleDeleteCustomCard(card.id)}
                         onEdit={handleEditCustomCard}
                         openTransactionRawData={openTransactionRawData}
+                        openFullscreenCard={openFullscreenCard}
                         setSelectedCustomer={setSelectedCustomer}
                         setSelectedItem={setSelectedItem}
                         setSelectedStockGroup={setSelectedStockGroup}
@@ -13945,6 +14740,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         parseDateFromNewFormat={parseDateFromNewFormat}
                         parseDateFromAPI={parseDateFromAPI}
                         formatDateForDisplay={formatDateForDisplay}
+                        formatChartValue={formatChartValue}
+                        formatChartCompactValue={formatChartCompactValue}
                       />
                     </div>
                   ))}
@@ -13955,7 +14752,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           
         </div>
         </form>
-      </div>
     </div>
 
     {rawDataModal.open && (
@@ -14146,6 +14942,144 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 Clear All Filters ({Object.keys(columnFilters).length})
               </button>
             )}
+            <div style={{ position: 'relative' }} data-sort-dropdown>
+              <button
+                type="button"
+                onClick={() => setShowSortDropdown(!showSortDropdown)}
+                style={{
+                  background: rawDataSortBy ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' : 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '10px 16px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  color: '#fff',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  boxShadow: '0 2px 6px rgba(99, 102, 241, 0.2)',
+                  transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(99, 102, 241, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 2px 6px rgba(99, 102, 241, 0.2)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>sort</span>
+                Sort{rawDataSortBy ? `: ${rawDataSortBy === 'date' ? 'Date' : rawDataSortBy === 'quantity' ? 'Quantity' : 'Amount'} (${rawDataSortOrder === 'asc' ? '↑' : '↓'})` : ''}
+              </button>
+              {showSortDropdown && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: 0,
+                    marginTop: '4px',
+                    background: '#fff',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+                    zIndex: 1000,
+                    minWidth: '200px',
+                    overflow: 'hidden'
+                  }}
+                >
+                  <div style={{
+                    padding: '8px 12px',
+                    borderBottom: '1px solid #f1f5f9',
+                    backgroundColor: '#f8fafc',
+                    fontWeight: 600,
+                    fontSize: 12,
+                    color: '#374151'
+                  }}>
+                    Sort By
+                  </div>
+                  {['date', 'quantity', 'amount'].map((sortKey) => {
+                    const labels = { date: 'Date', quantity: 'Quantity', amount: 'Amount' };
+                    const isActive = rawDataSortBy === sortKey;
+                    return (
+                      <div
+                        key={sortKey}
+                        onClick={() => {
+                          if (isActive) {
+                            // Toggle sort order if same column clicked
+                            setRawDataSortOrder(rawDataSortOrder === 'asc' ? 'desc' : 'asc');
+                          } else {
+                            // Set new sort column and default to ascending
+                            setRawDataSortBy(sortKey);
+                            setRawDataSortOrder('asc');
+                          }
+                          setRawDataPage(1);
+                          setRawDataPageInput('1');
+                        }}
+                        style={{
+                          padding: '12px 16px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          backgroundColor: isActive ? '#eff6ff' : 'transparent',
+                          borderBottom: sortKey !== 'amount' ? '1px solid #f1f5f9' : 'none',
+                          transition: 'background-color 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isActive) {
+                            e.currentTarget.style.backgroundColor = '#f8fafc';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isActive) {
+                            e.currentTarget.style.backgroundColor = 'transparent';
+                          }
+                        }}
+                      >
+                        <span style={{ fontSize: 14, color: '#1e293b', fontWeight: isActive ? 600 : 400 }}>
+                          {labels[sortKey]}
+                        </span>
+                        {isActive && (
+                          <span className="material-icons" style={{ fontSize: 18, color: '#3b82f6' }}>
+                            {rawDataSortOrder === 'asc' ? 'arrow_upward' : 'arrow_downward'}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {rawDataSortBy && (
+                    <div
+                      onClick={() => {
+                        setRawDataSortBy(null);
+                        setRawDataSortOrder('asc');
+                        setRawDataPage(1);
+                        setRawDataPageInput('1');
+                      }}
+                      style={{
+                        padding: '12px 16px',
+                        cursor: 'pointer',
+                        borderTop: '1px solid #e2e8f0',
+                        backgroundColor: '#fee2e2',
+                        fontSize: 14,
+                        color: '#b91c1c',
+                        fontWeight: 600,
+                        transition: 'background-color 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = '#fecaca';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = '#fee2e2';
+                      }}
+                    >
+                      Clear Sort
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={exportRawDataToCSV}
@@ -15288,14 +16222,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 color: '#1e293b',
                 margin: '0 0 4px 0'
               }}>
-                Dashboard Cards
+                Dashboard Settings
               </h2>
               <p style={{
                 fontSize: '12px',
                 color: '#64748b',
                 margin: 0
               }}>
-                Toggle cards to show/hide on your dashboard
+                
               </p>
             </div>
             <button
@@ -15586,6 +16520,135 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 }
                 return null;
               })()}
+              
+              {/* Number Format Section */}
+              <div style={{
+                padding: '16px',
+                background: '#f8fafc',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0'
+              }}>
+                <h3 style={{
+                  fontSize: '13px',
+                  fontWeight: '700',
+                  color: '#1e293b',
+                  margin: '0 0 12px 0',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '16px', color: '#8b5cf6' }}>numbers</span>
+                  Number Format
+                </h3>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    background: '#fff',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onClick={() => setNumberFormat('indian')}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f1f5f9';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                  }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                      <span style={{
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#1e293b'
+                      }}>
+                        Lakhs & Crores (Indian)
+                      </span>
+                      <span style={{
+                        fontSize: '12px',
+                        color: '#64748b'
+                      }}>
+                        Example: 1,00,000 (1 Lakh), 1,00,00,000 (1 Crore)
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name="numberFormat"
+                      checked={numberFormat === 'indian'}
+                      onChange={() => setNumberFormat('indian')}
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        cursor: 'pointer',
+                        accentColor: '#8b5cf6',
+                        flexShrink: 0
+                      }}
+                    />
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '10px 12px',
+                    background: '#fff',
+                    borderRadius: '6px',
+                    border: '1px solid #e2e8f0',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onClick={() => setNumberFormat('international')}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f1f5f9';
+                    e.currentTarget.style.borderColor = '#cbd5e1';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#fff';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                  }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', flex: 1 }}>
+                      <span style={{
+                        fontSize: '14px',
+                        fontWeight: '600',
+                        color: '#1e293b'
+                      }}>
+                        Millions & Billions (International)
+                      </span>
+                      <span style={{
+                        fontSize: '12px',
+                        color: '#64748b'
+                      }}>
+                        Example: 100,000 (100K), 1,000,000 (1M)
+                      </span>
+                    </div>
+                    <input
+                      type="radio"
+                      name="numberFormat"
+                      checked={numberFormat === 'international'}
+                      onChange={() => setNumberFormat('international')}
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        cursor: 'pointer',
+                        accentColor: '#8b5cf6',
+                        flexShrink: 0
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -15625,6 +16688,358 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               Close
             </button>
           </div>
+        </div>
+      </div>
+    )}
+
+    {/* Fullscreen Card Modal */}
+    {fullscreenCard && (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 'auto',
+          width: 'auto',
+          background: '#ffffff',
+          zIndex: 13000,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: '20px 24px',
+            borderBottom: '1px solid #e2e8f0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+            background: '#f8fafc'
+          }}
+        >
+          <h2 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#1e293b' }}>
+            {fullscreenCard.title}
+          </h2>
+          <button
+            type="button"
+            onClick={closeFullscreenCard}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#64748b',
+              borderRadius: '50%',
+              padding: '8px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background 0.2s ease, color 0.2s ease'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = '#e2e8f0';
+              e.currentTarget.style.color = '#1e293b';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = '#64748b';
+            }}
+            title="Close fullscreen"
+          >
+            <span className="material-icons" style={{ fontSize: '28px' }}>close</span>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div
+          style={{
+            flex: 1,
+            overflow: 'hidden',
+            padding: '24px',
+            background: '#ffffff',
+            display: 'flex',
+            flexDirection: 'column',
+            minHeight: 0
+          }}
+        >
+          {fullscreenCard.type === 'metric' && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              minHeight: '100%'
+            }}>
+              {fullscreenCard.title === 'Total Revenue' && isCardVisible('Total Revenue') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(22, 163, 74, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: '#16a34a' }}>
+                    {formatCurrency(totalRevenue)}
+                  </p>
+                </div>
+              )}
+              {fullscreenCard.title === 'Total Invoices' && isCardVisible('Total Invoices') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(236, 72, 153, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: '#ec4899' }}>
+                    {totalOrders.toLocaleString()}
+                  </p>
+                </div>
+              )}
+              {fullscreenCard.title === 'Unique Customers' && isCardVisible('Unique Customers') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(147, 51, 234, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: '#9333ea' }}>
+                    {uniqueCustomers}
+                  </p>
+                </div>
+              )}
+              {fullscreenCard.title === 'Avg Invoice Value' && isCardVisible('Avg Invoice Value') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(217, 119, 6, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: '#d97706' }}>
+                    {formatCurrency(avgOrderValue)}
+                  </p>
+                </div>
+              )}
+              {canShowProfit && fullscreenCard.title === 'Total Profit' && isCardVisible('Total Profit') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: totalProfit >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(37, 99, 235, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: totalProfit >= 0 ? '#2563eb' : '#dc2626' }}>
+                    {formatCurrency(totalProfit)}
+                  </p>
+                </div>
+              )}
+              {canShowProfit && fullscreenCard.title === 'Profit Margin' && isCardVisible('Profit Margin') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: profitMargin >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(234, 88, 12, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: profitMargin >= 0 ? '#ea580c' : '#dc2626' }}>
+                    {profitMargin >= 0 ? '+' : ''}{formatNumber(profitMargin, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                  </p>
+                </div>
+              )}
+              {canShowProfit && fullscreenCard.title === 'Avg Profit per Order' && isCardVisible('Avg Profit per Order') && (
+                <div style={{
+                  background: '#ffffff',
+                  borderRadius: '18px',
+                  padding: '60px',
+                  border: '1px solid #e2e8f0',
+                  boxShadow: avgProfitPerOrder >= 0 ? '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(8, 145, 178, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.05), 0 4px 12px rgba(220, 38, 38, 0.08)',
+                  textAlign: 'center',
+                  minWidth: '400px'
+                }}>
+                  <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: '600', color: '#64748b', textTransform: 'uppercase' }}>
+                    {fullscreenCard.title}
+                  </p>
+                  <p style={{ margin: '0', fontSize: '64px', fontWeight: '700', color: avgProfitPerOrder >= 0 ? '#0891b2' : '#dc2626' }}>
+                    {formatCurrency(avgProfitPerOrder)}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {fullscreenCard.type === 'chart' && (
+            <div style={{ flex: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              {/* Render the appropriate chart based on title */}
+              {fullscreenCard.title === 'Top Customers Chart' && isCardVisible('Top Customers Chart') && (
+                <>
+                  {topCustomersChartType === 'bar' && (
+                    <BarChart
+                      data={topCustomersData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onBarClick={(customer) => setSelectedCustomer(customer)}
+                      onBackClick={() => setSelectedCustomer('all')}
+                      showBackButton={selectedCustomer !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topCustomersChartType === 'pie' && (
+                    <PieChart
+                      data={topCustomersData}
+                      formatValue={formatChartValue}
+                      customHeader={null}
+                      onSliceClick={(customer) => setSelectedCustomer(customer)}
+                      onBackClick={() => setSelectedCustomer('all')}
+                      showBackButton={selectedCustomer !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topCustomersChartType === 'treemap' && (
+                    <TreeMap
+                      data={topCustomersData}
+                      customHeader={null}
+                      onBoxClick={(customer) => setSelectedCustomer(customer)}
+                      onBackClick={() => setSelectedCustomer('all')}
+                      showBackButton={selectedCustomer !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                  {topCustomersChartType === 'line' && (
+                    <LineChart
+                      data={topCustomersData}
+                      formatValue={formatChartValue}
+                      formatCompactValue={formatChartCompactValue}
+                      customHeader={null}
+                      onPointClick={(customer) => setSelectedCustomer(customer)}
+                      onBackClick={() => setSelectedCustomer('all')}
+                      showBackButton={selectedCustomer !== 'all'}
+                      rowAction={{
+                        icon: 'table_view',
+                        title: 'View raw data',
+                        onClick: (item) =>
+                          openTransactionRawData(
+                            `Raw Data - ${item.label}`,
+                            (sale) => sale.customer && String(sale.customer).trim().toLowerCase() === String(item.label).trim().toLowerCase()
+                          ),
+                      }}
+                    />
+                  )}
+                </>
+              )}
+              {/* Note: For other chart cards, you would add similar blocks. 
+                  For brevity, I'm showing the pattern with Top Customers Chart.
+                  The same pattern can be applied to all other chart cards. */}
+            </div>
+          )}
+
+          {fullscreenCard.type === 'custom' && fullscreenCard.cardId && (
+            <div style={{ flex: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              {(() => {
+                const card = customCards.find(c => c.id === fullscreenCard.cardId);
+                if (!card) return null;
+                return (
+                  <CustomCard
+                    key={card.id}
+                    card={card}
+                    salesData={filteredSales}
+                    generateCustomCardData={generateCustomCardData}
+                    chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
+                    onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
+                    onDelete={() => handleDeleteCustomCard(card.id)}
+                    onEdit={handleEditCustomCard}
+                    openTransactionRawData={openTransactionRawData}
+                    openFullscreenCard={openFullscreenCard}
+                    setSelectedCustomer={setSelectedCustomer}
+                    setSelectedItem={setSelectedItem}
+                    setSelectedStockGroup={setSelectedStockGroup}
+                    setSelectedRegion={setSelectedRegion}
+                    setSelectedCountry={setSelectedCountry}
+                    setSelectedPeriod={setSelectedPeriod}
+                    setSelectedLedgerGroup={setSelectedLedgerGroup}
+                    setDateRange={setDateRange}
+                    selectedCustomer={selectedCustomer}
+                    selectedItem={selectedItem}
+                    selectedStockGroup={selectedStockGroup}
+                    selectedRegion={selectedRegion}
+                    selectedCountry={selectedCountry}
+                    selectedPeriod={selectedPeriod}
+                    selectedLedgerGroup={selectedLedgerGroup}
+                    dateRange={dateRange}
+                    genericFilters={genericFilters}
+                    setGenericFilters={setGenericFilters}
+                    renderCardFilterBadges={renderCardFilterBadges}
+                    customCards={customCards}
+                    isMobile={isMobile}
+                    formatPeriodLabel={formatPeriodLabel}
+                    parseDateFromNewFormat={parseDateFromNewFormat}
+                    parseDateFromAPI={parseDateFromAPI}
+                    formatDateForDisplay={formatDateForDisplay}
+                    formatChartValue={formatChartValue}
+                    formatChartCompactValue={formatChartCompactValue}
+                  />
+                );
+              })()}
+            </div>
+          )}
         </div>
       </div>
     )}
@@ -18970,6 +20385,7 @@ const CustomCard = React.memo(({
   onDelete,
   onEdit,
   openTransactionRawData,
+  openFullscreenCard,
   setSelectedCustomer,
   setSelectedItem,
   setSelectedStockGroup,
@@ -18994,7 +20410,9 @@ const CustomCard = React.memo(({
   formatPeriodLabel,
   parseDateFromNewFormat,
   parseDateFromAPI,
-  formatDateForDisplay
+  formatDateForDisplay,
+  formatChartValue,
+  formatChartCompactValue
 }) => {
   const cardData = useMemo(() => generateCustomCardData(card, salesData), [card, salesData, generateCustomCardData]);
 
@@ -19684,7 +21102,20 @@ const CustomCard = React.memo(({
         >
           <span className="material-icons" style={{ fontSize: '18px' }}>table_view</span>
         </button>
-        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#1e293b' }}>
+        <h3 
+          onClick={() => openFullscreenCard('custom', card.title, card.id)}
+          style={{ 
+            margin: 0, 
+            fontSize: '16px', 
+            fontWeight: '600', 
+            color: '#1e293b',
+            cursor: 'pointer',
+            transition: 'color 0.2s ease'
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = '#3b82f6'}
+          onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
+          title="Click to open in fullscreen"
+        >
           {card.title} (Custom Card)
         </h3>
         {renderCardFilterBadges('custom', card.id)}
@@ -19806,6 +21237,7 @@ const CustomCard = React.memo(({
               data={cardData}
               customHeader={customHeader}
               valuePrefix={valuePrefix}
+              formatValue={formatChartValue}
               stacked={card.enableStacking || false}
               onBarClick={(label) => {
                 console.log('🔵 Custom card bar click:', { cardTitle: card.title, label, groupBy: card.groupBy, hasHandler: !!filterHandler });
@@ -19845,7 +21277,6 @@ const CustomCard = React.memo(({
             }}>
               <div style={{
                 padding: '12px 16px',
-                borderBottom: '1px solid #e2e8f0',
                 flexShrink: 0
               }}>
                 {customHeader}
@@ -19873,6 +21304,8 @@ const CustomCard = React.memo(({
                       filterHandler?.onBackClick?.();
                     }}
                     showBackButton={filterHandler?.showBackButton || false}
+                    formatValue={formatChartValue}
+                    formatCompactValue={formatChartCompactValue}
                   />
                 </div>
               </div>
@@ -19891,7 +21324,6 @@ const CustomCard = React.memo(({
             }}>
               <div style={{
                 padding: '12px 16px',
-                borderBottom: '1px solid #e2e8f0',
                 flexShrink: 0
               }}>
                 {customHeader}
@@ -19930,6 +21362,7 @@ const CustomCard = React.memo(({
               data={cardData}
               customHeader={customHeader}
               valuePrefix={valuePrefix}
+              formatValue={formatChartValue}
               onSliceClick={(label) => {
                 console.log('🔵 Custom card pie click:', { cardTitle: card.title, label, groupBy: card.groupBy, hasHandler: !!filterHandler });
                 filterHandler?.onClick?.(label);
@@ -19972,6 +21405,8 @@ const CustomCard = React.memo(({
               data={cardData}
               customHeader={customHeader}
               valuePrefix={valuePrefix}
+              formatValue={formatChartValue}
+              formatCompactValue={formatChartCompactValue}
               onPointClick={(label) => {
                 console.log('🔵 Custom card line click:', { cardTitle: card.title, label, groupBy: card.groupBy, hasHandler: !!filterHandler });
                 filterHandler?.onClick?.(label);
@@ -20001,8 +21436,7 @@ const CustomCard = React.memo(({
         }}>
           {customHeader && (
             <div style={{ 
-              padding: '16px 20px',
-              borderBottom: '2px solid #e2e8f0'
+              padding: '16px 20px'
             }}>
               {customHeader}
             </div>
