@@ -232,7 +232,7 @@ const MultiAxisChart = ({
         left: isMobile ? 50 : 60,
         right: isMobile ? 50 : 70,
         top: 50,
-        bottom: categories.length > 10 ? 70 : categories.length > 6 ? 60 : 50,
+        bottom: categories.length > 10 ? 90 : categories.length > 6 ? 80 : 70,
         containLabel: true,
       },
       xAxis: [
@@ -376,7 +376,7 @@ const MultiAxisChart = ({
   }, []);
 
   return (
-    <div style={{ position: 'relative', width: '100%', height: typeof height === 'number' ? `${height}px` : height }}>
+    <div style={{ position: 'relative', width: '100%', height: typeof height === 'number' ? `${height}px` : height, overflow: 'hidden' }}>
       {showBackButton && onBackClick && (
         <button
           onClick={onBackClick}
@@ -419,6 +419,7 @@ const MultiAxisChart = ({
         style={{
           width: '100%',
           height: '100%',
+          overflow: 'hidden',
         }}
       />
     </div>

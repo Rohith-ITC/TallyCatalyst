@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import TallyLogo from '../DLlogo.png';
 import '../AdminHomeResponsive.css';
-import Header from '../components/Header';
+import { Header } from '../config/SideBarConfigurations';
 import { getApiUrl, GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { apiGet } from '../utils/apiUtils';
 import TallyConfig from './tallyconfig';
