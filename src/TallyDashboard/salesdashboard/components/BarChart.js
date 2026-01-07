@@ -238,7 +238,7 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                 onClick={() => onBarClick?.(item.label)}
                 style={{
                   cursor: onBarClick ? 'pointer' : 'default',
-                  padding: onBarClick ? '6px' : '0',
+                  padding: onBarClick ? '0px' : '0',
                   borderRadius: '8px',
                   transition: 'all 0.2s ease'
                 }}
@@ -295,7 +295,7 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                           background: '#eff6ff',
                           cursor: 'pointer',
                           color: '#1e40af',
-                          padding: '6px',
+                          padding: '0px',
                           borderRadius: '6px',
                           transition: 'all 0.2s ease',
                           display: 'flex',
@@ -374,7 +374,7 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                 {stacked && item.segments && hoveredSegment?.startsWith(item.label) && (
                   <div style={{
                     marginTop: '4px',
-                    padding: '6px 8px',
+                    padding: '0px 8px',
                     background: '#1e293b',
                     color: 'white',
                     fontSize: '11px',
