@@ -55,6 +55,93 @@ const MultiAxisChart = ({
   useEffect(() => {
     if (!isReady || !instanceRef.current || !categories || categories.length === 0) return;
 
+    // Check if we have 2 y-axes being used
+    const hasLeftAxis = series.some(s => s.axis !== 'right');
+    const hasRightAxis = series.some(s => s.axis === 'right');
+    const hasTwoAxes = hasLeftAxis && hasRightAxis;
+
+    // Calculate min/max for each axis to align zero points
+    let leftMin = 0, leftMax = 0;
+    let rightMin = 0, rightMax = 0;
+
+    if (hasTwoAxes) {
+      series.forEach((s) => {
+        const data = s.data || [];
+        if (data.length > 0) {
+          const min = Math.min(...data);
+          const max = Math.max(...data);
+          
+          if (s.axis === 'right') {
+            rightMin = Math.min(rightMin, min);
+            rightMax = Math.max(rightMax, max);
+          } else {
+            leftMin = Math.min(leftMin, min);
+            leftMax = Math.max(leftMax, max);
+          }
+        }
+      });
+
+      // Calculate the ratio of the ranges to align zero points
+      // We want zero to be at the same proportional position on both axes
+      const leftRange = leftMax - leftMin;
+      const rightRange = rightMax - rightMin;
+
+      if (leftRange > 0 && rightRange > 0) {
+        // Determine if zero should be included in the scale
+        const leftNeedsZero = leftMin < 0 || leftMax > 0;
+        const rightNeedsZero = rightMin < 0 || rightMax > 0;
+
+        if (leftNeedsZero || rightNeedsZero) {
+          // Calculate padding (10% on each side)
+          const leftPadding = leftRange * 0.1;
+          const rightPadding = rightRange * 0.1;
+
+          // Ensure zero is included and properly positioned
+          if (leftMin >= 0) {
+            // All values are positive, ensure zero is at bottom
+            leftMin = -leftPadding;
+          } else if (leftMax <= 0) {
+            // All values are negative, ensure zero is at top
+            leftMax = leftPadding;
+          } else {
+            // Zero is within range
+            leftMin = leftMin - leftPadding;
+            leftMax = leftMax + leftPadding;
+          }
+
+          if (rightMin >= 0) {
+            rightMin = -rightPadding;
+          } else if (rightMax <= 0) {
+            rightMax = rightPadding;
+          } else {
+            rightMin = rightMin - rightPadding;
+            rightMax = rightMax + rightPadding;
+          }
+
+          // Calculate the ratio to align zero
+          const leftZeroRatio = leftMin < 0 ? Math.abs(leftMin) / (leftMax - leftMin) : 0;
+          const rightZeroRatio = rightMin < 0 ? Math.abs(rightMin) / (rightMax - rightMin) : 0;
+
+          // Adjust ranges to make zero align
+          if (leftZeroRatio !== rightZeroRatio) {
+            // Find the maximum range needed
+            const maxPositiveRange = Math.max(leftMax, rightMax);
+            const maxNegativeRange = Math.max(Math.abs(leftMin), Math.abs(rightMin));
+            
+            // Set both axes to have the same proportional zero position
+            const targetRatio = Math.max(leftZeroRatio, rightZeroRatio);
+            const leftNewNegative = maxPositiveRange * targetRatio / (1 - targetRatio);
+            const rightNewNegative = maxPositiveRange * targetRatio / (1 - targetRatio);
+
+            leftMin = -leftNewNegative;
+            rightMin = -rightNewNegative;
+            leftMax = maxPositiveRange;
+            rightMax = maxPositiveRange;
+          }
+        }
+      }
+    }
+
     const option = {
       tooltip: {
         trigger: 'axis',
@@ -109,6 +196,8 @@ const MultiAxisChart = ({
           type: 'value',
           name: 'Left Axis',
           position: 'left',
+          min: hasTwoAxes && leftMin !== 0 ? leftMin : undefined,
+          max: hasTwoAxes && leftMax !== 0 ? leftMax : undefined,
           axisLabel: { 
             fontSize: isMobile ? 10 : 11,
             formatter: (value) => {
@@ -135,6 +224,8 @@ const MultiAxisChart = ({
           type: 'value',
           name: 'Right Axis',
           position: 'right',
+          min: hasTwoAxes && rightMin !== 0 ? rightMin : undefined,
+          max: hasTwoAxes && rightMax !== 0 ? rightMax : undefined,
           axisLabel: { 
             fontSize: isMobile ? 10 : 11,
             formatter: (value) => {

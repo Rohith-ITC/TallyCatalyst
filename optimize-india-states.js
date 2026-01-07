@@ -76,3 +76,4 @@ optimizeGeoJSON(inputPath, outputPath, 6); // 6 decimal places = ~10cm accuracy,
 
 
 
+
