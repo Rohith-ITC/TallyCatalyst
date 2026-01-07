@@ -383,8 +383,25 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
             }}
             onClick={handleClick}
             tooltip={({ point }) => {
+              // Get the chart's inner dimensions (excluding margins)
+              const margin = isMobile ? { top: 15, right: 10, bottom: bottomMargin, left: leftMargin } : { top: 20, right: 25, bottom: bottomMargin, left: leftMargin };
+              const chartHeight = isMobile ? 280 : 400; // Approximate chart height
+              const chartInnerHeight = chartHeight - margin.top - margin.bottom;
+              
+              // point.y is the y coordinate in pixels from the top of the chart's inner area
+              // In Nivo, y=0 is at the top, so smaller y values are at the top
+              // Calculate if point is in top half (y < chartInnerHeight / 2)
+              const isTopHalf = point.y < (chartInnerHeight / 2);
+              
+              // Offset for tooltip positioning - larger offset to ensure clear separation
+              // For top half: show below the point (positive translateY moves down)
+              // For bottom half: show above the point (negative translateY moves up)
+              const offset = isMobile ? 20 : 25;
+              const transformY = isTopHalf ? offset : -offset;
+              
               return (
                 <div style={{
+                  transform: `translate(-50%, ${transformY}px)`,
                   background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
                   padding: isMobile ? '8px 12px' : '12px 16px',
                   borderRadius: isMobile ? '8px' : '12px',
@@ -392,7 +409,8 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
                   boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
                   fontSize: isMobile ? '11px' : '13px',
                   minWidth: isMobile ? '140px' : '180px',
-                  maxWidth: isMobile ? '200px' : 'none'
+                  maxWidth: isMobile ? '200px' : 'none',
+                  pointerEvents: 'none'
                 }}>
                   <div style={{
                     fontWeight: '700',
