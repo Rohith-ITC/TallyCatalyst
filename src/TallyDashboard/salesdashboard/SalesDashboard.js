@@ -409,7 +409,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     const loadBooksFromDate = async () => {
       try {
         const companyInfo = getCompanyInfo();
-        const booksFrom = await fetchBooksFromDate(companyInfo.guid);
+        const booksFrom = await fetchBooksFromDate(companyInfo.guid, companyInfo.tallyloc_id);
         if (booksFrom) {
           // Ensure the date is in YYYY-MM-DD format for the date input
           const parsedDate = parseDateFromNewFormat(booksFrom);
@@ -527,11 +527,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     console.log('📋 Available companies:', companies);
     
     // Get current company from sessionStorage
-    const currentCompany = sessionStorage.getItem('selectedCompanyGuid') || '';
-    console.log('🎯 Selected company GUID:', currentCompany);
+    const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId') || '';
+    console.log('🎯 Selected company identifiers:', { selectedCompanyGuid, selectedCompanyTallylocId });
     
     // Find the current company object
-    const currentCompanyObj = companies.find(c => c.guid === currentCompany);
+    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+    const currentCompanyObj = companies.find(c =>
+      c.guid === selectedCompanyGuid &&
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
     console.log('🏢 Current company object:', currentCompanyObj);
     
     if (!currentCompanyObj) {
@@ -774,7 +779,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   };
 
   // Helper function to fetch booksfrom date
-  const fetchBooksFromDate = async (companyGuid) => {
+  const fetchBooksFromDate = async (companyGuid, companyTallylocId = null) => {
     try {
       // First check sessionStorage
       const booksfromDirect = sessionStorage.getItem('booksfrom');
@@ -791,7 +796,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       // Check allConnections in sessionStorage
       const connections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
       if (companyGuid && Array.isArray(connections)) {
-        const company = connections.find(c => c.guid === companyGuid);
+        // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
+        const company = connections.find(c =>
+          c.guid === companyGuid &&
+          (companyTallylocId ? String(c.tallyloc_id) === String(companyTallylocId) : true)
+        );
         if (company && company.booksfrom) {
           // Handle YYYYMMDD format
           if (/^\d{8}$/.test(company.booksfrom)) {
@@ -808,7 +817,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return null;
   };
 
-  const getDefaultDateRange = useCallback(async (companyGuid = null) => {
+  const getDefaultDateRange = useCallback(async (companyGuid = null, companyTallylocId = null) => {
     const now = new Date();
     const formatDate = (date) => {
       return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -818,7 +827,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     let startDate = new Date(now.getFullYear(), now.getMonth(), 1); // Default to start of month
     
     if (companyGuid) {
-      const booksFrom = await fetchBooksFromDate(companyGuid);
+      const booksFrom = await fetchBooksFromDate(companyGuid, companyTallylocId);
       if (booksFrom) {
         const booksFromDate = new Date(booksFrom);
         if (!isNaN(booksFromDate.getTime())) {
@@ -876,14 +885,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setIsInterrupted(hasInterruptedDownload);
 
       // Set default dates using booksfrom date
-      const defaults = await getDefaultDateRange(companyInfo.guid);
+      const defaults = await getDefaultDateRange(companyInfo.guid, companyInfo.tallyloc_id);
       console.log('📅 Setting default date range:', defaults);
       setFromDate(defaults.start);
       setToDate(defaults.end);
       setDateRange(defaults);
       
       // Also update booksFromDate state for calendar modal
-      const booksFrom = await fetchBooksFromDate(companyInfo.guid);
+      const booksFrom = await fetchBooksFromDate(companyInfo.guid, companyInfo.tallyloc_id);
       if (booksFrom) {
         setBooksFromDate(booksFrom);
       }
