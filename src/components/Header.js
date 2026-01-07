@@ -280,7 +280,7 @@ const CompanySelector = ({
           }}>
             {filteredTopBarCompanies.map((companyOption, index) => (
               <div
-                key={companyOption.guid}
+                key={`${companyOption.tallyloc_id || 'na'}-${companyOption.guid || 'na'}-${index}`}
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();

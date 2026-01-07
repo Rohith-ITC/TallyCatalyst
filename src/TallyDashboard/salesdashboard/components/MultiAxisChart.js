@@ -60,85 +60,120 @@ const MultiAxisChart = ({
     const hasRightAxis = series.some(s => s.axis === 'right');
     const hasTwoAxes = hasLeftAxis && hasRightAxis;
 
-    // Calculate min/max for each axis to align zero points
-    let leftMin = 0, leftMax = 0;
-    let rightMin = 0, rightMax = 0;
+    // Calculate actual data min/max for each axis
+    let leftDataMin = null, leftDataMax = null;
+    let rightDataMin = null, rightDataMax = null;
 
-    if (hasTwoAxes) {
-      series.forEach((s) => {
-        const data = s.data || [];
-        if (data.length > 0) {
-          const min = Math.min(...data);
-          const max = Math.max(...data);
+    series.forEach((s) => {
+      const data = s.data || [];
+      if (data.length > 0) {
+        const validData = data.filter(d => d != null && !isNaN(d));
+        if (validData.length > 0) {
+          const min = Math.min(...validData);
+          const max = Math.max(...validData);
           
           if (s.axis === 'right') {
-            rightMin = Math.min(rightMin, min);
-            rightMax = Math.max(rightMax, max);
+            rightDataMin = rightDataMin === null ? min : Math.min(rightDataMin, min);
+            rightDataMax = rightDataMax === null ? max : Math.max(rightDataMax, max);
           } else {
-            leftMin = Math.min(leftMin, min);
-            leftMax = Math.max(leftMax, max);
+            leftDataMin = leftDataMin === null ? min : Math.min(leftDataMin, min);
+            leftDataMax = leftDataMax === null ? max : Math.max(leftDataMax, max);
           }
         }
-      });
+      }
+    });
 
-      // Calculate the ratio of the ranges to align zero points
-      // We want zero to be at the same proportional position on both axes
-      const leftRange = leftMax - leftMin;
-      const rightRange = rightMax - rightMin;
+    // Calculate optimized min/max for each axis
+    let leftMin = undefined, leftMax = undefined;
+    let rightMin = undefined, rightMax = undefined;
 
-      if (leftRange > 0 && rightRange > 0) {
-        // Determine if zero should be included in the scale
-        const leftNeedsZero = leftMin < 0 || leftMax > 0;
-        const rightNeedsZero = rightMin < 0 || rightMax > 0;
+    // Helper function to calculate optimized range with minimal padding
+    const calculateOptimalRange = (dataMin, dataMax) => {
+      if (dataMin === null || dataMax === null || dataMin === dataMax) {
+        return { min: undefined, max: undefined };
+      }
 
-        if (leftNeedsZero || rightNeedsZero) {
-          // Calculate padding (10% on each side)
-          const leftPadding = leftRange * 0.1;
-          const rightPadding = rightRange * 0.1;
+      const range = dataMax - dataMin;
+      // Use smaller padding (5%) to minimize wasted space
+      const padding = Math.max(range * 0.05, Math.abs(dataMax) * 0.02, Math.abs(dataMin) * 0.02);
 
-          // Ensure zero is included and properly positioned
-          if (leftMin >= 0) {
-            // All values are positive, ensure zero is at bottom
-            leftMin = -leftPadding;
-          } else if (leftMax <= 0) {
-            // All values are negative, ensure zero is at top
-            leftMax = leftPadding;
-          } else {
-            // Zero is within range
-            leftMin = leftMin - leftPadding;
-            leftMax = leftMax + leftPadding;
-          }
+      let min = dataMin - padding;
+      let max = dataMax + padding;
 
-          if (rightMin >= 0) {
-            rightMin = -rightPadding;
-          } else if (rightMax <= 0) {
-            rightMax = rightPadding;
-          } else {
-            rightMin = rightMin - rightPadding;
-            rightMax = rightMax + rightPadding;
-          }
+      // Include zero if needed
+      const needsZero = dataMin < 0 || dataMax > 0;
+      if (needsZero && (min > 0 || max < 0)) {
+        if (min > 0) min = -padding;
+        if (max < 0) max = padding;
+      }
 
-          // Calculate the ratio to align zero
-          const leftZeroRatio = leftMin < 0 ? Math.abs(leftMin) / (leftMax - leftMin) : 0;
-          const rightZeroRatio = rightMin < 0 ? Math.abs(rightMin) / (rightMax - rightMin) : 0;
+      return { min, max };
+    };
 
-          // Adjust ranges to make zero align
-          if (leftZeroRatio !== rightZeroRatio) {
-            // Find the maximum range needed
-            const maxPositiveRange = Math.max(leftMax, rightMax);
-            const maxNegativeRange = Math.max(Math.abs(leftMin), Math.abs(rightMin));
+    if (hasTwoAxes) {
+      // Calculate optimal ranges for both axes
+      const leftRange = calculateOptimalRange(leftDataMin, leftDataMax);
+      const rightRange = calculateOptimalRange(rightDataMin, rightDataMax);
+
+      leftMin = leftRange.min;
+      leftMax = leftRange.max;
+      rightMin = rightRange.min;
+      rightMax = rightRange.max;
+
+      // Align zero points while maintaining optimal space usage
+      const leftNeedsZero = leftDataMin !== null && (leftDataMin < 0 || leftDataMax > 0);
+      const rightNeedsZero = rightDataMin !== null && (rightDataMin < 0 || rightDataMax > 0);
+
+      if (leftNeedsZero && rightNeedsZero && leftMin !== undefined && rightMin !== undefined) {
+        // Calculate zero position ratios
+        const leftZeroRatio = leftMin < 0 ? Math.abs(leftMin) / (leftMax - leftMin) : 0;
+        const rightZeroRatio = rightMin < 0 ? Math.abs(rightMin) / (rightMax - rightMin) : 0;
+
+        // If zero ratios don't match, adjust to align them
+        if (Math.abs(leftZeroRatio - rightZeroRatio) > 0.01) {
+          // Find the actual positive and negative extents needed
+          const leftPositiveExtent = Math.max(leftMax, 0);
+          const leftNegativeExtent = Math.max(Math.abs(leftMin), 0);
+          const rightPositiveExtent = Math.max(rightMax, 0);
+          const rightNegativeExtent = Math.max(Math.abs(rightMin), 0);
+
+          // Use the larger extent for each direction
+          const maxPositiveExtent = Math.max(leftPositiveExtent, rightPositiveExtent);
+          const maxNegativeExtent = Math.max(leftNegativeExtent, rightNegativeExtent);
+
+          // Calculate the target ratio based on which direction needs more space
+          const totalRange = maxPositiveExtent + maxNegativeExtent;
+          const targetRatio = totalRange > 0 ? maxNegativeExtent / totalRange : 0;
+
+          // Apply the same ratio to both axes
+          if (targetRatio > 0 && targetRatio < 1) {
+            const targetNegative = maxPositiveExtent * targetRatio / (1 - targetRatio);
+            const targetPositive = maxNegativeExtent * (1 - targetRatio) / targetRatio;
+
+            // Use the larger value to ensure data fits
+            const finalPositive = Math.max(maxPositiveExtent, targetPositive);
+            const finalNegative = Math.max(maxNegativeExtent, targetNegative);
+
+            // Add minimal padding
+            const padding = Math.max(finalPositive * 0.05, finalNegative * 0.05);
             
-            // Set both axes to have the same proportional zero position
-            const targetRatio = Math.max(leftZeroRatio, rightZeroRatio);
-            const leftNewNegative = maxPositiveRange * targetRatio / (1 - targetRatio);
-            const rightNewNegative = maxPositiveRange * targetRatio / (1 - targetRatio);
-
-            leftMin = -leftNewNegative;
-            rightMin = -rightNewNegative;
-            leftMax = maxPositiveRange;
-            rightMax = maxPositiveRange;
+            leftMin = -(finalNegative + padding);
+            leftMax = finalPositive + padding;
+            rightMin = -(finalNegative + padding);
+            rightMax = finalPositive + padding;
           }
         }
+      }
+    } else {
+      // Single axis - just calculate optimal range
+      if (hasLeftAxis && leftDataMin !== null && leftDataMax !== null) {
+        const range = calculateOptimalRange(leftDataMin, leftDataMax);
+        leftMin = range.min;
+        leftMax = range.max;
+      } else if (hasRightAxis && rightDataMin !== null && rightDataMax !== null) {
+        const range = calculateOptimalRange(rightDataMin, rightDataMax);
+        rightMin = range.min;
+        rightMax = range.max;
       }
     }
 
@@ -146,6 +181,27 @@ const MultiAxisChart = ({
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: 'shadow' },
+        // Keep tooltip within the chart area to avoid clipping
+        confine: true,
+        // Dynamically place tooltip: top-half points -> below, bottom-half points -> above
+        position: (pos, params, dom, rect, size) => {
+          if (!size?.viewSize || !size?.contentSize || !Array.isArray(pos)) return undefined;
+
+          const [mouseX, mouseY] = pos;
+          const [viewW, viewH] = size.viewSize;
+          const [tipW, tipH] = size.contentSize;
+          const OFFSET = 12;
+
+          // Center horizontally around cursor, clamp within viewport
+          let x = mouseX - tipW / 2;
+          x = Math.max(0, Math.min(x, viewW - tipW));
+
+          // Top half => show below; bottom half => show above
+          let y = mouseY < viewH / 2 ? mouseY + OFFSET : mouseY - tipH - OFFSET;
+          y = Math.max(0, Math.min(y, viewH - tipH));
+
+          return [x, y];
+        },
         textStyle: {
           fontSize: isMobile ? 11 : 12,
         },
@@ -196,8 +252,8 @@ const MultiAxisChart = ({
           type: 'value',
           name: 'Left Axis',
           position: 'left',
-          min: hasTwoAxes && leftMin !== 0 ? leftMin : undefined,
-          max: hasTwoAxes && leftMax !== 0 ? leftMax : undefined,
+          min: leftMin !== undefined ? leftMin : undefined,
+          max: leftMax !== undefined ? leftMax : undefined,
           axisLabel: { 
             fontSize: isMobile ? 10 : 11,
             formatter: (value) => {
@@ -224,8 +280,8 @@ const MultiAxisChart = ({
           type: 'value',
           name: 'Right Axis',
           position: 'right',
-          min: hasTwoAxes && rightMin !== 0 ? rightMin : undefined,
-          max: hasTwoAxes && rightMax !== 0 ? rightMax : undefined,
+          min: rightMin !== undefined ? rightMin : undefined,
+          max: rightMax !== undefined ? rightMax : undefined,
           axisLabel: { 
             fontSize: isMobile ? 10 : 11,
             formatter: (value) => {

@@ -351,14 +351,6 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
             }}>
               {voucherNumber} - {voucherType}
             </div>
-            <div style={{ 
-              fontSize: isMobile ? '11px' : '12px', 
-              opacity: 0.85, 
-              marginTop: '2px',
-              fontStyle: 'italic'
-            }}>
-              Ledger: {partyLedgerName}
-            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {headerActions}
@@ -492,7 +484,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                   marginBottom: '8px',
                   textTransform: 'uppercase',
                   letterSpacing: '0.5px'
-                }}>Particulars</div>
+                }}>Party</div>
                 <div style={{ 
                   fontSize: isMobile ? '15px' : '17px', 
                   color: '#0f172a', 
@@ -511,7 +503,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                     marginBottom: '8px',
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px'
-                  }}>Party Ledger Address</div>
+                  }}>Address</div>
                   <div style={{ 
                     fontSize: isMobile ? '14px' : '15px', 
                     color: '#0f172a', 
@@ -643,7 +635,7 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                           marginTop: '4px',
                           fontWeight: 400
                         }}>
-                          {description || '- Description not found'}
+                          {description || ''}
                         </div>
                       </div>
                       <div style={{ 
@@ -750,6 +742,34 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                       }}>{formatCurrencyAmount(totalSgst)}</div>
                     </div>
                   )}
+                  {/* Total row (before round off) */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
+                      padding: isMobile ? '12px 14px' : '14px 18px',
+                      borderTop: '2px solid #cbd5e1',
+                      fontSize: isMobile ? '13px' : '14px',
+                      color: '#0f172a',
+                      gap: isMobile ? '8px' : '12px',
+                      alignItems: 'center',
+                      background: '#f8fafc',
+                      fontWeight: 700
+                    }}
+                  >
+                    <div style={{ fontWeight: 700 }}>Total</div>
+                    <div style={{ textAlign: 'right' }}></div>
+                    <div style={{ textAlign: 'left' }}></div>
+                    <div style={{ textAlign: 'right' }}></div>
+                    <div style={{ textAlign: 'right' }}></div>
+                    <div style={{ 
+                      textAlign: 'right', 
+                      fontWeight: 700,
+                      color: '#0f172a',
+                      fontFamily: 'system-ui, -apple-system, sans-serif'
+                    }}>{formatCurrencyAmount(totalAmount + totalCgst + totalSgst)}</div>
+                  </div>
+                  {/* Round Off row */}
                   <div
                     style={{
                       display: 'grid',
@@ -774,6 +794,34 @@ const VoucherDetailsModal = ({ voucherData, loading, error, onClose, headerActio
                       color: '#0f172a',
                       fontFamily: 'system-ui, -apple-system, sans-serif'
                     }}>{formatCurrencyAmount(totalRoundoff)}</div>
+                  </div>
+                  {/* Final Total row (after round off) */}
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: isMobile ? '2fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr' : '3fr 0.8fr 0.8fr 1fr 0.8fr 1.2fr',
+                      padding: isMobile ? '12px 14px' : '14px 18px',
+                      borderTop: '2px solid #cbd5e1',
+                      fontSize: isMobile ? '14px' : '15px',
+                      color: '#1e40af',
+                      gap: isMobile ? '8px' : '12px',
+                      alignItems: 'center',
+                      background: 'linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%)',
+                      fontWeight: 800
+                    }}
+                  >
+                    <div style={{ fontWeight: 800, fontSize: isMobile ? '13px' : '14px' }}>Final Total</div>
+                    <div style={{ textAlign: 'right' }}></div>
+                    <div style={{ textAlign: 'left' }}></div>
+                    <div style={{ textAlign: 'right' }}></div>
+                    <div style={{ textAlign: 'right' }}></div>
+                    <div style={{ 
+                      textAlign: 'right', 
+                      fontWeight: 800,
+                      color: '#1e40af',
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      fontSize: isMobile ? '14px' : '15px'
+                    }}>{formatCurrencyAmount(grandTotal)}</div>
                   </div>
                 </div>
                 

@@ -394,5 +394,3 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
 };
 
 export default BarChart;
-
-
