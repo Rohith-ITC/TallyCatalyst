@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { getApiUrl } from '../config';
 import TallyLogo from '../DLrlogo.png';
 import '../AdminHomeResponsive.css';
-import Header from '../components/Header';
 import Ledgerbook from './Ledgerbook';
 import PlaceOrder from './PlaceOrder';
 import PlaceOrder_ECommerce from './PlaceOrder_ECommerce';
@@ -388,9 +387,13 @@ function TallyDashboard() {
     return [];
   };
 
-  // Company selection state for top bar
+  // Company selection state for sidebar
   const [selectedCompanyGuid, setSelectedCompanyGuid] = useState(sessionStorage.getItem('selectedCompanyGuid') || '');
   const [connectionsVersion, setConnectionsVersion] = useState(0);
+  const [companyDropdownOpen, setCompanyDropdownOpen] = useState(false);
+  const [companySearchTerm, setCompanySearchTerm] = useState('');
+  const [filteredCompanies, setFilteredCompanies] = useState([]);
+  const [isSelectingCompany, setIsSelectingCompany] = useState(false);
 
   useEffect(() => {
     if (!selectedCompanyGuid) {
@@ -421,6 +424,85 @@ function TallyDashboard() {
       (selectedCompanyTallylocId ? String(connection.tallyloc_id) === String(selectedCompanyTallylocId) : true)
     ) || null;
   }, [allConnections, selectedCompanyGuid]);
+
+  // Get current company for sidebar display
+  const currentCompany = useMemo(() => {
+    if (!selectedCompanyGuid) return null;
+    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
+    return allConnections.find(c => 
+      c.guid === selectedCompanyGuid && 
+      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+    );
+  }, [allConnections, selectedCompanyGuid]);
+
+  // Filter companies based on search term
+  useEffect(() => {
+    if (!companySearchTerm.trim()) {
+      setFilteredCompanies([]);
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      const searchLower = companySearchTerm.toLowerCase();
+      const exactMatches = [];
+      const startsWithMatches = [];
+      const containsMatches = [];
+
+      for (let i = 0; i < allConnections.length; i++) {
+        const connection = allConnections[i];
+        const companyName = connection.company || '';
+        const accessType = connection.access_type || '';
+        const companyNameLower = companyName.toLowerCase();
+        const accessTypeLower = accessType.toLowerCase();
+
+        const nameMatch = companyNameLower.includes(searchLower);
+        const accessMatch = accessTypeLower.includes(searchLower);
+
+        if (nameMatch || accessMatch) {
+          if (companyNameLower === searchLower || accessTypeLower === searchLower) {
+            exactMatches.push(connection);
+          } else if (companyNameLower.startsWith(searchLower) || accessTypeLower.startsWith(searchLower)) {
+            startsWithMatches.push(connection);
+          } else {
+            containsMatches.push(connection);
+          }
+        }
+      }
+
+      const filtered = [...exactMatches, ...startsWithMatches, ...containsMatches];
+      setFilteredCompanies(filtered);
+    }, 150);
+
+    return () => clearTimeout(timeoutId);
+  }, [companySearchTerm, allConnections]);
+
+  // Show all companies when dropdown opens
+  useEffect(() => {
+    if (companyDropdownOpen && !companySearchTerm.trim()) {
+      if (allConnections.length < 100) {
+        setFilteredCompanies(allConnections);
+      } else {
+        setFilteredCompanies([]);
+      }
+    }
+  }, [companyDropdownOpen, companySearchTerm, allConnections]);
+
+  const handleCompanySelect = (companyOption) => {
+    setIsSelectingCompany(true);
+    handleTopBarCompanyChange(companyOption);
+    setCompanyDropdownOpen(false);
+    setCompanySearchTerm('');
+    setIsSelectingCompany(false);
+  };
+
+  const handleClearCompany = () => {
+    setSelectedCompanyGuid('');
+    setCompanySearchTerm('');
+    setCompanyDropdownOpen(false);
+    if (allConnections.length < 100) {
+      setFilteredCompanies(allConnections);
+    }
+  };
 
   useEffect(() => {
     const handleConnectionsUpdated = () => {
@@ -2273,51 +2355,15 @@ function TallyDashboard() {
         </div>
       )}
 
-      {/* Fixed Top Header */}
-      <Header
-        type="tally"
-        isMobile={isMobile}
-        zIndex={1000}
-        logo={{
-          src: TallyLogo,
-          alt: 'DataLynkr Logo',
-          width: '50px',
-          height: 'auto'
-        }}
-        showCompanySelector={true}
-        companySelectorProps={{
-          allConnections: allConnections,
-          selectedCompanyGuid: selectedCompanyGuid,
-          onCompanyChange: handleTopBarCompanyChange,
-          setSelectedCompanyGuid: setSelectedCompanyGuid
-        }}
-        showControlButtons={true}
-        controlButtonProps={{
-          onControlPanelClick: () => navigate('/admin-dashboard?view=dashboard'),
-          onRefreshClick: handleGlobalRefresh
-        }}
-        profileProps={{
-          profileRef: profileDropdownRef,
-          name: name,
-          email: email,
-          profileDropdownOpen: profileDropdownOpen,
-          setProfileDropdownOpen: setProfileDropdownOpen,
-          navigate: navigate,
-          onGoogleConfigClick: () => setShowGoogleConfigModal(true),
-          isAdmin: isAdmin
-        }}
-        onLogout={handleLogout}
-      />
-
       {/* Sidebar - Hidden in Mobile */}
       {!isMobile && (
         <aside
           ref={sidebarRef}
           className={`adminhome-sidebar sidebar-animated`}
           style={{
-            height: 'calc(100dvh - 70px)',
+            height: '100dvh',
             position: 'fixed',
-            top: '70px',
+            top: 0,
             left: 0,
             background: '#1e3a8a',
             overflowY: 'auto',
@@ -2333,7 +2379,284 @@ function TallyDashboard() {
             paddingBottom: '20px',
           }}
         >
-          {/* Sidebar items */}
+          {/* Logo Section with Toggle Button */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px 12px',
+            position: 'relative',
+            flexShrink: 0,
+          }}>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <img
+                src={TallyLogo}
+                alt="DataLynkr Logo"
+                style={{
+                  width: sidebarOpen ? '70px' : '55px',
+                  height: 'auto',
+                  filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1))',
+                  transition: 'width 0.3s ease',
+                }}
+              />
+            </div>
+            {sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(false)}
+                style={{
+                  position: 'absolute',
+                  top: '12px',
+                  right: '12px',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#fff',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: 20 }}>chevron_left</span>
+              </button>
+            )}
+            {!sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                style={{
+                  position: 'absolute',
+                  top: '12px',
+                  right: '12px',
+                  background: 'rgba(255, 255, 255, 0.1)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#fff',
+                  transition: 'all 0.2s ease',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: 20 }}>chevron_right</span>
+              </button>
+            )}
+          </div>
+
+          {/* Company Selector */}
+          {sidebarOpen && (
+            <div style={{
+              padding: '0 12px 16px 12px',
+              flexShrink: 0,
+            }}>
+              <div style={{
+                fontSize: '10px',
+                color: 'rgba(255, 255, 255, 0.5)',
+                fontWeight: 600,
+                marginBottom: 4,
+                textTransform: 'uppercase',
+                letterSpacing: '0.8px',
+              }}>
+                COMPANY
+              </div>
+              <div style={{
+                position: 'relative',
+                background: 'rgba(255, 255, 255, 0.08)',
+                borderRadius: '8px',
+                border: companyDropdownOpen ? '1px solid rgba(255, 255, 255, 0.3)' : '1px solid rgba(255, 255, 255, 0.12)',
+                transition: 'all 0.2s ease',
+              }}>
+                <input
+                  value={selectedCompanyGuid ? (currentCompany ? `${currentCompany.company} [${currentCompany.access_type}]` : '') : companySearchTerm}
+                  onChange={e => {
+                    const inputValue = e.target.value;
+                    setCompanySearchTerm(inputValue);
+                    setSelectedCompanyGuid('');
+                    setCompanyDropdownOpen(true);
+                    if (!inputValue.trim()) {
+                      if (allConnections.length < 100) {
+                        setFilteredCompanies(allConnections);
+                      } else {
+                        setFilteredCompanies([]);
+                      }
+                    }
+                  }}
+                  onFocus={() => {
+                    setCompanyDropdownOpen(true);
+                    if (allConnections.length < 100) {
+                      setFilteredCompanies(allConnections);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (!isSelectingCompany) {
+                      setTimeout(() => setCompanyDropdownOpen(false), 300);
+                    }
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '8px 32px 8px 12px',
+                    border: 'none',
+                    borderRadius: '8px',
+                    fontSize: '13px',
+                    color: '#fff',
+                    outline: 'none',
+                    background: 'transparent',
+                    cursor: 'text',
+                    fontWeight: '500',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    boxSizing: 'border-box',
+                  }}
+                  placeholder="Select Company..."
+                  title={selectedCompanyGuid && currentCompany ? `${currentCompany.company} [${currentCompany.access_type}]` : ''}
+                />
+
+                {!selectedCompanyGuid && (
+                  <span
+                    className="material-icons"
+                    style={{
+                      position: 'absolute',
+                      right: '8px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      color: 'rgba(255, 255, 255, 0.5)',
+                      fontSize: '18px',
+                      pointerEvents: 'none'
+                    }}
+                  >
+                    {companyDropdownOpen ? 'expand_less' : 'expand_more'}
+                  </span>
+                )}
+
+                {selectedCompanyGuid && (
+                  <button
+                    type="button"
+                    onClick={handleClearCompany}
+                    style={{
+                      position: 'absolute',
+                      right: '6px',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      borderRadius: '50%',
+                      color: 'rgba(255, 255, 255, 0.5)',
+                      fontSize: '16px',
+                      lineHeight: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                    title="Clear company"
+                  >
+                    ×
+                  </button>
+                )}
+
+                {companyDropdownOpen && (
+                  <div style={{
+                    position: 'absolute',
+                    top: 'calc(100% + 4px)',
+                    left: 0,
+                    right: 0,
+                    backgroundColor: 'white',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    maxHeight: '280px',
+                    overflowY: 'auto',
+                    zIndex: 9999,
+                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)'
+                  }}>
+                    {filteredCompanies.map((companyOption, index) => (
+                      <div
+                        key={`${companyOption.tallyloc_id || 'na'}-${companyOption.guid || 'na'}-${index}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleCompanySelect(companyOption);
+                        }}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        style={{
+                          padding: '10px 12px',
+                          cursor: 'pointer',
+                          borderBottom: index < filteredCompanies.length - 1 ? '1px solid #f1f5f9' : 'none',
+                          transition: 'background-color 0.2s ease'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.target.style.backgroundColor = '#f8fafc';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.target.style.backgroundColor = 'white';
+                        }}
+                      >
+                        <div style={{
+                          fontWeight: '600',
+                          color: '#1e293b',
+                          fontSize: '13px',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}>
+                          {companyOption.company}
+                        </div>
+                        <div style={{
+                          fontSize: '11px',
+                          color: '#64748b',
+                          marginTop: '2px'
+                        }}>
+                          {companyOption.access_type || 'N/A'}
+                        </div>
+                      </div>
+                    ))}
+
+                    {filteredCompanies.length > 0 && (
+                      <div style={{
+                        padding: '6px 12px',
+                        textAlign: 'center',
+                        color: '#64748b',
+                        fontSize: '11px',
+                        fontStyle: 'italic',
+                        borderTop: '1px solid #f1f5f9',
+                        backgroundColor: '#f8fafc'
+                      }}>
+                        {filteredCompanies.length} company{filteredCompanies.length !== 1 ? 's' : ''} available
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Navigation Menu */}
           <nav
             ref={sidebarContentRef}
             style={{
@@ -2341,7 +2664,6 @@ function TallyDashboard() {
               flexDirection: 'column',
               gap: 8,
               fontSize: 15,
-              marginTop: 16,
               padding: '0 12px 12px 12px',
               flex: 1,
               overflowY: 'auto',
@@ -2372,6 +2694,268 @@ function TallyDashboard() {
             )}
           </nav>
 
+          {/* Control Buttons */}
+          {sidebarOpen && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              padding: '0 12px 12px 12px',
+              flexShrink: 0,
+            }}>
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  navigate('/admin-dashboard?view=dashboard');
+                }}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.12)',
+                  border: '1px solid rgba(255, 255, 255, 0.25)',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-start',
+                  gap: '6px',
+                  transition: 'all 0.2s ease',
+                  color: '#fff',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  width: '100%',
+                }}
+                title="Control Panel"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.25)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>admin_panel_settings</span>
+                <span>Control Panel</span>
+              </button>
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleGlobalRefresh();
+                }}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.12)',
+                  border: '1px solid rgba(255, 255, 255, 0.25)',
+                  borderRadius: '8px',
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-start',
+                  gap: '6px',
+                  transition: 'all 0.2s ease',
+                  color: '#fff',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  width: '100%',
+                }}
+                title="Refresh"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.25)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>refresh</span>
+                <span>Refresh</span>
+              </button>
+            </div>
+          )}
+
+          {/* User Profile Section */}
+          {sidebarOpen && (
+            <div style={{
+              padding: '0 12px 12px 12px',
+              flexShrink: 0,
+            }}>
+              <div
+                ref={profileDropdownRef}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  cursor: 'pointer',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
+                  transition: 'all 0.3s ease',
+                }}
+                onClick={() => setProfileDropdownOpen((open) => !open)}
+                onMouseEnter={(e) => {
+                  if (!profileDropdownOpen) {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!profileDropdownOpen) {
+                    e.currentTarget.style.background = 'transparent';
+                  }
+                }}
+              >
+                <span className="material-icons" style={{ color: '#fff', fontSize: '24px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}>account_circle</span>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, flex: 1 }}>
+                  <div style={{ color: '#fff', fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>{name || 'User'}</div>
+                  <div style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>{email || ''}</div>
+                </div>
+                <span className="material-icons" style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '20px', transition: 'transform 0.3s ease', transform: profileDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
+              </div>
+              {profileDropdownOpen && (
+                <div style={{
+                  position: 'fixed',
+                  bottom: '80px',
+                  left: sidebarOpen ? '260px' : '70px',
+                  minWidth: 280,
+                  background: '#fff',
+                  borderRadius: 12,
+                  boxShadow: '0 12px 40px 0 rgba(31, 38, 135, 0.2), 0 0 0 1px rgba(0,0,0,0.05)',
+                  padding: 20,
+                  zIndex: 4000,
+                  textAlign: 'left',
+                  animation: 'fadeIn 0.2s ease-out',
+                }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
+                    <span className="material-icons" style={{ fontSize: 32, color: '#3b82f6' }}>account_circle</span>
+                    <div>
+                      <div style={{ fontSize: 16, color: '#1e293b', fontWeight: 700, marginBottom: 2 }}>{name || 'User'}</div>
+                      <div style={{ fontSize: 13, color: '#64748b' }}>{email || ''}</div>
+                    </div>
+                  </div>
+                  <button
+                    style={{
+                      width: '100%',
+                      padding: '12px 18px',
+                      background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 10,
+                      fontWeight: 600,
+                      fontSize: 14,
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px 0 rgba(59,130,246,0.25)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                      transition: 'all 0.3s ease',
+                      marginBottom: (isAdmin && (typeof isAdmin === 'function' ? isAdmin() : isAdmin)) ? 10 : 0,
+                    }}
+                    onClick={() => {
+                      if (navigate) navigate('/change-password');
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translateY(-2px)';
+                      e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(59,130,246,0.35)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(59,130,246,0.25)';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: 18 }}>lock</span>
+                    Change Password
+                  </button>
+                  {isAdmin && (typeof isAdmin === 'function' ? isAdmin() : isAdmin) && (
+                    <button
+                      style={{
+                        width: '100%',
+                        padding: '12px 18px',
+                        background: 'linear-gradient(135deg, #4285f4 0%, #34a853 100%)',
+                        color: '#fff',
+                        border: 'none',
+                        borderRadius: 10,
+                        fontWeight: 600,
+                        fontSize: 14,
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 12px 0 rgba(66,133,244,0.25)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 8,
+                        transition: 'all 0.3s ease',
+                      }}
+                      onClick={() => {
+                        setShowGoogleConfigModal(true);
+                        setProfileDropdownOpen(false);
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.transform = 'translateY(-2px)';
+                        e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(66,133,244,0.35)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.transform = 'translateY(0)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(66,133,244,0.25)';
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: 18 }}>account_circle</span>
+                      Configure Google Account
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Logout Button */}
+          {sidebarOpen && (
+            <div style={{
+              padding: '0 12px 12px 12px',
+              flexShrink: 0,
+            }}>
+              <button
+                onClick={handleLogout}
+                style={{
+                  width: '100%',
+                  background: 'rgba(220, 38, 38, 0.15)',
+                  color: '#fff',
+                  border: '1px solid rgba(220, 38, 38, 0.3)',
+                  padding: '8px 12px',
+                  borderRadius: '8px',
+                  fontWeight: 600,
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-start',
+                  gap: 6,
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 2px 6px rgba(220, 38, 38, 0.2)',
+                }}
+                title="Logout"
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(220, 38, 38, 0.25)';
+                  e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.4)';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(220, 38, 38, 0.15)';
+                  e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.3)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 2px 6px rgba(220, 38, 38, 0.2)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: 18 }}>logout</span>
+                <span>Logout</span>
+              </button>
+            </div>
+          )}
+
           {/* Tooltip */}
           {sidebarTooltip.show && !sidebarOpen && (
             <div
@@ -2379,7 +2963,7 @@ function TallyDashboard() {
               style={{
                 position: 'fixed',
                 left: 70,
-                top: sidebarTooltip.top + 70,
+                top: sidebarTooltip.top,
                 background: '#1e3a8a',
                 color: '#fff',
                 padding: '8px 14px',
@@ -2400,48 +2984,12 @@ function TallyDashboard() {
         </aside>
       )}
 
-      {/* Sidebar Toggle - Hidden in Mobile */}
-      {!isMobile && (
-        <button
-          className="sidebar-toggle-btn-main"
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
-          style={{
-            position: 'fixed',
-            top: '86px',
-            left: (sidebarOpen ? 260 : 70) - 18,
-            zIndex: 5000,
-            background: '#fff',
-            border: '1.5px solid #cbd5e1',
-            borderRadius: '50%',
-            width: 36,
-            height: 36,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 2px 8px 0 rgba(31,38,135,0.08)',
-            cursor: 'pointer',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.transform = 'scale(1.1)';
-            e.currentTarget.style.boxShadow = '0 4px 12px rgba(31,38,135,0.15)';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.transform = 'scale(1)';
-            e.currentTarget.style.boxShadow = '0 2px 8px 0 rgba(31,38,135,0.08)';
-          }}
-        >
-          <span className="material-icons" style={{ fontSize: 22, color: '#1e40af' }}>{sidebarOpen ? 'chevron_left' : 'chevron_right'}</span>
-        </button>
-      )}
-
       {/* Main Content */}
       <main
         className="adminhome-main"
         style={{
           marginLeft: isMobile ? 0 : (sidebarOpen ? 260 : 70),
-          marginTop: isMobile ? 0 : '70px',
+          marginTop: 0,
           paddingTop: isMobile ? 0 : 20,
           padding: isMobile ? 12 : 20,
           transition: 'margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',

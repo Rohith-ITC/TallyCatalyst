@@ -8,6 +8,7 @@ import LineChart from './components/LineChart';
 import MultiAxisChart from './components/MultiAxisChart';
 import GeoMapChart from './components/GeoMapChart';
 import ChatBot from './components/ChatBot';
+import ChartCard from './components/ChartCard';
 import { getUserModules, hasPermission } from '../../config/SideBarConfigurations';
 import {
   ResponsiveContainer,
@@ -3574,6 +3575,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Helper function to render filter badges for a specific card
   const renderCardFilterBadges = (cardType, cardId = null) => {
     const badges = [];
+    const addedFields = new Set(); // Track which fields have already been added to prevent duplicates
     
     // Map card types to their relevant filters
     const filterMap = {
@@ -3607,6 +3609,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     
     // Add customer filter badge
     if (relevantFilters.includes('selectedCustomer') && selectedCustomer !== 'all') {
+      addedFields.add('customer'); // Mark customer as added
       badges.push(
         <div
           key="customer-filter"
@@ -3657,6 +3660,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     
     // Add item filter badge
     if (relevantFilters.includes('selectedItem') && selectedItem !== 'all') {
+      addedFields.add('item'); // Mark item as added
       badges.push(
         <div
           key="item-filter"
@@ -3707,6 +3711,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     
     // Add stock group filter badge
     if (relevantFilters.includes('selectedStockGroup') && selectedStockGroup !== 'all') {
+      addedFields.add('stockgroup'); // Mark stockGroup as added
       badges.push(
         <div
           key="stockGroup-filter"
@@ -3757,6 +3762,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     
     // Add region filter badge
     if (relevantFilters.includes('selectedRegion') && selectedRegion !== 'all') {
+      addedFields.add('region'); // Mark region as added
       badges.push(
         <div
           key="region-filter"
@@ -3807,6 +3813,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     
     // Add country filter badge
     if (relevantFilters.includes('selectedCountry') && selectedCountry !== 'all') {
+      addedFields.add('country'); // Mark country as added
       badges.push(
         <div
           key="country-filter"
@@ -3857,6 +3864,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     
     // Add period filter badge (for date, month, year, quarter, week filters)
     if (relevantFilters.includes('selectedPeriod') && selectedPeriod !== null) {
+      addedFields.add('period'); // Mark period as added
       badges.push(
         <div
           key="period-filter"
@@ -4007,6 +4015,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     
     // Add ledger group filter badge
     if (relevantFilters.includes('selectedLedgerGroup') && selectedLedgerGroup !== 'all') {
+      addedFields.add('ledgergroup'); // Mark ledgerGroup as added
       badges.push(
         <div
           key="ledgerGroup-filter"
@@ -4064,7 +4073,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         
         // Show ALL active global filters on custom cards
         // Customer filter
-        if (selectedCustomer !== 'all') {
+        if (selectedCustomer !== 'all' && !addedFields.has('customer')) {
+          addedFields.add('customer'); // Mark customer as added
           badges.push(
             <div
               key="customer-filter"
@@ -4114,7 +4124,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         // Item filter
-        if (selectedItem !== 'all') {
+        if (selectedItem !== 'all' && !addedFields.has('item')) {
+          addedFields.add('item'); // Mark item as added
           badges.push(
             <div
               key="item-filter"
@@ -4164,7 +4175,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         // Stock Group filter
-        if (selectedStockGroup !== 'all') {
+        if (selectedStockGroup !== 'all' && !addedFields.has('stockgroup')) {
+          addedFields.add('stockgroup'); // Mark stockGroup as added
           badges.push(
             <div
               key="stockGroup-filter"
@@ -4214,7 +4226,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         // Region filter
-        if (selectedRegion !== 'all') {
+        if (selectedRegion !== 'all' && !addedFields.has('region')) {
+          addedFields.add('region'); // Mark region as added
           badges.push(
             <div
               key="region-filter"
@@ -4264,7 +4277,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         // Country filter
-        if (selectedCountry !== 'all') {
+        if (selectedCountry !== 'all' && !addedFields.has('country')) {
+          addedFields.add('country'); // Mark country as added
           badges.push(
             <div
               key="country-filter"
@@ -4314,7 +4328,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         // Period filter (for date grouping, month, year, quarter, week)
-        if ((groupBy === 'date' || groupByLower === 'month' || groupByLower === 'year' || groupByLower === 'quarter' || groupByLower === 'week') && selectedPeriod !== null) {
+        if ((groupBy === 'date' || groupByLower === 'month' || groupByLower === 'year' || groupByLower === 'quarter' || groupByLower === 'week') && selectedPeriod !== null && !addedFields.has('period')) {
+          addedFields.add('period'); // Mark period as added
           badges.push(
             <div
               key="period-filter"
@@ -4364,7 +4379,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         // Ledger Group filter
-        if (selectedLedgerGroup !== 'all') {
+        if (selectedLedgerGroup !== 'all' && !addedFields.has('ledgergroup')) {
+          addedFields.add('ledgergroup'); // Mark ledgerGroup as added
           badges.push(
             <div
               key="ledgerGroup-filter"
@@ -4465,10 +4481,112 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       }
       
       // Add generic filters for custom cards (for non-standard groupBy fields)
-      if (genericFilters) {
+      // Skip generic filters that match standard filters already shown
+      if (genericFilters && cardId) {
       Object.entries(genericFilters).forEach(([filterKey, filterValue]) => {
         if (filterKey.startsWith(`${cardId}_`) && filterValue && filterValue !== 'all' && filterValue !== '') {
           const fieldName = filterKey.replace(`${cardId}_`, '');
+          const fieldNameLower = fieldName.toLowerCase().trim();
+          
+          // CRITICAL: Skip if this field has already been added (either as standard or generic filter)
+          // This is the first and most important check to prevent duplicates
+          if (addedFields.has(fieldNameLower)) {
+            return; // Skip this generic filter - already added
+          }
+          
+          // Also check common variations of field names (handle spaces, underscores, case differences)
+          const fieldNameVariations = [
+            fieldNameLower.replace(/\s+/g, ''),
+            fieldNameLower.replace(/_/g, ''),
+            fieldNameLower.replace(/\s+/g, '_')
+          ];
+          for (const variation of fieldNameVariations) {
+            if (addedFields.has(variation)) {
+              return; // Skip - variation already added
+            }
+          }
+          
+          // Skip if this field matches a standard filter that's already shown
+          const standardFilterMap = {
+            'item': 'selectedItem',
+            'customer': 'selectedCustomer',
+            'stockgroup': 'selectedStockGroup',
+            'stock group': 'selectedStockGroup',
+            'region': 'selectedRegion',
+            'country': 'selectedCountry',
+            'period': 'selectedPeriod',
+            'ledgergroup': 'selectedLedgerGroup',
+            'ledger group': 'selectedLedgerGroup',
+            'salesperson': 'selectedSalesperson'
+          };
+          
+          const standardFilterKey = standardFilterMap[fieldNameLower];
+          if (standardFilterKey && relevantFilters.includes(standardFilterKey)) {
+            // Check if the standard filter is already shown
+            const standardFilterValue = {
+              'selectedItem': selectedItem,
+              'selectedCustomer': selectedCustomer,
+              'selectedStockGroup': selectedStockGroup,
+              'selectedRegion': selectedRegion,
+              'selectedCountry': selectedCountry,
+              'selectedPeriod': selectedPeriod,
+              'selectedLedgerGroup': selectedLedgerGroup,
+              'selectedSalesperson': selectedSalesperson
+            }[standardFilterKey];
+            
+            // If standard filter is active and not 'all', skip the generic filter to avoid duplication
+            // This prevents showing both a standard filter badge and a generic filter badge for the same field
+            if (standardFilterValue && standardFilterValue !== 'all' && standardFilterValue !== null) {
+              // Always skip generic filter if standard filter is active for the same field
+              // This handles cases where both might be set (e.g., from sessionStorage or previous interactions)
+              return; // Skip this generic filter - standard filter already shows this
+            }
+          }
+          
+          // Final defensive check: if this field matches a standard filter field, 
+          // check if the standard filter is active and skip the generic filter
+          // This handles cases where both might be set (e.g., from sessionStorage persistence)
+          const standardFieldNames = ['item', 'customer', 'stockgroup', 'stock group', 'region', 'country', 'period', 'ledgergroup', 'ledger group', 'salesperson'];
+          if (standardFieldNames.includes(fieldNameLower)) {
+            // Map to the corresponding standard filter state variable
+            let standardFilterActive = false;
+            let standardFilterValue = null;
+            
+            if (fieldNameLower === 'item') {
+              standardFilterActive = selectedItem !== 'all' && selectedItem !== null;
+              standardFilterValue = selectedItem;
+            } else if (fieldNameLower === 'customer') {
+              standardFilterActive = selectedCustomer !== 'all' && selectedCustomer !== null;
+              standardFilterValue = selectedCustomer;
+            } else if (fieldNameLower === 'stockgroup' || fieldNameLower === 'stock group') {
+              standardFilterActive = selectedStockGroup !== 'all' && selectedStockGroup !== null;
+              standardFilterValue = selectedStockGroup;
+            } else if (fieldNameLower === 'region') {
+              standardFilterActive = selectedRegion !== 'all' && selectedRegion !== null;
+              standardFilterValue = selectedRegion;
+            } else if (fieldNameLower === 'country') {
+              standardFilterActive = selectedCountry !== 'all' && selectedCountry !== null;
+              standardFilterValue = selectedCountry;
+            } else if (fieldNameLower === 'period') {
+              standardFilterActive = selectedPeriod !== null;
+              standardFilterValue = selectedPeriod;
+            } else if (fieldNameLower === 'ledgergroup' || fieldNameLower === 'ledger group') {
+              standardFilterActive = selectedLedgerGroup !== 'all' && selectedLedgerGroup !== null;
+              standardFilterValue = selectedLedgerGroup;
+            } else if (fieldNameLower === 'salesperson') {
+              standardFilterActive = selectedSalesperson !== 'all' && selectedSalesperson !== null;
+              standardFilterValue = selectedSalesperson;
+            }
+            
+            // If standard filter is active, always skip the generic filter to prevent duplicates
+            if (standardFilterActive) {
+              return; // Skip this generic filter - standard filter badge is already showing this
+            }
+          }
+          
+          // Mark this field as added
+          addedFields.add(fieldNameLower);
+          
           const fieldLabel = fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
           
           badges.push(
@@ -6192,7 +6310,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         <!DOCTYPE html>
         <html>
         <head>
-          <title>Sales Analytics Dashboard - ${currentDate}</title>
+          <title>Sales Dashboard - ${currentDate}</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 20px; }
             .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #3b82f6; padding-bottom: 20px; }
@@ -6219,7 +6337,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </head>
         <body>
           <div class="header">
-            <h1>Sales Analytics Dashboard</h1>
+            <h1>Sales Dashboard</h1>
             <p>Generated on: ${currentDate}</p>
             <p>Date Range: ${fromDate} to ${toDate}</p>
           </div>
@@ -6639,7 +6757,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         <!DOCTYPE html>
         <html>
         <head>
-          <title>Sales Analytics Dashboard - ${currentDate}</title>
+          <title>Sales Dashboard - ${currentDate}</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 20px; }
             .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #3b82f6; padding-bottom: 20px; }
@@ -6667,7 +6785,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </head>
         <body>
           <div class="header">
-            <h1>Sales Analytics Dashboard</h1>
+            <h1>Sales Dashboard</h1>
             <p>Generated on: ${currentDate}</p>
             <p>Date Range: ${fromDate} to ${toDate}</p>
           </div>
@@ -8103,7 +8221,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       return `${day} ${month} ${year}`;
     };
     
-    return `${formatDate(fromDateStr)} → ${formatDate(toDateStr)}`;
+    return `${formatDate(fromDateStr)} – ${formatDate(toDateStr)}`;
   };
 
   const renderRawDataCell = (row, column) => {
@@ -8268,7 +8386,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
          background: 'transparent',
          minHeight: '100vh',
          padding: isMobile ? '12px' : '24px',
-         paddingTop: isMobile ? '12px' : '40px',
          width: isMobile ? '100vw' : '80vw',
          margin: 0,
          display: 'block',
@@ -8278,61 +8395,63 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         {/* Header */}
         <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
         <div style={{
-            padding: isMobile ? '16px 20px' : '10px 20px',
+            padding: isMobile ? '16px 20px' : '12px 20px',
           borderBottom: 'none',
-          background: '#1e3a8a',
-          borderRadius: '16px',
+          background: '#0b1736',
+          borderRadius: '12px',
           position: 'relative',
           marginBottom: isMobile ? '16px' : '28px',
-          boxShadow: '0 4px 6px rgba(0, 0, 0, 0.07), 0 10px 24px rgba(37, 99, 235, 0.15)'
+          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.07)',
+          border: 'none',
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px'
           }}>
-            {/* Three-Column Layout: Title | Date Range (Centered) | Export Buttons */}
+            {/* Header Layout: Left Section (Title) | Right Section (Actions) */}
         {isMobile ? (
           <>
-            {/* Mobile: Title Section */}
+            {/* Mobile: Left Section - Title */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              width: '100%',
-              marginBottom: '12px'
+              gap: '10px',
+              flexShrink: 0
             }}>
               <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '12px',
-                background: 'rgba(255, 255, 255, 0.2)',
-                backdropFilter: 'blur(10px)',
+                width: '40px',
+                height: '40px',
+                borderRadius: '8px',
+                background: '#1e3a8a',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.2)'
+                flexShrink: 0
               }}>
-                <span className="material-icons" style={{ color: 'white', fontSize: '24px' }}>bar_chart</span>
+                <span className="material-icons" style={{ color: 'white', fontSize: '20px' }}>bar_chart</span>
               </div>
-              <div style={{ flex: '1' }}>
-                <h1 style={{
-                  margin: 0,
-                  color: 'white',
-                  fontSize: '24px',
-                  fontWeight: '700',
-                  lineHeight: '1.2',
-                  letterSpacing: '-0.01em'
-                }}>
-                  Sales Analytics Dashboard
-                </h1>
-              </div>
+              <h1 style={{
+                margin: 0,
+                color: 'white',
+                fontSize: '18px',
+                fontWeight: '700',
+                lineHeight: '1.2',
+                fontFamily: 'sans-serif',
+                whiteSpace: 'nowrap'
+              }}>
+                Sales Dashboard
+              </h1>
             </div>
 
-            {/* Mobile: Buttons Section */}
+            {/* Mobile: Right Section - Action Buttons */}
             <div style={{ 
-              display: 'grid',
-              gridTemplateColumns: '1fr',
-              gap: '10px', 
-              width: '100%',
-              boxSizing: 'border-box'
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              flexWrap: 'wrap',
+              justifyContent: 'flex-end',
+              flex: '1'
             }}>
               {/* Create Custom Card Button */}
               <button
@@ -8344,38 +8463,31 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 }}
                 disabled={sales.length === 0}
                 style={{
-                  background: sales.length === 0 
-                    ? '#e5e7eb' 
-                    : '#22c55e',
-                  color: sales.length === 0 ? '#9ca3af' : '#fff',
-                  border: 'none',
+                  background: 'transparent',
+                  color: sales.length === 0 ? '#6b7280' : 'white',
+                  border: sales.length === 0 ? '1px solid rgba(107, 114, 128, 0.3)' : '1px solid rgba(255, 255, 255, 0.2)',
                   borderRadius: '8px',
-                  padding: '6px 14px',
+                  padding: '6px 12px',
                   cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
                   fontSize: '13px',
-                  fontWeight: '600',
-                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease',
                   whiteSpace: 'nowrap',
-                  justifyContent: 'center',
-                  width: '100%',
-                  height: '32px',
-                  boxShadow: sales.length === 0 ? 'none' : '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)'
+                  opacity: sales.length === 0 ? 0.5 : 0.9
                 }}
                 onMouseEnter={(e) => {
                   if (sales.length > 0) {
-                    e.currentTarget.style.background = '#16a34a';
-                    e.currentTarget.style.boxShadow = '0 4px 6px rgba(34, 197, 94, 0.25), 0 8px 12px rgba(34, 197, 94, 0.15)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
+                    e.currentTarget.style.opacity = '1';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.4)';
                   }
                 }}
                 onMouseLeave={(e) => {
                   if (sales.length > 0) {
-                    e.currentTarget.style.background = '#22c55e';
-                    e.currentTarget.style.boxShadow = '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)';
-                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.opacity = '0.9';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
                   }
                 }}
               >
@@ -8389,274 +8501,147 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 onClick={handleOpenCalendar}
                 title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
                 style={{
-                  background: '#7c3aed',
-                  border: 'none',
+                  background: 'transparent',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
                   borderRadius: '8px',
-                  padding: '6px 14px',
+                  padding: '6px 12px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '6px',
-                  color: '#fff',
+                  color: 'white',
                   fontSize: '13px',
-                  fontWeight: '600',
-                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                  justifyContent: 'center',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease',
                   whiteSpace: 'nowrap',
-                  width: '100%',
-                  height: '32px',
-                  boxShadow: '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)'
+                  opacity: 0.9
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.background = '#6d28d9';
-                  e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25), 0 8px 12px rgba(124, 58, 237, 0.15)';
-                  e.target.style.transform = 'translateY(-1px)';
+                  e.target.style.opacity = '1';
+                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.4)';
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.background = '#7c3aed';
-                  e.target.style.boxShadow = '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)';
-                  e.target.style.transform = 'translateY(0)';
+                  e.target.style.opacity = '0.9';
+                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)';
                 }}
               >
                 <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromDate && toDate ? formatDateRangeForHeader(fromDate, toDate) : 'Date Range'}</span>
               </button>
 
-              {/* Last Updated & Refresh - Mobile */}
+              {/* Last Updated Text - Mobile */}
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: '8px',
-                width: '100%',
-                boxSizing: 'border-box'
+                gap: '4px',
+                flexShrink: 0
               }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '6px',
-                  flex: '1 1 0',
-                  padding: '6px 10px',
-                  background: 'white',
-                  borderRadius: '8px',
-                  minWidth: 0,
-                  overflow: 'hidden',
-                  position: 'relative',
-                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 8px rgba(0, 0, 0, 0.03)',
-                  border: '1px solid rgba(0, 0, 0, 0.05)',
-                  height: '32px'
+                <span className="material-icons" style={{ fontSize: '14px', color: '#94a3b8' }}>schedule</span>
+                <span style={{
+                  fontSize: '11px',
+                  color: '#94a3b8',
+                  whiteSpace: 'nowrap',
+                  fontWeight: '400'
                 }}>
-                {/* Progress Bar Background */}
-                {isDownloadingCache && (() => {
-                  const current = cacheDownloadProgress.current || 0;
-                  const total = cacheDownloadProgress.total || 0;
-                  const hasTotal = total > 0;
-                  const progressPercentage = hasTotal && total > 0
-                    ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
-                    : 0;
-                  const displayProgress = hasTotal 
-                    ? (progressPercentage === 0 ? 5 : Math.max(progressPercentage, 1))
-                    : 0;
-                  
-                  return (
-                    <div style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      bottom: 0,
-                      width: hasTotal ? `${displayProgress}%` : '30%',
-                      background: hasTotal 
-                        ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)'
-                        : 'linear-gradient(90deg, #10b981 0%, #059669 100%)',
-                      transition: hasTotal ? 'width 0.3s ease' : 'none',
-                      animation: !hasTotal ? 'indeterminateProgress 1.5s ease-in-out infinite' : 'none',
-                      zIndex: 0
-                    }} />
-                  );
-                })()}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  flex: '1 1 0',
-                  minWidth: 0,
-                  overflow: 'hidden',
-                  position: 'relative',
-                  zIndex: 1
-                }}>
-                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#9ca3af', flexShrink: 0 }}>schedule</span>
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '1px',
-                    flex: '1 1 0',
-                    minWidth: 0,
-                    overflow: 'hidden'
-                  }}>
-                    <span style={{
-                      fontSize: '11px',
-                      color: isDownloadingCache ? '#059669' : '#374151',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      fontWeight: isDownloadingCache ? '600' : '400',
-                      lineHeight: '1.2'
-                    }}>
-                      {isDownloadingCache ? (
-                        (() => {
-                          const current = cacheDownloadProgress.current || 0;
-                          const total = cacheDownloadProgress.total || 0;
-                          const hasTotal = total > 0;
-                          const progressPercentage = hasTotal && total > 0
-                            ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
-                            : 0;
-                          
-                          // Calculate ETA
-                          const startTime = cacheDownloadStartTime || cacheDownloadStartTimeRef.current;
-                          let eta = null;
-                          if (hasTotal && startTime && current > 0 && current < total) {
-                            const elapsed = Date.now() - startTime;
-                            const elapsedSeconds = elapsed / 1000;
-                            const rate = current / elapsedSeconds;
-                            if (rate > 0 && isFinite(rate)) {
-                              const remaining = total - current;
-                              const remainingSeconds = remaining / rate;
-                              if (isFinite(remainingSeconds) && remainingSeconds > 0) {
-                                if (remainingSeconds < 60) {
-                                  eta = `${Math.round(remainingSeconds)}s`;
-                                } else if (remainingSeconds < 3600) {
-                                  const minutes = Math.floor(remainingSeconds / 60);
-                                  const seconds = Math.round(remainingSeconds % 60);
-                                  eta = `${minutes}m ${seconds}s`;
-                                } else {
-                                  const hours = Math.floor(remainingSeconds / 3600);
-                                  const minutes = Math.round((remainingSeconds % 3600) / 60);
-                                  eta = `${hours}h ${minutes}m`;
-                                }
-                              }
-                            }
-                          }
-                          
-                          return hasTotal 
-                            ? `Downloading: ${progressPercentage}%${eta ? ` • ETA: ${eta}` : ''}`
-                            : 'Downloading...';
-                        })()
-                      ) : (
-                        lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'
-                      )}
-                    </span>
-                    {isDownloadingCache && (() => {
+                  {isDownloadingCache ? (
+                    (() => {
                       const current = cacheDownloadProgress.current || 0;
                       const total = cacheDownloadProgress.total || 0;
                       const hasTotal = total > 0;
-                      if (hasTotal) {
-                        return (
-                          <span style={{
-                            fontSize: '9px',
-                            color: '#059669',
-                            opacity: 0.8
-                          }}>
-                            {current} / {total} chunks
-                          </span>
-                        );
-                      }
-                      return null;
-                    })()}
-                  </div>
-                </div>
+                      const progressPercentage = hasTotal && total > 0
+                        ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
+                        : 0;
+                      
+                      return hasTotal 
+                        ? `Downloading: ${progressPercentage}%`
+                        : 'Downloading...';
+                    })()
+                  ) : (
+                    lastUpdated ? `Updated ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'
+                  )}
+                </span>
+              </div>
+
+              {/* Refresh Button - Mobile */}
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={loading || !fromDate || !toDate || isDownloadingCache}
+                style={{
+                  background: loading || !fromDate || !toDate || isDownloadingCache
+                    ? '#374151'
+                    : '#3b82f6',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '6px 12px',
+                  cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  color: 'white',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0
+                }}
+                onMouseEnter={(e) => {
+                  if (!loading && fromDate && toDate && !isDownloadingCache) {
+                    e.target.style.background = '#2563eb';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!loading && fromDate && toDate && !isDownloadingCache) {
+                    e.target.style.background = '#3b82f6';
+                  }
+                }}
+              >
+                <span className="material-icons" style={{
+                  fontSize: '16px',
+                  animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
+                }}>
+                  refresh
+                </span>
+                <span>Refresh</span>
+              </button>
+
+              {/* Export Button - Mobile */}
+              <div style={{ position: 'relative', flexShrink: 0 }} ref={downloadDropdownRef}>
                 <button
                   type="button"
-                  onClick={handleRefresh}
-                  disabled={loading || !fromDate || !toDate || isDownloadingCache}
+                  title="Export"
+                  onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
                   style={{
-                    background: loading || !fromDate || !toDate || isDownloadingCache
-                      ? '#e5e7eb'
-                      : '#3b82f6',
-                    border: 'none',
-                    borderRadius: '10px',
-                    padding: '11px 16px',
-                    cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
+                    background: 'transparent',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '8px',
+                    padding: '6px 12px',
+                    cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
+                    color: 'white',
                     fontSize: '13px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    flexShrink: 0,
+                    fontWeight: '500',
+                    transition: 'all 0.2s ease',
                     whiteSpace: 'nowrap',
-                    position: 'relative',
-                    zIndex: 1,
-                    boxShadow: (loading || !fromDate || !toDate || isDownloadingCache) ? 'none' : '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)'
+                    opacity: 0.9
                   }}
                   onMouseEnter={(e) => {
-                    if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = '#2563eb';
-                      e.target.style.boxShadow = '0 4px 6px rgba(59, 130, 246, 0.25), 0 8px 12px rgba(59, 130, 246, 0.15)';
-                      e.target.style.transform = 'translateY(-1px)';
-                    }
+                    e.target.style.opacity = '1';
+                    e.target.style.borderColor = 'rgba(255, 255, 255, 0.4)';
                   }}
                   onMouseLeave={(e) => {
-                    if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = '#3b82f6';
-                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)';
-                      e.target.style.transform = 'translateY(0)';
-                    }
+                    e.target.style.opacity = '0.9';
+                    e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)';
                   }}
                 >
-                  <span className="material-icons" style={{
-                    fontSize: '18px',
-                    animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
-                  }}>
-                    refresh
+                  <span className="material-icons" style={{ fontSize: '16px' }}>download</span>
+                  <span>Export</span>
+                  <span className="material-icons" style={{ fontSize: '14px' }}>
+                    keyboard_arrow_down
                   </span>
-                  <span>Refresh</span>
                 </button>
-                </div>
-              </div>
-
-              {/* Download Button and Settings */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
-                <div style={{ position: 'relative', flex: '1' }} ref={downloadDropdownRef}>
-                  <button
-                    type="button"
-                    title="Export"
-                    onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
-                    style={{
-                      background: '#10b981',
-                      border: 'none',
-                      borderRadius: '10px',
-                      padding: '11px 16px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      color: '#fff',
-                      fontSize: '13px',
-                      fontWeight: '600',
-                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                      width: '100%',
-                      justifyContent: 'center',
-                      boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.target.style.background = '#059669';
-                      e.target.style.boxShadow = '0 4px 6px rgba(16, 185, 129, 0.25), 0 8px 12px rgba(16, 185, 129, 0.15)';
-                      e.target.style.transform = 'translateY(-1px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.target.style.background = '#10b981';
-                      e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)';
-                      e.target.style.transform = 'translateY(0)';
-                    }}
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
-                    <span>Export</span>
-                    <span className="material-icons" style={{ fontSize: '18px' }}>
-                      {showDownloadDropdown ? 'expand_less' : 'expand_more'}
-                    </span>
-                  </button>
                   
                   {/* Download Dropdown Menu - Mobile */}
                   {showDownloadDropdown && (
@@ -8728,401 +8713,252 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       </button>
                     </div>
                   )}
-                </div>
-                
-                {/* Settings Icon Button */}
-                <button
-                  type="button"
-                  title="Settings"
-                  onClick={() => {
-                    setShowSettingsModal(true);
-                  }}
-                  style={{
-                    background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '10px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#fff',
-                    fontSize: '18px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s ease',
-                    boxShadow: '0 2px 6px rgba(99, 102, 241, 0.25)',
-                    flexShrink: 0,
-                    width: '44px',
-                    height: '44px'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)';
-                    e.target.style.boxShadow = '0 3px 10px rgba(99, 102, 241, 0.35)';
-                    e.target.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
-                    e.target.style.boxShadow = '0 2px 6px rgba(99, 102, 241, 0.25)';
-                    e.target.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '20px' }}>settings</span>
-                </button>
               </div>
+              
+              {/* Settings Icon Button - Mobile */}
+              <button
+                type="button"
+                title="Settings"
+                onClick={() => {
+                  setShowSettingsModal(true);
+                }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '8px',
+                  padding: '6px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '18px',
+                  transition: 'all 0.2s ease',
+                  flexShrink: 0,
+                  width: '36px',
+                  height: '36px',
+                  opacity: 0.9
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.opacity = '1';
+                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.4)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.opacity = '0.9';
+                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '20px' }}>settings</span>
+              </button>
             </div>
           </>
         ) : (
           <div style={{
             display: 'flex',
-            flexDirection: windowWidth <= 1100 ? 'column' : 'row',
-            alignItems: windowWidth <= 1100 ? 'stretch' : 'center',
-            gap: windowWidth <= 1100 ? '12px' : '10px',
-            flexWrap: windowWidth <= 1100 ? 'wrap' : 'nowrap',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'flex-start',
+            gap: '12px',
+            flexWrap: 'nowrap',
             width: '100%',
             position: 'relative',
             overflow: 'visible'
           }}>
-            {/* Desktop: Icon + Title Section */}
+            {/* Desktop: Left Section - Icon + Title */}
             <div style={{
               display: 'flex',
               alignItems: 'center',
               gap: '10px',
-              flex: windowWidth <= 1100 ? '0 0 auto' : '0 1 auto',
-              minWidth: windowWidth <= 1100 ? '100%' : '180px',
-              maxWidth: windowWidth <= 1100 ? '100%' : '400px',
-              overflow: 'hidden',
-              width: windowWidth <= 1100 ? '100%' : 'auto'
+              flexShrink: 0
             }}>
               <div style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '10px',
-                background: 'rgba(255, 255, 255, 0.2)',
-                backdropFilter: 'blur(10px)',
+                width: '40px',
+                height: '40px',
+                borderRadius: '8px',
+                background: '#1e3a8a',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                flexShrink: 0,
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.3)',
-                border: '1px solid rgba(255, 255, 255, 0.2)'
+                flexShrink: 0
               }}>
                 <span className="material-icons" style={{ color: 'white', fontSize: '20px' }}>bar_chart</span>
               </div>
-              <div style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden' }}>
-                <h1 style={{
-                  margin: 0,
-                  color: 'white',
-                  fontSize: '18px',
-                  fontWeight: '700',
-                  lineHeight: '1.2',
-                  letterSpacing: '-0.01em',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis'
-                }}>
-                  Sales Analytics Dashboard
-                </h1>
-              </div>
+              <h1 style={{
+                margin: 0,
+                color: 'white',
+                fontSize: '18px',
+                fontWeight: '700',
+                lineHeight: '1.2',
+                fontFamily: 'sans-serif',
+                whiteSpace: 'nowrap'
+              }}>
+                Sales Dashboard
+              </h1>
             </div>
 
-            {/* Desktop: Buttons */}
-            {/* Create Custom Card Button - Desktop */}
-            <div style={{ 
-              flex: windowWidth <= 1100 ? '0 0 auto' : '0 1 auto', 
-              display: 'flex', 
-              alignItems: 'center', 
-              flexShrink: windowWidth <= 1100 ? 0 : 1, 
-              gap: '8px',
-              width: windowWidth <= 1100 ? '100%' : 'auto',
-              flexWrap: windowWidth <= 900 ? 'wrap' : 'nowrap'
+            {/* Desktop: Right Section - Action Buttons */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              flex: '1',
+              justifyContent: 'flex-end',
+              flexShrink: 0
             }}>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    console.log('🔒 Opening Custom Card Modal - using existing sales data only, no API calls should occur. Sales data count:', sales.length);
-                    setShowCustomCardModal(true);
-                  }}
-                  disabled={sales.length === 0}
-                  style={{
-                    background: sales.length === 0 
-                      ? '#e5e7eb' 
-                      : '#22c55e',
-                    color: sales.length === 0 ? '#9ca3af' : '#fff',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '6px 14px',
-                    cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    whiteSpace: 'nowrap',
-                    height: '32px',
-                    boxShadow: sales.length === 0 ? 'none' : '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (sales.length > 0) {
-                      e.currentTarget.style.background = '#16a34a';
-                      e.currentTarget.style.boxShadow = '0 4px 6px rgba(34, 197, 94, 0.25), 0 8px 12px rgba(34, 197, 94, 0.15)';
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (sales.length > 0) {
-                      e.currentTarget.style.background = '#22c55e';
-                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(34, 197, 94, 0.2), 0 4px 8px rgba(34, 197, 94, 0.1)';
-                      e.currentTarget.style.transform = 'translateY(0)';
-                    }
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>add_chart</span>
-                  <span>Create Custom Card</span>
-                </button>
+              {/* Create Custom Card Button - Desktop */}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  console.log('🔒 Opening Custom Card Modal - using existing sales data only, no API calls should occur. Sales data count:', sales.length);
+                  setShowCustomCardModal(true);
+                }}
+                disabled={sales.length === 0}
+                style={{
+                  background: 'transparent',
+                  color: sales.length === 0 ? '#6b7280' : 'white',
+                  border: sales.length === 0 ? '1px solid rgba(107, 114, 128, 0.3)' : '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '8px',
+                  padding: '8px 14px',
+                  cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease',
+                  whiteSpace: 'nowrap',
+                  opacity: sales.length === 0 ? 0.5 : 0.9
+                }}
+                onMouseEnter={(e) => {
+                  if (sales.length > 0) {
+                    e.currentTarget.style.opacity = '1';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.4)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (sales.length > 0) {
+                    e.currentTarget.style.opacity = '0.9';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  }
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '16px' }}>add_chart</span>
+                <span>Create Custom Card</span>
+              </button>
 
               {/* Calendar Button - Desktop */}
-                <button
-                  type="button"
-                  onClick={handleOpenCalendar}
-                  title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
-                  style={{
-                    background: '#7c3aed',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '6px 14px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    color: '#fff',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    justifyContent: 'center',
-                    height: '32px',
-                    whiteSpace: 'nowrap',
-                    minWidth: '140px',
-                    maxWidth: isMobile ? '100%' : '220px',
-                    boxShadow: '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = '#6d28d9';
-                    e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25), 0 8px 12px rgba(124, 58, 237, 0.15)';
-                    e.target.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = '#7c3aed';
-                    e.target.style.boxShadow = '0 2px 4px rgba(124, 58, 237, 0.2), 0 4px 8px rgba(124, 58, 237, 0.1)';
-                    e.target.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromDate && toDate ? formatDateRangeForHeader(fromDate, toDate) : 'Date Range'}</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleOpenCalendar}
+                title={fromDate && toDate ? `${fromDate} to ${toDate}` : 'Select date range'}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '8px',
+                  padding: '8px 14px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  color: 'white',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease',
+                  whiteSpace: 'nowrap',
+                  opacity: 0.9
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.opacity = '1';
+                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.4)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.opacity = '0.9';
+                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromDate && toDate ? formatDateRangeForHeader(fromDate, toDate) : 'Date Range'}</span>
+              </button>
 
-              {/* Last Updated & Refresh - Desktop */}
+              {/* Last Updated Text - Desktop */}
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                flex: '0 0 auto',
-                whiteSpace: 'nowrap',
+                gap: '4px',
                 flexShrink: 0
               }}>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: '6px',
-                  padding: '6px 10px',
-                  background: 'white',
-                  borderRadius: '8px',
-                  position: 'relative',
-                  overflow: 'hidden',
-                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05), 0 4px 8px rgba(0, 0, 0, 0.03)',
-                  border: '1px solid rgba(0, 0, 0, 0.05)',
-                  height: '32px',
-                  minWidth: '200px',
-                  maxWidth: isMobile ? '100%' : '320px'
+                <span className="material-icons" style={{ fontSize: '14px', color: '#94a3b8' }}>schedule</span>
+                <span style={{
+                  fontSize: '11px',
+                  color: '#94a3b8',
+                  whiteSpace: 'nowrap',
+                  fontWeight: '400'
                 }}>
-                {/* Progress Bar Background */}
-                {isDownloadingCache && (() => {
-                  const current = cacheDownloadProgress.current || 0;
-                  const total = cacheDownloadProgress.total || 0;
-                  const hasTotal = total > 0;
-                  const progressPercentage = hasTotal && total > 0
-                    ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
-                    : 0;
-                  const displayProgress = hasTotal 
-                    ? (progressPercentage === 0 ? 5 : Math.max(progressPercentage, 1))
-                    : 0;
-                  
-                  return (
-                    <div style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      bottom: 0,
-                      width: hasTotal ? `${displayProgress}%` : '30%',
-                      background: hasTotal 
-                        ? 'linear-gradient(90deg, #10b981 0%, #059669 100%)'
-                        : 'linear-gradient(90deg, #10b981 0%, #059669 100%)',
-                      transition: hasTotal ? 'width 0.3s ease' : 'none',
-                      animation: !hasTotal ? 'indeterminateProgress 1.5s ease-in-out infinite' : 'none',
-                      zIndex: 0
-                    }} />
-                  );
-                })()}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  position: 'relative',
-                  zIndex: 1
-                }}>
-                  <span className="material-icons" style={{ fontSize: '14px', color: isDownloadingCache ? '#10b981' : '#9ca3af' }}>schedule</span>
-                  <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '1px',
-                    minWidth: 0
-                  }}>
-                    <span style={{
-                      fontSize: '11px',
-                      color: isDownloadingCache ? '#059669' : '#374151',
-                      whiteSpace: 'nowrap',
-                      fontWeight: isDownloadingCache ? '600' : '400',
-                      lineHeight: '1.2'
-                    }}>
-                      {isDownloadingCache ? (
-                        (() => {
-                          const current = cacheDownloadProgress.current || 0;
-                          const total = cacheDownloadProgress.total || 0;
-                          const hasTotal = total > 0;
-                          const progressPercentage = hasTotal && total > 0
-                            ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
-                            : 0;
-                          
-                          // Calculate ETA
-                          const startTime = cacheDownloadStartTime || cacheDownloadStartTimeRef.current;
-                          let eta = null;
-                          if (hasTotal && startTime && current > 0 && current < total) {
-                            const elapsed = Date.now() - startTime;
-                            const elapsedSeconds = elapsed / 1000;
-                            const rate = current / elapsedSeconds;
-                            if (rate > 0 && isFinite(rate)) {
-                              const remaining = total - current;
-                              const remainingSeconds = remaining / rate;
-                              if (isFinite(remainingSeconds) && remainingSeconds > 0) {
-                                if (remainingSeconds < 60) {
-                                  eta = `${Math.round(remainingSeconds)}s`;
-                                } else if (remainingSeconds < 3600) {
-                                  const minutes = Math.floor(remainingSeconds / 60);
-                                  const seconds = Math.round(remainingSeconds % 60);
-                                  eta = `${minutes}m ${seconds}s`;
-                                } else {
-                                  const hours = Math.floor(remainingSeconds / 3600);
-                                  const minutes = Math.round((remainingSeconds % 3600) / 60);
-                                  eta = `${hours}h ${minutes}m`;
-                                }
-                              }
-                            }
-                          }
-                          
-                          return hasTotal 
-                            ? `Downloading: ${progressPercentage}%${eta ? ` • ETA: ${eta}` : ''}`
-                            : 'Downloading...';
-                        })()
-                      ) : (
-                        lastUpdated ? `Updated: ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'
-                      )}
-                    </span>
-                    {isDownloadingCache && (() => {
+                  {isDownloadingCache ? (
+                    (() => {
                       const current = cacheDownloadProgress.current || 0;
                       const total = cacheDownloadProgress.total || 0;
                       const hasTotal = total > 0;
-                      if (hasTotal) {
-                        return (
-                          <span style={{
-                            fontSize: '9px',
-                            color: '#059669',
-                            opacity: 0.8,
-                            whiteSpace: 'nowrap',
-                            lineHeight: '1.1',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            minWidth: 0,
-                            display: 'block'
-                          }}>
-                            {current} / {total} chunks
-                          </span>
-                        );
-                      }
-                      return null;
-                    })()}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRefresh}
-                  disabled={loading || !fromDate || !toDate || isDownloadingCache}
-                  style={{
-                    background: loading || !fromDate || !toDate || isDownloadingCache
-                      ? '#e5e7eb'
-                      : '#3b82f6',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '6px 12px',
-                    cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    color: loading || !fromDate || !toDate || isDownloadingCache ? '#9ca3af' : '#fff',
-                    fontSize: '13px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    position: 'relative',
-                    zIndex: 1,
-                    height: '32px',
-                    boxShadow: (loading || !fromDate || !toDate || isDownloadingCache) ? 'none' : '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = '#2563eb';
-                      e.target.style.boxShadow = '0 4px 6px rgba(59, 130, 246, 0.25), 0 8px 12px rgba(59, 130, 246, 0.15)';
-                      e.target.style.transform = 'translateY(-1px)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!loading && fromDate && toDate && !isDownloadingCache) {
-                      e.target.style.background = '#3b82f6';
-                      e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2), 0 4px 8px rgba(59, 130, 246, 0.1)';
-                      e.target.style.transform = 'translateY(0)';
-                    }
-                  }}
-                >
-                  <span className="material-icons" style={{
-                    fontSize: '16px',
-                    animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
-                  }}>
-                    refresh
-                  </span>
-                  <span>Refresh</span>
-                </button>
-                </div>
+                      const progressPercentage = hasTotal && total > 0
+                        ? Math.max(0, Math.min(100, Math.round((current / total) * 100)))
+                        : 0;
+                      
+                      return hasTotal 
+                        ? `Downloading: ${progressPercentage}%`
+                        : 'Downloading...';
+                    })()
+                  ) : (
+                    lastUpdated ? `Updated ${lastUpdated.toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'No data loaded'
+                  )}
+                </span>
               </div>
 
-              {/* Right: Download Dropdown - Desktop */}
+              {/* Refresh Button - Desktop */}
+              <button
+                type="button"
+                onClick={handleRefresh}
+                disabled={loading || !fromDate || !toDate || isDownloadingCache}
+                style={{
+                  background: loading || !fromDate || !toDate || isDownloadingCache
+                    ? '#374151'
+                    : '#3b82f6',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '8px 14px',
+                  cursor: loading || !fromDate || !toDate || isDownloadingCache ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  color: 'white',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0
+                }}
+                onMouseEnter={(e) => {
+                  if (!loading && fromDate && toDate && !isDownloadingCache) {
+                    e.target.style.background = '#2563eb';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!loading && fromDate && toDate && !isDownloadingCache) {
+                    e.target.style.background = '#3b82f6';
+                  }
+                }}
+              >
+                <span className="material-icons" style={{
+                  fontSize: '16px',
+                  animation: (loading || isDownloadingCache) ? 'spin 1s linear infinite' : 'none'
+                }}>
+                  refresh
+                </span>
+                <span>Refresh</span>
+              </button>
+
+              {/* Export Button - Desktop */}
               <div style={{
-                display: 'flex', 
-                gap: '6px', 
-                alignItems: 'center',
-                flex: '0 0 auto',
-                justifyContent: 'flex-end',
-                minWidth: '100px',
                 position: 'relative',
                 flexShrink: 0
               }} ref={downloadDropdownRef}>
@@ -9131,76 +8967,35 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   title="Export"
                   onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
                   style={{
-                    background: '#10b981',
-                    border: 'none',
+                    background: 'transparent',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
                     borderRadius: '8px',
-                    padding: '6px 12px',
+                    padding: '8px 14px',
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '6px',
-                    color: '#fff',
+                    color: 'white',
                     fontSize: '13px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    height: '32px',
-                    boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)'
+                    fontWeight: '500',
+                    transition: 'all 0.2s ease',
+                    whiteSpace: 'nowrap',
+                    opacity: 0.9
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.background = '#059669';
-                    e.target.style.boxShadow = '0 4px 6px rgba(16, 185, 129, 0.25), 0 8px 12px rgba(16, 185, 129, 0.15)';
-                    e.target.style.transform = 'translateY(-1px)';
+                    e.target.style.opacity = '1';
+                    e.target.style.borderColor = 'rgba(255, 255, 255, 0.4)';
                   }}
                   onMouseLeave={(e) => {
-                    e.target.style.background = '#10b981';
-                    e.target.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.2), 0 4px 8px rgba(16, 185, 129, 0.1)';
-                    e.target.style.transform = 'translateY(0)';
+                    e.target.style.opacity = '0.9';
+                    e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)';
                   }}
                 >
                   <span className="material-icons" style={{ fontSize: '16px' }}>download</span>
                   <span>Export</span>
-                  <span className="material-icons" style={{ fontSize: '16px' }}>
-                    {showDownloadDropdown ? 'expand_less' : 'expand_more'}
+                  <span className="material-icons" style={{ fontSize: '14px' }}>
+                    keyboard_arrow_down
                   </span>
-                </button>
-                
-                {/* Settings Icon Button - Desktop */}
-                <button
-                  type="button"
-                  title="Settings"
-                  onClick={() => {
-                    setShowSettingsModal(true);
-                  }}
-                  style={{
-                    background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '6px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#fff',
-                    fontSize: '16px',
-                    fontWeight: '600',
-                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                    boxShadow: '0 2px 4px rgba(99, 102, 241, 0.2), 0 4px 8px rgba(99, 102, 241, 0.1)',
-                    flexShrink: 0,
-                    width: '32px',
-                    height: '32px'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #4f46e5 0%, #4338ca 100%)';
-                    e.target.style.boxShadow = '0 4px 6px rgba(99, 102, 241, 0.25), 0 8px 12px rgba(99, 102, 241, 0.15)';
-                    e.target.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.target.style.background = 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)';
-                    e.target.style.boxShadow = '0 2px 4px rgba(99, 102, 241, 0.2), 0 4px 8px rgba(99, 102, 241, 0.1)';
-                    e.target.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <span className="material-icons" style={{ fontSize: '16px' }}>settings</span>
                 </button>
                 
                 {/* Download Dropdown Menu - Desktop */}
@@ -9315,9 +9110,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               </div>
             )}
               </div>
+              
+              {/* Settings Icon Button - Desktop */}
+              <button
+                type="button"
+                title="Settings"
+                onClick={() => {
+                  setShowSettingsModal(true);
+                }}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '8px',
+                  padding: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'white',
+                  fontSize: '18px',
+                  transition: 'all 0.2s ease',
+                  flexShrink: 0,
+                  width: '36px',
+                  height: '36px',
+                  opacity: 0.9
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.opacity = '1';
+                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.4)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.opacity = '0.9';
+                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '20px' }}>settings</span>
+              </button>
+            </div>
           </div>
         )}
         </div>
+        </form>
 
         {/* Progress Bar - Removed: Sales dashboard uses cache-only mode, no server fetching notifications */}
 
@@ -9345,58 +9178,84 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
         {/* Active Filters Display */}
         {hasActiveFilters && (
-          <div style={{ marginBottom: isMobile ? '12px' : '16px' }}>
+          <div style={{ 
+            marginBottom: isMobile ? '16px' : '20px',
+            padding: isMobile ? '8px 12px' : '10px 16px',
+            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+            borderRadius: '12px',
+            border: '1px solid #e2e8f0',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1)'
+          }}>
             <div style={{
               display: 'flex',
               alignItems: 'center',
               gap: isMobile ? '8px' : '12px',
               flexWrap: 'wrap'
             }}>
-              <span style={{
-                fontSize: isMobile ? '11px' : '12px',
-                fontWeight: '600',
-                color: '#64748b',
-                textTransform: 'uppercase',
-                letterSpacing: '0.05em'
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                paddingRight: isMobile ? '4px' : '8px'
               }}>
-                Active Filters:
-              </span>
+                <span className="material-icons" style={{ 
+                  fontSize: isMobile ? '16px' : '18px',
+                  color: '#64748b'
+                }}>filter_list</span>
+                <span style={{
+                  fontSize: isMobile ? '12px' : '13px',
+                  fontWeight: '600',
+                  color: '#475569',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.05em'
+                }}>
+                  Active Filters:
+                </span>
+              </div>
               
               {selectedCustomer !== 'all' && (
                 <div style={{
-                  background: '#dbeafe',
+                  background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
                   border: '1px solid #93c5fd',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
+                  borderRadius: '20px',
+                  padding: isMobile ? '4px 8px 4px 10px' : '6px 12px 6px 14px',
+                  fontSize: isMobile ? '12px' : '13px',
                   color: '#1e40af',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: '8px',
+                  boxShadow: '0 2px 4px rgba(30, 64, 175, 0.1), 0 1px 2px rgba(30, 64, 175, 0.06)',
+                  transition: 'all 0.2s ease',
+                  fontWeight: '500'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>person</span>
-                  {isMobile ? 'Customer' : 'Customer:'} {selectedCustomer}
+                  <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>person</span>
+                  <span>{isMobile ? 'Customer' : 'Customer:'} {selectedCustomer}</span>
                   <button
                     onClick={() => setSelectedCustomer('all')}
                     style={{
-                      background: 'none',
+                      background: 'rgba(30, 64, 175, 0.1)',
                       border: 'none',
                       color: '#1e40af',
                       cursor: 'pointer',
-                      padding: '2px',
+                      padding: '4px',
                       borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      width: isMobile ? '18px' : '20px',
+                      height: isMobile ? '18px' : '20px',
+                      marginLeft: '2px'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = '#93c5fd';
-                      e.target.style.color = '#1e40af';
+                      e.currentTarget.style.background = '#93c5fd';
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                      e.currentTarget.style.color = '#ffffff';
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#1e40af';
+                      e.currentTarget.style.background = 'rgba(30, 64, 175, 0.1)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.color = '#1e40af';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
@@ -9406,39 +9265,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               
               {selectedItem !== 'all' && (
                 <div style={{
-                  background: '#dcfce7',
+                  background: 'linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%)',
                   border: '1px solid #86efac',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
+                  borderRadius: '20px',
+                  padding: isMobile ? '4px 8px 4px 10px' : '6px 12px 6px 14px',
+                  fontSize: isMobile ? '12px' : '13px',
                   color: '#166534',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: '8px',
+                  boxShadow: '0 2px 4px rgba(22, 101, 52, 0.1), 0 1px 2px rgba(22, 101, 52, 0.06)',
+                  transition: 'all 0.2s ease',
+                  fontWeight: '500'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>inventory_2</span>
-                  {isMobile ? 'Item' : 'Item:'} {selectedItem}
+                  <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>inventory_2</span>
+                  <span>{isMobile ? 'Item' : 'Item:'} {selectedItem}</span>
                   <button
                     onClick={() => setSelectedItem('all')}
                     style={{
-                      background: 'none',
+                      background: 'rgba(22, 101, 52, 0.1)',
                       border: 'none',
                       color: '#166534',
                       cursor: 'pointer',
-                      padding: '2px',
+                      padding: '4px',
                       borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      width: isMobile ? '18px' : '20px',
+                      height: isMobile ? '18px' : '20px',
+                      marginLeft: '2px'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = '#86efac';
-                      e.target.style.color = '#166534';
+                      e.currentTarget.style.background = '#86efac';
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                      e.currentTarget.style.color = '#ffffff';
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#166534';
+                      e.currentTarget.style.background = 'rgba(22, 101, 52, 0.1)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.color = '#166534';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
@@ -9448,39 +9315,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               
               {selectedStockGroup !== 'all' && (
                 <div style={{
-                  background: '#fef3c7',
+                  background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
                   border: '1px solid #fcd34d',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
+                  borderRadius: '20px',
+                  padding: isMobile ? '4px 8px 4px 10px' : '6px 12px 6px 14px',
+                  fontSize: isMobile ? '12px' : '13px',
                   color: '#92400e',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: '8px',
+                  boxShadow: '0 2px 4px rgba(146, 64, 14, 0.1), 0 1px 2px rgba(146, 64, 14, 0.06)',
+                  transition: 'all 0.2s ease',
+                  fontWeight: '500'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>category</span>
-                  {isMobile ? 'Stock' : 'Stock Group:'} {selectedStockGroup}
+                  <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>category</span>
+                  <span>{isMobile ? 'Stock' : 'Stock Group:'} {selectedStockGroup}</span>
                   <button
                     onClick={() => setSelectedStockGroup('all')}
                     style={{
-                      background: 'none',
+                      background: 'rgba(146, 64, 14, 0.1)',
                       border: 'none',
                       color: '#92400e',
                       cursor: 'pointer',
-                      padding: '2px',
+                      padding: '4px',
                       borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      width: isMobile ? '18px' : '20px',
+                      height: isMobile ? '18px' : '20px',
+                      marginLeft: '2px'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = '#fcd34d';
-                      e.target.style.color = '#92400e';
+                      e.currentTarget.style.background = '#fcd34d';
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                      e.currentTarget.style.color = '#ffffff';
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#92400e';
+                      e.currentTarget.style.background = 'rgba(146, 64, 14, 0.1)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.color = '#92400e';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
@@ -9490,39 +9365,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               
               {selectedLedgerGroup !== 'all' && (
                 <div style={{
-                  background: '#f3e8ff',
+                  background: 'linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%)',
                   border: '1px solid #c4b5fd',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
+                  borderRadius: '20px',
+                  padding: isMobile ? '4px 8px 4px 10px' : '6px 12px 6px 14px',
+                  fontSize: isMobile ? '12px' : '13px',
                   color: '#6b21a8',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: '8px',
+                  boxShadow: '0 2px 4px rgba(107, 33, 168, 0.1), 0 1px 2px rgba(107, 33, 168, 0.06)',
+                  transition: 'all 0.2s ease',
+                  fontWeight: '500'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>account_tree</span>
-                  {isMobile ? 'Ledger' : 'Ledger Group:'} {selectedLedgerGroup}
+                  <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>account_tree</span>
+                  <span>{isMobile ? 'Ledger' : 'Ledger Group:'} {selectedLedgerGroup}</span>
                   <button
                     onClick={() => setSelectedLedgerGroup('all')}
                     style={{
-                      background: 'none',
+                      background: 'rgba(107, 33, 168, 0.1)',
                       border: 'none',
                       color: '#6b21a8',
                       cursor: 'pointer',
-                      padding: '2px',
+                      padding: '4px',
                       borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      width: isMobile ? '18px' : '20px',
+                      height: isMobile ? '18px' : '20px',
+                      marginLeft: '2px'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = '#c4b5fd';
-                      e.target.style.color = '#6b21a8';
+                      e.currentTarget.style.background = '#c4b5fd';
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                      e.currentTarget.style.color = '#ffffff';
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#6b21a8';
+                      e.currentTarget.style.background = 'rgba(107, 33, 168, 0.1)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.color = '#6b21a8';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
@@ -9532,39 +9415,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               
               {selectedRegion !== 'all' && (
                 <div style={{
-                  background: '#e0e7ff',
+                  background: 'linear-gradient(135deg, #e0e7ff 0%, #c7d2fe 100%)',
                   border: '1px solid #a5b4fc',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
+                  borderRadius: '20px',
+                  padding: isMobile ? '4px 8px 4px 10px' : '6px 12px 6px 14px',
+                  fontSize: isMobile ? '12px' : '13px',
                   color: '#3730a3',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: '8px',
+                  boxShadow: '0 2px 4px rgba(55, 48, 163, 0.1), 0 1px 2px rgba(55, 48, 163, 0.06)',
+                  transition: 'all 0.2s ease',
+                  fontWeight: '500'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>place</span>
-                  {isMobile ? 'State' : 'State:'} {selectedRegion}
+                  <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>place</span>
+                  <span>{isMobile ? 'State' : 'State:'} {selectedRegion}</span>
                   <button
                     onClick={() => setSelectedRegion('all')}
                     style={{
-                      background: 'none',
+                      background: 'rgba(55, 48, 163, 0.1)',
                       border: 'none',
                       color: '#3730a3',
                       cursor: 'pointer',
-                      padding: '2px',
+                      padding: '4px',
                       borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      width: isMobile ? '18px' : '20px',
+                      height: isMobile ? '18px' : '20px',
+                      marginLeft: '2px'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = '#a5b4fc';
-                      e.target.style.color = '#3730a3';
+                      e.currentTarget.style.background = '#a5b4fc';
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                      e.currentTarget.style.color = '#ffffff';
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#3730a3';
+                      e.currentTarget.style.background = 'rgba(55, 48, 163, 0.1)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.color = '#3730a3';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
@@ -9574,39 +9465,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
               {selectedCountry !== 'all' && (
                 <div style={{
-                  background: '#fef3c7',
+                  background: 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)',
                   border: '1px solid #fcd34d',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
+                  borderRadius: '20px',
+                  padding: isMobile ? '4px 8px 4px 10px' : '6px 12px 6px 14px',
+                  fontSize: isMobile ? '12px' : '13px',
                   color: '#92400e',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: '8px',
+                  boxShadow: '0 2px 4px rgba(146, 64, 14, 0.1), 0 1px 2px rgba(146, 64, 14, 0.06)',
+                  transition: 'all 0.2s ease',
+                  fontWeight: '500'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>public</span>
-                  {isMobile ? 'Country' : 'Country:'} {selectedCountry}
+                  <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>public</span>
+                  <span>{isMobile ? 'Country' : 'Country:'} {selectedCountry}</span>
                   <button
                     onClick={() => setSelectedCountry('all')}
                     style={{
-                      background: 'none',
+                      background: 'rgba(146, 64, 14, 0.1)',
                       border: 'none',
                       color: '#92400e',
                       cursor: 'pointer',
-                      padding: '2px',
+                      padding: '4px',
                       borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      width: isMobile ? '18px' : '20px',
+                      height: isMobile ? '18px' : '20px',
+                      marginLeft: '2px'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = '#fcd34d';
-                      e.target.style.color = '#92400e';
+                      e.currentTarget.style.background = '#fcd34d';
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                      e.currentTarget.style.color = '#ffffff';
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#92400e';
+                      e.currentTarget.style.background = 'rgba(146, 64, 14, 0.1)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.color = '#92400e';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
@@ -9616,39 +9515,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
               {selectedPeriod && (
                 <div style={{
-                  background: '#fce7f3',
+                  background: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)',
                   border: '1px solid #f9a8d4',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
+                  borderRadius: '20px',
+                  padding: isMobile ? '4px 8px 4px 10px' : '6px 12px 6px 14px',
+                  fontSize: isMobile ? '12px' : '13px',
                   color: '#9d174d',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: '8px',
+                  boxShadow: '0 2px 4px rgba(157, 23, 77, 0.1), 0 1px 2px rgba(157, 23, 77, 0.06)',
+                  transition: 'all 0.2s ease',
+                  fontWeight: '500'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>calendar_month</span>
-                  {isMobile ? 'Period' : 'Period:'} {formatPeriodLabel(selectedPeriod)}
+                  <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>calendar_month</span>
+                  <span>{isMobile ? 'Period' : 'Period:'} {formatPeriodLabel(selectedPeriod)}</span>
                   <button
                     onClick={() => setSelectedPeriod(null)}
                     style={{
-                      background: 'none',
+                      background: 'rgba(157, 23, 77, 0.1)',
                       border: 'none',
                       color: '#9d174d',
                       cursor: 'pointer',
-                      padding: '2px',
+                      padding: '4px',
                       borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      width: isMobile ? '18px' : '20px',
+                      height: isMobile ? '18px' : '20px',
+                      marginLeft: '2px'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = '#f9a8d4';
-                      e.target.style.color = '#9d174d';
+                      e.currentTarget.style.background = '#f9a8d4';
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                      e.currentTarget.style.color = '#ffffff';
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#9d174d';
+                      e.currentTarget.style.background = 'rgba(157, 23, 77, 0.1)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.color = '#9d174d';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
@@ -9658,39 +9565,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
               {(dateRange.start !== '' && dateRange.end !== '' && dateRange.start === dateRange.end) && (
                 <div style={{
-                  background: '#fce7f3',
+                  background: 'linear-gradient(135deg, #fce7f3 0%, #fbcfe8 100%)',
                   border: '1px solid #f9a8d4',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
+                  borderRadius: '20px',
+                  padding: isMobile ? '4px 8px 4px 10px' : '6px 12px 6px 14px',
+                  fontSize: isMobile ? '12px' : '13px',
                   color: '#9d174d',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: '8px',
+                  boxShadow: '0 2px 4px rgba(157, 23, 77, 0.1), 0 1px 2px rgba(157, 23, 77, 0.06)',
+                  transition: 'all 0.2s ease',
+                  fontWeight: '500'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>event</span>
-                  {isMobile ? 'Date' : 'Date:'} {formatDateForDisplay(dateRange.start)}
+                  <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>event</span>
+                  <span>{isMobile ? 'Date' : 'Date:'} {formatDateForDisplay(dateRange.start)}</span>
                   <button
                     onClick={() => setDateRange({ start: '', end: '' })}
                     style={{
-                      background: 'none',
+                      background: 'rgba(157, 23, 77, 0.1)',
                       border: 'none',
                       color: '#9d174d',
                       cursor: 'pointer',
-                      padding: '2px',
+                      padding: '4px',
                       borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      width: isMobile ? '18px' : '20px',
+                      height: isMobile ? '18px' : '20px',
+                      marginLeft: '2px'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = '#f9a8d4';
-                      e.target.style.color = '#9d174d';
+                      e.currentTarget.style.background = '#f9a8d4';
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                      e.currentTarget.style.color = '#ffffff';
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#9d174d';
+                      e.currentTarget.style.background = 'rgba(157, 23, 77, 0.1)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.color = '#9d174d';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
@@ -9700,39 +9615,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
               {selectedSalesperson && (
                 <div style={{
-                  background: '#fff7ed',
+                  background: 'linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%)',
                   border: '1px solid #fed7aa',
-                  borderRadius: '16px',
-                  padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                  fontSize: isMobile ? '11px' : '12px',
+                  borderRadius: '20px',
+                  padding: isMobile ? '4px 8px 4px 10px' : '6px 12px 6px 14px',
+                  fontSize: isMobile ? '12px' : '13px',
                   color: '#c2410c',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: '6px'
+                  gap: '8px',
+                  boxShadow: '0 2px 4px rgba(194, 65, 12, 0.1), 0 1px 2px rgba(194, 65, 12, 0.06)',
+                  transition: 'all 0.2s ease',
+                  fontWeight: '500'
                 }}>
-                  <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>person_outline</span>
-                  {isMobile ? 'Salesperson' : 'Salesperson:'} {selectedSalesperson}
+                  <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>person_outline</span>
+                  <span>{isMobile ? 'Salesperson' : 'Salesperson:'} {selectedSalesperson}</span>
                   <button
                     onClick={() => setSelectedSalesperson(null)}
                     style={{
-                      background: 'none',
+                      background: 'rgba(194, 65, 12, 0.1)',
                       border: 'none',
                       color: '#c2410c',
                       cursor: 'pointer',
-                      padding: '2px',
+                      padding: '4px',
                       borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      transition: 'all 0.2s ease'
+                      transition: 'all 0.2s ease',
+                      width: isMobile ? '18px' : '20px',
+                      height: isMobile ? '18px' : '20px',
+                      marginLeft: '2px'
                     }}
                     onMouseEnter={(e) => {
-                      e.target.style.background = '#fed7aa';
-                      e.target.style.color = '#c2410c';
+                      e.currentTarget.style.background = '#fed7aa';
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                      e.currentTarget.style.color = '#ffffff';
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = 'none';
-                      e.target.style.color = '#c2410c';
+                      e.currentTarget.style.background = 'rgba(194, 65, 12, 0.1)';
+                      e.currentTarget.style.transform = 'scale(1)';
+                      e.currentTarget.style.color = '#c2410c';
                     }}
                   >
                     <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
@@ -9759,19 +9682,22 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   <div
                     key={filterKey}
                     style={{
-                      background: '#f0f9ff',
+                      background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
                       border: '1px solid #7dd3fc',
-                      borderRadius: '16px',
-                      padding: isMobile ? '3px 6px 3px 10px' : '4px 8px 4px 12px',
-                      fontSize: isMobile ? '11px' : '12px',
+                      borderRadius: '20px',
+                      padding: isMobile ? '4px 8px 4px 10px' : '6px 12px 6px 14px',
+                      fontSize: isMobile ? '12px' : '13px',
                       color: '#0c4a6e',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: isMobile ? '4px' : '6px'
+                      gap: '8px',
+                      boxShadow: '0 2px 4px rgba(12, 74, 110, 0.1), 0 1px 2px rgba(12, 74, 110, 0.06)',
+                      transition: 'all 0.2s ease',
+                      fontWeight: '500'
                     }}
                   >
-                    <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>filter_alt</span>
-                    {isMobile ? `${card.title}: ${fieldLabel}` : `${card.title}: ${fieldLabel} = ${filterValue}`}
+                    <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>filter_alt</span>
+                    <span>{isMobile ? `${card.title}: ${fieldLabel}` : `${card.title}: ${fieldLabel} = ${filterValue}`}</span>
                     <button
                       onClick={() => {
                         setGenericFilters(prev => {
@@ -9786,24 +9712,29 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         });
                       }}
                       style={{
-                        background: 'none',
+                        background: 'rgba(12, 74, 110, 0.1)',
                         border: 'none',
                         color: '#0c4a6e',
                         cursor: 'pointer',
-                        padding: '2px',
+                        padding: '4px',
                         borderRadius: '50%',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        transition: 'all 0.2s ease'
+                        transition: 'all 0.2s ease',
+                        width: isMobile ? '18px' : '20px',
+                        height: isMobile ? '18px' : '20px',
+                        marginLeft: '2px'
                       }}
                       onMouseEnter={(e) => {
-                        e.target.style.background = '#7dd3fc';
-                        e.target.style.color = '#0c4a6e';
+                        e.currentTarget.style.background = '#7dd3fc';
+                        e.currentTarget.style.transform = 'scale(1.1)';
+                        e.currentTarget.style.color = '#ffffff';
                       }}
                       onMouseLeave={(e) => {
-                        e.target.style.background = 'none';
-                        e.target.style.color = '#0c4a6e';
+                        e.currentTarget.style.background = 'rgba(12, 74, 110, 0.1)';
+                        e.currentTarget.style.transform = 'scale(1)';
+                        e.currentTarget.style.color = '#0c4a6e';
                       }}
                     >
                       <span className="material-icons" style={{ fontSize: isMobile ? '12px' : '14px' }}>close</span>
@@ -9811,65 +9742,76 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   </div>
                 );
               })}
-            </div>
-          </div>
-        )}
-
-        {/* Clear Filters Button */}
-          {hasActiveFilters && (
-            <div style={{ marginBottom: isMobile ? '12px' : '20px' }}>
+              
+              {/* Clear All Filters Button */}
               <button
                 type="button"
                 onClick={clearAllFilters}
                 style={{
-                  background: '#f8fafc',
+                  background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
                   border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
+                  borderRadius: '10px',
                   padding: isMobile ? '6px 12px' : '8px 16px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: isMobile ? '6px' : '8px',
+                  gap: isMobile ? '8px' : '10px',
                   color: '#64748b',
-                  fontSize: isMobile ? '12px' : '14px',
-                  fontWeight: '500',
-                  transition: 'all 0.2s ease'
+                  fontSize: isMobile ? '13px' : '14px',
+                  fontWeight: '600',
+                  transition: 'all 0.2s ease',
+                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+                  position: 'relative',
+                  overflow: 'hidden',
+                  marginLeft: 'auto',
+                  flexShrink: 0
                 }}
                 onMouseEnter={(e) => {
-                  e.target.style.background = '#f1f5f9';
-                  e.target.style.borderColor = '#cbd5e1';
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)';
+                  e.currentTarget.style.borderColor = '#cbd5e1';
+                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06)';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.color = '#475569';
                 }}
                 onMouseLeave={(e) => {
-                  e.target.style.background = '#f8fafc';
-                  e.target.style.borderColor = '#e2e8f0';
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)';
+                  e.currentTarget.style.borderColor = '#e2e8f0';
+                  e.currentTarget.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.color = '#64748b';
                 }}
               >
-                <span className="material-icons" style={{ fontSize: isMobile ? '14px' : '16px' }}>clear</span>
+                <span className="material-icons" style={{ 
+                  fontSize: isMobile ? '16px' : '18px',
+                  transition: 'transform 0.2s ease'
+                }}>clear_all</span>
                 {isMobile ? 'Clear Filters' : 'Clear All Filters'}
               </button>
             </div>
-          )}
+          </div>
+        )}
 
         {/* Dashboard Content */}
-        <div style={{ padding: isMobile ? '12px 16px' : '24px 28px 28px 28px' }}>
+        <div style={{ padding: 0 }}>
           {/* KPI Cards */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(7, minmax(0, 1fr))',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(160px, 1fr))',
             gap: isMobile ? '12px' : '16px',
-            marginBottom: isMobile ? '16px' : '28px'
+            marginBottom: '0'
           }}>
             {isCardVisible('Total Revenue') && (
               <div style={{
-                background: '#ffffff',
+                background: '#1e40af',
                 borderRadius: '10px',
                 padding: isMobile ? '12px' : '16px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
                 position: 'relative',
                 overflow: 'hidden',
                 display: 'flex',
-                flexDirection: 'column'
+                flexDirection: 'column',
+                minWidth: 0
               }}>
                 {/* Background Area Chart */}
                 <div style={{
@@ -9878,15 +9820,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   left: 0,
                   right: 0,
                   height: '50%',
-                  opacity: 0.5,
+                  opacity: 0.6,
                   pointerEvents: 'none'
                 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={revenueTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#10b981" stopOpacity={0.2} />
+                          <stop offset="0%" stopColor="#bfdbfe" stopOpacity={0.9} />
+                          <stop offset="100%" stopColor="#bfdbfe" stopOpacity={0.3} />
                         </linearGradient>
                       </defs>
                       <Area
@@ -9901,27 +9843,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </div>
                 
                 {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Total Revenue')}
                     style={{ 
                       margin: '0 0 6px 0', 
                       fontSize: isMobile ? '9px' : '10px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#e0e7ff', 
                       textTransform: 'uppercase', 
                       letterSpacing: '0.05em', 
                       lineHeight: '1.2',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#ffffff'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#e0e7ff'}
                     title="Click to open in fullscreen"
                   >
                     TOTAL REVENUE
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#ffffff', lineHeight: '1.2', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {formatCurrency(totalRevenue)}
                   </p>
                   
@@ -9930,14 +9872,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     width: isMobile ? '32px' : '36px',
                     height: isMobile ? '32px' : '36px',
                     borderRadius: '6px',
-                    background: '#dbeafe',
+                    background: 'rgba(255, 255, 255, 0.2)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginTop: '8px',
                     alignSelf: 'flex-end'
                   }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#3b82f6' }}>account_balance_wallet</span>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#ffffff' }}>account_balance_wallet</span>
                   </div>
                 </div>
               </div>
@@ -9945,15 +9887,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
             {isCardVisible('Total Invoices') && (
               <div style={{
-                background: '#ffffff',
+                background: '#1e40af',
                 borderRadius: '10px',
                 padding: isMobile ? '12px' : '16px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
                 position: 'relative',
                 overflow: 'hidden',
                 display: 'flex',
-                flexDirection: 'column'
+                flexDirection: 'column',
+                minWidth: 0
               }}>
                 {/* Background Area Chart */}
                 <div style={{
@@ -9962,15 +9905,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   left: 0,
                   right: 0,
                   height: '50%',
-                  opacity: 0.5,
+                  opacity: 0.3,
                   pointerEvents: 'none'
                 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={invoiceTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="invoiceGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.2} />
+                          <stop offset="0%" stopColor="#93c5fd" stopOpacity={0.6} />
+                          <stop offset="100%" stopColor="#93c5fd" stopOpacity={0.1} />
                         </linearGradient>
                       </defs>
                       <Area
@@ -9985,11 +9928,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </div>
                 
                 {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
-                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '9px' : '10px', fontWeight: '600', color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: '0 0 6px 0', fontSize: isMobile ? '9px' : '10px', fontWeight: '600', color: '#e0e7ff', textTransform: 'uppercase', letterSpacing: '0.05em', lineHeight: '1.2' }}>
                     TOTAL INVOICES
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#ffffff', lineHeight: '1.2', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {totalOrders}
                   </p>
                   
@@ -9998,14 +9941,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     width: isMobile ? '32px' : '36px',
                     height: isMobile ? '32px' : '36px',
                     borderRadius: '6px',
-                    background: '#dcfce7',
+                    background: 'rgba(255, 255, 255, 0.2)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginTop: '8px',
                     alignSelf: 'flex-end'
                   }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>shopping_cart</span>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#ffffff' }}>shopping_cart</span>
                   </div>
                 </div>
               </div>
@@ -10013,15 +9956,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
             {isCardVisible('Unique Customers') && (
               <div style={{
-                background: '#ffffff',
+                background: '#1e40af',
                 borderRadius: '10px',
                 padding: isMobile ? '12px' : '16px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
                 position: 'relative',
                 overflow: 'hidden',
                 display: 'flex',
-                flexDirection: 'column'
+                flexDirection: 'column',
+                minWidth: 0
               }}>
                 {/* Background Area Chart */}
                 <div style={{
@@ -10030,15 +9974,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   left: 0,
                   right: 0,
                   height: '50%',
-                  opacity: 0.5,
+                  opacity: 0.6,
                   pointerEvents: 'none'
                 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={customerTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="customerGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#8b5cf6" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#8b5cf6" stopOpacity={0.2} />
+                          <stop offset="0%" stopColor="#bfdbfe" stopOpacity={0.9} />
+                          <stop offset="100%" stopColor="#bfdbfe" stopOpacity={0.3} />
                         </linearGradient>
                       </defs>
                       <Area
@@ -10053,27 +9997,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </div>
                 
                 {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Unique Customers')}
                     style={{ 
                       margin: '0 0 6px 0', 
                       fontSize: isMobile ? '9px' : '10px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#e0e7ff', 
                       textTransform: 'uppercase', 
                       letterSpacing: '0.05em', 
                       lineHeight: '1.2',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#ffffff'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#e0e7ff'}
                     title="Click to open in fullscreen"
                   >
                     UNIQUE CUSTOMERS
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#ffffff', lineHeight: '1.2', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {uniqueCustomers}
                   </p>
                   
@@ -10082,14 +10026,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     width: isMobile ? '32px' : '36px',
                     height: isMobile ? '32px' : '36px',
                     borderRadius: '6px',
-                    background: '#e9d5ff',
+                    background: 'rgba(255, 255, 255, 0.2)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginTop: '8px',
                     alignSelf: 'flex-end'
                   }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#7c3aed' }}>people</span>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#ffffff' }}>people</span>
                   </div>
                 </div>
               </div>
@@ -10097,11 +10041,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
             {isCardVisible('Avg Invoice Value') && (
               <div style={{
-                background: '#ffffff',
+                background: '#047857',
                 borderRadius: '10px',
                 padding: isMobile ? '12px' : '16px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
                 position: 'relative',
                 overflow: 'hidden',
                 display: 'flex',
@@ -10115,15 +10059,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   left: 0,
                   right: 0,
                   height: '50%',
-                  opacity: 0.5,
+                  opacity: 0.6,
                   pointerEvents: 'none'
                 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={avgInvoiceTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="avgInvoiceGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.2} />
+                          <stop offset="0%" stopColor="#a7f3d0" stopOpacity={0.9} />
+                          <stop offset="100%" stopColor="#a7f3d0" stopOpacity={0.3} />
                         </linearGradient>
                       </defs>
                       <Area
@@ -10138,27 +10082,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </div>
                 
                 {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Avg Invoice Value')}
                     style={{ 
                       margin: '0 0 6px 0', 
                       fontSize: isMobile ? '9px' : '10px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#d1fae5', 
                       textTransform: 'uppercase', 
                       letterSpacing: '0.05em', 
                       lineHeight: '1.2',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#ffffff'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#d1fae5'}
                     title="Click to open in fullscreen"
                   >
                     AVG INVOICE VALUE
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#ffffff', lineHeight: '1.2', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {formatCurrency(avgOrderValue)}
                   </p>
                   
@@ -10167,14 +10111,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     width: isMobile ? '32px' : '36px',
                     height: isMobile ? '32px' : '36px',
                     borderRadius: '6px',
-                    background: '#dcfce7',
+                    background: 'rgba(255, 255, 255, 0.2)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginTop: '8px',
                     alignSelf: 'flex-end'
                   }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>trending_up</span>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#ffffff' }}>trending_up</span>
                   </div>
                 </div>
               </div>
@@ -10182,11 +10126,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
             {canShowProfit && isCardVisible('Total Profit') && (
               <div style={{
-                background: '#ffffff',
+                background: '#047857',
                 borderRadius: '10px',
                 padding: isMobile ? '12px' : '16px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
                 position: 'relative',
                 overflow: 'hidden',
                 display: 'flex',
@@ -10200,15 +10144,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   left: 0,
                   right: 0,
                   height: '50%',
-                  opacity: 0.5,
+                  opacity: 0.3,
                   pointerEvents: 'none'
                 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={profitTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="profitGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#10b981" stopOpacity={0.2} />
+                          <stop offset="0%" stopColor="#86efac" stopOpacity={0.6} />
+                          <stop offset="100%" stopColor="#86efac" stopOpacity={0.1} />
                         </linearGradient>
                       </defs>
                       <Area
@@ -10223,27 +10167,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </div>
                 
                 {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1 }}>
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Total Profit')}
                     style={{ 
                       margin: '0 0 6px 0', 
                       fontSize: isMobile ? '9px' : '10px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#d1fae5', 
                       textTransform: 'uppercase', 
                       letterSpacing: '0.05em', 
                       lineHeight: '1.2',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#ffffff'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#d1fae5'}
                     title="Click to open in fullscreen"
                   >
                     TOTAL PROFIT
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em', wordBreak: 'break-word' }}>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#ffffff', lineHeight: '1.2', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {formatCurrency(totalProfit)}
                   </p>
                   
@@ -10252,14 +10196,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     width: isMobile ? '32px' : '36px',
                     height: isMobile ? '32px' : '36px',
                     borderRadius: '6px',
-                    background: '#dcfce7',
+                    background: 'rgba(255, 255, 255, 0.2)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginTop: '8px',
                     alignSelf: 'flex-end'
                   }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#16a34a' }}>trending_up</span>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '16px' : '18px', color: '#ffffff' }}>trending_up</span>
                   </div>
                 </div>
               </div>
@@ -10267,11 +10211,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
             {canShowProfit && isCardVisible('Profit Margin') && (
               <div style={{
-                background: '#ffffff',
+                background: '#6b21a8',
                 borderRadius: '10px',
                 padding: isMobile ? '12px' : '16px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
                 position: 'relative',
                 overflow: 'hidden',
                 display: 'flex',
@@ -10285,15 +10229,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   left: 0,
                   right: 0,
                   height: '60%',
-                  opacity: 0.5,
+                  opacity: 0.6,
                   pointerEvents: 'none'
                 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={profitMarginTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="profitMarginGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#ec4899" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#ec4899" stopOpacity={0.2} />
+                          <stop offset="0%" stopColor="#ddd6fe" stopOpacity={0.9} />
+                          <stop offset="100%" stopColor="#ddd6fe" stopOpacity={0.3} />
                         </linearGradient>
                       </defs>
                       <Area
@@ -10308,27 +10252,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </div>
                 
                 {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0 }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Profit Margin')}
                     style={{ 
                       margin: '0 0 8px 0', 
                       fontSize: isMobile ? '11px' : '12px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#e9d5ff', 
                       textTransform: 'uppercase', 
                       letterSpacing: '0.05em', 
                       lineHeight: '1.3',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#ffffff'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#e9d5ff'}
                     title="Click to open in fullscreen"
                   >
                     PROFIT MARGIN
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#ffffff', lineHeight: '1.2', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {profitMargin >= 0 ? '+' : ''}{formatNumber(profitMargin, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                   </p>
                   
@@ -10337,14 +10281,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     width: isMobile ? '40px' : '48px',
                     height: isMobile ? '40px' : '48px',
                     borderRadius: '8px',
-                    background: '#dcfce7',
+                    background: 'rgba(255, 255, 255, 0.2)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginTop: 'auto',
                     alignSelf: 'flex-end'
                   }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>percent</span>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#ffffff' }}>percent</span>
                   </div>
                 </div>
               </div>
@@ -10352,11 +10296,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
             {canShowProfit && isCardVisible('Avg Profit per Order') && (
               <div style={{
-                background: '#ffffff',
+                background: '#6b21a8',
                 borderRadius: '10px',
                 padding: isMobile ? '12px' : '16px',
-                border: '1px solid #e2e8f0',
-                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
                 position: 'relative',
                 overflow: 'hidden',
                 display: 'flex',
@@ -10370,15 +10314,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   left: 0,
                   right: 0,
                   height: '60%',
-                  opacity: 0.5,
+                  opacity: 0.6,
                   pointerEvents: 'none'
                 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={avgProfitTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="avgProfitGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#06b6d4" stopOpacity={0.8} />
-                          <stop offset="100%" stopColor="#06b6d4" stopOpacity={0.2} />
+                          <stop offset="0%" stopColor="#ddd6fe" stopOpacity={0.9} />
+                          <stop offset="100%" stopColor="#ddd6fe" stopOpacity={0.3} />
                         </linearGradient>
                       </defs>
                       <Area
@@ -10393,27 +10337,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </div>
                 
                 {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', height: '100%' }}>
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', height: '100%', minWidth: 0 }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Avg Profit per Order')}
                     style={{ 
                       margin: '0 0 8px 0', 
                       fontSize: isMobile ? '11px' : '12px', 
                       fontWeight: '600', 
-                      color: '#374151', 
+                      color: '#e9d5ff', 
                       textTransform: 'uppercase', 
                       letterSpacing: '0.05em', 
                       lineHeight: '1.3',
                       cursor: 'pointer',
                       transition: 'color 0.2s ease'
                     }}
-                    onMouseEnter={(e) => e.currentTarget.style.color = '#1e293b'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = '#374151'}
+                    onMouseEnter={(e) => e.currentTarget.style.color = '#ffffff'}
+                    onMouseLeave={(e) => e.currentTarget.style.color = '#e9d5ff'}
                     title="Click to open in fullscreen"
                   >
                     AVG PROFIT PER ORDER
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#16a34a', lineHeight: '1.2', letterSpacing: '-0.02em' }}>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '22px' : '28px', fontWeight: '700', color: '#ffffff', lineHeight: '1.2', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden' }}>
                     {formatCurrency(avgProfitPerOrder)}
                   </p>
                   
@@ -10422,36 +10366,31 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     width: isMobile ? '40px' : '48px',
                     height: isMobile ? '40px' : '48px',
                     borderRadius: '8px',
-                    background: '#dcfce7',
+                    background: 'rgba(255, 255, 255, 0.2)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     marginTop: 'auto',
                     alignSelf: 'flex-end'
                   }}>
-                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#16a34a' }}>trending_up</span>
+                    <span className="material-icons" style={{ fontSize: isMobile ? '20px' : '24px', color: '#ffffff' }}>trending_up</span>
                   </div>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Charts Section - All charts in a continuous grid */}
+          {/* All Charts Section - Single unified grid */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)',
+            gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)',
             gap: isMobile ? '16px' : '24px',
+            marginTop: isMobile ? '12px' : '18px',
             marginBottom: isMobile ? '16px' : '24px'
           }}>
             {/* Ledger Group Chart */}
             {isCardVisible('Sales by Ledger Group') && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: isMobile ? '400px' : '550px',
-                minHeight: isMobile ? '350px' : '500px',
-                overflow: 'hidden'
-              }}>
+              <ChartCard isMobile={isMobile}>
               {ledgerGroupChartType === 'bar' && (
                 <BarChart
                   data={ledgerGroupChartData}
@@ -10691,18 +10630,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     }}
                   />
                 )}
-              </div>
+              </ChartCard>
             )}
 
             {/* Salesperson Totals */}
             {isCardVisible('Salesperson Totals') && (
-              <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              height: isMobile ? '400px' : '550px',
-              minHeight: isMobile ? '350px' : '500px',
-              overflow: 'hidden'
-            }}>
+              <ChartCard isMobile={isMobile}>
               <div style={{
                 background: 'white',
                 borderRadius: '12px',
@@ -10984,18 +10917,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   )}
                 </div>
               </div>
-            </div>
+              </ChartCard>
             )}
 
             {/* Region Chart */}
             {isCardVisible('Sales by State') && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: isMobile ? '400px' : '550px',
-                minHeight: isMobile ? '350px' : '500px',
-                overflow: 'hidden'
-              }}>
+              <ChartCard isMobile={isMobile}>
               {regionChartType === 'bar' && (
                 <BarChart
                   data={regionChartData}
@@ -11321,18 +11248,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   showBackButton={selectedRegion !== 'all'}
                 />
               )}
-              </div>
+              </ChartCard>
             )}
 
             {/* Country Chart */}
             {isCardVisible('Sales by Country') && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: isMobile ? '400px' : '550px',
-                minHeight: isMobile ? '350px' : '500px',
-                overflow: 'hidden'
-              }}>
+              <ChartCard isMobile={isMobile}>
               {countryChartType === 'bar' && (
                 <BarChart
                   data={countryChartData}
@@ -11674,18 +11595,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   showBackButton={selectedCountry !== 'all'}
                 />
               )}
-              </div>
+              </ChartCard>
             )}
 
             {/* Period Chart */}
             {isCardVisible('Sales by Period') && (
-              <div style={{ 
-                display: 'flex',
-                flexDirection: 'column',
-                height: isMobile ? '400px' : '550px',
-                minHeight: isMobile ? '350px' : '500px',
-                overflow: 'hidden'
-              }}>
+              <ChartCard isMobile={isMobile}>
               {periodChartType === 'bar' && (
                 <BarChart
                   data={periodChartData}
@@ -11967,18 +11882,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                    }}
                 />
               )}
-              </div>
+              </ChartCard>
             )}
 
             {/* Top Customers */}
             {isCardVisible('Top Customers Chart') && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: isMobile ? '400px' : '550px',
-                minHeight: isMobile ? '350px' : '500px',
-                overflow: 'hidden'
-              }}>
+              <ChartCard isMobile={isMobile}>
               {topCustomersChartType === 'bar' && (
                 <BarChart
                   data={topCustomersData}
@@ -12380,17 +12289,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 />
               )}
-              </div>
+              </ChartCard>
             )}
 
             {isCardVisible('Top Items by Revenue Chart') && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: isMobile ? '400px' : '550px',
-                minHeight: isMobile ? '350px' : '500px',
-                overflow: 'hidden'
-              }}>
+              <ChartCard isMobile={isMobile}>
               {topItemsByRevenueChartType === 'bar' && (
                 <BarChart
                   data={topItemsByRevenueData}
@@ -12792,16 +12695,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 />
               )}
-              </div>
+              </ChartCard>
             )}
             {isCardVisible('Top Items by Quantity Chart') && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: isMobile ? '400px' : '550px',
-                minHeight: isMobile ? '350px' : '500px',
-                overflow: 'hidden'
-              }}>
+              <ChartCard isMobile={isMobile}>
               {topItemsByQuantityChartType === 'bar' && (
                 <BarChart
                   data={topItemsByQuantityData}
@@ -13207,27 +13104,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   }}
                 />
               )}
-              </div>
+              </ChartCard>
             )}
-          </div>
 
           {/* Profit-related Charts Section */}
           {canShowProfit && (
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, 1fr)',
-              gap: isMobile ? '16px' : '24px',
-              marginBottom: isMobile ? '16px' : '24px'
-            }}>
+            <>
               {/* Revenue vs Profit Chart */}
               {isCardVisible('Revenue vs Profit') && (
-                <div style={{ 
-                  display: 'flex',
-                  flexDirection: 'column',
-                  height: '500px',
-                  overflowY: 'auto',
-                  overflowX: 'hidden'
-                }}>
+                <ChartCard isMobile={isMobile}>
                 {revenueVsProfitChartType === 'line' && (
                 <div style={{
                   background: 'white',
@@ -13235,7 +13120,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     padding: '12px 16px',
                   border: '1px solid #e2e8f0',
                     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                    flex: 1
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    minHeight: 0,
+                    overflow: 'hidden'
                   }}>
                     <div style={{
                   display: 'flex',
@@ -13288,7 +13177,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     <option value="bar">Bar</option>
                   </select>
         </div>
-                    <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px' }}>
+                    <div style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg viewBox="0 0 600 300" style={{ width: '100%', height: '100%', minHeight: '250px', maxHeight: '100%' }}>
                       {/* Grid lines */}
                       {[0, 1, 2, 3, 4].map((i) => {
                         const y = 40 + (i / 4) * 240;
@@ -13393,6 +13283,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <text x="25" y="19" style={{ fontSize: '12px', fill: '#1e293b' }}>Profit</text>
                       </g>
                     </svg>
+                    </div>
           </div>
                 )}
                 {revenueVsProfitChartType === 'bar' && (
@@ -13402,7 +13293,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     padding: '12px 16px',
                     border: '1px solid #e2e8f0',
                     boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-                    flex: 1
+                    flex: 1,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    minHeight: 0,
+                    overflow: 'hidden'
                   }}>
                     <div style={{
                       display: 'flex',
@@ -13442,7 +13337,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <option value="bar">Bar</option>
                       </select>
         </div>
-                    <svg viewBox="0 0 600 300" style={{ width: '100%', height: 'auto', minHeight: '300px' }}>
+                    <div style={{ flex: 1, minHeight: 0, overflow: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg viewBox="0 0 600 300" style={{ width: '100%', height: '100%', minHeight: '250px', maxHeight: '100%' }}>
                       {revenueVsProfitChartData.map((item, index) => {
                         const maxRevenue = Math.max(...revenueVsProfitChartData.map(d => d.revenue));
                         const maxProfit = Math.max(...revenueVsProfitChartData.map(d => Math.abs(d.profit)));
@@ -13513,6 +13409,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         <text x="20" y="24" style={{ fontSize: '12px', fill: '#1e293b' }}>Profit</text>
                       </g>
                     </svg>
+                    </div>
                     <div style={{
                       marginTop: '16px',
                       display: 'flex',
@@ -13553,18 +13450,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     </div>
                   </div>
                 )}
-                </div>
+              </ChartCard>
               )}
 
               {/* Month-wise Profit Chart */}
               {isCardVisible('Month-wise Profit') && (
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  height: '500px',
-                  overflowY: 'auto',
-                overflowX: 'hidden'
-              }}>
+                <ChartCard isMobile={isMobile}>
                 {monthWiseProfitChartType === 'bar' && (
                    <BarChart
                      data={monthWiseProfitChartData}
@@ -13886,19 +13777,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            }
                          ),
                      }}
-                   />
-                 )}
-                </div>
+                />
               )}
+              </ChartCard>
+            )}
 
             {/* Top 10 Profitable Items */}
             {isCardVisible('Top Profitable Items') && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: '500px',
-                overflow: 'hidden'
-              }}>
+              <ChartCard isMobile={isMobile}>
               {topProfitableItemsChartType === 'bar' && (
                 <BarChart
                   data={topProfitableItemsData}
@@ -14147,19 +14033,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         (sale) => sale.item && String(sale.item).trim().toLowerCase() === String(item.label).trim().toLowerCase()
                       ),
                   }}
-                />
+                   />
+                 )}
+              </ChartCard>
               )}
-              </div>
-            )}
 
             {/* Top 10 Loss Items */}
             {isCardVisible('Top Loss Items') && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: '500px',
-                overflow: 'hidden'
-              }}>
+              <ChartCard isMobile={isMobile}>
               {topLossItemsChartType === 'bar' && (
                 <BarChart
                   data={topLossItemsData}
@@ -14383,32 +14264,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   showBackButton={selectedItem !== 'all'}
                 />
               )}
-              </div>
+              </ChartCard>
             )}
-          </div>
+          </>
           )}
 
-          {/* Sales by Stock Group (Position 13) and First Custom Card (Position 14) */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-            gap: isMobile ? '16px' : '24px',
-            marginBottom: isMobile ? '16px' : '24px',
-            width: '100%',
-            maxWidth: '100%',
-            minWidth: 0
-          }}>
-            {/* Sales by Stock Group - Position 13 */}
+          {/* Sales by Stock Group - Position 13 */}
             {isCardVisible('Sales by Stock Group') && (
-              <div style={{
-                display: 'flex',
-                flexDirection: 'column',
-                height: '500px',
-                overflow: 'hidden',
-                width: '100%',
-                maxWidth: '100%',
-                minWidth: 0
-              }}>
+              <ChartCard isMobile={isMobile}>
               {categoryChartType === 'bar' && (
                 <BarChart
                   data={categoryChartData}
@@ -14626,142 +14489,77 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     }}
                   />
                 )}
-              </div>
+              </ChartCard>
             )}
 
-            {/* First Custom Card - Position 14 */}
-            {customCards.filter(card => isCardVisible(card.title)).length > 0 && (() => {
-              const visibleCards = customCards.filter(card => isCardVisible(card.title));
-              return (
-                <div 
-                  ref={visibleCards.length === 1 ? customCardsSectionRef : null}
-                  style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}
-                >
-                  <CustomCard
-                    key={visibleCards[0].id}
-                    card={visibleCards[0]}
-                    salesData={filteredSales}
-                    generateCustomCardData={generateCustomCardData}
-                    chartType={customCardChartTypes[visibleCards[0].id] || visibleCards[0].chartType || 'bar'}
-                    onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [visibleCards[0].id]: newType }))}
-                    onDelete={() => handleDeleteCustomCard(visibleCards[0].id)}
-                    onEdit={handleEditCustomCard}
-                    openTransactionRawData={openTransactionRawData}
-                    openFullscreenCard={openFullscreenCard}
-                    setSelectedCustomer={setSelectedCustomer}
-                    setSelectedItem={setSelectedItem}
-                    setSelectedStockGroup={setSelectedStockGroup}
-                    setSelectedRegion={setSelectedRegion}
-                    setSelectedCountry={setSelectedCountry}
-                    setSelectedPeriod={setSelectedPeriod}
-                    setSelectedLedgerGroup={setSelectedLedgerGroup}
-                    setDateRange={setDateRange}
-                    selectedCustomer={selectedCustomer}
-                    selectedItem={selectedItem}
-                    selectedStockGroup={selectedStockGroup}
-                    selectedRegion={selectedRegion}
-                    selectedCountry={selectedCountry}
-                    selectedPeriod={selectedPeriod}
-                    selectedLedgerGroup={selectedLedgerGroup}
-                    dateRange={dateRange}
-                    genericFilters={genericFilters}
-                    setGenericFilters={setGenericFilters}
-                    renderCardFilterBadges={renderCardFilterBadges}
-                    customCards={customCards}
-                    isMobile={isMobile}
-                    formatPeriodLabel={formatPeriodLabel}
-                    parseDateFromNewFormat={parseDateFromNewFormat}
-                    parseDateFromAPI={parseDateFromAPI}
-                    formatDateForDisplay={formatDateForDisplay}
-                    formatChartValue={formatChartValue}
-                    formatChartCompactValue={formatChartCompactValue}
-                  />
-                </div>
-              );
-            })()}
-          </div>
-
-          {/* Additional Custom Cards - Starting from Position 15, continuing sequentially */}
-          {customCards.filter(card => isCardVisible(card.title)).length > 1 && (() => {
-            // Process remaining custom cards (starting from index 1) in pairs for 2-column grid layout
+          {/* All Custom Cards */}
+          {customCards.filter(card => isCardVisible(card.title)).map((card, index) => {
             const visibleCards = customCards.filter(card => isCardVisible(card.title));
-            const remainingCards = visibleCards.slice(1);
-            const cardRows = [];
-            for (let i = 0; i < remainingCards.length; i += 2) {
-              const rowCards = remainingCards.slice(i, i + 2);
-              cardRows.push(rowCards);
-            }
+            const isFirstCard = index === 0;
+            const isLastCard = index === visibleCards.length - 1;
+            const shouldAttachRef = (isFirstCard && visibleCards.length === 1) || 
+                                   (isFirstCard && visibleCards.length === 2) ||
+                                   (isFirstCard && visibleCards.length === 3) ||
+                                   (isLastCard && visibleCards.length % 3 === 1);
             
-            return cardRows.map((rowCards, rowIndex) => {
-              const isLastRow = rowIndex === cardRows.length - 1;
-              const shouldAttachRef = (rowIndex === 0 && remainingCards.length === 1) || 
-                                     (rowIndex === 0 && remainingCards.length === 2) ||
-                                     (isLastRow && rowCards.length === 1);
-              
-              return (
-                <div
-                  key={`custom-cards-row-${rowIndex}`}
-                  ref={shouldAttachRef ? customCardsSectionRef : null}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr',
-                    gap: isMobile ? '16px' : '24px',
-                    marginBottom: isMobile ? '16px' : '24px',
-                    width: '100%',
-                    maxWidth: '100%',
-                    minWidth: 0
-                  }}
-                >
-                  {rowCards.map((card, cardIndex) => (
-                    <div key={card.id} style={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
-                      <CustomCard
-                        card={card}
-                        salesData={filteredSales}
-                        generateCustomCardData={generateCustomCardData}
-                        chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
-                        onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
-                        onDelete={() => handleDeleteCustomCard(card.id)}
-                        onEdit={handleEditCustomCard}
-                        openTransactionRawData={openTransactionRawData}
-                        openFullscreenCard={openFullscreenCard}
-                        setSelectedCustomer={setSelectedCustomer}
-                        setSelectedItem={setSelectedItem}
-                        setSelectedStockGroup={setSelectedStockGroup}
-                        setSelectedRegion={setSelectedRegion}
-                        setSelectedCountry={setSelectedCountry}
-                        setSelectedPeriod={setSelectedPeriod}
-                        setSelectedLedgerGroup={setSelectedLedgerGroup}
-                        setDateRange={setDateRange}
-                        selectedCustomer={selectedCustomer}
-                        selectedItem={selectedItem}
-                        selectedStockGroup={selectedStockGroup}
-                        selectedRegion={selectedRegion}
-                        selectedCountry={selectedCountry}
-                        selectedPeriod={selectedPeriod}
-                        selectedLedgerGroup={selectedLedgerGroup}
-                        dateRange={dateRange}
-                        genericFilters={genericFilters}
-                        setGenericFilters={setGenericFilters}
-                        renderCardFilterBadges={renderCardFilterBadges}
-                        customCards={customCards}
-                        isMobile={isMobile}
-                        formatPeriodLabel={formatPeriodLabel}
-                        parseDateFromNewFormat={parseDateFromNewFormat}
-                        parseDateFromAPI={parseDateFromAPI}
-                        formatDateForDisplay={formatDateForDisplay}
-                        formatChartValue={formatChartValue}
-                        formatChartCompactValue={formatChartCompactValue}
-                      />
-                    </div>
-                  ))}
-                </div>
-              );
-            });
-          })()}
+            return (
+              <div 
+                key={card.id}
+                ref={shouldAttachRef ? customCardsSectionRef : null}
+                style={{ 
+                  display: 'flex',
+                  flexDirection: 'column',
+                  width: '100%',
+                  maxWidth: '100%',
+                  minWidth: 0,
+                  height: '400px',
+                  overflow: 'hidden'
+                }}
+              >
+                <CustomCard
+                  card={card}
+                  salesData={filteredSales}
+                  generateCustomCardData={generateCustomCardData}
+                  chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
+                  onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
+                  onDelete={() => handleDeleteCustomCard(card.id)}
+                  onEdit={handleEditCustomCard}
+                  openTransactionRawData={openTransactionRawData}
+                  openFullscreenCard={openFullscreenCard}
+                  setSelectedCustomer={setSelectedCustomer}
+                  setSelectedItem={setSelectedItem}
+                  setSelectedStockGroup={setSelectedStockGroup}
+                  setSelectedRegion={setSelectedRegion}
+                  setSelectedCountry={setSelectedCountry}
+                  setSelectedPeriod={setSelectedPeriod}
+                  setSelectedLedgerGroup={setSelectedLedgerGroup}
+                  setDateRange={setDateRange}
+                  selectedCustomer={selectedCustomer}
+                  selectedItem={selectedItem}
+                  selectedStockGroup={selectedStockGroup}
+                  selectedRegion={selectedRegion}
+                  selectedCountry={selectedCountry}
+                  selectedPeriod={selectedPeriod}
+                  selectedLedgerGroup={selectedLedgerGroup}
+                  dateRange={dateRange}
+                  genericFilters={genericFilters}
+                  setGenericFilters={setGenericFilters}
+                  renderCardFilterBadges={renderCardFilterBadges}
+                  customCards={customCards}
+                  isMobile={isMobile}
+                  formatPeriodLabel={formatPeriodLabel}
+                  parseDateFromNewFormat={parseDateFromNewFormat}
+                  parseDateFromAPI={parseDateFromAPI}
+                  formatDateForDisplay={formatDateForDisplay}
+                  formatChartValue={formatChartValue}
+                  formatChartCompactValue={formatChartCompactValue}
+                />
+              </div>
+            );
+          })}
           
         </div>
-        </form>
-    </div>
+      </div>
 
     {rawDataModal.open && (
       <div
@@ -17052,6 +16850,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         </div>
       </div>
     )}
+        </div>
     </>
   );
 };
@@ -21227,18 +21026,7 @@ const CustomCard = React.memo(({
   });
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '500px',
-      maxHeight: '500px',
-      minHeight: '500px',
-      overflow: 'hidden',
-      position: 'relative',
-      width: '100%',
-      maxWidth: '100%',
-      minWidth: 0
-    }}>
+    <ChartCard isMobile={isMobile}>
       {shouldShowCard ? (
         <>
           {chartType === 'bar' && (
@@ -21439,7 +21227,8 @@ const CustomCard = React.memo(({
           borderRadius: '12px',
           border: '1px solid #e2e8f0',
           boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
-          height: '500px',
+          height: '400px',
+          width: '100%',
           display: 'flex',
           flexDirection: 'column'
         }}>
@@ -21452,7 +21241,7 @@ const CustomCard = React.memo(({
           )}
         </div>
       )}
-    </div>
+    </ChartCard>
   );
 });
 
