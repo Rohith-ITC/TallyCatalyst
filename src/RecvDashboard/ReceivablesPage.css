@@ -593,7 +593,6 @@
   border: 1px solid #e2e8f0;
   position: relative;
   max-height: calc(100vh - 225px);
-  min-height: 770px;
   transition: all 0.2s ease;
   width: 100%;
   box-sizing: border-box;
@@ -2557,5 +2556,22 @@
   .filter-badge {
     font-size: 0.6875rem !important;
     padding: 0.375rem 0.5rem !important;
+  }
+}
+
+/* Override padding for PlaceOrder page - remove side padding */
+.place-order-page {
+  padding: 0 0 24px 0 !important;
+}
+
+@media (max-width: 1024px) {
+  .place-order-page {
+    padding: 0 0 20px 0 !important;
+  }
+}
+
+@media (max-width: 768px) {
+  .place-order-page {
+    padding: 0 0 16px 0 !important;
   }
 }

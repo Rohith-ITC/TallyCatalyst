@@ -2379,7 +2379,69 @@ function TallyDashboard() {
             paddingBottom: '20px',
           }}
         >
-          {/* Logo Section with Toggle Button */}
+          {/* Toggle Button - Top Right */}
+          {sidebarOpen && (
+            <button
+              onClick={() => setSidebarOpen(false)}
+              style={{
+                position: 'absolute',
+                top: '12px',
+                right: '12px',
+                background: 'rgba(59, 130, 246, 0.8)',
+                border: 'none',
+                borderRadius: '50%',
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: '#fff',
+                transition: 'all 0.2s ease',
+                zIndex: 10,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(59, 130, 246, 1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(59, 130, 246, 0.8)';
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: 20 }}>chevron_left</span>
+            </button>
+          )}
+          {!sidebarOpen && (
+            <button
+              onClick={() => setSidebarOpen(true)}
+              style={{
+                position: 'absolute',
+                top: '12px',
+                right: '12px',
+                background: 'rgba(59, 130, 246, 0.8)',
+                border: 'none',
+                borderRadius: '50%',
+                width: '32px',
+                height: '32px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: '#fff',
+                transition: 'all 0.2s ease',
+                zIndex: 10,
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(59, 130, 246, 1)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(59, 130, 246, 0.8)';
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: 20 }}>chevron_right</span>
+            </button>
+          )}
+
+          {/* Logo Section */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
@@ -2398,71 +2460,13 @@ function TallyDashboard() {
                 src={TallyLogo}
                 alt="DataLynkr Logo"
                 style={{
-                  width: sidebarOpen ? '70px' : '55px',
-                  height: 'auto',
+                  width: sidebarOpen ? '140px' : '70px',
+                  height: sidebarOpen ? '140px' : '70px',
                   filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1))',
                   transition: 'width 0.3s ease',
                 }}
               />
             </div>
-            {sidebarOpen && (
-              <button
-                onClick={() => setSidebarOpen(false)}
-                style={{
-                  position: 'absolute',
-                  top: '12px',
-                  right: '12px',
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  color: '#fff',
-                  transition: 'all 0.2s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: 20 }}>chevron_left</span>
-              </button>
-            )}
-            {!sidebarOpen && (
-              <button
-                onClick={() => setSidebarOpen(true)}
-                style={{
-                  position: 'absolute',
-                  top: '12px',
-                  right: '12px',
-                  background: 'rgba(255, 255, 255, 0.1)',
-                  border: 'none',
-                  borderRadius: '50%',
-                  width: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  color: '#fff',
-                  transition: 'all 0.2s ease',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: 20 }}>chevron_right</span>
-              </button>
-            )}
           </div>
 
           {/* Company Selector */}
