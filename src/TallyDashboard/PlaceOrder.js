@@ -366,6 +366,8 @@ function PlaceOrder() {
   const autoPopulatingRef = useRef(false);
 
   const hasAutoPopulatedRef = useRef(false);
+  const itemDropdownRef = useRef(null);
+  const itemInputRef = useRef(null);
 
 
 
@@ -886,15 +888,45 @@ function PlaceOrder() {
 
   useEffect(() => {
 
-    if (showItemDropdown) {
+    if (showItemDropdown && itemDropdownRef.current && itemInputRef.current) {
 
-      // Ensure the dropdown is visible by scrolling if needed
+      // Position the dropdown using fixed positioning to escape overflow constraints
 
-      const inputElement = document.querySelector('input[placeholder*="Search items"]');
+      const inputRect = itemInputRef.current.getBoundingClientRect();
 
-      if (inputElement) {
+      const dropdown = itemDropdownRef.current;
 
-        inputElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      
+
+      dropdown.style.position = 'fixed';
+
+      dropdown.style.top = `${inputRect.bottom + 8}px`;
+
+      dropdown.style.left = `${inputRect.left}px`;
+
+      dropdown.style.width = `${inputRect.width}px`;
+
+      dropdown.style.maxWidth = `${inputRect.width}px`;
+
+      dropdown.style.right = 'auto';
+
+      
+
+      // Ensure dropdown is visible in viewport
+
+      const viewportHeight = window.innerHeight;
+
+      const dropdownHeight = Math.min(400, dropdown.scrollHeight);
+
+      const spaceBelow = viewportHeight - inputRect.bottom;
+
+      
+
+      if (spaceBelow < dropdownHeight && inputRect.top > dropdownHeight) {
+
+        // Position above input if not enough space below
+
+        dropdown.style.top = `${inputRect.top - dropdownHeight - 8}px`;
 
       }
 
@@ -8479,7 +8511,7 @@ function PlaceOrder() {
 
   return (
 
-    <div className="receivables-page" style={{
+    <div className="receivables-page place-order-page" style={{
 
       width: '100%',
 
@@ -8487,9 +8519,15 @@ function PlaceOrder() {
 
       background: 'transparent',
 
-      padding: isMobile ? '8px 16px 16px 16px' : isTablet ? '8px 20px 20px 20px' : isSmallDesktop ? '8px 20px 20px 20px' : '8px 24px 24px 24px',
+      padding: isMobile ? '0 0 16px 0' : isTablet ? '0 0 20px 0' : isSmallDesktop ? '0 0 20px 0' : '0 0 24px 0',
+
+      paddingLeft: 0,
+
+      paddingRight: 0,
 
       margin: 0,
+
+      marginTop: '20px',
 
       maxWidth: isMobile ? '100%' : isTablet ? '100%' : isSmallDesktop ? '100%' : isMedium ? '1280px' : '1400px',
 
@@ -8644,6 +8682,21 @@ function PlaceOrder() {
       }}>
         <div className="page-header-left" style={{ width: isMobile ? '100%' : 'auto' }}>
           <div className="page-header-titles">
+            <h1 style={{
+              fontSize: isMobile ? '22px' : '28px',
+              fontWeight: 700,
+              color: '#1e293b',
+              margin: 0,
+              display: 'flex',
+              alignItems: 'center',
+              gap: isMobile ? '8px' : '12px',
+              flexWrap: isMobile ? 'wrap' : 'nowrap'
+            }}>
+              <span className="material-icons" style={{ fontSize: isMobile ? '24px' : '32px', color: '#3b82f6' }}>
+                shopping_cart
+              </span>
+              Place Orders
+            </h1>
           </div>
         </div>
         <div className="page-header-actions" style={{
@@ -8665,7 +8718,7 @@ function PlaceOrder() {
         boxSizing: 'border-box',
         overflowX: 'hidden',
         gap: isMobile ? '16px' : isTablet ? '20px' : isSmallDesktop ? '20px' : '24px',
-        alignItems: isMobile || isTablet || isSmallDesktop ? 'stretch' : 'flex-start'
+        alignItems: 'stretch'
       }}>
         {/* Left Content Area */}
         <div style={{
@@ -8673,18 +8726,33 @@ function PlaceOrder() {
           minWidth: isMobile || isTablet || isSmallDesktop ? 'auto' : '600px',
           maxWidth: '100%',
           width: isMobile || isTablet || isSmallDesktop ? '100%' : 'auto',
-          padding: isMobile ? '8px 16px 16px 16px' : isTablet ? '8px 20px 20px 20px' : isSmallDesktop ? '8px 20px 20px 20px' : '8px 24px 24px 24px',
+          padding: isMobile ? '0 0 16px 0' : isTablet ? '0 0 20px 0' : isSmallDesktop ? '0 0 20px 0' : '0 0 24px 0',
           display: 'flex',
           flexDirection: 'column',
           gap: isMobile ? '20px' : isTablet ? '24px' : isSmallDesktop ? '24px' : '32px',
           boxSizing: 'border-box',
-          overflowX: 'hidden'
+          overflowX: 'hidden',
+          overflowY: 'visible',
+          alignSelf: 'stretch',
+          height: isMobile || isTablet || isSmallDesktop ? 'auto' : '100%'
         }}>
           {/* Form - Place Order */}
           <form id="order-form" onSubmit={handleSubmit} style={{ width: '100%', maxWidth: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
 
-            {/* Customer Details Section */}
-            <div style={{ maxWidth: '100%', boxSizing: 'border-box' }}>
+            {/* Order Form Container - Wraps all form fields */}
+            <div style={{
+              width: '100%',
+              maxWidth: '100%',
+              boxSizing: 'border-box',
+              padding: isMobile ? '20px' : '24px',
+              background: '#ffffff',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+              marginBottom: '24px'
+            }}>
+              {/* Customer Details Section */}
+              <div style={{ maxWidth: '100%', boxSizing: 'border-box' }}>
 
 
 
@@ -8710,222 +8778,143 @@ function PlaceOrder() {
                   minWidth: isMobile ? 'auto' : (isTablet || isSmallDesktop) ? 'auto' : '200px',
                   maxWidth: isMobile || isTablet || isSmallDesktop ? '100%' : '240px'
                 }}>
-                  <label style={{
-                    display: 'block',
-                    marginBottom: '8px',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    color: voucherTypeFocused || selectedVoucherType ? '#7c3aed' : '#374151',
-                    transition: 'color 0.2s ease'
-                  }}>
-                    Order Type
-                  </label>
-
                   <div style={{
-
                     position: 'relative',
-
                     background: 'white',
-
-                    borderRadius: '12px',
-
-                    border: showVoucherTypeDropdown ? '2px solid #7c3aed' : '1px solid #e5e7eb',
-
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-
-                    boxShadow: showVoucherTypeDropdown ? '0 0 0 4px rgba(124, 58, 237, 0.1), 0 4px 12px rgba(124, 58, 237, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.08)',
-
-                    zIndex: showVoucherTypeDropdown ? 1001 : 'auto',
-
-                    ':hover': {
-                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
-                      borderColor: showVoucherTypeDropdown ? '#7c3aed' : '#d1d5db'
-                    }
-
+                    borderRadius: '10px',
+                    border: showVoucherTypeDropdown ? '2px solid #3b82f6' : '1px solid #d1d5db',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    boxShadow: showVoucherTypeDropdown 
+                      ? '0 0 0 3px rgba(59, 130, 246, 0.1), 0 2px 8px rgba(0, 0, 0, 0.08)' 
+                      : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                    zIndex: showVoucherTypeDropdown ? 1001 : 'auto'
                   }}
                   onMouseEnter={(e) => {
                     if (!showVoucherTypeDropdown) {
-                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                      e.currentTarget.style.borderColor = '#d1d5db';
+                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.08)';
+                      e.currentTarget.style.borderColor = '#9ca3af';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!showVoucherTypeDropdown) {
-                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
-                      e.currentTarget.style.borderColor = '#e5e7eb';
+                      e.currentTarget.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+                      e.currentTarget.style.borderColor = '#d1d5db';
                     }
                   }}>
+                    <label style={{
+                      position: 'absolute',
+                      left: '16px',
+                      top: voucherTypeFocused || selectedVoucherType ? '-10px' : '50%',
+                      transform: voucherTypeFocused || selectedVoucherType ? 'translateY(0)' : 'translateY(-50%)',
+                      fontSize: voucherTypeFocused || selectedVoucherType ? '11px' : (isMobile ? '14px' : '15px'),
+                      fontWeight: '500',
+                      color: voucherTypeFocused || selectedVoucherType ? '#3b82f6' : '#6b7280',
+                      backgroundColor: 'white',
+                      padding: voucherTypeFocused || selectedVoucherType ? '0 6px' : '0',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      pointerEvents: 'none',
+                      zIndex: 1,
+                      letterSpacing: '0.01em',
+                      lineHeight: voucherTypeFocused || selectedVoucherType ? '1.2' : '1'
+                    }}>
+                      Order Type
+                    </label>
 
                     <input
-
                       type="text"
-
                       value={selectedVoucherType}
-
                       onChange={e => {
-
                         const inputValue = e.target.value;
-
                         setSelectedVoucherType(inputValue);
-
                         setShowVoucherTypeDropdown(true);
-
-                        // Filter voucher types based on search
-
                         if (!inputValue.trim()) {
-
                           setVoucherTypes(voucherTypes);
-
                         } else {
-
                           const filtered = voucherTypes.filter(vt =>
-
                             vt.NAME.toLowerCase().includes(inputValue.toLowerCase())
-
                           );
-
                           setVoucherTypes(filtered);
-
                         }
-
                       }}
-
                       onFocus={() => {
-
                         setVoucherTypeFocused(true);
-
                         setShowVoucherTypeDropdown(true);
-
                       }}
-
                       onBlur={() => {
-
                         setVoucherTypeFocused(false);
-
-                        // Delay hiding dropdown to allow click events
-
                         setTimeout(() => setShowVoucherTypeDropdown(false), 200);
-
                       }}
-
                       onKeyDown={(e) => {
-
                         if (e.key === 'Escape') {
-
                           setShowVoucherTypeDropdown(false);
-
                           e.target.blur();
-
                         }
-
                       }}
-
                       required
-
                       disabled={voucherTypesLoading}
-
                       style={{
-
                         width: '100%',
-
-                        padding: isMobile ? '12px 16px' : '14px 16px',
-
+                        padding: isMobile 
+                          ? (voucherTypeFocused || selectedVoucherType ? '14px 16px 18px 16px' : '12px 16px')
+                          : (voucherTypeFocused || selectedVoucherType ? '16px 16px 20px 16px' : '14px 16px'),
                         border: 'none',
-
-                        borderRadius: '12px',
-
+                        borderRadius: '10px',
                         fontSize: isMobile ? '14px' : '15px',
-
                         color: '#111827',
-
                         outline: 'none',
-
                         background: 'transparent',
-
                         cursor: voucherTypesLoading ? 'not-allowed' : 'text',
-
-                        height: isMobile ? '44px' : '48px',
-
+                        height: isMobile ? '48px' : '52px',
                         boxSizing: 'border-box',
-
-                        fontWeight: '500'
-
+                        fontWeight: '400',
+                        fontFamily: 'inherit',
+                        lineHeight: '1.5'
                       }}
-
-                      placeholder={voucherTypesLoading ? 'Loading voucher types...' : 'Select Voucher Type'}
-
+                      placeholder=""
                     />
 
                     {selectedVoucherType && (
-
                       <button
-
                         type="button"
-
                         onClick={() => {
-
                           setSelectedVoucherType('');
-
                           setShowVoucherTypeDropdown(false);
-
                         }}
-
                         style={{
-
                           position: 'absolute',
-
                           right: '12px',
-
                           top: '50%',
-
                           transform: 'translateY(-50%)',
-
-                          background: '#f3f4f6',
-
+                          background: 'transparent',
                           border: 'none',
-
                           cursor: 'pointer',
-
-                          color: '#6b7280',
-
-                          fontSize: '18px',
-
+                          color: '#9ca3af',
+                          fontSize: '20px',
                           lineHeight: 1,
-
-                          padding: '6px',
-
-                          borderRadius: '6px',
-
-                          width: '28px',
-
-                          height: '28px',
-
+                          padding: '4px',
+                          borderRadius: '4px',
+                          width: '24px',
+                          height: '24px',
                           display: 'flex',
-
                           alignItems: 'center',
-
                           justifyContent: 'center',
-
-                          transition: 'all 0.2s ease'
-
+                          transition: 'all 0.2s ease',
+                          opacity: 0.7
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.background = '#e5e7eb';
+                          e.currentTarget.style.background = '#f3f4f6';
                           e.currentTarget.style.color = '#374151';
+                          e.currentTarget.style.opacity = '1';
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.background = '#f3f4f6';
-                          e.currentTarget.style.color = '#6b7280';
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = '#9ca3af';
+                          e.currentTarget.style.opacity = '0.7';
                         }}
-
                         title="Clear selection"
-
                       >
-
                         ×
-
                       </button>
-
                     )}
 
                     {voucherTypesLoading && (
@@ -8955,35 +8944,20 @@ function PlaceOrder() {
                   </div>
 
                   {/* VoucherType Dropdown */}
-
                   {showVoucherTypeDropdown && voucherTypes.length > 0 && (
-
                     <div style={{
-
                       position: 'absolute',
-
-                      top: '100%',
-
+                      top: 'calc(100% + 6px)',
                       left: 0,
-
                       right: 0,
-
                       backgroundColor: 'white',
-
                       border: '1px solid #e2e8f0',
-
-                      borderRadius: '12px',
-
-                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
-
+                      borderRadius: '8px',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08)',
                       zIndex: 1002,
-
-                      maxHeight: '200px',
-
+                      maxHeight: '240px',
                       overflowY: 'auto',
-
-                      marginTop: '4px'
-
+                      marginTop: '0'
                     }}>
 
                       {voucherTypes.map((voucherType, index) => (
@@ -9007,27 +8981,16 @@ function PlaceOrder() {
                           }}
 
                           style={{
-
                             padding: '12px 16px',
-
                             cursor: 'pointer',
-
                             borderBottom: index < voucherTypes.length - 1 ? '1px solid #f1f5f9' : 'none',
-
-                            transition: 'background-color 0.2s ease'
-
+                            transition: 'background-color 0.15s ease'
                           }}
-
                           onMouseEnter={(e) => {
-
                             e.target.style.backgroundColor = '#f8fafc';
-
                           }}
-
                           onMouseLeave={(e) => {
-
                             e.target.style.backgroundColor = 'white';
-
                           }}
 
                         >
@@ -9078,37 +9041,48 @@ function PlaceOrder() {
                     minWidth: isMobile ? 'auto' : (isTablet || isSmallDesktop) ? 'auto' : '200px',
                     maxWidth: isMobile || isTablet || isSmallDesktop ? '100%' : '240px'
                   }}>
-                    <label style={{
-                      display: 'block',
-                      marginBottom: '8px',
-                      fontSize: '13px',
-                      fontWeight: '500',
-                      color: classNameFocused || selectedClassName ? '#7c3aed' : '#374151',
-                      transition: 'color 0.2s ease'
-                    }}>
-                      Class Name
-                    </label>
                     <div style={{
                       position: 'relative',
                       background: 'white',
-                      borderRadius: '12px',
-                      border: showClassNameDropdown ? '2px solid #7c3aed' : '1px solid #e5e7eb',
-                      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                      boxShadow: showClassNameDropdown ? '0 0 0 4px rgba(124, 58, 237, 0.1), 0 4px 12px rgba(124, 58, 237, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.08)',
-                      zIndex: showClassNameDropdown ? 1001 : 'auto'
+                      borderRadius: '10px',
+                      border: showClassNameDropdown ? '2px solid #3b82f6' : '1px solid #d1d5db',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      boxShadow: showClassNameDropdown 
+                        ? '0 0 0 3px rgba(59, 130, 246, 0.1), 0 2px 8px rgba(0, 0, 0, 0.08)' 
+                        : '0 1px 2px rgba(0, 0, 0, 0.05)',
+                      zIndex: showClassNameDropdown ? 1001 : 'auto',
+                      opacity: availableClasses.length === 0 ? 0.6 : 1
                     }}
                     onMouseEnter={(e) => {
-                      if (!showClassNameDropdown) {
-                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                        e.currentTarget.style.borderColor = '#d1d5db';
+                      if (!showClassNameDropdown && availableClasses.length > 0) {
+                        e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.08)';
+                        e.currentTarget.style.borderColor = '#9ca3af';
                       }
                     }}
                     onMouseLeave={(e) => {
                       if (!showClassNameDropdown) {
-                        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
-                        e.currentTarget.style.borderColor = '#e5e7eb';
+                        e.currentTarget.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+                        e.currentTarget.style.borderColor = '#d1d5db';
                       }
                     }}>
+                      <label style={{
+                        position: 'absolute',
+                        left: '16px',
+                        top: classNameFocused || selectedClassName ? '-10px' : '50%',
+                        transform: classNameFocused || selectedClassName ? 'translateY(0)' : 'translateY(-50%)',
+                        fontSize: classNameFocused || selectedClassName ? '11px' : (isMobile ? '14px' : '15px'),
+                        fontWeight: '500',
+                        color: classNameFocused || selectedClassName ? '#3b82f6' : '#6b7280',
+                        backgroundColor: 'white',
+                        padding: classNameFocused || selectedClassName ? '0 6px' : '0',
+                        transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                        pointerEvents: 'none',
+                        zIndex: 1,
+                        letterSpacing: '0.01em',
+                        lineHeight: classNameFocused || selectedClassName ? '1.2' : '1'
+                      }}>
+                        Class Name
+                      </label>
                       <input
                         type="text"
                         value={selectedClassName}
@@ -9127,7 +9101,6 @@ function PlaceOrder() {
                         }}
                         onBlur={() => {
                           setClassNameFocused(false);
-                          // Delay hiding dropdown to allow click events
                           setTimeout(() => setShowClassNameDropdown(false), 200);
                         }}
                         onKeyDown={(e) => {
@@ -9139,17 +9112,21 @@ function PlaceOrder() {
                         disabled={availableClasses.length === 0}
                         style={{
                           width: '100%',
-                          padding: isMobile ? '12px 16px' : '14px 16px',
+                          padding: isMobile 
+                            ? (classNameFocused || selectedClassName ? '14px 16px 18px 16px' : '12px 16px')
+                            : (classNameFocused || selectedClassName ? '16px 16px 20px 16px' : '14px 16px'),
                           border: 'none',
-                          borderRadius: '12px',
+                          borderRadius: '10px',
                           fontSize: isMobile ? '14px' : '15px',
                           color: availableClasses.length === 0 ? '#9ca3af' : '#111827',
                           outline: 'none',
-                          background: availableClasses.length === 0 ? '#f9fafb' : 'transparent',
+                          background: 'transparent',
                           cursor: availableClasses.length === 0 ? 'not-allowed' : 'text',
-                          height: isMobile ? '44px' : '48px',
+                          height: isMobile ? '48px' : '52px',
                           boxSizing: 'border-box',
-                          fontWeight: '500'
+                          fontWeight: '400',
+                          fontFamily: 'inherit',
+                          lineHeight: '1.5'
                         }}
                         placeholder={availableClasses.length === 0 ? 'No classes available' : ''}
                       />
@@ -9165,28 +9142,31 @@ function PlaceOrder() {
                             right: '12px',
                             top: '50%',
                             transform: 'translateY(-50%)',
-                            background: '#f3f4f6',
+                            background: 'transparent',
                             border: 'none',
                             cursor: 'pointer',
-                            color: '#6b7280',
-                            fontSize: '18px',
+                            color: '#9ca3af',
+                            fontSize: '20px',
                             lineHeight: 1,
-                            padding: '6px',
-                            borderRadius: '6px',
-                            width: '28px',
-                            height: '28px',
+                            padding: '4px',
+                            borderRadius: '4px',
+                            width: '24px',
+                            height: '24px',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            transition: 'all 0.2s ease'
+                            transition: 'all 0.2s ease',
+                            opacity: 0.7
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.background = '#e5e7eb';
+                            e.currentTarget.style.background = '#f3f4f6';
                             e.currentTarget.style.color = '#374151';
+                            e.currentTarget.style.opacity = '1';
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = '#f3f4f6';
-                            e.currentTarget.style.color = '#6b7280';
+                            e.currentTarget.style.background = 'transparent';
+                            e.currentTarget.style.color = '#9ca3af';
+                            e.currentTarget.style.opacity = '0.7';
                           }}
                           title="Clear selection"
                         >
@@ -9199,17 +9179,17 @@ function PlaceOrder() {
                     {showClassNameDropdown && availableClasses.length > 0 && (
                       <div style={{
                         position: 'absolute',
-                        top: '100%',
+                        top: 'calc(100% + 6px)',
                         left: 0,
                         right: 0,
                         backgroundColor: 'white',
                         border: '1px solid #e2e8f0',
-                        borderRadius: '12px',
-                        boxShadow: '0 10px 25px rgba(0, 0, 0, 0.1)',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.12), 0 2px 4px rgba(0, 0, 0, 0.08)',
                         zIndex: 1002,
-                        maxHeight: '200px',
+                        maxHeight: '240px',
                         overflowY: 'auto',
-                        marginTop: '4px'
+                        marginTop: '0'
                       }}>
                         {availableClasses
                           .filter(className => !selectedClassName || className.toLowerCase().includes(selectedClassName.toLowerCase()))
@@ -9226,7 +9206,7 @@ function PlaceOrder() {
                                 padding: '12px 16px',
                                 cursor: 'pointer',
                                 borderBottom: index < filtered.length - 1 ? '1px solid #f1f5f9' : 'none',
-                                transition: 'background-color 0.2s ease'
+                                transition: 'background-color 0.15s ease'
                               }}
                               onMouseEnter={(e) => {
                                 e.target.style.backgroundColor = '#f8fafc';
@@ -9251,323 +9231,191 @@ function PlaceOrder() {
 
 
                 {/* Customer */}
-
                 <div style={{
-
                   position: 'relative',
-
                   flex: isMobile ? '1 1 100%' : (isTablet || isSmallDesktop) ? '1 1 100%' : '1 1 0',
-
                   minWidth: isMobile ? 'auto' : (isTablet || isSmallDesktop) ? 'auto' : '250px',
-
                   width: isMobile || isTablet || isSmallDesktop ? '100%' : 'auto',
-
                   maxWidth: '100%'
-
                 }}>
-                  <label style={{
-                    display: 'block',
-                    marginBottom: '8px',
-                    fontSize: '13px',
-                    fontWeight: '500',
-                    color: customerFocused || !!selectedCustomer ? '#7c3aed' : '#374151',
-                    transition: 'color 0.2s ease'
-                  }}>
-                    Customer
-                  </label>
-
                   <div style={{
-
                     position: 'relative',
-
                     background: 'white',
-
-                    borderRadius: '12px',
-
-                    border: showCustomerDropdown ? '2px solid #7c3aed' : '1px solid #e5e7eb',
-
-                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-
-                    boxShadow: showCustomerDropdown ? '0 0 0 4px rgba(124, 58, 237, 0.1), 0 4px 12px rgba(124, 58, 237, 0.15)' : '0 1px 3px rgba(0, 0, 0, 0.08)',
-
+                    borderRadius: '10px',
+                    border: showCustomerDropdown ? '2px solid #3b82f6' : '1px solid #d1d5db',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    boxShadow: showCustomerDropdown 
+                      ? '0 0 0 3px rgba(59, 130, 246, 0.1), 0 2px 8px rgba(0, 0, 0, 0.08)' 
+                      : '0 1px 2px rgba(0, 0, 0, 0.05)',
                     zIndex: showCustomerDropdown ? 1001 : 'auto'
-
                   }}
                   onMouseEnter={(e) => {
                     if (!showCustomerDropdown) {
-                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)';
-                      e.currentTarget.style.borderColor = '#d1d5db';
+                      e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.08)';
+                      e.currentTarget.style.borderColor = '#9ca3af';
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!showCustomerDropdown) {
-                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
-                      e.currentTarget.style.borderColor = '#e5e7eb';
+                      e.currentTarget.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+                      e.currentTarget.style.borderColor = '#d1d5db';
                     }
                   }}>
+                    <label style={{
+                      position: 'absolute',
+                      left: '16px',
+                      top: customerFocused || selectedCustomer || customerSearchTerm ? '-10px' : '50%',
+                      transform: customerFocused || selectedCustomer || customerSearchTerm ? 'translateY(0)' : 'translateY(-50%)',
+                      fontSize: customerFocused || selectedCustomer || customerSearchTerm ? '11px' : (isMobile ? '14px' : '15px'),
+                      fontWeight: '500',
+                      color: customerFocused || selectedCustomer || customerSearchTerm ? '#3b82f6' : '#6b7280',
+                      backgroundColor: 'white',
+                      padding: customerFocused || selectedCustomer || customerSearchTerm ? '0 6px' : '0',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      pointerEvents: 'none',
+                      zIndex: 1,
+                      letterSpacing: '0.01em',
+                      lineHeight: customerFocused || selectedCustomer || customerSearchTerm ? '1.2' : '1'
+                    }}>
+                      Customer
+                    </label>
 
                     <input
-
                       type="text"
-
                       value={selectedCustomer || customerSearchTerm}
-
                       onChange={e => {
-
                         const inputValue = e.target.value;
-
-                        // Clear auto-population state when user manually types in customer field
-
                         if (isAutoPopulating || autoPopulatingRef.current) {
-
                           console.log('🔄 User manually typing in customer field - clearing auto-population state');
-
                           setIsAutoPopulating(false);
-
                           autoPopulatingRef.current = false;
-
                         }
-
                         setCustomerSearchTerm(inputValue);
-
                         setSelectedCustomer('');
-
                         setShowCustomerDropdown(true);
-
-                        // Clear filtered results immediately when clearing search or starting new search
-
                         if (!inputValue.trim()) {
-
-                          // Always show all customers when no search term (like ecommerce)
-
                           setFilteredCustomers(customerOptions);
-
                         } else {
-
-                          // Clear previous results immediately when starting new search
-
-                          // The debounced search will populate new results
-
                           setFilteredCustomers([]);
-
                         }
-
                       }}
-
                       onFocus={() => {
-
                         setCustomerFocused(true);
-
                         setShowCustomerDropdown(true);
-
-                        // Always show all customers when focused (like ecommerce)
-
                         setFilteredCustomers(customerOptions);
-
                       }}
-
                       onBlur={(e) => {
-
                         console.log('👋 Customer input blur triggered');
-
                         console.log('👋 Related target:', e.relatedTarget);
-
                         console.log('👋 Active element:', document.activeElement);
-
                         setCustomerFocused(false);
-
-                        // Delay hiding dropdown to allow click events
-
                         setTimeout(() => {
-
                           console.log('👋 Blur timeout - closing dropdown');
-
                           setShowCustomerDropdown(false);
-
                         }, 200);
-
                       }}
-
                       onKeyDown={(e) => {
-
                         if (e.key === 'Escape') {
-
                           setShowCustomerDropdown(false);
-
                           e.target.blur();
-
                         }
-
                       }}
-
                       required
-
                       disabled={customerLoading}
-
                       style={{
-
                         width: '100%',
-
-                        padding: isMobile ? '12px 16px' : '14px 16px',
-
-                        paddingRight: selectedCustomer ? '50px' : '48px',
-
+                        padding: isMobile 
+                          ? (customerFocused || selectedCustomer || customerSearchTerm ? '14px 48px 18px 16px' : '12px 48px 12px 16px')
+                          : (customerFocused || selectedCustomer || customerSearchTerm ? '16px 48px 20px 16px' : '14px 48px 14px 16px'),
                         border: 'none',
-
-                        borderRadius: '12px',
-
+                        borderRadius: '10px',
                         fontSize: isMobile ? '14px' : '15px',
-
                         color: '#111827',
-
                         outline: 'none',
-
                         background: 'transparent',
-
                         cursor: customerLoading ? 'not-allowed' : 'text',
-
-                        height: isMobile ? '44px' : '48px',
-
+                        height: isMobile ? '48px' : '52px',
                         boxSizing: 'border-box',
-
-                        fontWeight: '500'
-
+                        fontWeight: '400',
+                        fontFamily: 'inherit',
+                        lineHeight: '1.5'
                       }}
-
-                      placeholder={customerLoading ? 'Loading...' : customerError ? customerError : 'Search customer...'}
-
+                      placeholder={customerLoading ? 'Loading...' : customerError ? customerError : ''}
                     />
 
 
 
                     {/* Search Icon or Dropdown Arrow */}
-
                     {!selectedCustomer && (
-
                       <span
-
                         className="material-icons"
-
                         style={{
-
                           position: 'absolute',
-
                           right: '16px',
-
                           top: '50%',
-
                           transform: 'translateY(-50%)',
-
-                          color: showCustomerDropdown ? '#7c3aed' : '#9ca3af',
-
-                          fontSize: '22px',
-
+                          color: showCustomerDropdown ? '#3b82f6' : '#9ca3af',
+                          fontSize: '20px',
                           pointerEvents: 'none',
-
-                          transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-
-                          opacity: 0.7
-
+                          transition: 'all 0.2s ease',
+                          opacity: 0.6
                         }}
-
                       >
-
                         {showCustomerDropdown ? 'expand_less' : 'search'}
-
                       </span>
-
                     )}
 
 
 
                     {/* Clear Button for Customer */}
-
                     {selectedCustomer && (
-
                       <button
-
                         type="button"
-
                         onClick={() => {
-
-                          // Clear auto-population state when user manually clears customer
-
                           if (isAutoPopulating || autoPopulatingRef.current) {
-
                             console.log('🔄 User manually cleared customer - clearing auto-population state');
-
                             setIsAutoPopulating(false);
-
                             autoPopulatingRef.current = false;
-
                           }
-
                           setSelectedCustomer('');
-
                           setCustomerSearchTerm('');
-
                           setShowCustomerDropdown(false);
-
-                          // Always show all customers when reopening (like ecommerce)
-
                           setFilteredCustomers(customerOptions);
-
                         }}
-
                         style={{
-
                           position: 'absolute',
-
                           right: '12px',
-
                           top: '50%',
-
                           transform: 'translateY(-50%)',
-
-                          background: '#f3f4f6',
-
+                          background: 'transparent',
                           border: 'none',
-
                           cursor: 'pointer',
-
-                          padding: '6px',
-
-                          borderRadius: '6px',
-
-                          color: '#6b7280',
-
-                          fontSize: '18px',
-
+                          padding: '4px',
+                          borderRadius: '4px',
+                          color: '#9ca3af',
+                          fontSize: '20px',
                           display: 'flex',
-
                           alignItems: 'center',
-
                           justifyContent: 'center',
-
                           transition: 'all 0.2s ease',
-
-                          width: '28px',
-
-                          height: '28px'
-
+                          width: '24px',
+                          height: '24px',
+                          opacity: 0.7
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.background = '#e5e7eb';
+                          e.currentTarget.style.background = '#f3f4f6';
                           e.currentTarget.style.color = '#374151';
+                          e.currentTarget.style.opacity = '1';
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.background = '#f3f4f6';
-                          e.currentTarget.style.color = '#6b7280';
+                          e.currentTarget.style.background = 'transparent';
+                          e.currentTarget.style.color = '#9ca3af';
+                          e.currentTarget.style.opacity = '0.7';
                         }}
-
                         title="Clear customer"
-
                       >
-
                         ×
-
                       </button>
-
                     )}
 
 
@@ -10131,6 +9979,9 @@ function PlaceOrder() {
 
               )}
 
+              </div>
+              {/* End of Customer Details Section */}
+
               {/* Order Items Section - Table Container */}
               <div style={{
                 width: '100%',
@@ -10155,23 +10006,6 @@ function PlaceOrder() {
 
 
                   {/* Order Items Section */}
-                  <div style={{
-                    background: '#ffffff',
-                    borderRadius: '0.75rem',
-                    padding: isMobile ? '20px' : '24px',
-                    border: '1px solid #e2e8f0',
-                    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
-                    transition: 'all 0.2s ease',
-                    overflow: 'visible',
-                    position: 'relative',
-                    zIndex: 1
-                  }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
-                    }}>
 
                     <div style={{
 
@@ -10229,6 +10063,8 @@ function PlaceOrder() {
                         }}>
 
                           <input
+
+                            ref={itemInputRef}
 
                             type="text"
 
@@ -10482,17 +10318,17 @@ function PlaceOrder() {
 
                             <div
 
+                              ref={itemDropdownRef}
+
                               className="dropdown-animation"
 
                               style={{
 
-                                position: 'absolute',
+                                position: 'fixed',
 
-                                top: 'calc(100% + 8px)',
+                                top: 'auto',
 
-                                left: 0,
-
-                                right: 0,
+                                left: 'auto',
 
                                 backgroundColor: 'white',
 
@@ -12464,11 +12300,11 @@ function PlaceOrder() {
 
                     )}
 
-                  </div>
                 </div>
               </div>
-            </div>
             {/* End of Order Items Section Header */}
+            </div>
+            {/* End of Order Form Container */}
 
           </form>
 
@@ -12522,8 +12358,8 @@ function PlaceOrder() {
               width: '100%',
               maxWidth: '100%',
               boxSizing: 'border-box',
-              overflowX: isMobile || isTablet ? 'auto' : 'visible',
-              overflowY: 'visible',
+              overflowX: isMobile || isTablet ? 'auto' : 'auto',
+              overflowY: 'auto',
               position: 'relative',
               marginTop: '1rem',
               WebkitOverflowScrolling: 'touch'
@@ -12531,7 +12367,9 @@ function PlaceOrder() {
 
               <div style={{
                 boxSizing: 'border-box',
-                position: 'relative'
+                position: 'relative',
+                width: '100%',
+                minWidth: 0
               }}>
 
                 {/* Table Header - Hidden on mobile, shown on desktop */}
@@ -12559,6 +12397,7 @@ function PlaceOrder() {
                     letterSpacing: '0.025em',
 
                     minWidth: 0,
+                    width: '100%',
                     boxSizing: 'border-box'
 
                   }}>
@@ -13301,11 +13140,11 @@ function PlaceOrder() {
           width: isMobile || isTablet || isSmallDesktop ? '100%' : isMedium ? '360px' : '380px',
           maxWidth: '100%',
           position: isMobile || isTablet || isSmallDesktop ? 'relative' : 'sticky',
-          top: isMobile || isTablet || isSmallDesktop ? 'auto' : '8px',
-          alignSelf: isMobile || isTablet || isSmallDesktop ? 'auto' : 'flex-start',
-          maxHeight: isMobile || isTablet || isSmallDesktop ? 'none' : 'calc(100vh - 48px)',
+          top: isMobile || isTablet || isSmallDesktop ? 'auto' : '0',
+          alignSelf: 'stretch',
+          height: isMobile || isTablet || isSmallDesktop ? 'auto' : '100%',
           overflowY: isMobile || isTablet || isSmallDesktop ? 'visible' : 'auto',
-          padding: isMobile ? '8px 16px 16px 16px' : isTablet ? '8px 20px 20px 20px' : isSmallDesktop ? '8px 20px 20px 20px' : '8px 24px 24px 24px',
+          padding: isMobile ? '0 0 16px 0' : isTablet ? '0 0 20px 0' : isSmallDesktop ? '0 0 20px 0' : '0 0 24px 0',
           display: 'flex',
           flexDirection: 'column',
           gap: isMobile ? '16px' : '20px',
