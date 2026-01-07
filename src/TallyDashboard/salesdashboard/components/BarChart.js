@@ -325,8 +325,8 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                 <div style={{
                   width: '100%',
                   background: '#e2e8f0',
-                  borderRadius: '6px',
-                  height: '18px',
+                  borderRadius: '4px',
+                  height: '10px',
                   overflow: 'hidden',
                   position: 'relative'
                 }}>
@@ -334,16 +334,16 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                     // Stacked segments
                     <div style={{
                       display: 'flex',
-                      height: '18px',
+                      height: '10px',
                       width: `${(totalValue / maxValue) * 100}%`,
-                      borderRadius: '6px',
+                      borderRadius: '4px',
                       overflow: 'hidden'
                     }}>
                       {item.segments.map((segment, idx) => (
                         <div
                           key={`${item.label}-segment-${idx}`}
                           style={{
-                            height: '18px',
+                            height: '10px',
                             width: `${(segment.value / totalValue) * 100}%`,
                             backgroundColor: segment.color || '#3b82f6',
                             transition: 'all 0.3s ease',
@@ -360,8 +360,8 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                     // Regular single bar
                     <div
                       style={{
-                        height: '18px',
-                        borderRadius: '6px',
+                        height: '10px',
+                        borderRadius: '4px',
                         transition: 'all 0.5s ease-out',
                         width: `${(item.value / maxValue) * 100}%`,
                         backgroundColor: item.color || '#3b82f6',
