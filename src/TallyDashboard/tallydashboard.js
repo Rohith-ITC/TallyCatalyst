@@ -394,6 +394,8 @@ function TallyDashboard() {
   const [companySearchTerm, setCompanySearchTerm] = useState('');
   const [filteredCompanies, setFilteredCompanies] = useState([]);
   const [isSelectingCompany, setIsSelectingCompany] = useState(false);
+  const companyButtonRef = useRef(null);
+  const [companyDropdownPosition, setCompanyDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
 
   useEffect(() => {
     if (!selectedCompanyGuid) {
@@ -503,6 +505,94 @@ function TallyDashboard() {
       setFilteredCompanies(allConnections);
     }
   };
+
+  // Update company dropdown position when it opens
+  useEffect(() => {
+    const updateCompanyDropdownPosition = () => {
+      if (companyDropdownOpen && companyButtonRef.current) {
+        const rect = companyButtonRef.current.getBoundingClientRect();
+        const dropdownWidth = 280;
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+
+        // Estimate dropdown height
+        const itemCount = Math.min(filteredCompanies.length || allConnections.length, 5);
+        const estimatedDropdownHeight = (itemCount * 60) + 100; // 60px per item + padding
+
+        // Calculate initial top position
+        let topPosition = rect.bottom + 4;
+
+        // Check if dropdown would overflow bottom of viewport
+        if (topPosition + estimatedDropdownHeight > viewportHeight) {
+          // Position above the button
+          topPosition = Math.max(8, rect.top - estimatedDropdownHeight - 4);
+        }
+
+        // When sidebar is collapsed, always position to the right
+        if (!sidebarOpen) {
+          const leftPosition = rect.right + 8;
+          // Check if dropdown would overflow to the right
+          if (leftPosition + dropdownWidth > viewportWidth) {
+            // Position to the left of button
+            setCompanyDropdownPosition({
+              top: topPosition,
+              left: Math.max(8, rect.left - dropdownWidth - 8),
+              width: rect.width
+            });
+          } else {
+            // Position to the right of button
+            setCompanyDropdownPosition({
+              top: topPosition,
+              left: leftPosition,
+              width: rect.width
+            });
+          }
+        } else {
+          // When sidebar is open, use relative positioning (existing behavior)
+          setCompanyDropdownPosition({
+            top: 0,
+            left: 0,
+            width: rect.width
+          });
+        }
+      }
+    };
+
+    if (companyDropdownOpen) {
+      updateCompanyDropdownPosition();
+      const handleResize = () => updateCompanyDropdownPosition();
+      const handleScroll = () => updateCompanyDropdownPosition();
+      window.addEventListener('resize', handleResize);
+      window.addEventListener('scroll', handleScroll, true);
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('scroll', handleScroll, true);
+      };
+    }
+  }, [companyDropdownOpen, sidebarOpen, filteredCompanies, allConnections]);
+
+  // Close company dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (companyDropdownOpen && companyButtonRef.current && !companyButtonRef.current.contains(event.target)) {
+        // Check if click is on the dropdown itself
+        const dropdown = document.querySelector('[data-company-dropdown]');
+        if (dropdown && dropdown.contains(event.target)) {
+          return;
+        }
+        if (!isSelectingCompany) {
+          setCompanyDropdownOpen(false);
+        }
+      }
+    };
+
+    if (companyDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [companyDropdownOpen, isSelectingCompany]);
 
   useEffect(() => {
     const handleConnectionsUpdated = () => {
@@ -2408,195 +2498,346 @@ function TallyDashboard() {
           </div>
 
           {/* Company Selector */}
-          {sidebarOpen && (
-            <div style={{
-              padding: '0 12px 16px 12px',
-              flexShrink: 0,
-            }}>
-              <div style={{
-                fontSize: '10px',
-                color: 'rgba(255, 255, 255, 0.5)',
-                fontWeight: 600,
-                marginBottom: 4,
-                textTransform: 'uppercase',
-                letterSpacing: '0.8px',
-              }}>
-                COMPANY
-              </div>
-              <div style={{
-                position: 'relative',
-                background: 'rgba(255, 255, 255, 0.08)',
-                borderRadius: '8px',
-                border: companyDropdownOpen ? '1px solid rgba(255, 255, 255, 0.3)' : '1px solid rgba(255, 255, 255, 0.12)',
-                transition: 'all 0.2s ease',
-              }}>
-                <input
-                  value={selectedCompanyGuid ? (currentCompany ? `${currentCompany.company} [${currentCompany.access_type}]` : '') : companySearchTerm}
-                  onChange={e => {
-                    const inputValue = e.target.value;
-                    setCompanySearchTerm(inputValue);
-                    setSelectedCompanyGuid('');
-                    setCompanyDropdownOpen(true);
-                    if (!inputValue.trim()) {
+          <div style={{
+            padding: '0 12px 16px 12px',
+            flexShrink: 0,
+          }}>
+            {sidebarOpen ? (
+              <>
+                <div style={{
+                  fontSize: '10px',
+                  color: 'rgba(255, 255, 255, 0.5)',
+                  fontWeight: 600,
+                  marginBottom: 4,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.8px',
+                }}>
+                  COMPANY
+                </div>
+                <div 
+                  ref={companyButtonRef}
+                  style={{
+                    position: 'relative',
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    borderRadius: '8px',
+                    border: companyDropdownOpen ? '1px solid rgba(255, 255, 255, 0.3)' : '1px solid rgba(255, 255, 255, 0.12)',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  <input
+                    value={selectedCompanyGuid ? (currentCompany ? `${currentCompany.company} [${currentCompany.access_type}]` : '') : companySearchTerm}
+                    onChange={e => {
+                      const inputValue = e.target.value;
+                      setCompanySearchTerm(inputValue);
+                      setSelectedCompanyGuid('');
+                      setCompanyDropdownOpen(true);
+                      if (!inputValue.trim()) {
+                        if (allConnections.length < 100) {
+                          setFilteredCompanies(allConnections);
+                        } else {
+                          setFilteredCompanies([]);
+                        }
+                      }
+                    }}
+                    onFocus={() => {
+                      setCompanyDropdownOpen(true);
                       if (allConnections.length < 100) {
                         setFilteredCompanies(allConnections);
-                      } else {
-                        setFilteredCompanies([]);
                       }
-                    }
-                  }}
-                  onFocus={() => {
-                    setCompanyDropdownOpen(true);
-                    if (allConnections.length < 100) {
-                      setFilteredCompanies(allConnections);
-                    }
-                  }}
-                  onBlur={() => {
-                    if (!isSelectingCompany) {
-                      setTimeout(() => setCompanyDropdownOpen(false), 300);
-                    }
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 32px 8px 12px',
-                    border: 'none',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    color: '#fff',
-                    outline: 'none',
-                    background: 'transparent',
-                    cursor: 'text',
-                    fontWeight: '500',
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    boxSizing: 'border-box',
-                  }}
-                  placeholder="Select Company..."
-                  title={selectedCompanyGuid && currentCompany ? `${currentCompany.company} [${currentCompany.access_type}]` : ''}
-                />
-
-                {!selectedCompanyGuid && (
-                  <span
-                    className="material-icons"
-                    style={{
-                      position: 'absolute',
-                      right: '8px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      color: 'rgba(255, 255, 255, 0.5)',
-                      fontSize: '18px',
-                      pointerEvents: 'none'
                     }}
-                  >
-                    {companyDropdownOpen ? 'expand_less' : 'expand_more'}
-                  </span>
-                )}
-
-                {selectedCompanyGuid && (
-                  <button
-                    type="button"
-                    onClick={handleClearCompany}
+                    onBlur={() => {
+                      if (!isSelectingCompany) {
+                        setTimeout(() => setCompanyDropdownOpen(false), 300);
+                      }
+                    }}
                     style={{
-                      position: 'absolute',
-                      right: '6px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: 'none',
+                      width: '100%',
+                      padding: '8px 32px 8px 12px',
                       border: 'none',
-                      cursor: 'pointer',
-                      padding: '2px',
-                      borderRadius: '50%',
-                      color: 'rgba(255, 255, 255, 0.5)',
-                      fontSize: '16px',
-                      lineHeight: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      color: '#fff',
+                      outline: 'none',
+                      background: 'transparent',
+                      cursor: 'text',
+                      fontWeight: '500',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      boxSizing: 'border-box',
                     }}
-                    title="Clear company"
-                  >
-                    ×
-                  </button>
-                )}
+                    placeholder="Select Company..."
+                    title={selectedCompanyGuid && currentCompany ? `${currentCompany.company} [${currentCompany.access_type}]` : ''}
+                  />
 
-                {companyDropdownOpen && (
-                  <div style={{
-                    position: 'absolute',
-                    top: 'calc(100% + 4px)',
-                    left: 0,
-                    right: 0,
-                    backgroundColor: 'white',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: '8px',
-                    maxHeight: '280px',
-                    overflowY: 'auto',
-                    zIndex: 9999,
-                    boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)'
-                  }}>
-                    {filteredCompanies.map((companyOption, index) => (
-                      <div
-                        key={`${companyOption.tallyloc_id || 'na'}-${companyOption.guid || 'na'}-${index}`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          handleCompanySelect(companyOption);
-                        }}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                        }}
-                        style={{
-                          padding: '10px 12px',
-                          cursor: 'pointer',
-                          borderBottom: index < filteredCompanies.length - 1 ? '1px solid #f1f5f9' : 'none',
-                          transition: 'background-color 0.2s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.target.style.backgroundColor = '#f8fafc';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.target.style.backgroundColor = 'white';
-                        }}
-                      >
-                        <div style={{
-                          fontWeight: '600',
-                          color: '#1e293b',
-                          fontSize: '13px',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                        }}>
-                          {companyOption.company}
+                  {!selectedCompanyGuid && (
+                    <span
+                      className="material-icons"
+                      style={{
+                        position: 'absolute',
+                        right: '8px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        color: 'rgba(255, 255, 255, 0.5)',
+                        fontSize: '18px',
+                        pointerEvents: 'none'
+                      }}
+                    >
+                      {companyDropdownOpen ? 'expand_less' : 'expand_more'}
+                    </span>
+                  )}
+
+                  {selectedCompanyGuid && (
+                    <button
+                      type="button"
+                      onClick={handleClearCompany}
+                      style={{
+                        position: 'absolute',
+                        right: '6px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'none',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '2px',
+                        borderRadius: '50%',
+                        color: 'rgba(255, 255, 255, 0.5)',
+                        fontSize: '16px',
+                        lineHeight: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                      title="Clear company"
+                    >
+                      ×
+                    </button>
+                  )}
+
+                  {companyDropdownOpen && (
+                    <div style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 4px)',
+                      left: 0,
+                      right: 0,
+                      backgroundColor: 'white',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      maxHeight: '280px',
+                      overflowY: 'auto',
+                      zIndex: 9999,
+                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)'
+                    }}>
+                      {filteredCompanies.map((companyOption, index) => (
+                        <div
+                          key={`${companyOption.tallyloc_id || 'na'}-${companyOption.guid || 'na'}-${index}`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            handleCompanySelect(companyOption);
+                          }}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                          style={{
+                            padding: '10px 12px',
+                            cursor: 'pointer',
+                            borderBottom: index < filteredCompanies.length - 1 ? '1px solid #f1f5f9' : 'none',
+                            transition: 'background-color 0.2s ease'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.target.style.backgroundColor = '#f8fafc';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.target.style.backgroundColor = 'white';
+                          }}
+                        >
+                          <div style={{
+                            fontWeight: '600',
+                            color: '#1e293b',
+                            fontSize: '13px',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}>
+                            {companyOption.company}
+                          </div>
+                          <div style={{
+                            fontSize: '11px',
+                            color: '#64748b',
+                            marginTop: '2px'
+                          }}>
+                            {companyOption.access_type || 'N/A'}
+                          </div>
                         </div>
+                      ))}
+
+                      {filteredCompanies.length > 0 && (
                         <div style={{
-                          fontSize: '11px',
+                          padding: '6px 12px',
+                          textAlign: 'center',
                           color: '#64748b',
-                          marginTop: '2px'
+                          fontSize: '11px',
+                          fontStyle: 'italic',
+                          borderTop: '1px solid #f1f5f9',
+                          backgroundColor: '#f8fafc'
                         }}>
-                          {companyOption.access_type || 'N/A'}
+                          {filteredCompanies.length} company{filteredCompanies.length !== 1 ? 's' : ''} available
                         </div>
-                      </div>
-                    ))}
-
-                    {filteredCompanies.length > 0 && (
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              // Collapsed sidebar - show icon button
+              <button
+                ref={companyButtonRef}
+                onClick={() => {
+                  setCompanyDropdownOpen(!companyDropdownOpen);
+                  if (!companyDropdownOpen && allConnections.length < 100) {
+                    setFilteredCompanies(allConnections);
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  background: companyDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.08)',
+                  border: companyDropdownOpen ? '1px solid rgba(255, 255, 255, 0.3)' : '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s ease',
+                  position: 'relative',
+                }}
+                title={currentCompany ? `${currentCompany.company} [${currentCompany.access_type}]` : 'Select Company'}
+                onMouseEnter={(e) => {
+                  if (!companyDropdownOpen) {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.12)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!companyDropdownOpen) {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)';
+                  }
+                }}
+              >
+                <span
+                  className="material-icons"
+                  style={{
+                    color: '#fff',
+                    fontSize: '24px',
+                  }}
+                >
+                  business
+                </span>
+                {companyDropdownOpen && (
+                  <div 
+                    data-company-dropdown
+                    style={{
+                      position: 'fixed',
+                      top: `${companyDropdownPosition.top}px`,
+                      left: `${companyDropdownPosition.left}px`,
+                      width: companyDropdownPosition.width > 0 ? `${companyDropdownPosition.width}px` : '280px',
+                      backgroundColor: 'white',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '8px',
+                      maxHeight: '400px',
+                      overflowY: 'auto',
+                      zIndex: 10000,
+                      boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
+                      minWidth: '280px',
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    <div style={{
+                      padding: '8px 12px',
+                      borderBottom: '1px solid #e5e7eb',
+                      backgroundColor: '#f8fafc',
+                      fontSize: '10px',
+                      color: '#64748b',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.8px',
+                    }}>
+                      COMPANY
+                    </div>
+                    {filteredCompanies.length > 0 ? (
+                      <>
+                        {filteredCompanies.map((companyOption, index) => (
+                          <div
+                            key={`${companyOption.tallyloc_id || 'na'}-${companyOption.guid || 'na'}-${index}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleCompanySelect(companyOption);
+                            }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
+                            style={{
+                              padding: '12px 16px',
+                              cursor: 'pointer',
+                              borderBottom: index < filteredCompanies.length - 1 ? '1px solid #f1f5f9' : 'none',
+                              transition: 'background-color 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.backgroundColor = '#f8fafc';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.backgroundColor = 'white';
+                            }}
+                          >
+                            <div style={{
+                              fontWeight: '600',
+                              color: '#1e293b',
+                              fontSize: '13px',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}>
+                              {companyOption.company}
+                            </div>
+                            <div style={{
+                              fontSize: '11px',
+                              color: '#64748b',
+                              marginTop: '2px'
+                            }}>
+                              {companyOption.access_type || 'N/A'}
+                            </div>
+                          </div>
+                        ))}
+                        <div style={{
+                          padding: '6px 12px',
+                          textAlign: 'center',
+                          color: '#64748b',
+                          fontSize: '11px',
+                          fontStyle: 'italic',
+                          borderTop: '1px solid #f1f5f9',
+                          backgroundColor: '#f8fafc'
+                        }}>
+                          {filteredCompanies.length} company{filteredCompanies.length !== 1 ? 's' : ''} available
+                        </div>
+                      </>
+                    ) : (
                       <div style={{
-                        padding: '6px 12px',
+                        padding: '20px',
                         textAlign: 'center',
                         color: '#64748b',
-                        fontSize: '11px',
-                        fontStyle: 'italic',
-                        borderTop: '1px solid #f1f5f9',
-                        backgroundColor: '#f8fafc'
+                        fontSize: '13px',
                       }}>
-                        {filteredCompanies.length} company{filteredCompanies.length !== 1 ? 's' : ''} available
+                        No companies available
                       </div>
                     )}
                   </div>
                 )}
-              </div>
-            </div>
-          )}
+              </button>
+            )}
+          </div>
 
           {/* Navigation Menu */}
           <nav
@@ -2636,15 +2877,17 @@ function TallyDashboard() {
             )}
           </nav>
 
-          {/* Control Buttons */}
+          {/* Control Buttons and Profile Grid */}
           {sidebarOpen && (
             <div style={{
-              display: 'flex',
-              flexDirection: 'column',
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
               gap: '8px',
               padding: '0 12px 12px 12px',
               flexShrink: 0,
+              alignItems: 'center'
             }}>
+              {/* Control Panel Button */}
               <button
                 onClick={(e) => {
                   e.preventDefault();
@@ -2655,17 +2898,19 @@ function TallyDashboard() {
                   background: 'rgba(255, 255, 255, 0.12)',
                   border: '1px solid rgba(255, 255, 255, 0.25)',
                   borderRadius: '8px',
-                  padding: '8px 12px',
+                  padding: '0 8px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'flex-start',
+                  justifyContent: 'center',
                   gap: '6px',
                   transition: 'all 0.2s ease',
                   color: '#fff',
-                  fontSize: '13px',
-                  fontWeight: 500,
+                  fontSize: '11px',
+                  fontWeight: 600,
                   width: '100%',
+                  height: '38px',
+                  boxSizing: 'border-box',
                 }}
                 title="Control Panel"
                 onMouseEnter={(e) => {
@@ -2677,9 +2922,11 @@ function TallyDashboard() {
                   e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.25)';
                 }}
               >
-                <span className="material-icons" style={{ fontSize: '18px' }}>admin_panel_settings</span>
-                <span>Control Panel</span>
+                <span className="material-icons" style={{ fontSize: '16px' }}>admin_panel_settings</span>
+                <span style={{ whiteSpace: 'nowrap' }}>Admin</span>
               </button>
+
+              {/* Refresh Button */}
               <button
                 onClick={(e) => {
                   e.preventDefault();
@@ -2690,17 +2937,19 @@ function TallyDashboard() {
                   background: 'rgba(255, 255, 255, 0.12)',
                   border: '1px solid rgba(255, 255, 255, 0.25)',
                   borderRadius: '8px',
-                  padding: '8px 12px',
+                  padding: '0 8px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'flex-start',
+                  justifyContent: 'center',
                   gap: '6px',
                   transition: 'all 0.2s ease',
                   color: '#fff',
-                  fontSize: '13px',
-                  fontWeight: 500,
+                  fontSize: '11px',
+                  fontWeight: 600,
                   width: '100%',
+                  height: '38px',
+                  boxSizing: 'border-box',
                 }}
                 title="Refresh"
                 onMouseEnter={(e) => {
@@ -2712,153 +2961,146 @@ function TallyDashboard() {
                   e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.25)';
                 }}
               >
-                <span className="material-icons" style={{ fontSize: '18px' }}>refresh</span>
-                <span>Refresh</span>
+                <span className="material-icons" style={{ fontSize: '16px' }}>refresh</span>
+                <span style={{ whiteSpace: 'nowrap' }}>Refresh</span>
               </button>
-            </div>
-          )}
 
-          {/* User Profile Section */}
-          {sidebarOpen && (
-            <div style={{
-              padding: '0 12px 12px 12px',
-              flexShrink: 0,
-            }}>
-              <div
-                ref={profileDropdownRef}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  cursor: 'pointer',
-                  padding: '8px 12px',
-                  borderRadius: '8px',
-                  background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
-                  transition: 'all 0.3s ease',
-                }}
-                onClick={() => setProfileDropdownOpen((open) => !open)}
-                onMouseEnter={(e) => {
-                  if (!profileDropdownOpen) {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!profileDropdownOpen) {
-                    e.currentTarget.style.background = 'transparent';
-                  }
-                }}
-              >
-                <span className="material-icons" style={{ color: '#fff', fontSize: '24px', filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}>account_circle</span>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, flex: 1 }}>
-                  <div style={{ color: '#fff', fontWeight: 600, fontSize: '13px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>{name || 'User'}</div>
-                  <div style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>{email || ''}</div>
-                </div>
-                <span className="material-icons" style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '20px', transition: 'transform 0.3s ease', transform: profileDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
-              </div>
-              {profileDropdownOpen && (
-                <div style={{
-                  position: 'fixed',
-                  bottom: '80px',
-                  left: sidebarOpen ? '260px' : '70px',
-                  minWidth: 280,
-                  background: '#fff',
-                  borderRadius: 12,
-                  boxShadow: '0 12px 40px 0 rgba(31, 38, 135, 0.2), 0 0 0 1px rgba(0,0,0,0.05)',
-                  padding: 20,
-                  zIndex: 4000,
-                  textAlign: 'left',
-                  animation: 'fadeIn 0.2s ease-out',
-                }}
-                  onClick={(e) => e.stopPropagation()}
+              {/* Profile Section */}
+              <div style={{ position: 'relative', width: '100%', height: '38px' }}>
+                <div
+                  ref={profileDropdownRef}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    cursor: 'pointer',
+                    padding: '0 8px',
+                    borderRadius: '8px',
+                    background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.1)',
+                    border: '1px solid rgba(255, 255, 255, 0.25)',
+                    transition: 'all 0.3s ease',
+                    width: '100%',
+                    height: '100%',
+                    boxSizing: 'border-box',
+                  }}
+                  onClick={() => setProfileDropdownOpen((open) => !open)}
+                  onMouseEnter={(e) => {
+                    if (!profileDropdownOpen) {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.35)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!profileDropdownOpen) {
+                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.25)';
+                    }
+                  }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
-                    <span className="material-icons" style={{ fontSize: 32, color: '#3b82f6' }}>account_circle</span>
-                    <div>
-                      <div style={{ fontSize: 16, color: '#1e293b', fontWeight: 700, marginBottom: 2 }}>{name || 'User'}</div>
-                      <div style={{ fontSize: 13, color: '#64748b' }}>{email || ''}</div>
-                    </div>
+                  <span className="material-icons" style={{ color: '#fff', fontSize: '16px', flexShrink: 0 }}>account_circle</span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', minWidth: 0, flex: 1, overflow: 'hidden', height: '100%' }}>
+                    <div style={{ color: '#fff', fontWeight: 600, fontSize: '11px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>{name || 'User'}</div>
                   </div>
-                  <button
-                    style={{
-                      width: '100%',
-                      padding: '12px 18px',
-                      background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
-                      color: '#fff',
-                      border: 'none',
-                      borderRadius: 10,
-                      fontWeight: 600,
-                      fontSize: 14,
-                      cursor: 'pointer',
-                      boxShadow: '0 4px 12px 0 rgba(59,130,246,0.25)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: 8,
-                      transition: 'all 0.3s ease',
-                      marginBottom: (isAdmin && (typeof isAdmin === 'function' ? isAdmin() : isAdmin)) ? 10 : 0,
-                    }}
-                    onClick={() => {
-                      if (navigate) navigate('/change-password');
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.transform = 'translateY(-2px)';
-                      e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(59,130,246,0.35)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.transform = 'translateY(0)';
-                      e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(59,130,246,0.25)';
-                    }}
+                  <span className="material-icons" style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '14px', flexShrink: 0, transition: 'transform 0.3s ease', transform: profileDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
+                </div>
+                {profileDropdownOpen && (
+                  <div style={{
+                    position: 'fixed',
+                    bottom: '80px',
+                    left: sidebarOpen ? '260px' : '70px',
+                    minWidth: 280,
+                    background: '#fff',
+                    borderRadius: 12,
+                    boxShadow: '0 12px 40px 0 rgba(31, 38, 135, 0.2), 0 0 0 1px rgba(0,0,0,0.05)',
+                    padding: 20,
+                    zIndex: 4000,
+                    textAlign: 'left',
+                    animation: 'fadeIn 0.2s ease-out',
+                  }}
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <span className="material-icons" style={{ fontSize: 18 }}>lock</span>
-                    Change Password
-                  </button>
-                  {isAdmin && (typeof isAdmin === 'function' ? isAdmin() : isAdmin) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
+                      <span className="material-icons" style={{ fontSize: 32, color: '#3b82f6' }}>account_circle</span>
+                      <div>
+                        <div style={{ fontSize: 16, color: '#1e293b', fontWeight: 700, marginBottom: 2 }}>{name || 'User'}</div>
+                        <div style={{ fontSize: 13, color: '#64748b' }}>{email || ''}</div>
+                      </div>
+                    </div>
                     <button
                       style={{
                         width: '100%',
                         padding: '12px 18px',
-                        background: 'linear-gradient(135deg, #4285f4 0%, #34a853 100%)',
+                        background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
                         color: '#fff',
                         border: 'none',
                         borderRadius: 10,
                         fontWeight: 600,
                         fontSize: 14,
                         cursor: 'pointer',
-                        boxShadow: '0 4px 12px 0 rgba(66,133,244,0.25)',
+                        boxShadow: '0 4px 12px 0 rgba(59,130,246,0.25)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         gap: 8,
                         transition: 'all 0.3s ease',
+                        marginBottom: (isAdmin && (typeof isAdmin === 'function' ? isAdmin() : isAdmin)) ? 10 : 0,
                       }}
                       onClick={() => {
-                        setShowGoogleConfigModal(true);
-                        setProfileDropdownOpen(false);
+                        if (navigate) navigate('/change-password');
                       }}
                       onMouseEnter={(e) => {
                         e.currentTarget.style.transform = 'translateY(-2px)';
-                        e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(66,133,244,0.35)';
+                        e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(59,130,246,0.35)';
                       }}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.transform = 'translateY(0)';
-                        e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(66,133,244,0.25)';
+                        e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(59,130,246,0.25)';
                       }}
                     >
-                      <span className="material-icons" style={{ fontSize: 18 }}>account_circle</span>
-                      Configure Google Account
+                      <span className="material-icons" style={{ fontSize: 18 }}>lock</span>
+                      Change Password
                     </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+                    {isAdmin && (typeof isAdmin === 'function' ? isAdmin() : isAdmin) && (
+                      <button
+                        style={{
+                          width: '100%',
+                          padding: '12px 18px',
+                          background: 'linear-gradient(135deg, #4285f4 0%, #34a853 100%)',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 10,
+                          fontWeight: 600,
+                          fontSize: 14,
+                          cursor: 'pointer',
+                          boxShadow: '0 4px 12px 0 rgba(66,133,244,0.25)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 8,
+                          transition: 'all 0.3s ease',
+                        }}
+                        onClick={() => {
+                          setShowGoogleConfigModal(true);
+                          setProfileDropdownOpen(false);
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.transform = 'translateY(-2px)';
+                          e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(66,133,244,0.35)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.transform = 'translateY(0)';
+                          e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(66,133,244,0.25)';
+                        }}
+                      >
+                        <span className="material-icons" style={{ fontSize: 18 }}>account_circle</span>
+                        Configure Google Account
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
 
-          {/* Logout Button */}
-          {sidebarOpen && (
-            <div style={{
-              padding: '0 12px 12px 12px',
-              flexShrink: 0,
-            }}>
+              {/* Logout Button */}
               <button
                 onClick={handleLogout}
                 style={{
@@ -2866,17 +3108,19 @@ function TallyDashboard() {
                   background: 'rgba(220, 38, 38, 0.15)',
                   color: '#fff',
                   border: '1px solid rgba(220, 38, 38, 0.3)',
-                  padding: '8px 12px',
+                  padding: '0 8px',
                   borderRadius: '8px',
                   fontWeight: 600,
-                  fontSize: '13px',
+                  fontSize: '11px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'flex-start',
-                  gap: 6,
+                  justifyContent: 'center',
+                  gap: '6px',
                   transition: 'all 0.2s ease',
                   boxShadow: '0 2px 6px rgba(220, 38, 38, 0.2)',
+                  height: '38px',
+                  boxSizing: 'border-box',
                 }}
                 title="Logout"
                 onMouseEnter={(e) => {
@@ -2892,8 +3136,8 @@ function TallyDashboard() {
                   e.currentTarget.style.boxShadow = '0 2px 6px rgba(220, 38, 38, 0.2)';
                 }}
               >
-                <span className="material-icons" style={{ fontSize: 18 }}>logout</span>
-                <span>Logout</span>
+                <span className="material-icons" style={{ fontSize: '16px' }}>logout</span>
+                <span style={{ whiteSpace: 'nowrap' }}>Logout</span>
               </button>
             </div>
           )}

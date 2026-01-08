@@ -206,28 +206,25 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
         </div>
       )}
       <div style={{
-        display: 'flex',
-        flexDirection: isMobile ? 'column' : 'row',
-        alignItems: isMobile ? 'center' : 'flex-start',
-        gap: isMobile ? '16px' : '20px',
-        flexWrap: 'nowrap',
         padding: '0',
+        flex: 1,
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
         overflowY: 'auto',
         overflowX: 'hidden',
-        flex: 1,
         background: 'radial-gradient(circle at top, rgba(59, 130, 246, 0.03) 0%, transparent 50%)',
         width: '100%',
-        maxWidth: '100%',
-        minHeight: 0
+        maxWidth: '100%'
       }}>
         <div style={{
-          width: isMobile ? '100%' : 'min(300px, 40%)',
-          height: isMobile ? '250px' : '100%',
-          minHeight: isMobile ? '250px' : '300px',
-          maxHeight: isMobile ? '350px' : '450px',
+          width: '100%',
           maxWidth: '100%',
+          height: isMobile ? '280px' : 'min(400px, calc(100vh - 400px))',
+          minHeight: isMobile ? '280px' : '320px',
+          maxHeight: isMobile ? '350px' : '500px',
+          position: 'relative',
           flexShrink: 0,
-          padding: '0',
           overflow: 'hidden'
         }}>
           <ResponsivePie
@@ -325,12 +322,11 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
           />
         </div>
         <div style={{
-          flex: 1,
+          marginTop: isMobile ? '12px' : '20px',
           display: 'flex',
           flexDirection: 'column',
           gap: isMobile ? '8px' : '10px',
-          minWidth: isMobile ? '100%' : '200px',
-          width: isMobile ? '100%' : 'auto',
+          width: '100%',
           maxWidth: '100%'
         }}>
           {data.map((slice, index) => {
