@@ -10121,7 +10121,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 border: 'none',
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
                 position: 'relative',
-                overflow: 'hidden',
+                overflow: 'visible',
                 display: 'flex',
                 flexDirection: 'column',
                 minWidth: 0
@@ -10134,7 +10134,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   right: 0,
                   height: '50%',
                   opacity: 0.6,
-                  pointerEvents: 'none'
+                  pointerEvents: 'none',
+                  overflow: 'hidden',
+                  borderRadius: '0 0 10px 10px'
                 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={revenueTrendData} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
@@ -10156,7 +10158,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </div>
                 
                 {/* Content */}
-                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, overflow: 'visible' }}>
                   <p 
                     onClick={() => openFullscreenCard('metric', 'Total Revenue')}
                     style={{ 
@@ -10176,7 +10178,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   >
                     TOTAL REVENUE
                   </p>
-                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#ffffff', lineHeight: '1.2', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+                  <p style={{ margin: '0 0 auto 0', fontSize: isMobile ? '16px' : '20px', fontWeight: '700', color: '#ffffff', lineHeight: '1.2', letterSpacing: '-0.02em', whiteSpace: 'nowrap', overflow: 'visible', textOverflow: 'clip' }}>
                     {formatCurrency(totalRevenue)}
                   </p>
                   
