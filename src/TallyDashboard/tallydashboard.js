@@ -2379,68 +2379,6 @@ function TallyDashboard() {
             paddingBottom: '20px',
           }}
         >
-          {/* Toggle Button - Top Right */}
-          {sidebarOpen && (
-            <button
-              onClick={() => setSidebarOpen(false)}
-              style={{
-                position: 'absolute',
-                top: '12px',
-                right: '12px',
-                background: 'rgba(59, 130, 246, 0.8)',
-                border: 'none',
-                borderRadius: '50%',
-                width: '32px',
-                height: '32px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                color: '#fff',
-                transition: 'all 0.2s ease',
-                zIndex: 10,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(59, 130, 246, 1)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(59, 130, 246, 0.8)';
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: 20 }}>chevron_left</span>
-            </button>
-          )}
-          {!sidebarOpen && (
-            <button
-              onClick={() => setSidebarOpen(true)}
-              style={{
-                position: 'absolute',
-                top: '12px',
-                right: '12px',
-                background: 'rgba(59, 130, 246, 0.8)',
-                border: 'none',
-                borderRadius: '50%',
-                width: '32px',
-                height: '32px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                color: '#fff',
-                transition: 'all 0.2s ease',
-                zIndex: 10,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = 'rgba(59, 130, 246, 1)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = 'rgba(59, 130, 246, 0.8)';
-              }}
-            >
-              <span className="material-icons" style={{ fontSize: 20 }}>chevron_right</span>
-            </button>
-          )}
-
           {/* Logo Section */}
           <div style={{
             display: 'flex',
@@ -2986,6 +2924,34 @@ function TallyDashboard() {
             </div>
           )}
         </aside>
+      )}
+
+      {/* Sidebar Toggle - Hidden in Mobile */}
+      {!isMobile && (
+      <button
+        className="sidebar-toggle-btn-main"
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+        style={{
+          position: 'fixed',
+          top: 12,
+          left: (sidebarOpen ? 260 : 70) - 18,
+          zIndex: 5000,
+          background: '#fff',
+          border: '1.5px solid #cbd5e1',
+          borderRadius: '50%',
+          width: 36,
+          height: 36,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 2px 8px 0 rgba(31,38,135,0.08)',
+          cursor: 'pointer',
+          transition: 'left 0.3s',
+        }}
+      >
+        <span className="material-icons" style={{ fontSize: 22, color: '#1e40af' }}>{sidebarOpen ? 'chevron_left' : 'chevron_right'}</span>
+      </button>
       )}
 
       {/* Main Content */}

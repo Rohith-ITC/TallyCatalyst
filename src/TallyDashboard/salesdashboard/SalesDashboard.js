@@ -8661,7 +8661,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
        style={{
          background: 'transparent',
          minHeight: '100vh',
-         padding: isMobile ? '12px' : '24px',
+         padding: isMobile ? '12px' : '0px',
          width: isMobile ? '100vw' : '80vw',
          margin: 0,
          display: 'block',
