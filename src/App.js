@@ -9,6 +9,7 @@ import {
 import Login from './login/Login';
 import SignUp from './login/SignUp';
 import ForgotPassword from './login/ForgotPassword';
+import LandingPage from './LandingPage';
 import AdminHome from './AdminHome';
 import UserDashboard from './UserDashboard';
 import AdminDashboard from './admindashboard/Dashboard';
@@ -151,6 +152,7 @@ function App() {
     <Router basename={process.env.REACT_APP_HOMEPAGE || ''}>
       <Routes>
         <Route path="/" element={<Login onLogin={handleLogin} />} />
+        <Route path="/home" element={<LandingPage />} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/master-form/:token" element={<MasterInvitationForm />} />
