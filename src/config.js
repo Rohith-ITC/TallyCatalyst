@@ -90,6 +90,10 @@ export const API_CONFIG = {
     CUSTOM_CARD_GET: '/api/dashboard/cards',
     CUSTOM_CARD_UPDATE: (id) => `/api/dashboard/cards/${id}`,
     CUSTOM_CARD_DELETE: (id) => `/api/dashboard/cards/${id}`,
+    
+    // Dashboard default period endpoints
+    DASHBOARD_DEFAULT_PERIOD_SAVE: '/api/dashboard/default-period',
+    DASHBOARD_DEFAULT_PERIOD_GET: '/api/dashboard/default-period',
   }
 };
 

@@ -5,17 +5,19 @@ import React from 'react';
  * @param {Object} props
  * @param {React.ReactNode} props.children - Chart content to render
  * @param {boolean} props.isMobile - Whether the view is mobile
+ * @param {boolean} props.isFullscreen - Whether the card is in fullscreen mode
  * @param {string} props.className - Additional CSS class name
  * @param {Object} props.style - Additional inline styles
  */
-const ChartCard = ({ children, isMobile = false, className = '', style = {} }) => {
+const ChartCard = ({ children, isMobile = false, isFullscreen = false, className = '', style = {} }) => {
   return (
     <div
       className={className}
       style={{
         display: 'flex',
         flexDirection: 'column',
-        height: '400px',
+        height: isFullscreen ? '100%' : '400px',
+        minHeight: isFullscreen ? 0 : '400px',
         overflow: 'hidden',
         width: '100%',
         maxWidth: '100%',

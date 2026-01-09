@@ -111,57 +111,63 @@ const MultiAxisChart = ({
     };
 
     if (hasTwoAxes) {
-      // Calculate optimal ranges for both axes
-      const leftRange = calculateOptimalRange(leftDataMin, leftDataMax);
-      const rightRange = calculateOptimalRange(rightDataMin, rightDataMax);
+      // Calculate optimal ranges for both axes independently
+      let leftRange = undefined, rightRange = undefined;
+      
+      if (leftDataMin !== null && leftDataMax !== null) {
+        leftRange = calculateOptimalRange(leftDataMin, leftDataMax);
+        leftMin = leftRange.min;
+        leftMax = leftRange.max;
+      }
+      
+      if (rightDataMin !== null && rightDataMax !== null) {
+        rightRange = calculateOptimalRange(rightDataMin, rightDataMax);
+        rightMin = rightRange.min;
+        rightMax = rightRange.max;
+      }
 
-      leftMin = leftRange.min;
-      leftMax = leftRange.max;
-      rightMin = rightRange.min;
-      rightMax = rightRange.max;
+      // Align zero points if both axes cross zero, while maintaining independent scales
+      const leftCrossesZero = leftMin !== undefined && leftMax !== undefined && leftMin < 0 && leftMax > 0;
+      const rightCrossesZero = rightMin !== undefined && rightMax !== undefined && rightMin < 0 && rightMax > 0;
 
-      // Align zero points while maintaining optimal space usage
-      const leftNeedsZero = leftDataMin !== null && (leftDataMin < 0 || leftDataMax > 0);
-      const rightNeedsZero = rightDataMin !== null && (rightDataMin < 0 || rightDataMax > 0);
+      if (leftCrossesZero && rightCrossesZero) {
+        // Calculate zero position ratio for each axis (where zero appears in the range)
+        const leftZeroRatio = Math.abs(leftMin) / (leftMax - leftMin);
+        const rightZeroRatio = Math.abs(rightMin) / (rightMax - rightMin);
 
-      if (leftNeedsZero && rightNeedsZero && leftMin !== undefined && rightMin !== undefined) {
-        // Calculate zero position ratios
-        const leftZeroRatio = leftMin < 0 ? Math.abs(leftMin) / (leftMax - leftMin) : 0;
-        const rightZeroRatio = rightMin < 0 ? Math.abs(rightMin) / (rightMax - rightMin) : 0;
-
-        // If zero ratios don't match, adjust to align them
+        // If zero ratios don't match, adjust ranges to align zeros
         if (Math.abs(leftZeroRatio - rightZeroRatio) > 0.01) {
-          // Find the actual positive and negative extents needed
-          const leftPositiveExtent = Math.max(leftMax, 0);
-          const leftNegativeExtent = Math.max(Math.abs(leftMin), 0);
-          const rightPositiveExtent = Math.max(rightMax, 0);
-          const rightNegativeExtent = Math.max(Math.abs(rightMin), 0);
+          // Use the average ratio to align zeros at the same level
+          const targetZeroRatio = (leftZeroRatio + rightZeroRatio) / 2;
 
-          // Use the larger extent for each direction
-          const maxPositiveExtent = Math.max(leftPositiveExtent, rightPositiveExtent);
-          const maxNegativeExtent = Math.max(leftNegativeExtent, rightNegativeExtent);
+          // Get the actual data extents (positive and negative) for each axis
+          const leftPositiveData = Math.max(leftDataMax, 0);
+          const leftNegativeData = Math.max(Math.abs(leftDataMin), 0);
+          const rightPositiveData = Math.max(rightDataMax, 0);
+          const rightNegativeData = Math.max(Math.abs(rightDataMin), 0);
 
-          // Calculate the target ratio based on which direction needs more space
-          const totalRange = maxPositiveExtent + maxNegativeExtent;
-          const targetRatio = totalRange > 0 ? maxNegativeExtent / totalRange : 0;
+          // Calculate minimum total range needed for each axis to fit data at target zero ratio
+          // If targetZeroRatio = 0.3, then 30% below zero, 70% above zero
+          // To fit leftNegativeData in 30%: totalRange >= leftNegativeData / 0.3
+          // To fit leftPositiveData in 70%: totalRange >= leftPositiveData / 0.7
+          const leftMinRange = Math.max(
+            leftNegativeData / targetZeroRatio,
+            leftPositiveData / (1 - targetZeroRatio)
+          );
+          const rightMinRange = Math.max(
+            rightNegativeData / targetZeroRatio,
+            rightPositiveData / (1 - targetZeroRatio)
+          );
 
-          // Apply the same ratio to both axes
-          if (targetRatio > 0 && targetRatio < 1) {
-            const targetNegative = maxPositiveExtent * targetRatio / (1 - targetRatio);
-            const targetPositive = maxNegativeExtent * (1 - targetRatio) / targetRatio;
+          // Add padding (5%)
+          const leftTotalRange = leftMinRange * 1.05;
+          const rightTotalRange = rightMinRange * 1.05;
 
-            // Use the larger value to ensure data fits
-            const finalPositive = Math.max(maxPositiveExtent, targetPositive);
-            const finalNegative = Math.max(maxNegativeExtent, targetNegative);
-
-            // Add minimal padding
-            const padding = Math.max(finalPositive * 0.05, finalNegative * 0.05);
-            
-            leftMin = -(finalNegative + padding);
-            leftMax = finalPositive + padding;
-            rightMin = -(finalNegative + padding);
-            rightMax = finalPositive + padding;
-          }
+          // Set ranges with aligned zero positions
+          leftMin = -leftTotalRange * targetZeroRatio;
+          leftMax = leftTotalRange * (1 - targetZeroRatio);
+          rightMin = -rightTotalRange * targetZeroRatio;
+          rightMax = rightTotalRange * (1 - targetZeroRatio);
         }
       }
     } else {
@@ -210,16 +216,27 @@ const MultiAxisChart = ({
           let result = params[0]?.axisValue || '';
           params.forEach((param) => {
             const value = param.value;
-            const formattedValue = formatValue 
-              ? formatValue(value, '₹')
-              : `₹${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            const seriesName = param.seriesName || '';
+            const isCustomerField = seriesName.toLowerCase().includes('customer') || 
+                                   seriesName.toLowerCase().includes('customers');
+            
+            let formattedValue;
+            if (isCustomerField) {
+              // Format customer count as a number, not currency
+              formattedValue = Math.round(value).toLocaleString();
+            } else {
+              // Format other values as currency
+              formattedValue = formatValue 
+                ? formatValue(value, '₹')
+                : `₹${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+            }
             result += `<br/>${param.marker}${param.seriesName}: ${formattedValue}`;
           });
           return result;
         },
       },
       legend: {
-        top: 10,
+        top: 0,
         type: 'scroll',
         icon: 'rect',
         itemWidth: 12,
@@ -229,10 +246,10 @@ const MultiAxisChart = ({
         },
       },
       grid: {
-        left: isMobile ? 50 : 60,
-        right: isMobile ? 50 : 70,
-        top: 50,
-        bottom: categories.length > 10 ? 90 : categories.length > 6 ? 80 : 70,
+        left: isMobile ? 40 : 20,
+        right: isMobile ? 40 : 20,
+        top: 35,
+        bottom: categories.length > 10 ? 30 : categories.length > 6 ? 30 : 30,
         containLabel: true,
       },
       xAxis: [
