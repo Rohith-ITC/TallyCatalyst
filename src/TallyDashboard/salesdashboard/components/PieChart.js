@@ -32,10 +32,12 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
     if (!data || !Array.isArray(data) || data.length === 0) {
       return [];
     }
+    // Always use color array to ensure different colors per category
+    // Ignore item.color to avoid all items having the same color
     return data.map((item, index) => ({
       id: item.label || `Item ${index}`,
       value: item.value || 0,
-      color: item.color || colors[index % colors.length],
+      color: colors[index % colors.length],
       originalData: item
     }));
   }, [data, colors]);
@@ -220,9 +222,9 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
         <div style={{
           width: '100%',
           maxWidth: '100%',
-          height: isMobile ? '280px' : 'min(400px, calc(100vh - 400px))',
-          minHeight: isMobile ? '280px' : '320px',
-          maxHeight: isMobile ? '350px' : '500px',
+          height: isMobile ? '250px' : 'min(320px, calc(100vh - 450px))',
+          minHeight: isMobile ? '250px' : '280px',
+          maxHeight: isMobile ? '320px' : '400px',
           position: 'relative',
           flexShrink: 0,
           overflow: 'hidden'
@@ -254,6 +256,11 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
             onClick={handleClick}
             tooltip={({ datum }) => {
               const percentage = total > 0 ? ((datum.value / total) * 100).toFixed(1) : 0;
+              // Access original data - Nivo stores it in datum.data.originalData or datum.data
+              const originalData = datum.data?.originalData || datum.data || datum;
+              const segments = originalData?.segments;
+              const segmentTotal = segments ? segments.reduce((sum, seg) => sum + (seg.value || 0), 0) : 0;
+              
               return (
                 <div style={{
                   background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
@@ -263,7 +270,7 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
                   boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
                   fontSize: isMobile ? '11px' : '13px',
                   minWidth: isMobile ? '140px' : '180px',
-                  maxWidth: isMobile ? '200px' : 'none'
+                  maxWidth: isMobile ? '280px' : 'none'
                 }}>
                   <div style={{
                     fontWeight: '700',
@@ -292,10 +299,91 @@ const PieChart = ({ data, title, valuePrefix = '₹', onSliceClick, onBackClick,
                     padding: isMobile ? '2px 6px' : '4px 8px',
                     borderRadius: '6px',
                     display: 'inline-block',
-                    fontWeight: '600'
+                    fontWeight: '600',
+                    marginBottom: segments && segments.length > 0 ? (isMobile ? '6px' : '8px') : '0'
                   }}>
                     {percentage}%
                   </div>
+                  {segments && segments.length > 0 && (
+                    <div style={{
+                      marginTop: isMobile ? '8px' : '10px',
+                      paddingTop: isMobile ? '8px' : '10px',
+                      borderTop: '1px solid #e2e8f0'
+                    }}>
+                      <div style={{
+                        fontSize: isMobile ? '10px' : '11px',
+                        fontWeight: '600',
+                        color: '#64748b',
+                        marginBottom: isMobile ? '4px' : '6px',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.5px'
+                      }}>
+                        Segments:
+                      </div>
+                      {segments.map((segment, idx) => {
+                        const segmentPercentage = segmentTotal > 0 ? ((segment.value / segmentTotal) * 100).toFixed(1) : 0;
+                        return (
+                          <div key={idx} style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: idx < segments.length - 1 ? (isMobile ? '4px' : '6px') : '0',
+                            gap: isMobile ? '6px' : '8px'
+                          }}>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: isMobile ? '4px' : '6px',
+                              flex: 1,
+                              minWidth: 0
+                            }}>
+                              <div style={{
+                                width: isMobile ? '8px' : '10px',
+                                height: isMobile ? '8px' : '10px',
+                                borderRadius: '2px',
+                                backgroundColor: segment.color || '#3b82f6',
+                                flexShrink: 0
+                              }} />
+                              <span style={{
+                                fontSize: isMobile ? '10px' : '11px',
+                                color: '#475569',
+                                fontWeight: '500',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {segment.label || `Segment ${idx + 1}`}
+                              </span>
+                            </div>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: isMobile ? '4px' : '6px',
+                              flexShrink: 0
+                            }}>
+                              <span style={{
+                                fontSize: isMobile ? '9px' : '10px',
+                                color: '#64748b',
+                                background: '#f1f5f9',
+                                padding: isMobile ? '1px 4px' : '2px 6px',
+                                borderRadius: '4px',
+                                fontWeight: '600'
+                              }}>
+                                {segmentPercentage}%
+                              </span>
+                              <span style={{
+                                fontSize: isMobile ? '10px' : '11px',
+                                color: '#1e293b',
+                                fontWeight: '600'
+                              }}>
+                                {formatValue ? formatValue(segment.value, valuePrefix) : `${valuePrefix}${segment.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             }}

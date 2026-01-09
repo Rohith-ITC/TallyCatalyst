@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import Plot from 'react-plotly.js';
 
-const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, showBackButton, rowAction, customHeader }) => {
+const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, showBackButton, rowAction, customHeader, formatValue }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const plotRef = useRef(null);
@@ -45,13 +45,36 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
 
     const values = filteredData.map(item => item.value);
     const parents = filteredData.map(() => '');
-    const customColors = filteredData.map((item, index) => item.color || colors[index % colors.length]);
+    // Always use color array to ensure different colors per category
+    // Ignore item.color to avoid all items having the same color
+    const customColors = filteredData.map((item, index) => colors[index % colors.length]);
+
+    // Create hovertext with segments for each item
+    const hovertexts = filteredData.map((item) => {
+      const itemValue = formatValue ? formatValue(item.value, valuePrefix) : `${valuePrefix}${item.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      const itemPercentage = total > 0 ? ((item.value / total) * 100).toFixed(1) : 0;
+      let hoverText = `<b>${item.label || 'Item'}</b><br>Value: ${itemValue}<br>Percentage: ${itemPercentage}%`;
+      
+      if (item.segments && item.segments.length > 0) {
+        const segmentTotal = item.segments.reduce((sum, seg) => sum + (seg.value || 0), 0);
+        hoverText += '<br><br><b>Segments:</b><br>';
+        item.segments.forEach((segment, idx) => {
+          const segmentPercentage = segmentTotal > 0 ? ((segment.value / segmentTotal) * 100).toFixed(1) : 0;
+          const segmentValue = formatValue ? formatValue(segment.value, valuePrefix) : `${valuePrefix}${segment.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          hoverText += `• ${segment.label || `Segment ${idx + 1}`}: ${segmentValue} (${segmentPercentage}%)<br>`;
+        });
+      }
+      
+      return hoverText;
+    });
 
     return {
       type: 'treemap',
       labels: labels,
       values: values,
       parents: parents,
+      hovertext: hovertexts,
+      hovertemplate: '%{hovertext}<extra></extra>',
       marker: {
         colors: customColors,
         line: {
@@ -66,13 +89,11 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
       },
       textinfo: 'label',
       textposition: 'middle center',
-      hovertemplate: '<b>%{label}</b><br>' +
-        `Value: ${valuePrefix}%{value:,.2f}<br>` +
-        'Percentage: %{percentParent:.1f}%<extra></extra>',
       customdata: filteredData.map(item => ({
         label: item.label,
         value: item.value,
-        percentage: total > 0 ? ((item.value / total) * 100).toFixed(1) : 0
+        percentage: total > 0 ? ((item.value / total) * 100).toFixed(1) : 0,
+        segments: item.segments
       }))
     };
   }, [data, total, colors, valuePrefix, isMobile]);
@@ -385,7 +406,7 @@ const TreeMap = ({ data, title, valuePrefix = '₹', onBoxClick, onBackClick, sh
                     fontWeight: '700',
                     color: '#1e293b'
                   }}>
-                    {valuePrefix}{box.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {formatValue ? formatValue(box.value, valuePrefix) : `${valuePrefix}${box.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </span>
                   <button
                     type="button"
