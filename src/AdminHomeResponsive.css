@@ -23,36 +23,42 @@
   /* Dynamic viewport height - accounts for taskbar */
   overflow-y: auto;
   overflow-x: hidden;
+  -ms-overflow-style: none !important; /* Internet Explorer 10+ */
+  scrollbar-width: none !important; /* Firefox */
   position: fixed;
   top: 0;
   left: 0;
   z-index: 100;
 }
 
-/* Custom scrollbar for sidebar */
+/* Hide scrollbar for Chrome, Safari and Opera */
 .adminhome-sidebar::-webkit-scrollbar {
-  width: 6px;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
-.adminhome-sidebar::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 3px;
+.adminhome-sidebar * {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
 }
 
-.adminhome-sidebar::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-  transition: background 0.2s;
+.adminhome-sidebar *::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
-.adminhome-sidebar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+/* Hide scrollbar on nav elements inside sidebar */
+.adminhome-sidebar nav {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
 }
 
-/* Firefox scrollbar */
-.adminhome-sidebar {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.2) rgba(0, 0, 0, 0.1);
+.adminhome-sidebar nav::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 .adminhome-main {
