@@ -9,6 +9,7 @@ module.exports = {
         "stream": require.resolve("stream-browserify"),
         "assert": require.resolve("assert/")
       };
+
       webpackConfig.plugins = [
         ...webpackConfig.plugins,
         new webpack.ProvidePlugin({
@@ -19,4 +20,3 @@ module.exports = {
     },
   },
 };
-

@@ -3,8 +3,6 @@ import ReactDOM from 'react-dom/client';
 import './index.css';
 import App from './App';
 import reportWebVitals from './reportWebVitals';
-import { checkVersionUpdate } from './utils/cacheSyncManager';
-import { cacheSyncManager } from './utils/cacheSyncManager';
 
 // Debug: Check sessionStorage at the VERY START (before anything runs)
 console.log('🚀🚀🚀 APP STARTING - INITIAL SESSION CHECK 🚀🚀🚀');
@@ -19,14 +17,15 @@ console.log('🚀 sessionStorage at startup:', {
   }, {})
 });
 
-// Check for version updates on app start
-checkVersionUpdate();
-
-// Initialize cache sync manager to resume incomplete syncs
-// DISABLED: Automatic cache sync is now disabled - users must manually trigger downloads
-// cacheSyncManager.init().catch(error => {
-//   console.error('Error initializing cache sync manager:', error);
-// });
+// Lazy load version check only when needed (after app loads)
+// This avoids blocking the initial render
+setTimeout(() => {
+  import('./utils/cacheSyncManager').then(({ checkVersionUpdate }) => {
+    checkVersionUpdate();
+  }).catch(error => {
+    console.warn('Failed to load version check:', error);
+  });
+}, 0);
 
 // Register service worker
 if ('serviceWorker' in navigator) {

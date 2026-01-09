@@ -77,6 +77,43 @@ function Login({ onLogin }) {
   // Tally-inspired background: soft green/blue gradient, faint grid, and a watermark icon
   return (
     <>
+      {/* Home Button */}
+      <Link
+        to="/home"
+        style={{
+          position: 'fixed',
+          top: '20px',
+          left: '20px',
+          zIndex: 1000,
+          padding: '12px 24px',
+          background: 'rgba(255, 255, 255, 0.95)',
+          color: '#1e40af',
+          textDecoration: 'none',
+          borderRadius: '8px',
+          fontWeight: 600,
+          fontSize: '16px',
+          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          transition: 'all 0.2s',
+          backdropFilter: 'blur(10px)',
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.background = '#fff';
+          e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.2)';
+          e.currentTarget.style.transform = 'translateY(-2px)';
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.95)';
+          e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.15)';
+          e.currentTarget.style.transform = 'translateY(0)';
+        }}
+      >
+        <span className="material-icons" style={{ fontSize: '20px' }}>home</span>
+        Home
+      </Link>
+
       <div style={{
         minHeight: '100vh',
         width: '100vw',
@@ -162,8 +199,9 @@ function Login({ onLogin }) {
                   style={{
                     position: 'absolute',
                     left: 12,
-                    top: emailFocused || email ? '-10px' : '10px',
-                    fontSize: emailFocused || email ? 14 : 15,
+                    top: emailFocused || email ? '-12px' : '10px',
+                    fontSize: emailFocused || email ? 12 : 15,
+                    zIndex: 10,
                     fontWeight: 600,
                     color: '#60a5fa',
                     backgroundColor: '#fff',
@@ -202,8 +240,9 @@ function Login({ onLogin }) {
                   style={{
                     position: 'absolute',
                     left: 12,
-                    top: passwordFocused || password ? '-10px' : '10px',
-                    fontSize: passwordFocused || password ? 14 : 15,
+                    top: passwordFocused || password ? '-12px' : '10px',
+                    fontSize: passwordFocused || password ? 12 : 15,
+                    zIndex: 10,
                     fontWeight: 600,
                     color: '#60a5fa',
                     backgroundColor: '#fff',
@@ -319,8 +358,9 @@ function Login({ onLogin }) {
                     style={{
                       position: 'absolute',
                       left: 12,
-                      top: emailFocused || email ? '-10px' : '10px',
-                      fontSize: emailFocused || email ? 14 : 15,
+                      top: emailFocused || email ? '-12px' : '10px',
+                      fontSize: emailFocused || email ? 12 : 15,
+                      zIndex: 10,
                       fontWeight: 600,
                       color: '#60a5fa',
                       backgroundColor: '#fff',
@@ -359,8 +399,9 @@ function Login({ onLogin }) {
                     style={{
                       position: 'absolute',
                       left: 12,
-                      top: passwordFocused || password ? '-10px' : '10px',
-                      fontSize: passwordFocused || password ? 14 : 15,
+                      top: passwordFocused || password ? '-12px' : '10px',
+                      fontSize: passwordFocused || password ? 12 : 15,
+                      zIndex: 10,
                       fontWeight: 600,
                       color: '#60a5fa',
                       backgroundColor: '#fff',

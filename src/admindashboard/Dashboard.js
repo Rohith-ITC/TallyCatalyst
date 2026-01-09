@@ -63,6 +63,7 @@ function AdminDashboard() {
   const [controlPanelDropdownPosition, setControlPanelDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const controlPanelButtonRef = useRef(null);
   const controlPanelDropdownRef = useRef(null);
+  const [profileDropdownPosition, setProfileDropdownPosition] = useState({ top: 0, left: 0 });
   let sidebarTooltipTimeout = null;
   
   // Mobile menu state
@@ -353,6 +354,31 @@ function AdminDashboard() {
     }
   }, [controlPanelDropdownOpen]);
 
+  // Update profile dropdown position when it opens
+  useEffect(() => {
+    const updateProfileDropdownPosition = () => {
+      if (profileDropdownOpen && profileDropdownRef.current) {
+        const rect = profileDropdownRef.current.getBoundingClientRect();
+        setProfileDropdownPosition({
+          top: Math.max(8, rect.top - 180),
+          left: rect.left + rect.width + 8
+        });
+      }
+    };
+    
+    if (profileDropdownOpen) {
+      updateProfileDropdownPosition();
+      const handleResize = () => updateProfileDropdownPosition();
+      const handleScroll = () => updateProfileDropdownPosition();
+      window.addEventListener('resize', handleResize);
+      window.addEventListener('scroll', handleScroll, true);
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('scroll', handleScroll, true);
+      };
+    }
+  }, [profileDropdownOpen, sidebarOpen]);
+
   // Close control panel dropdown when sidebar closes
   useEffect(() => {
     if (!sidebarOpen) {
@@ -446,32 +472,7 @@ function AdminDashboard() {
         />
       )}
 
-      {/* Top Bar - Hidden in Mobile */}
-      <Header
-        type="admin"
-        isMobile={isMobile}
-        zIndex={4001}
-        logo={{
-          src: TallyLogo,
-          alt: 'Tally Logo',
-          height: 50,
-          width: 'auto'
-        }}
-        brandText="DataLynk"
-        showSubscriptionBadge={true}
-        subscriptionBadge={<SubscriptionBadge />}
-        profileProps={{
-          profileRef: profileDropdownRef,
-          name: name,
-          email: email,
-          profileDropdownOpen: profileDropdownOpen,
-          setProfileDropdownOpen: setProfileDropdownOpen,
-          navigate: navigate,
-          onGoogleConfigClick: () => setShowGoogleConfigModal(true),
-          isAdmin: () => true // Admin dashboard users are always admins
-        }}
-        onLogout={handleLogout}
-      />
+      {/* Top Bar removed - header components moved to sidebar */}
 
       {/* Google Account Configuration Modal */}
       {showGoogleConfigModal && (
@@ -691,9 +692,9 @@ function AdminDashboard() {
       <aside
         className={`adminhome-sidebar sidebar-animated`}
         style={{
-          height: 'calc(100vh - 70px)',
+          height: '100vh',
           position: 'fixed',
-          top: 70,
+          top: 0,
           left: 0,
           background: '#1e3a8a',
           overflowY: 'auto',
@@ -701,13 +702,50 @@ function AdminDashboard() {
           minWidth: sidebarOpen ? 220 : 60,
           maxWidth: sidebarOpen ? 220 : 60,
           transition: 'width 0.3s, min-width 0.3s, max-width 0.3s',
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
-        <div className="sidebar-logo" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', margin: '24px 0' }}>
-          <img src={TallyLogo} alt="Tally Logo" style={{ width: sidebarOpen ? 220 : 48, height: sidebarOpen ? 90 : 48, objectFit: 'contain', transition: 'width 0.3s, height 0.3s' }} />
+        {/* Logo Section */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px 12px',
+          position: 'relative',
+          flexShrink: 0,
+        }}>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}>
+            <img
+              src={TallyLogo}
+              alt="DataLynk Logo"
+              style={{
+                width: sidebarOpen ? '140px' : '70px',
+                height: sidebarOpen ? '140px' : '70px',
+                filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1))',
+                transition: 'width 0.3s ease',
+                objectFit: 'contain',
+              }}
+            />
+          </div>
         </div>
-        <div className="sidebar-menu-label"></div>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 18, fontSize: 17 }}>
+
+        {/* Navigation Menu */}
+        <nav style={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          gap: 18, 
+          fontSize: 17,
+          padding: '0 12px 12px 12px',
+          flex: 1,
+          overflowY: 'auto',
+          minHeight: 0,
+        }}>
           <a
             href="#"
             onClick={handleDashboard}
@@ -922,6 +960,205 @@ function AdminDashboard() {
             )}
           </div>
         </nav>
+
+        {/* Subscription Badge Section */}
+        {sidebarOpen && (
+          <div style={{
+            padding: '0 12px 12px 12px',
+            flexShrink: 0,
+          }}>
+            <SubscriptionBadge />
+          </div>
+        )}
+
+        {/* User Profile Section */}
+        {sidebarOpen && (
+          <div style={{
+            padding: '0 12px 12px 12px',
+            flexShrink: 0,
+            position: 'relative',
+          }}>
+            <div
+              ref={profileDropdownRef}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                cursor: 'pointer',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                background: profileDropdownOpen ? 'rgba(255, 255, 255, 0.15)' : 'transparent',
+                transition: 'all 0.3s ease',
+              }}
+              onClick={() => setProfileDropdownOpen((open) => !open)}
+              onMouseEnter={(e) => {
+                if (!profileDropdownOpen) {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!profileDropdownOpen) {
+                  e.currentTarget.style.background = 'transparent';
+                }
+              }}
+            >
+              <span className="material-icons" style={{ color: '#fff', fontSize: 24, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}>account_circle</span>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, flex: 1 }}>
+                <div style={{ color: '#fff', fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%', textShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>{name || 'User'}</div>
+                <div style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{email || ''}</div>
+              </div>
+              <span className="material-icons" style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: 20, transition: 'transform 0.3s ease', transform: profileDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
+            </div>
+            {profileDropdownOpen && profileDropdownRef.current && (
+              <div style={{
+                position: 'fixed',
+                top: `${profileDropdownPosition.top}px`,
+                left: `${profileDropdownPosition.left}px`,
+                minWidth: 280,
+                background: '#fff',
+                borderRadius: 12,
+                boxShadow: '0 12px 40px 0 rgba(31, 38, 135, 0.2), 0 0 0 1px rgba(0,0,0,0.05)',
+                padding: 20,
+                zIndex: 4000,
+                textAlign: 'left',
+                animation: 'fadeIn 0.2s ease-out',
+              }}
+                onClick={(e) => e.stopPropagation()}
+                onMouseEnter={() => {
+                  if (profileDropdownRef.current) {
+                    const rect = profileDropdownRef.current.getBoundingClientRect();
+                    setProfileDropdownPosition({
+                      top: Math.max(8, rect.top - 180),
+                      left: rect.left + rect.width + 8
+                    });
+                  }
+                }}
+                onMouseLeave={() => setProfileDropdownOpen(false)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #e5e7eb' }}>
+                  <span className="material-icons" style={{ fontSize: 32, color: '#3b82f6' }}>account_circle</span>
+                  <div>
+                    <div style={{ fontSize: 16, color: '#1e293b', fontWeight: 700, marginBottom: 2 }}>{name || 'User'}</div>
+                    <div style={{ fontSize: 13, color: '#64748b' }}>{email || ''}</div>
+                  </div>
+                </div>
+                <button
+                  style={{
+                    width: '100%',
+                    padding: '12px 18px',
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #1e40af 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 10,
+                    fontWeight: 600,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px 0 rgba(59,130,246,0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    transition: 'all 0.3s ease',
+                    marginBottom: 10,
+                  }}
+                  onClick={() => {
+                    if (navigate) navigate('/change-password');
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(59,130,246,0.35)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(59,130,246,0.25)';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 18 }}>lock</span>
+                  Change Password
+                </button>
+                <button
+                  style={{
+                    width: '100%',
+                    padding: '12px 18px',
+                    background: 'linear-gradient(135deg, #4285f4 0%, #34a853 100%)',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 10,
+                    fontWeight: 600,
+                    fontSize: 14,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 12px 0 rgba(66,133,244,0.25)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    transition: 'all 0.3s ease',
+                    marginBottom: 10,
+                  }}
+                  onClick={() => {
+                    setShowGoogleConfigModal(true);
+                    setProfileDropdownOpen(false);
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-2px)';
+                    e.currentTarget.style.boxShadow = '0 6px 16px 0 rgba(66,133,244,0.35)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)';
+                    e.currentTarget.style.boxShadow = '0 4px 12px 0 rgba(66,133,244,0.25)';
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 18 }}>account_circle</span>
+                  Configure Google Account
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Logout Button */}
+        {sidebarOpen && (
+          <div style={{
+            padding: '0 12px 12px 12px',
+            flexShrink: 0,
+          }}>
+            <button
+              style={{
+                width: '100%',
+                background: 'rgba(220, 38, 38, 0.15)',
+                color: '#fff',
+                border: '1px solid rgba(220, 38, 38, 0.3)',
+                padding: '8px 12px',
+                borderRadius: '8px',
+                fontWeight: 600,
+                fontSize: '13px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                transition: 'all 0.2s ease',
+                boxShadow: '0 2px 6px rgba(220, 38, 38, 0.2)',
+              }}
+              onClick={handleLogout}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = 'rgba(220, 38, 38, 0.25)';
+                e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.4)';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(220, 38, 38, 0.3)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'rgba(220, 38, 38, 0.15)';
+                e.currentTarget.style.borderColor = 'rgba(220, 38, 38, 0.3)';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 2px 6px rgba(220, 38, 38, 0.2)';
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: 18 }}>logout</span>
+              <span>Logout</span>
+            </button>
+          </div>
+        )}
       </aside>
       )}
 
@@ -933,7 +1170,7 @@ function AdminDashboard() {
         aria-label={sidebarOpen ? 'Collapse sidebar' : 'Expand sidebar'}
         style={{
           position: 'fixed',
-          top: 72,
+          top: 12,
           left: (sidebarOpen ? 220 : 60) - 18,
           zIndex: 5000,
           background: '#fff',
@@ -965,7 +1202,7 @@ function AdminDashboard() {
         className="adminhome-main"
         style={{
           marginLeft: isMobile ? 0 : (sidebarOpen ? 220 : 60),
-          paddingTop: isMobile ? 0 : 70,
+          paddingTop: isMobile ? 0 : 20,
           padding: isMobile ? 12 : 20,
           transition: 'margin 0.3s',
         }}

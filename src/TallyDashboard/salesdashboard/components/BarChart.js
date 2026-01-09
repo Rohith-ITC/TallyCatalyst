@@ -260,13 +260,14 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                   marginBottom: '4px'
                 }}>
                   <span style={{
-                    fontSize: '12px',
-                    fontWeight: '500',
-                    color: '#64748b',
+                    fontSize: isMobile ? '13px' : '14px',
+                    fontWeight: '600',
+                    color: '#1e293b',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
                     whiteSpace: 'nowrap',
-                    maxWidth: '60%'
+                    maxWidth: '60%',
+                    letterSpacing: '-0.01em'
                   }}>
                     {item.label}
                   </span>

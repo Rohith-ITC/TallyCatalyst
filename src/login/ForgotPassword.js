@@ -139,8 +139,9 @@ function ForgotPassword() {
                 style={{
                   position: 'absolute',
                   left: 12,
-                  top: emailFocused || email ? '-10px' : '10px',
-                  fontSize: emailFocused || email ? 14 : 15,
+                  top: emailFocused || email ? '-12px' : '10px',
+                  fontSize: emailFocused || email ? 12 : 15,
+                  zIndex: 10,
                   fontWeight: 600,
                   color: '#60a5fa',
                   backgroundColor: '#fff',
@@ -251,8 +252,9 @@ function ForgotPassword() {
                   style={{
                     position: 'absolute',
                     left: 12,
-                    top: emailFocused || email ? '-10px' : '10px',
-                    fontSize: emailFocused || email ? 14 : 15,
+                    top: emailFocused || email ? '-12px' : '10px',
+                    fontSize: emailFocused || email ? 12 : 15,
+                    zIndex: 10,
                     fontWeight: 600,
                     color: '#60a5fa',
                     backgroundColor: '#fff',

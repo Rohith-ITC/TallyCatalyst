@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import {
   BrowserRouter as Router,
   Routes,
@@ -6,19 +6,39 @@ import {
   Navigate,
 } from 'react-router-dom';
 
+// Keep Login as regular import since it's the landing page and should load immediately
 import Login from './login/Login';
-import SignUp from './login/SignUp';
-import ForgotPassword from './login/ForgotPassword';
-import AdminHome from './AdminHome';
-import UserDashboard from './UserDashboard';
-import AdminDashboard from './admindashboard/Dashboard';
-import ChangePassword from './admindashboard/ChangePassword';
-import TallyDashboard from './TallyDashboard/tallydashboard';
-import SubscriptionManagement from './admindashboard/SubscriptionManagement';
-import MasterInvitationForm from './TallyDashboard/MasterInvitationForm';
-import PrivacyPolicy from './PrivacyPolicy';
-import TermsOfService from './TermsOfService';
-import { APP_CONFIG } from './config';
+
+// Lazy load all other components for better initial load performance
+const SignUp = lazy(() => import('./login/SignUp'));
+const ForgotPassword = lazy(() => import('./login/ForgotPassword'));
+const LandingPage = lazy(() => import('./LandingPage'));
+const AdminHome = lazy(() => import('./AdminHome'));
+const UserDashboard = lazy(() => import('./UserDashboard'));
+const AdminDashboard = lazy(() => import('./admindashboard/Dashboard'));
+const ChangePassword = lazy(() => import('./admindashboard/ChangePassword'));
+const TallyDashboard = lazy(() => import('./TallyDashboard/tallydashboard'));
+const SubscriptionManagement = lazy(() => import('./admindashboard/SubscriptionManagement'));
+const MasterInvitationForm = lazy(() => import('./TallyDashboard/MasterInvitationForm'));
+const PrivacyPolicy = lazy(() => import('./PrivacyPolicy'));
+const TermsOfService = lazy(() => import('./TermsOfService'));
+
+// Loading fallback component
+const LoadingFallback = () => (
+  <div style={{
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    minHeight: '100vh',
+    background: 'linear-gradient(135deg, #e6f4ea 0%, #dbeafe 100%)',
+  }}>
+    <div style={{
+      fontSize: '18px',
+      color: '#1e40af',
+      fontWeight: 500,
+    }}>Loading...</div>
+  </div>
+);
 
 // Protected Route Component
 function ProtectedRoute({ children }) {
@@ -149,65 +169,68 @@ function App() {
   
   return (
     <Router basename={process.env.REACT_APP_HOMEPAGE || ''}>
-      <Routes>
-        <Route path="/" element={<Login onLogin={handleLogin} />} />
-        <Route path="/signup" element={<SignUp />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/master-form/:token" element={<MasterInvitationForm />} />
-        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
-        <Route path="/terms-of-service" element={<TermsOfService />} />
+      <Suspense fallback={<LoadingFallback />}>
+        <Routes>
+          <Route path="/" element={<Login onLogin={handleLogin} />} />
+          <Route path="/home" element={<LandingPage />} />
+          <Route path="/signup" element={<SignUp />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/master-form/:token" element={<MasterInvitationForm />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+          <Route path="/terms-of-service" element={<TermsOfService />} />
 
-        <Route
-          path="/admin-dashboard"
-          element={
-            <ProtectedRoute>
-              <AdminDashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/change-password"
-          element={
-            <ProtectedRoute>
-              <ChangePassword />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/tally-dashboard"
-          element={
-            <ProtectedRoute>
-              <TallyDashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/subscription"
-          element={
-            <ProtectedRoute>
-              <SubscriptionManagement />
-            </ProtectedRoute>
-          }
-        />
-
-        {user && user.role === 'admin' && (
           <Route
-            path="/admin"
+            path="/admin-dashboard"
             element={
-              <AdminHome
-                onLogout={handleLogout}
-                onShowTallyConfig={handleShowTallyConfig}
-              />
+              <ProtectedRoute>
+                <AdminDashboard />
+              </ProtectedRoute>
             }
           />
-        )}
-        {user && user.role === 'user' && (
           <Route
-            path="/user"
-            element={<UserDashboard onLogout={handleLogout} />}
+            path="/change-password"
+            element={
+              <ProtectedRoute>
+                <ChangePassword />
+              </ProtectedRoute>
+            }
           />
-        )}
-      </Routes>
+          <Route
+            path="/tally-dashboard"
+            element={
+              <ProtectedRoute>
+                <TallyDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/subscription"
+            element={
+              <ProtectedRoute>
+                <SubscriptionManagement />
+              </ProtectedRoute>
+            }
+          />
+
+          {user && user.role === 'admin' && (
+            <Route
+              path="/admin"
+              element={
+                <AdminHome
+                  onLogout={handleLogout}
+                  onShowTallyConfig={handleShowTallyConfig}
+                />
+              }
+            />
+          )}
+          {user && user.role === 'user' && (
+            <Route
+              path="/user"
+              element={<UserDashboard onLogout={handleLogout} />}
+            />
+          )}
+        </Routes>
+      </Suspense>
     </Router>
   );
 }
