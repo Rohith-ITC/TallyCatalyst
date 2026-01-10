@@ -32,6 +32,16 @@ function TallyConfig() {
   const [configLoading, setConfigLoading] = useState(false);
   const [configSaving, setConfigSaving] = useState(false);
   
+  // Voucher_udf field configurations state
+  // Structure: { companyGuid: { tableName: [{ fieldName: string, formula: string, id: string }] } }
+  const [voucherUdfFields, setVoucherUdfFields] = useState({});
+  const [activeVoucherUdfTable, setActiveVoucherUdfTable] = useState('voucher');
+  const VOUCHER_UDF_TABLES = ['voucher', 'ledgerentries', 'billallocations', 'inventoryentries', 'batchallocations'];
+  
+  // Voucher_udf arrays state
+  // Structure: { companyGuid: { tableName: [{ arrayName: string, fields: [{ fieldName, formula, id }], id: string }] } }
+  const [voucherUdfArrays, setVoucherUdfArrays] = useState({});
+  
   // Link Account Modal State
   const [showLinkAccountModal, setShowLinkAccountModal] = useState(false);
   const [googleAccessToken, setGoogleAccessToken] = useState(null);
@@ -383,6 +393,10 @@ function TallyConfig() {
           co_name: responseCoName
         }
       }));
+      
+      // Initialize Voucher_udf fields and arrays from configurations
+      initializeVoucherUdfFields(company.guid, configs);
+      initializeVoucherUdfArrays(company.guid, configs);
     } catch (error) {
       console.error('Error fetching company config:', error);
       setConfigurations(prev => ({
@@ -425,6 +439,330 @@ function TallyConfig() {
         [companyGuid]: {
           ...companyConfig,
           configs: updatedConfigs
+        }
+      };
+    });
+  };
+
+  // Initialize Voucher_udf fields from configurations
+  const initializeVoucherUdfFields = (companyGuid, configs) => {
+    // Find Voucher_udf config (single entry with config_key === "Voucher_udf")
+    const voucherUdfConfig = configs.find(c => (c.config_key || '').toLowerCase() === 'voucher_udf');
+    
+    const fields = {};
+    VOUCHER_UDF_TABLES.forEach(tableName => {
+      fields[tableName] = [];
+    });
+    
+    if (voucherUdfConfig && voucherUdfConfig.permission_value_json) {
+      try {
+        const permissionValueJson = typeof voucherUdfConfig.permission_value_json === 'string' 
+          ? JSON.parse(voucherUdfConfig.permission_value_json)
+          : voucherUdfConfig.permission_value_json;
+        
+        // Map API table names to internal table names
+        const apiTableToInternal = {
+          'vouchers': 'voucher',
+          'ledgerentries': 'ledgerentries',
+          'billallocations': 'billallocations',
+          'inventoryentries': 'inventoryentries',
+          'batchallocations': 'batchallocations'
+        };
+        
+        // Process each table
+        Object.keys(permissionValueJson).forEach(apiTableName => {
+          const internalTableName = apiTableToInternal[apiTableName] || apiTableName;
+          const tableData = permissionValueJson[apiTableName];
+          
+          // tableData should be an array with one object
+          if (Array.isArray(tableData) && tableData.length > 0) {
+            const tableObj = tableData[0];
+            
+            // Extract field configurations (exclude aggregate arrays)
+            const fieldConfigs = {};
+            
+            Object.keys(tableObj).forEach(key => {
+              const value = tableObj[key];
+              // If value is an array, it's an aggregate; otherwise it's a field
+              if (Array.isArray(value)) {
+                // This is an aggregate, skip for fields initialization
+              } else if (typeof value === 'string') {
+                // This is a field configuration
+                fieldConfigs[key] = value;
+              }
+            });
+            
+            // Convert field configs to array format
+            const fieldsArray = Object.keys(fieldConfigs).map(fieldName => ({
+              id: `field_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              fieldName: fieldName,
+              formula: fieldConfigs[fieldName]
+            }));
+            
+            if (fields[internalTableName] !== undefined) {
+              fields[internalTableName] = fieldsArray;
+            }
+          }
+        });
+      } catch (e) {
+        console.log('Could not parse Voucher_udf permission_value_json:', e);
+      }
+    }
+    
+    setVoucherUdfFields(prev => ({
+      ...prev,
+      [companyGuid]: fields
+    }));
+  };
+
+  // Initialize Voucher_udf arrays from configurations
+  const initializeVoucherUdfArrays = (companyGuid, configs) => {
+    // Find Voucher_udf config (single entry with config_key === "Voucher_udf")
+    const voucherUdfConfig = configs.find(c => (c.config_key || '').toLowerCase() === 'voucher_udf');
+    
+    const arrays = {};
+    VOUCHER_UDF_TABLES.forEach(tableName => {
+      arrays[tableName] = [];
+    });
+    
+    if (voucherUdfConfig && voucherUdfConfig.permission_value_json) {
+      try {
+        const permissionValueJson = typeof voucherUdfConfig.permission_value_json === 'string' 
+          ? JSON.parse(voucherUdfConfig.permission_value_json)
+          : voucherUdfConfig.permission_value_json;
+        
+        // Map API table names to internal table names
+        const apiTableToInternal = {
+          'vouchers': 'voucher',
+          'ledgerentries': 'ledgerentries',
+          'billallocations': 'billallocations',
+          'inventoryentries': 'inventoryentries',
+          'batchallocations': 'batchallocations'
+        };
+        
+        // Process each table
+        Object.keys(permissionValueJson).forEach(apiTableName => {
+          const internalTableName = apiTableToInternal[apiTableName] || apiTableName;
+          const tableData = permissionValueJson[apiTableName];
+          
+          // tableData should be an array with one object
+          if (Array.isArray(tableData) && tableData.length > 0) {
+            const tableObj = tableData[0];
+            const aggregatesArray = [];
+            
+            // Extract aggregate arrays (keys with array values)
+            Object.keys(tableObj).forEach(key => {
+              const value = tableObj[key];
+              if (Array.isArray(value) && value.length > 0) {
+                // This is an aggregate
+                const aggregateObj = value[0]; // Get first (and only) object in array
+                
+                // Convert aggregate object to fields array format
+                const aggregateFields = Object.keys(aggregateObj).map(fieldName => ({
+                  id: `field_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  fieldName: fieldName,
+                  formula: aggregateObj[fieldName]
+                }));
+                
+                aggregatesArray.push({
+                  id: `array_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  arrayName: key,
+                  fields: aggregateFields
+                });
+              }
+            });
+            
+            if (arrays[internalTableName] !== undefined) {
+              arrays[internalTableName] = aggregatesArray;
+            }
+          }
+        });
+      } catch (e) {
+        console.log('Could not parse Voucher_udf arrays from permission_value_json:', e);
+      }
+    }
+    
+    setVoucherUdfArrays(prev => ({
+      ...prev,
+      [companyGuid]: arrays
+    }));
+  };
+
+  // Add field configuration for Voucher_udf
+  const addVoucherUdfField = (companyGuid, tableName) => {
+    setVoucherUdfFields(prev => {
+      const companyFields = prev[companyGuid] || {};
+      const tableFields = companyFields[tableName] || [];
+      const newField = {
+        id: `field_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        fieldName: '',
+        formula: ''
+      };
+      return {
+        ...prev,
+        [companyGuid]: {
+          ...companyFields,
+          [tableName]: [...tableFields, newField]
+        }
+      };
+    });
+  };
+
+  // Remove field configuration for Voucher_udf
+  const removeVoucherUdfField = (companyGuid, tableName, fieldId) => {
+    setVoucherUdfFields(prev => {
+      const companyFields = prev[companyGuid] || {};
+      const tableFields = companyFields[tableName] || [];
+      return {
+        ...prev,
+        [companyGuid]: {
+          ...companyFields,
+          [tableName]: tableFields.filter(f => f.id !== fieldId)
+        }
+      };
+    });
+  };
+
+  // Update field configuration for Voucher_udf
+  const updateVoucherUdfField = (companyGuid, tableName, fieldId, field, value) => {
+    setVoucherUdfFields(prev => {
+      const companyFields = prev[companyGuid] || {};
+      const tableFields = companyFields[tableName] || [];
+      return {
+        ...prev,
+        [companyGuid]: {
+          ...companyFields,
+          [tableName]: tableFields.map(f => 
+            f.id === fieldId ? { ...f, [field]: value } : f
+          )
+        }
+      };
+    });
+  };
+
+  // Add array for Voucher_udf
+  const addVoucherUdfArray = (companyGuid, tableName) => {
+    setVoucherUdfArrays(prev => {
+      const companyArrays = prev[companyGuid] || {};
+      const tableArrays = companyArrays[tableName] || [];
+      const newArray = {
+        id: `array_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        arrayName: '',
+        fields: []
+      };
+      return {
+        ...prev,
+        [companyGuid]: {
+          ...companyArrays,
+          [tableName]: [...tableArrays, newArray]
+        }
+      };
+    });
+  };
+
+  // Remove array for Voucher_udf
+  const removeVoucherUdfArray = (companyGuid, tableName, arrayId) => {
+    setVoucherUdfArrays(prev => {
+      const companyArrays = prev[companyGuid] || {};
+      const tableArrays = companyArrays[tableName] || [];
+      return {
+        ...prev,
+        [companyGuid]: {
+          ...companyArrays,
+          [tableName]: tableArrays.filter(a => a.id !== arrayId)
+        }
+      };
+    });
+  };
+
+  // Update array name for Voucher_udf
+  const updateVoucherUdfArray = (companyGuid, tableName, arrayId, field, value) => {
+    setVoucherUdfArrays(prev => {
+      const companyArrays = prev[companyGuid] || {};
+      const tableArrays = companyArrays[tableName] || [];
+      return {
+        ...prev,
+        [companyGuid]: {
+          ...companyArrays,
+          [tableName]: tableArrays.map(a => 
+            a.id === arrayId ? { ...a, [field]: value } : a
+          )
+        }
+      };
+    });
+  };
+
+  // Add field to array for Voucher_udf
+  const addVoucherUdfArrayField = (companyGuid, tableName, arrayId) => {
+    setVoucherUdfArrays(prev => {
+      const companyArrays = prev[companyGuid] || {};
+      const tableArrays = companyArrays[tableName] || [];
+      return {
+        ...prev,
+        [companyGuid]: {
+          ...companyArrays,
+          [tableName]: tableArrays.map(a => {
+            if (a.id === arrayId) {
+              const newField = {
+                id: `field_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                fieldName: '',
+                formula: ''
+              };
+              return {
+                ...a,
+                fields: [...(a.fields || []), newField]
+              };
+            }
+            return a;
+          })
+        }
+      };
+    });
+  };
+
+  // Remove field from array for Voucher_udf
+  const removeVoucherUdfArrayField = (companyGuid, tableName, arrayId, fieldId) => {
+    setVoucherUdfArrays(prev => {
+      const companyArrays = prev[companyGuid] || {};
+      const tableArrays = companyArrays[tableName] || [];
+      return {
+        ...prev,
+        [companyGuid]: {
+          ...companyArrays,
+          [tableName]: tableArrays.map(a => {
+            if (a.id === arrayId) {
+              return {
+                ...a,
+                fields: (a.fields || []).filter(f => f.id !== fieldId)
+              };
+            }
+            return a;
+          })
+        }
+      };
+    });
+  };
+
+  // Update field in array for Voucher_udf
+  const updateVoucherUdfArrayField = (companyGuid, tableName, arrayId, fieldId, field, value) => {
+    setVoucherUdfArrays(prev => {
+      const companyArrays = prev[companyGuid] || {};
+      const tableArrays = companyArrays[tableName] || [];
+      return {
+        ...prev,
+        [companyGuid]: {
+          ...companyArrays,
+          [tableName]: tableArrays.map(a => {
+            if (a.id === arrayId) {
+              return {
+                ...a,
+                fields: (a.fields || []).map(f => 
+                  f.id === fieldId ? { ...f, [field]: value } : f
+                )
+              };
+            }
+            return a;
+          })
         }
       };
     });
@@ -830,6 +1168,328 @@ function TallyConfig() {
     }, 300);
   };
 
+  // Voucher UDF Fields UI Component
+  const VoucherUdfFieldsUI = ({ 
+    companyGuid, 
+    companyFields, 
+    companyArrays,
+    activeTable, 
+    onTableChange, 
+    onAddField, 
+    onRemoveField, 
+    onUpdateField,
+    onAddArray,
+    onRemoveArray,
+    onUpdateArray,
+    onAddArrayField,
+    onRemoveArrayField,
+    onUpdateArrayField
+  }) => {
+    const tableFields = companyFields[activeTable] || [];
+    const tableArrays = companyArrays?.[activeTable] || [];
+    const [showTableDropdown, setShowTableDropdown] = useState(false);
+    const dropdownRef = useRef(null);
+    
+    const tableConfig = {
+      voucher: { icon: 'description', label: 'Voucher', color: '#3b82f6' },
+      ledgerentries: { icon: 'account_balance', label: 'Ledger Entries', color: '#10b981' },
+      billallocations: { icon: 'receipt_long', label: 'Bill Allocations', color: '#f59e0b' },
+      inventoryentries: { icon: 'inventory_2', label: 'Inventory Entries', color: '#8b5cf6' },
+      batchallocations: { icon: 'diamond', label: 'Batch Allocations', color: '#ef4444' }
+    };
+
+    useEffect(() => {
+      const handleClickOutside = (event) => {
+        if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+          setShowTableDropdown(false);
+        }
+      };
+      if (showTableDropdown) {
+        document.addEventListener('mousedown', handleClickOutside);
+      }
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }, [showTableDropdown]);
+    
+    const activeConfig = tableConfig[activeTable] || { icon: 'table_chart', label: activeTable, color: '#3b82f6' };
+    
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {/* Table Selector Dropdown */}
+        <div style={{ position: 'relative' }} ref={dropdownRef}>
+          <button
+            type="button"
+            onClick={() => setShowTableDropdown(!showTableDropdown)}
+            style={{
+              width: '100%',
+              padding: '10px 14px',
+              border: '1px solid #d1d5db',
+              borderRadius: '6px',
+              background: '#fff',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              fontSize: '13px',
+              fontWeight: 500,
+              color: '#1f2937',
+              transition: 'all 0.2s'
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = activeConfig.color; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#d1d5db'; }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: activeConfig.color }}>
+                {activeConfig.icon}
+              </span>
+              <span>{activeConfig.label}</span>
+            </div>
+            <span className="material-icons" style={{ 
+              fontSize: '18px', 
+              color: '#64748b',
+              transform: showTableDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
+              transition: 'transform 0.2s'
+            }}>
+              arrow_drop_down
+            </span>
+          </button>
+
+          {showTableDropdown && (
+            <div style={{
+              position: 'absolute',
+              top: '100%',
+              left: 0,
+              right: 0,
+              marginTop: '4px',
+              background: '#fff',
+              border: '1px solid #d1d5db',
+              borderRadius: '6px',
+              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+              zIndex: 1000,
+              maxHeight: '300px',
+              overflowY: 'auto'
+            }}>
+              {VOUCHER_UDF_TABLES.map((tableName) => {
+                const config = tableConfig[tableName] || { icon: 'table_chart', label: tableName, color: '#64748b' };
+                const isActive = activeTable === tableName;
+                return (
+                  <button
+                    key={tableName}
+                    onClick={() => { onTableChange(tableName); setShowTableDropdown(false); }}
+                    style={{
+                      width: '100%',
+                      padding: '12px 14px',
+                      border: 'none',
+                      background: isActive ? `${config.color}10` : 'transparent',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      fontSize: '13px',
+                      fontWeight: isActive ? 600 : 500,
+                      color: isActive ? config.color : '#1f2937',
+                      textAlign: 'left',
+                      transition: 'background 0.2s',
+                      borderLeft: isActive ? `3px solid ${config.color}` : '3px solid transparent'
+                    }}
+                    onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = '#f9fafb'; }}
+                    onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px', color: isActive ? config.color : '#64748b' }}>
+                      {config.icon}
+                    </span>
+                    {config.label}
+                    {isActive && (
+                      <span className="material-icons" style={{ fontSize: '16px', color: config.color, marginLeft: 'auto' }}>
+                        check
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Header with Add Buttons */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <div style={{ fontSize: '14px', fontWeight: 600, color: '#1f2937', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span className="material-icons" style={{ fontSize: '18px', color: activeConfig.color }}>{activeConfig.icon}</span>
+            <span>Field Configurations</span>
+            {tableFields.length > 0 && <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b', marginLeft: '8px' }}>({tableFields.length})</span>}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              onClick={() => onAddField(activeTable)}
+              style={{
+                padding: '8px 14px',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                background: '#fff',
+                color: '#374151',
+                fontSize: '12px',
+                fontWeight: 500,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px'
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = activeConfig.color; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = activeConfig.color; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#374151'; e.currentTarget.style.borderColor = '#d1d5db'; }}
+            >
+              <span className="material-icons" style={{ fontSize: '16px' }}>add</span>
+              Add Field
+            </button>
+            {onAddArray && (
+              <button
+                type="button"
+                onClick={() => onAddArray(activeTable)}
+                style={{
+                  padding: '8px 14px',
+                  border: '2px solid #3b82f6',
+                  borderRadius: '6px',
+                  background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                  color: '#fff',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.4)'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.3)'; }}
+              >
+                <span className="material-icons" style={{ fontSize: '16px' }}>add_circle</span>
+                Add Aggregate
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Fields List */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0', maxHeight: '450px', overflowY: 'auto', overflowX: 'hidden', paddingRight: '4px' }}>
+          {tableFields.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', background: '#f9fafb', borderRadius: '6px', border: '1px dashed #d1d5db' }}>
+              <span className="material-icons" style={{ fontSize: '40px', display: 'block', marginBottom: '8px', color: '#cbd5e1' }}>add_circle_outline</span>
+              <div style={{ fontSize: '13px', color: '#64748b' }}>No field configurations. Click "Add Field" to get started.</div>
+            </div>
+          ) : (
+            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden' }}>
+              {tableFields.map((field, index) => (
+                <div key={field.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderBottom: index < tableFields.length - 1 ? '1px solid #f3f4f6' : 'none', transition: 'background 0.2s', background: index % 2 === 0 ? '#fff' : '#fafbfc' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#f0f9ff'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = index % 2 === 0 ? '#fff' : '#fafbfc'; }}
+                >
+                  <div style={{ minWidth: '24px', fontSize: '12px', fontWeight: 500, color: '#9ca3af', textAlign: 'center' }}>{index + 1}.</div>
+                  <div style={{ flex: '0 0 180px', minWidth: 0 }}>
+                    <input type="text" value={field.fieldName || ''} onChange={(e) => onUpdateField(activeTable, field.id, 'fieldName', e.target.value)} placeholder="Field name"
+                      style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '12px', outline: 'none', transition: 'all 0.2s', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
+                      onFocus={(e) => { e.target.style.borderColor = activeConfig.color; e.target.style.boxShadow = `0 0 0 2px ${activeConfig.color}20`; }}
+                      onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
+                    />
+                  </div>
+                  <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                    <input type="text" value={field.formula || ''} onChange={(e) => onUpdateField(activeTable, field.id, 'formula', e.target.value)} placeholder="Formula (e.g., $Parent:Ledger:$PartyLedgerName)"
+                      style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '12px', outline: 'none', transition: 'all 0.2s', fontFamily: '"Consolas", "Monaco", "Courier New", monospace', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
+                      onFocus={(e) => { e.target.style.borderColor = activeConfig.color; e.target.style.boxShadow = `0 0 0 2px ${activeConfig.color}20`; }}
+                      onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
+                    />
+                  </div>
+                  <button type="button" onClick={() => onRemoveField(activeTable, field.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', width: '32px', height: '32px', background: 'transparent', border: 'none', borderRadius: '4px', color: '#ef4444', cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0 }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    title="Remove field"
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>delete</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Aggregates Section */}
+        {tableArrays.length > 0 && (
+          <div style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {tableArrays.map((array, arrayIndex) => (
+              <div key={array.id} style={{ background: '#fff', border: '2px solid #3b82f6', borderRadius: '8px', padding: '16px', boxShadow: '0 2px 8px rgba(59, 130, 246, 0.1)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
+                  <div style={{ minWidth: '24px', fontSize: '12px', fontWeight: 600, color: '#3b82f6' }}>Aggregate {arrayIndex + 1}:</div>
+                  <div style={{ flex: 1 }}>
+                    <input type="text" value={array.arrayName || ''} onChange={(e) => onUpdateArray(activeTable, array.id, 'arrayName', e.target.value)} placeholder=""
+                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', fontWeight: 600, outline: 'none', background: '#f9fafb', color: '#1f2937', boxSizing: 'border-box' }}
+                      onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 2px #3b82f620'; e.target.style.background = '#fff'; }}
+                      onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; e.target.style.background = '#f9fafb'; }}
+                    />
+                  </div>
+                  <button type="button" onClick={() => onRemoveArray(activeTable, array.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', width: '32px', height: '32px', background: 'transparent', border: 'none', borderRadius: '4px', color: '#ef4444', cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0 }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                    title="Remove array"
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>delete</span>
+                  </button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>Fields ({array.fields?.length || 0})</div>
+                    <button type="button" onClick={() => onAddArrayField(activeTable, array.id)} style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff', color: '#374151', fontSize: '11px', fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = '#3b82f6'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#3b82f6'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#374151'; e.currentTarget.style.borderColor = '#d1d5db'; }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '14px' }}>add</span>
+                      Add Field
+                    </button>
+                  </div>
+                  {(!array.fields || array.fields.length === 0) ? (
+                    <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', background: '#f9fafb', borderRadius: '4px', border: '1px dashed #d1d5db', fontSize: '12px' }}>
+                      No fields in this aggregate. Click "Add Field" to add fields.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {array.fields.map((field, fieldIndex) => (
+                        <div key={field.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: fieldIndex % 2 === 0 ? '#f9fafb' : '#fff', borderRadius: '4px', border: '1px solid #e5e7eb' }}>
+                          <div style={{ minWidth: '20px', fontSize: '11px', fontWeight: 500, color: '#9ca3af', textAlign: 'center' }}>{fieldIndex + 1}.</div>
+                          <div style={{ flex: '0 0 150px', minWidth: 0 }}>
+                            <input type="text" value={field.fieldName || ''} onChange={(e) => onUpdateArrayField(activeTable, array.id, field.id, 'fieldName', e.target.value)} placeholder="Field name"
+                              style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '11px', outline: 'none', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
+                              onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 2px #3b82f620'; }}
+                              onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
+                            />
+                          </div>
+                          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                            <input type="text" value={field.formula || ''} onChange={(e) => onUpdateArrayField(activeTable, array.id, field.id, 'formula', e.target.value)} placeholder="Formula (e.g., $Parent:Ledger:$PartyLedgerName)"
+                              style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '11px', outline: 'none', fontFamily: '"Consolas", "Monaco", "Courier New", monospace', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
+                              onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 2px #3b82f620'; }}
+                              onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
+                            />
+                          </div>
+                          <button type="button" onClick={() => onRemoveArrayField(activeTable, array.id, field.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '28px', width: '28px', height: '28px', background: 'transparent', border: 'none', borderRadius: '4px', color: '#ef4444', cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0 }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                            title="Remove field"
+                          >
+                            <span className="material-icons" style={{ fontSize: '16px' }}>delete</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Save configurations for a company
   const handleSaveConfig = async (companyGuid) => {
     const companyConfig = configurations[companyGuid];
@@ -839,27 +1499,134 @@ function TallyConfig() {
 
     setConfigSaving(true);
     try {
+      // Prepare Voucher_udf configurations in new format with permission_value_json
+      const voucherUdfFieldsData = voucherUdfFields[companyGuid] || {};
+      const voucherUdfArraysData = voucherUdfArrays[companyGuid] || {};
+      
+      // Build permission_value_json structure
+      const permissionValueJson = {};
+      let hasVoucherUdfData = false;
+      
+      VOUCHER_UDF_TABLES.forEach(tableName => {
+        const tableFields = voucherUdfFieldsData[tableName] || [];
+        const tableArrays = voucherUdfArraysData[tableName] || [];
+        
+        // Only process if there are fields or arrays for this table
+        if (tableFields.length > 0 || tableArrays.length > 0) {
+          hasVoucherUdfData = true;
+          
+          // Build the object for this table (array with single object)
+          const tableConfig = {};
+          
+          // Add field configurations (fieldName: formula)
+          tableFields.forEach(field => {
+            if (field.fieldName && field.formula) {
+              tableConfig[field.fieldName] = field.formula;
+            }
+          });
+          
+          // Add aggregate arrays (aggregateName: [{ fieldName: formula, ... }])
+          tableArrays.forEach(array => {
+            if (array.arrayName && array.fields && array.fields.length > 0) {
+              // Build one object with all fields for this aggregate
+              const combinedAggregateObj = {};
+              array.fields.forEach(f => {
+                if (f.fieldName && f.formula) {
+                  combinedAggregateObj[f.fieldName] = f.formula;
+                }
+              });
+              
+              // The aggregate should be an array with one object containing all fields
+              if (Object.keys(combinedAggregateObj).length > 0) {
+                tableConfig[array.arrayName] = [combinedAggregateObj];
+              }
+            }
+          });
+          
+          // Only add table config if it has data
+          if (Object.keys(tableConfig).length > 0) {
+            // Map table name to API format (voucher -> vouchers, etc.)
+            const tableKeyMap = {
+              'voucher': 'vouchers',
+              'ledgerentries': 'ledgerentries',
+              'billallocations': 'billallocations',
+              'inventoryentries': 'inventoryentries',
+              'batchallocations': 'batchallocations'
+            };
+            const apiTableName = tableKeyMap[tableName] || tableName;
+            permissionValueJson[apiTableName] = [tableConfig];
+          }
+        }
+      });
+
+      // Prepare Voucher_udf config entry
+      const voucherUdfConfigs = [];
+      if (hasVoucherUdfData && Object.keys(permissionValueJson).length > 0) {
+        // Find existing Voucher_udf config
+        const existingVoucherUdfConfig = companyConfig.configs.find(
+          c => (c.config_key || '').toLowerCase() === 'voucher_udf'
+        );
+        
+        voucherUdfConfigs.push({
+          config_id: existingVoucherUdfConfig?.config_id || existingVoucherUdfConfig?.id || null,
+          is_enabled: existingVoucherUdfConfig?.is_enabled !== undefined ? 
+            (existingVoucherUdfConfig.is_enabled === true || existingVoucherUdfConfig.is_enabled === 1) : 
+            true,
+          permission_value: existingVoucherUdfConfig?.permission_value || '',
+          permission_value_json: permissionValueJson
+        });
+      } else {
+        // If no data but config exists, include it to maintain the entry
+        const existingVoucherUdfConfig = companyConfig.configs.find(
+          c => (c.config_key || '').toLowerCase() === 'voucher_udf'
+        );
+        if (existingVoucherUdfConfig) {
+          voucherUdfConfigs.push({
+            config_id: existingVoucherUdfConfig.config_id || existingVoucherUdfConfig.id,
+            is_enabled: existingVoucherUdfConfig.is_enabled === true || existingVoucherUdfConfig.is_enabled === 1,
+            permission_value: existingVoucherUdfConfig.permission_value || '',
+            permission_value_json: existingVoucherUdfConfig.permission_value_json || {}
+          });
+        }
+      }
+
+      // Combine regular configs with Voucher_udf configs
+      // Exclude old Voucher_udf related configs (voucher_udf_*, voucher_udf_arrays_*)
+      const regularConfigs = companyConfig.configs
+        .filter(config => {
+          const configKey = (config.config_key || '').toLowerCase();
+          // Exclude old Voucher_udf configs and the main Voucher_udf (we handle it separately)
+          return configKey !== 'voucher_udf' && !configKey.startsWith('voucher_udf_');
+        })
+        .map(config => {
+          const value = config.permission_value || config.config_value || '';
+          return {
+            config_id: config.config_id || config.id,
+            is_enabled: config.is_enabled === true || config.is_enabled === 1,
+            permission_value: value,
+            config_value: value,
+            // Include permission_value_json if it exists
+            ...(config.permission_value_json && { permission_value_json: config.permission_value_json })
+          };
+        });
+      
+      const allConfigs = [...regularConfigs, ...voucherUdfConfigs];
+
       const payload = {
         tallyloc_id: companyConfig.tallyloc_id,
         co_guid: companyConfig.co_guid,
         co_name: companyConfig.co_name,
-        configurations: companyConfig.configs.map(config => {
-          // Get the value - prioritize permission_value, fallback to config_value
-          const value = config.permission_value || config.config_value || '';
-          
-          return {
-            config_id: config.config_id || config.id, // Map id to config_id for API
-            is_enabled: config.is_enabled === true || config.is_enabled === 1, // Convert to boolean
-            permission_value: value,
-            config_value: value // Also send config_value to ensure backend compatibility
-          };
-        })
+        configurations: allConfigs
       };
 
       console.log('💾 Saving configurations:', {
         tallyloc_id: payload.tallyloc_id,
         co_guid: payload.co_guid,
         configsCount: payload.configurations.length,
+        voucherUdfConfig: payload.configurations.find(c => {
+          const voucherUdfConfig = companyConfig.configs.find(cc => (cc.config_key || '').toLowerCase() === 'voucher_udf');
+          return c.config_id === (voucherUdfConfig?.config_id || voucherUdfConfig?.id);
+        }),
         googleTokenConfig: payload.configurations.find(c => c.config_id === (companyConfig.configs.find(cc => cc.config_key === 'google_token')?.config_id || companyConfig.configs.find(cc => cc.config_key === 'google_token')?.id))
       });
 
@@ -2033,31 +2800,93 @@ function TallyConfig() {
               background: 'linear-gradient(90deg, #1e40af 0%, #3b82f6 100%)',
               boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
             }}>
-              <div>
-                <h3 style={{ 
-                  margin: 0, 
-                  fontSize: 24, 
-                  fontWeight: 700, 
-                  color: '#fff', 
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  gap: 12,
-                  textShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
-                }}>
-                  <span className="material-icons" style={{ fontSize: 28 }}>tune</span>
-                  Company Configurations
-                </h3>
-                <div style={{ 
-                  fontSize: 14, 
-                  color: 'rgba(255, 255, 255, 0.9)', 
-                  marginTop: 6,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6
-                }}>
-                  <span className="material-icons" style={{ fontSize: 16 }}>cloud</span>
-                  {selectedConnection.name || selectedConnection.connectionName || 'Connection'}
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div>
+                  <h3 style={{ 
+                    margin: 0, 
+                    fontSize: 24, 
+                    fontWeight: 700, 
+                    color: '#fff', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 12,
+                    textShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: 28 }}>tune</span>
+                    Company Configurations
+                  </h3>
+                  <div style={{ 
+                    fontSize: 14, 
+                    color: 'rgba(255, 255, 255, 0.9)', 
+                    marginTop: 6,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}>
+                    <span className="material-icons" style={{ fontSize: 16 }}>cloud</span>
+                    {selectedConnection.name || selectedConnection.connectionName || 'Connection'}
+                  </div>
                 </div>
+                {configCompanies.length > 0 && (
+                  <select
+                    value={activeConfigTab}
+                    onChange={(e) => setActiveConfigTab(Number(e.target.value))}
+                    style={{
+                      padding: '10px 40px 10px 16px',
+                      border: '1px solid rgba(255, 255, 255, 0.3)',
+                      borderRadius: '10px',
+                      background: 'rgba(255, 255, 255, 0.15)',
+                      backdropFilter: 'blur(10px)',
+                      color: '#fff',
+                      fontSize: 15,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      outline: 'none',
+                      minWidth: '220px',
+                      maxWidth: '300px',
+                      appearance: 'none',
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'%3E%3Cpath fill='%23ffffff' d='M8 11L3 6h10z'/%3E%3C/svg%3E")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 14px center',
+                      transition: 'all 0.2s ease',
+                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.25)';
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.4)';
+                      e.target.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.15)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.15)';
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                      e.target.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.1)';
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.25)';
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.5)';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(255, 255, 255, 0.2)';
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.background = 'rgba(255, 255, 255, 0.15)';
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                      e.target.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.1)';
+                    }}
+                  >
+                    {configCompanies.map((company, index) => (
+                      <option 
+                        key={company.guid} 
+                        value={index}
+                        style={{ 
+                          color: '#1e293b', 
+                          background: '#fff',
+                          padding: '8px'
+                        }}
+                      >
+                        {company.company}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
               <button
                 onClick={() => setShowConfigModal(false)}
@@ -2074,7 +2903,8 @@ function TallyConfig() {
                   height: 36,
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center'
+                  justifyContent: 'center',
+                  flexShrink: 0
                 }}
                 onMouseEnter={(e) => {
                   e.target.style.background = 'rgba(255, 255, 255, 0.3)';
@@ -2088,109 +2918,6 @@ function TallyConfig() {
                 ×
               </button>
             </div>
-
-            {/* Company Tabs */}
-            {configCompanies.length > 1 && (
-              <div style={{
-                padding: '16px 28px',
-                borderBottom: '1px solid #e2e8f0',
-                display: 'flex',
-                gap: 12,
-                overflowX: 'auto',
-                overflowY: 'hidden',
-                background: '#f8fafc',
-                boxShadow: 'inset 0 -1px 0 #e2e8f0',
-                scrollbarWidth: 'thin',
-                scrollbarColor: '#cbd5e1 #f8fafc'
-              }}
-              onScroll={(e) => {
-                // Smooth scroll behavior
-                e.currentTarget.style.scrollBehavior = 'smooth';
-              }}
-              >
-                <style>
-                  {`
-                    /* Custom scrollbar for tabs */
-                    div::-webkit-scrollbar {
-                      height: 6px;
-                    }
-                    div::-webkit-scrollbar-track {
-                      background: #f8fafc;
-                      border-radius: 3px;
-                    }
-                    div::-webkit-scrollbar-thumb {
-                      background: #cbd5e1;
-                      border-radius: 3px;
-                    }
-                    div::-webkit-scrollbar-thumb:hover {
-                      background: #94a3b8;
-                    }
-                  `}
-                </style>
-                {configCompanies.map((company, index) => {
-                  const isActive = activeConfigTab === index;
-                  return (
-                    <button
-                      key={company.guid}
-                      onClick={() => setActiveConfigTab(index)}
-                      title={company.company}
-                      style={{
-                        padding: '12px 24px',
-                        border: 'none',
-                        borderRadius: '10px',
-                        background: isActive 
-                          ? 'linear-gradient(135deg, #F27020 0%, #ea580c 100%)' 
-                          : '#fff',
-                        color: isActive ? '#fff' : '#64748b',
-                        fontSize: 14,
-                        fontWeight: isActive ? 600 : 500,
-                        cursor: 'pointer',
-                        whiteSpace: 'nowrap',
-                        transition: 'all 0.3s ease',
-                        boxShadow: isActive 
-                          ? '0 4px 12px rgba(242, 112, 32, 0.3)' 
-                          : '0 1px 3px rgba(0, 0, 0, 0.1)',
-                        border: isActive ? 'none' : '1px solid #e2e8f0',
-                        position: 'relative',
-                        overflow: 'visible',
-                        minWidth: '120px',
-                        maxWidth: '250px',
-                        flexShrink: 0,
-                        textOverflow: 'ellipsis',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        textAlign: 'center'
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isActive) {
-                          e.currentTarget.style.background = '#f1f5f9';
-                          e.currentTarget.style.transform = 'translateY(-2px)';
-                          e.currentTarget.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.15)';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive) {
-                          e.currentTarget.style.background = '#fff';
-                          e.currentTarget.style.transform = 'translateY(0)';
-                          e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.1)';
-                        }
-                      }}
-                    >
-                      <span style={{
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        width: '100%',
-                        display: 'block'
-                      }}>
-                        {company.company}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
 
             {/* Configuration Content */}
             <div style={{
@@ -2271,38 +2998,6 @@ function TallyConfig() {
 
                 return (
                   <div>
-                    <div style={{ 
-                      marginBottom: 28,
-                      padding: '20px 24px',
-                      background: 'linear-gradient(135deg, #1e40af15 0%, #3b82f615 100%)',
-                      borderRadius: 12,
-                      border: '1px solid #bfdbfe'
-                    }}>
-                      <div style={{
-                        fontSize: 22,
-                        fontWeight: 700,
-                        color: '#1e293b',
-                        marginBottom: 6,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 10
-                      }}>
-                        <span className="material-icons" style={{ fontSize: 24, color: '#1e40af' }}>business</span>
-                        {activeCompany.company}
-                      </div>
-                      <div style={{
-                        fontSize: 14,
-                        color: '#64748b',
-                        lineHeight: 1.5,
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 6
-                      }}>
-                        <span className="material-icons" style={{ fontSize: 16 }}>info</span>
-                        Configure settings for this company
-                      </div>
-                    </div>
-
                     <div style={{
                       display: 'flex',
                       flexDirection: 'column',
@@ -2399,12 +3094,37 @@ function TallyConfig() {
                           </div>
 
                           {/* Configurations under this parent */}
-                          {group.configs.map((config) => {
-                        // Handle both boolean and number (0/1) for is_enabled
-                        const isEnabled = config.is_enabled === true || config.is_enabled === 1;
-                        // Check if this is a Link Account config (read-only)
-                        const isLinkAccount = group.parentName === 'Link Account';
-                        return (
+                          {(() => {
+                            // Check if any config has config_key === "Voucher_udf"
+                            const voucherUdfConfig = group.configs.find(c => (c.config_key || '').toLowerCase() === 'voucher_udf');
+                            if (voucherUdfConfig) {
+                              // Show special UI for Voucher_udf
+                              return (
+                                <VoucherUdfFieldsUI
+                                  companyGuid={activeCompany.guid}
+                                  companyFields={voucherUdfFields[activeCompany.guid] || {}}
+                                  companyArrays={voucherUdfArrays[activeCompany.guid] || {}}
+                                  activeTable={activeVoucherUdfTable}
+                                  onTableChange={setActiveVoucherUdfTable}
+                                  onAddField={(tableName) => addVoucherUdfField(activeCompany.guid, tableName)}
+                                  onRemoveField={(tableName, fieldId) => removeVoucherUdfField(activeCompany.guid, tableName, fieldId)}
+                                  onUpdateField={(tableName, fieldId, field, value) => updateVoucherUdfField(activeCompany.guid, tableName, fieldId, field, value)}
+                                  onAddArray={(tableName) => addVoucherUdfArray(activeCompany.guid, tableName)}
+                                  onRemoveArray={(tableName, arrayId) => removeVoucherUdfArray(activeCompany.guid, tableName, arrayId)}
+                                  onUpdateArray={(tableName, arrayId, field, value) => updateVoucherUdfArray(activeCompany.guid, tableName, arrayId, field, value)}
+                                  onAddArrayField={(tableName, arrayId) => addVoucherUdfArrayField(activeCompany.guid, tableName, arrayId)}
+                                  onRemoveArrayField={(tableName, arrayId, fieldId) => removeVoucherUdfArrayField(activeCompany.guid, tableName, arrayId, fieldId)}
+                                  onUpdateArrayField={(tableName, arrayId, fieldId, field, value) => updateVoucherUdfArrayField(activeCompany.guid, tableName, arrayId, fieldId, field, value)}
+                                />
+                              );
+                            }
+                            // Otherwise, show regular config items (excluding Voucher_udf config itself)
+                            return group.configs.filter(config => (config.config_key || '').toLowerCase() !== 'voucher_udf').map((config) => {
+                              // Handle both boolean and number (0/1) for is_enabled
+                              const isEnabled = config.is_enabled === true || config.is_enabled === 1;
+                              // Check if this is a Link Account config (read-only)
+                              const isLinkAccount = group.parentName === 'Link Account';
+                              return (
                           <div
                             key={config.config_id || config.id}
                             style={{
@@ -2570,7 +3290,8 @@ function TallyConfig() {
                             )}
                           </div>
                         );
-                      })}
+                            });
+                          })()}
                         </div>
                       ))}
                     </div>
