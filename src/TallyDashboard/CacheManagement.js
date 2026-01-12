@@ -1493,7 +1493,7 @@ const CacheManagement = () => {
           marginTop: '8px',
           marginLeft: isMobile ? '0' : '44px'
         }}>
-          Manage and clear cached data stored in OPFS (Origin Private File System)
+          Manage and clear cached data stored
         </p>
       </div>
 
