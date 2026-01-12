@@ -122,8 +122,8 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
 
   // Calculate max value based on whether it's stacked or not
   const maxValue = stacked 
-    ? Math.max(...data.map(d => d.segments?.reduce((sum, seg) => sum + seg.value, 0) || d.value || 0))
-    : Math.max(...data.map(d => d.value));
+    ? Math.max(...data.map(d => d.segments?.reduce((sum, seg) => sum + seg.value, 0) || d.value || 0), 0)
+    : Math.max(...data.map(d => d.value || 0), 0);
 
   return (
     <div style={{
@@ -229,8 +229,8 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
         }}>
           {data.map((item) => {
             const totalValue = stacked 
-              ? item.segments?.reduce((sum, seg) => sum + seg.value, 0) 
-              : item.value;
+              ? (item.segments?.reduce((sum, seg) => sum + (seg.value || 0), 0) || 0)
+              : (item.value || 0);
             
             return (
               <div
@@ -331,31 +331,36 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                   overflow: 'hidden',
                   position: 'relative'
                 }}>
-                  {stacked && item.segments ? (
+                  {stacked && item.segments && Array.isArray(item.segments) && item.segments.length > 0 ? (
                     // Stacked segments
                     <div style={{
                       display: 'flex',
                       height: '10px',
-                      width: `${(totalValue / maxValue) * 100}%`,
+                      width: `${maxValue > 0 ? (totalValue / maxValue) * 100 : 0}%`,
                       borderRadius: '4px',
                       overflow: 'hidden'
                     }}>
-                      {item.segments.map((segment, idx) => (
-                        <div
-                          key={`${item.label}-segment-${idx}`}
-                          style={{
-                            height: '10px',
-                            width: `${(segment.value / totalValue) * 100}%`,
-                            backgroundColor: segment.color || '#3b82f6',
-                            transition: 'all 0.3s ease',
-                            cursor: 'pointer',
-                            opacity: hoveredSegment === `${item.label}-${idx}` ? 0.8 : 1
-                          }}
-                          onMouseEnter={() => setHoveredSegment(`${item.label}-${idx}`)}
-                          onMouseLeave={() => setHoveredSegment(null)}
-                          title={`${segment.label || `Segment ${idx + 1}`}: ${formatValue ? formatValue(segment.value, valuePrefix) : `${valuePrefix}${segment.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}`}
-                        />
-                      ))}
+                      {item.segments.map((segment, idx) => {
+                        const segmentValue = segment.value || 0;
+                        const segmentWidth = totalValue > 0 ? (segmentValue / totalValue) * 100 : 0;
+                        return (
+                          <div
+                            key={`${item.label}-segment-${idx}`}
+                            style={{
+                              height: '10px',
+                              width: `${segmentWidth}%`,
+                              minWidth: segmentValue > 0 ? '1px' : '0',
+                              backgroundColor: segment.color || '#3b82f6',
+                              transition: 'all 0.3s ease',
+                              cursor: 'pointer',
+                              opacity: hoveredSegment === `${item.label}-${idx}` ? 0.8 : 1
+                            }}
+                            onMouseEnter={() => setHoveredSegment(`${item.label}-${idx}`)}
+                            onMouseLeave={() => setHoveredSegment(null)}
+                            title={`${segment.label || `Segment ${idx + 1}`}: ${formatValue ? formatValue(segmentValue, valuePrefix) : `${valuePrefix}${segmentValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}`}
+                          />
+                        );
+                      })}
                     </div>
                   ) : (
                     // Regular single bar
@@ -364,7 +369,7 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                         height: '10px',
                         borderRadius: '4px',
                         transition: 'all 0.5s ease-out',
-                        width: `${(item.value / maxValue) * 100}%`,
+                        width: `${maxValue > 0 ? ((item.value || 0) / maxValue) * 100 : 0}%`,
                         backgroundColor: item.color || '#3b82f6',
                       }}
                     />
@@ -372,19 +377,25 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
                 </div>
                 
                 {/* Tooltip for stacked bar segments */}
-                {stacked && item.segments && hoveredSegment?.startsWith(item.label) && (
-                  <div style={{
-                    marginTop: '4px',
-                    padding: '0px 8px',
-                    background: '#1e293b',
-                    color: 'white',
-                    fontSize: '11px',
-                    borderRadius: '4px',
-                    display: 'inline-block'
-                  }}>
-                    {item.segments[parseInt(hoveredSegment.split('-').pop())].label}: {formatValue ? formatValue(item.segments[parseInt(hoveredSegment.split('-').pop())].value, valuePrefix) : `${valuePrefix}${item.segments[parseInt(hoveredSegment.split('-').pop())].value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  </div>
-                )}
+                {stacked && item.segments && Array.isArray(item.segments) && hoveredSegment?.startsWith(item.label) && (() => {
+                  const segmentIndex = parseInt(hoveredSegment.split('-').pop());
+                  const segment = item.segments[segmentIndex];
+                  if (!segment) return null;
+                  const segmentValue = segment.value || 0;
+                  return (
+                    <div style={{
+                      marginTop: '4px',
+                      padding: '0px 8px',
+                      background: '#1e293b',
+                      color: 'white',
+                      fontSize: '11px',
+                      borderRadius: '4px',
+                      display: 'inline-block'
+                    }}>
+                      {segment.label || `Segment ${segmentIndex + 1}`}: {formatValue ? formatValue(segmentValue, valuePrefix) : `${valuePrefix}${segmentValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}

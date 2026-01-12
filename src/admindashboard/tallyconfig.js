@@ -1,9 +1,435 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { apiGet, apiPost, apiPut } from '../utils/apiUtils';
 import { getValidGoogleTokenFromConfigs, refreshGoogleTokenAndUpdateBackend, saveGoogleTokenToConfigs } from '../utils/googleDriveUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { isExternalUser } from '../utils/cacheUtils';
 import { useIsMobile } from './MobileViewConfig';
+
+// Voucher UDF Fields UI Component (moved outside TallyConfig to prevent remounting)
+const VoucherUdfFieldsUI = ({ 
+  companyGuid, 
+  companyFields, 
+  companyArrays,
+  activeTable, 
+  onTableChange, 
+  onAddField, 
+  onRemoveField, 
+  onUpdateField,
+  onAddArray,
+  onRemoveArray,
+  onUpdateArray,
+  onAddArrayField,
+  onRemoveArrayField,
+  onUpdateArrayField
+}) => {
+  const VOUCHER_UDF_TABLES = ['voucher', 'ledgerentries', 'billallocations', 'inventoryentries', 'batchallocations'];
+  const tableFields = companyFields[activeTable] || [];
+  const tableArrays = companyArrays?.[activeTable] || [];
+  const [showTableDropdown, setShowTableDropdown] = useState(false);
+  const dropdownRef = useRef(null);
+  // Refs to track input elements and restore focus after state updates
+  const arrayNameInputRefs = useRef({});
+  const arrayFieldInputRefs = useRef({});
+  // Track which input should maintain focus and cursor position
+  const focusStateRef = useRef({ arrayId: null, selectionStart: null, selectionEnd: null });
+  
+  // Restore focus after state updates using useLayoutEffect for synchronous execution
+  useLayoutEffect(() => {
+    const { arrayId, selectionStart, selectionEnd } = focusStateRef.current;
+    if (arrayId && arrayNameInputRefs.current[arrayId]) {
+      const inputElement = arrayNameInputRefs.current[arrayId];
+      // Restore focus synchronously after DOM update
+      if (inputElement) {
+        inputElement.focus();
+        if (selectionStart !== null && selectionEnd !== null) {
+          try {
+            inputElement.setSelectionRange(selectionStart, selectionEnd);
+          } catch (e) {
+            // Fallback if selection range fails
+            const length = inputElement.value.length;
+            inputElement.setSelectionRange(length, length);
+          }
+        } else {
+          const length = inputElement.value.length;
+          inputElement.setSelectionRange(length, length);
+        }
+      }
+      // Clear the focus state after restoring
+      focusStateRef.current = { arrayId: null, selectionStart: null, selectionEnd: null };
+    }
+  }, [tableArrays]);
+  
+  // Wrapper for onUpdateArray that preserves focus
+  const handleUpdateArray = useCallback((tableName, arrayId, field, value) => {
+    const inputElement = arrayNameInputRefs.current[arrayId];
+    if (inputElement && inputElement === document.activeElement) {
+      // Save current selection/cursor position
+      focusStateRef.current = {
+        arrayId: arrayId,
+        selectionStart: inputElement.selectionStart,
+        selectionEnd: inputElement.selectionEnd
+      };
+    }
+    
+    onUpdateArray(tableName, arrayId, field, value);
+  }, [onUpdateArray]);
+  
+  // Wrapper for onUpdateArrayField that preserves focus
+  const handleUpdateArrayField = useCallback((tableName, arrayId, fieldId, field, value) => {
+    const inputKey = `${arrayId}_${fieldId}_${field}`;
+    const inputElement = arrayFieldInputRefs.current[inputKey];
+    const wasFocused = inputElement === document.activeElement;
+    
+    onUpdateArrayField(tableName, arrayId, fieldId, field, value);
+    
+    // Restore focus after state update
+    if (wasFocused && inputElement) {
+      requestAnimationFrame(() => {
+        const currentElement = arrayFieldInputRefs.current[inputKey];
+        if (currentElement) {
+          currentElement.focus();
+          // Move cursor to end
+          const length = currentElement.value.length;
+          currentElement.setSelectionRange(length, length);
+        }
+      });
+    }
+  }, [onUpdateArrayField]);
+  
+  const tableConfig = {
+    voucher: { icon: 'description', label: 'Voucher', color: '#3b82f6' },
+    ledgerentries: { icon: 'account_balance', label: 'Ledger Entries', color: '#10b981' },
+    billallocations: { icon: 'receipt_long', label: 'Bill Allocations', color: '#f59e0b' },
+    inventoryentries: { icon: 'inventory_2', label: 'Inventory Entries', color: '#8b5cf6' },
+    batchallocations: { icon: 'diamond', label: 'Batch Allocations', color: '#ef4444' }
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowTableDropdown(false);
+      }
+    };
+    if (showTableDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showTableDropdown]);
+  
+  const activeConfig = tableConfig[activeTable] || { icon: 'table_chart', label: activeTable, color: '#3b82f6' };
+  
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      {/* Table Selector Dropdown */}
+      <div style={{ position: 'relative' }} ref={dropdownRef}>
+        <button
+          type="button"
+          onClick={() => setShowTableDropdown(!showTableDropdown)}
+          style={{
+            width: '100%',
+            padding: '10px 14px',
+            border: '1px solid #d1d5db',
+            borderRadius: '6px',
+            background: '#fff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '13px',
+            fontWeight: 500,
+            color: '#1f2937',
+            transition: 'all 0.2s'
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = activeConfig.color; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#d1d5db'; }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span className="material-icons" style={{ fontSize: '18px', color: activeConfig.color }}>
+              {activeConfig.icon}
+            </span>
+            <span>{activeConfig.label}</span>
+          </div>
+          <span className="material-icons" style={{ 
+            fontSize: '18px', 
+            color: '#64748b',
+            transform: showTableDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
+            transition: 'transform 0.2s'
+          }}>
+            arrow_drop_down
+          </span>
+        </button>
+
+        {showTableDropdown && (
+          <div style={{
+            position: 'absolute',
+            top: '100%',
+            left: 0,
+            right: 0,
+            marginTop: '4px',
+            background: '#fff',
+            border: '1px solid #d1d5db',
+            borderRadius: '6px',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+            zIndex: 1000,
+            maxHeight: '300px',
+            overflowY: 'auto'
+          }}>
+            {VOUCHER_UDF_TABLES.map((tableName) => {
+              const config = tableConfig[tableName] || { icon: 'table_chart', label: tableName, color: '#64748b' };
+              const isActive = activeTable === tableName;
+              return (
+                <button
+                  key={tableName}
+                  onClick={() => { onTableChange(tableName); setShowTableDropdown(false); }}
+                  style={{
+                    width: '100%',
+                    padding: '12px 14px',
+                    border: 'none',
+                    background: isActive ? `${config.color}10` : 'transparent',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    fontSize: '13px',
+                    fontWeight: isActive ? 600 : 500,
+                    color: isActive ? config.color : '#1f2937',
+                    textAlign: 'left',
+                    transition: 'background 0.2s',
+                    borderLeft: isActive ? `3px solid ${config.color}` : '3px solid transparent'
+                  }}
+                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = '#f9fafb'; }}
+                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <span className="material-icons" style={{ fontSize: '18px', color: isActive ? config.color : '#64748b' }}>
+                    {config.icon}
+                  </span>
+                  {config.label}
+                  {isActive && (
+                    <span className="material-icons" style={{ fontSize: '16px', color: config.color, marginLeft: 'auto' }}>
+                      check
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Header with Add Buttons */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+        <div style={{ fontSize: '14px', fontWeight: 600, color: '#1f2937', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className="material-icons" style={{ fontSize: '18px', color: activeConfig.color }}>{activeConfig.icon}</span>
+          <span>Field Configurations</span>
+          {tableFields.length > 0 && <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b', marginLeft: '8px' }}>({tableFields.length})</span>}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button
+            type="button"
+            onClick={() => onAddField(activeTable)}
+            style={{
+              padding: '8px 14px',
+              border: '1px solid #d1d5db',
+              borderRadius: '6px',
+              background: '#fff',
+              color: '#374151',
+              fontSize: '12px',
+              fontWeight: 500,
+              cursor: 'pointer',
+              transition: 'all 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px'
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = activeConfig.color; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = activeConfig.color; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#374151'; e.currentTarget.style.borderColor = '#d1d5db'; }}
+          >
+            <span className="material-icons" style={{ fontSize: '16px' }}>add</span>
+            Add Field
+          </button>
+          {onAddArray && (
+            <button
+              type="button"
+              onClick={() => onAddArray(activeTable)}
+              style={{
+                padding: '8px 14px',
+                border: '2px solid #3b82f6',
+                borderRadius: '6px',
+                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                color: '#fff',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.4)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.3)'; }}
+            >
+              <span className="material-icons" style={{ fontSize: '16px' }}>add_circle</span>
+              Add Aggregate
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Fields List */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0', maxHeight: '450px', overflowY: 'auto', overflowX: 'hidden', paddingRight: '4px' }}>
+        {tableFields.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', background: '#f9fafb', borderRadius: '6px', border: '1px dashed #d1d5db' }}>
+            <span className="material-icons" style={{ fontSize: '40px', display: 'block', marginBottom: '8px', color: '#cbd5e1' }}>add_circle_outline</span>
+            <div style={{ fontSize: '13px', color: '#64748b' }}>No field configurations. Click "Add Field" to get started.</div>
+          </div>
+        ) : (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden' }}>
+            {tableFields.map((field, index) => (
+              <div key={field.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderBottom: index < tableFields.length - 1 ? '1px solid #f3f4f6' : 'none', transition: 'background 0.2s', background: index % 2 === 0 ? '#fff' : '#fafbfc' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#f0f9ff'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = index % 2 === 0 ? '#fff' : '#fafbfc'; }}
+              >
+                <div style={{ minWidth: '24px', fontSize: '12px', fontWeight: 500, color: '#9ca3af', textAlign: 'center' }}>{index + 1}.</div>
+                <div style={{ flex: '0 0 180px', minWidth: 0 }}>
+                  <input type="text" value={field.fieldName || ''} onChange={(e) => onUpdateField(activeTable, field.id, 'fieldName', e.target.value)} placeholder="Field name"
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '12px', outline: 'none', transition: 'all 0.2s', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
+                    onFocus={(e) => { e.target.style.borderColor = activeConfig.color; e.target.style.boxShadow = `0 0 0 2px ${activeConfig.color}20`; }}
+                    onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+                <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                  <input type="text" value={field.formula || ''} onChange={(e) => onUpdateField(activeTable, field.id, 'formula', e.target.value)} placeholder="Formula (e.g., $Parent:Ledger:$PartyLedgerName)"
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '12px', outline: 'none', transition: 'all 0.2s', fontFamily: '"Consolas", "Monaco", "Courier New", monospace', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
+                    onFocus={(e) => { e.target.style.borderColor = activeConfig.color; e.target.style.boxShadow = `0 0 0 2px ${activeConfig.color}20`; }}
+                    onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
+                  />
+                </div>
+                <button type="button" onClick={() => onRemoveField(activeTable, field.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', width: '32px', height: '32px', background: 'transparent', border: 'none', borderRadius: '4px', color: '#ef4444', cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0 }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  title="Remove field"
+                >
+                  <span className="material-icons" style={{ fontSize: '18px' }}>delete</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Aggregates Section */}
+      {tableArrays.length > 0 && (
+        <div style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          {tableArrays.map((array, arrayIndex) => (
+            <div key={array.id} style={{ background: '#fff', border: '2px solid #3b82f6', borderRadius: '8px', padding: '16px', boxShadow: '0 2px 8px rgba(59, 130, 246, 0.1)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
+                <div style={{ minWidth: '24px', fontSize: '12px', fontWeight: 600, color: '#3b82f6' }}>Aggregate {arrayIndex + 1}:</div>
+                <div style={{ flex: 1 }}>
+                  <input 
+                    ref={(el) => { 
+                      if (el) {
+                        arrayNameInputRefs.current[array.id] = el;
+                      } else {
+                        delete arrayNameInputRefs.current[array.id];
+                      }
+                    }}
+                    type="text" 
+                    value={array.arrayName || ''} 
+                    onChange={(e) => handleUpdateArray(activeTable, array.id, 'arrayName', e.target.value)} 
+                    placeholder=""
+                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', fontWeight: 600, outline: 'none', background: '#f9fafb', color: '#1f2937', boxSizing: 'border-box' }}
+                    onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 2px #3b82f620'; e.target.style.background = '#fff'; }}
+                    onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; e.target.style.background = '#f9fafb'; }}
+                  />
+                </div>
+                <button type="button" onClick={() => onRemoveArray(activeTable, array.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', width: '32px', height: '32px', background: 'transparent', border: 'none', borderRadius: '4px', color: '#ef4444', cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0 }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                  title="Remove array"
+                >
+                  <span className="material-icons" style={{ fontSize: '18px' }}>delete</span>
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>Fields ({array.fields?.length || 0})</div>
+                  <button type="button" onClick={() => onAddArrayField(activeTable, array.id)} style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff', color: '#374151', fontSize: '11px', fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '4px' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#3b82f6'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#3b82f6'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#374151'; e.currentTarget.style.borderColor = '#d1d5db'; }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '14px' }}>add</span>
+                    Add Field
+                  </button>
+                </div>
+                {(!array.fields || array.fields.length === 0) ? (
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', background: '#f9fafb', borderRadius: '4px', border: '1px dashed #d1d5db', fontSize: '12px' }}>
+                    No fields in this aggregate. Click "Add Field" to add fields.
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {array.fields.map((field, fieldIndex) => (
+                      <div key={field.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: fieldIndex % 2 === 0 ? '#f9fafb' : '#fff', borderRadius: '4px', border: '1px solid #e5e7eb' }}>
+                        <div style={{ minWidth: '20px', fontSize: '11px', fontWeight: 500, color: '#9ca3af', textAlign: 'center' }}>{fieldIndex + 1}.</div>
+                        <div style={{ flex: '0 0 150px', minWidth: 0 }}>
+                          <input 
+                            ref={(el) => {
+                              const inputKey = `${array.id}_${field.id}_fieldName`;
+                              if (el) {
+                                arrayFieldInputRefs.current[inputKey] = el;
+                              } else {
+                                delete arrayFieldInputRefs.current[inputKey];
+                              }
+                            }}
+                            type="text" 
+                            value={field.fieldName || ''} 
+                            onChange={(e) => handleUpdateArrayField(activeTable, array.id, field.id, 'fieldName', e.target.value)} 
+                            placeholder="Field name"
+                            style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '11px', outline: 'none', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
+                            onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 2px #3b82f620'; }}
+                            onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
+                          />
+                        </div>
+                        <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+                          <input 
+                            ref={(el) => {
+                              const inputKey = `${array.id}_${field.id}_formula`;
+                              if (el) {
+                                arrayFieldInputRefs.current[inputKey] = el;
+                              } else {
+                                delete arrayFieldInputRefs.current[inputKey];
+                              }
+                            }}
+                            type="text" 
+                            value={field.formula || ''} 
+                            onChange={(e) => handleUpdateArrayField(activeTable, array.id, field.id, 'formula', e.target.value)} 
+                            placeholder="Formula (e.g., $Parent:Ledger:$PartyLedgerName)"
+                            style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '11px', outline: 'none', fontFamily: '"Consolas", "Monaco", "Courier New", monospace', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
+                            onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 2px #3b82f620'; }}
+                            onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
+                          />
+                        </div>
+                        <button type="button" onClick={() => onRemoveArrayField(activeTable, array.id, field.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '28px', width: '28px', height: '28px', background: 'transparent', border: 'none', borderRadius: '4px', color: '#ef4444', cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0 }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                          title="Remove field"
+                        >
+                          <span className="material-icons" style={{ fontSize: '16px' }}>delete</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 function TallyConfig() {
   const isMobile = useIsMobile();
@@ -1361,328 +1787,6 @@ function TallyConfig() {
       // Then immediately trigger new authentication with forced consent
       handleGoogleAuth(true);
     }, 300);
-  };
-
-  // Voucher UDF Fields UI Component
-  const VoucherUdfFieldsUI = ({ 
-    companyGuid, 
-    companyFields, 
-    companyArrays,
-    activeTable, 
-    onTableChange, 
-    onAddField, 
-    onRemoveField, 
-    onUpdateField,
-    onAddArray,
-    onRemoveArray,
-    onUpdateArray,
-    onAddArrayField,
-    onRemoveArrayField,
-    onUpdateArrayField
-  }) => {
-    const tableFields = companyFields[activeTable] || [];
-    const tableArrays = companyArrays?.[activeTable] || [];
-    const [showTableDropdown, setShowTableDropdown] = useState(false);
-    const dropdownRef = useRef(null);
-    
-    const tableConfig = {
-      voucher: { icon: 'description', label: 'Voucher', color: '#3b82f6' },
-      ledgerentries: { icon: 'account_balance', label: 'Ledger Entries', color: '#10b981' },
-      billallocations: { icon: 'receipt_long', label: 'Bill Allocations', color: '#f59e0b' },
-      inventoryentries: { icon: 'inventory_2', label: 'Inventory Entries', color: '#8b5cf6' },
-      batchallocations: { icon: 'diamond', label: 'Batch Allocations', color: '#ef4444' }
-    };
-
-    useEffect(() => {
-      const handleClickOutside = (event) => {
-        if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-          setShowTableDropdown(false);
-        }
-      };
-      if (showTableDropdown) {
-        document.addEventListener('mousedown', handleClickOutside);
-      }
-      return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-      };
-    }, [showTableDropdown]);
-    
-    const activeConfig = tableConfig[activeTable] || { icon: 'table_chart', label: activeTable, color: '#3b82f6' };
-    
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {/* Table Selector Dropdown */}
-        <div style={{ position: 'relative' }} ref={dropdownRef}>
-          <button
-            type="button"
-            onClick={() => setShowTableDropdown(!showTableDropdown)}
-            style={{
-              width: '100%',
-              padding: '10px 14px',
-              border: '1px solid #d1d5db',
-              borderRadius: '6px',
-              background: '#fff',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              fontSize: '13px',
-              fontWeight: 500,
-              color: '#1f2937',
-              transition: 'all 0.2s'
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = activeConfig.color; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#d1d5db'; }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span className="material-icons" style={{ fontSize: '18px', color: activeConfig.color }}>
-                {activeConfig.icon}
-              </span>
-              <span>{activeConfig.label}</span>
-            </div>
-            <span className="material-icons" style={{ 
-              fontSize: '18px', 
-              color: '#64748b',
-              transform: showTableDropdown ? 'rotate(180deg)' : 'rotate(0deg)',
-              transition: 'transform 0.2s'
-            }}>
-              arrow_drop_down
-            </span>
-          </button>
-
-          {showTableDropdown && (
-            <div style={{
-              position: 'absolute',
-              top: '100%',
-              left: 0,
-              right: 0,
-              marginTop: '4px',
-              background: '#fff',
-              border: '1px solid #d1d5db',
-              borderRadius: '6px',
-              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-              zIndex: 1000,
-              maxHeight: '300px',
-              overflowY: 'auto'
-            }}>
-              {VOUCHER_UDF_TABLES.map((tableName) => {
-                const config = tableConfig[tableName] || { icon: 'table_chart', label: tableName, color: '#64748b' };
-                const isActive = activeTable === tableName;
-                return (
-                  <button
-                    key={tableName}
-                    onClick={() => { onTableChange(tableName); setShowTableDropdown(false); }}
-                    style={{
-                      width: '100%',
-                      padding: '12px 14px',
-                      border: 'none',
-                      background: isActive ? `${config.color}10` : 'transparent',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      fontSize: '13px',
-                      fontWeight: isActive ? 600 : 500,
-                      color: isActive ? config.color : '#1f2937',
-                      textAlign: 'left',
-                      transition: 'background 0.2s',
-                      borderLeft: isActive ? `3px solid ${config.color}` : '3px solid transparent'
-                    }}
-                    onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = '#f9fafb'; }}
-                    onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px', color: isActive ? config.color : '#64748b' }}>
-                      {config.icon}
-                    </span>
-                    {config.label}
-                    {isActive && (
-                      <span className="material-icons" style={{ fontSize: '16px', color: config.color, marginLeft: 'auto' }}>
-                        check
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Header with Add Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-          <div style={{ fontSize: '14px', fontWeight: 600, color: '#1f2937', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span className="material-icons" style={{ fontSize: '18px', color: activeConfig.color }}>{activeConfig.icon}</span>
-            <span>Field Configurations</span>
-            {tableFields.length > 0 && <span style={{ fontSize: '12px', fontWeight: 500, color: '#64748b', marginLeft: '8px' }}>({tableFields.length})</span>}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button
-              type="button"
-              onClick={() => onAddField(activeTable)}
-              style={{
-                padding: '8px 14px',
-                border: '1px solid #d1d5db',
-                borderRadius: '6px',
-                background: '#fff',
-                color: '#374151',
-                fontSize: '12px',
-                fontWeight: 500,
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px'
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = activeConfig.color; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = activeConfig.color; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#374151'; e.currentTarget.style.borderColor = '#d1d5db'; }}
-            >
-              <span className="material-icons" style={{ fontSize: '16px' }}>add</span>
-              Add Field
-            </button>
-            {onAddArray && (
-              <button
-                type="button"
-                onClick={() => onAddArray(activeTable)}
-                style={{
-                  padding: '8px 14px',
-                  border: '2px solid #3b82f6',
-                  borderRadius: '6px',
-                  background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-                  color: '#fff',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'all 0.2s',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  boxShadow: '0 2px 4px rgba(59, 130, 246, 0.3)'
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)'; e.currentTarget.style.transform = 'translateY(-1px)'; e.currentTarget.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.4)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.3)'; }}
-              >
-                <span className="material-icons" style={{ fontSize: '16px' }}>add_circle</span>
-                Add Aggregate
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Fields List */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0', maxHeight: '450px', overflowY: 'auto', overflowX: 'hidden', paddingRight: '4px' }}>
-          {tableFields.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#94a3b8', background: '#f9fafb', borderRadius: '6px', border: '1px dashed #d1d5db' }}>
-              <span className="material-icons" style={{ fontSize: '40px', display: 'block', marginBottom: '8px', color: '#cbd5e1' }}>add_circle_outline</span>
-              <div style={{ fontSize: '13px', color: '#64748b' }}>No field configurations. Click "Add Field" to get started.</div>
-            </div>
-          ) : (
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: '6px', overflow: 'hidden' }}>
-              {tableFields.map((field, index) => (
-                <div key={field.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 14px', borderBottom: index < tableFields.length - 1 ? '1px solid #f3f4f6' : 'none', transition: 'background 0.2s', background: index % 2 === 0 ? '#fff' : '#fafbfc' }}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = '#f0f9ff'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = index % 2 === 0 ? '#fff' : '#fafbfc'; }}
-                >
-                  <div style={{ minWidth: '24px', fontSize: '12px', fontWeight: 500, color: '#9ca3af', textAlign: 'center' }}>{index + 1}.</div>
-                  <div style={{ flex: '0 0 180px', minWidth: 0 }}>
-                    <input type="text" value={field.fieldName || ''} onChange={(e) => onUpdateField(activeTable, field.id, 'fieldName', e.target.value)} placeholder="Field name"
-                      style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '12px', outline: 'none', transition: 'all 0.2s', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
-                      onFocus={(e) => { e.target.style.borderColor = activeConfig.color; e.target.style.boxShadow = `0 0 0 2px ${activeConfig.color}20`; }}
-                      onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
-                    />
-                  </div>
-                  <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-                    <input type="text" value={field.formula || ''} onChange={(e) => onUpdateField(activeTable, field.id, 'formula', e.target.value)} placeholder="Formula (e.g., $Parent:Ledger:$PartyLedgerName)"
-                      style={{ width: '100%', padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '12px', outline: 'none', transition: 'all 0.2s', fontFamily: '"Consolas", "Monaco", "Courier New", monospace', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
-                      onFocus={(e) => { e.target.style.borderColor = activeConfig.color; e.target.style.boxShadow = `0 0 0 2px ${activeConfig.color}20`; }}
-                      onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
-                    />
-                  </div>
-                  <button type="button" onClick={() => onRemoveField(activeTable, field.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', width: '32px', height: '32px', background: 'transparent', border: 'none', borderRadius: '4px', color: '#ef4444', cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0 }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                    title="Remove field"
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>delete</span>
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Aggregates Section */}
-        {tableArrays.length > 0 && (
-          <div style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {tableArrays.map((array, arrayIndex) => (
-              <div key={array.id} style={{ background: '#fff', border: '2px solid #3b82f6', borderRadius: '8px', padding: '16px', boxShadow: '0 2px 8px rgba(59, 130, 246, 0.1)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid #e5e7eb' }}>
-                  <div style={{ minWidth: '24px', fontSize: '12px', fontWeight: 600, color: '#3b82f6' }}>Aggregate {arrayIndex + 1}:</div>
-                  <div style={{ flex: 1 }}>
-                    <input type="text" value={array.arrayName || ''} onChange={(e) => onUpdateArray(activeTable, array.id, 'arrayName', e.target.value)} placeholder=""
-                      style={{ width: '100%', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: '6px', fontSize: '13px', fontWeight: 600, outline: 'none', background: '#f9fafb', color: '#1f2937', boxSizing: 'border-box' }}
-                      onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 2px #3b82f620'; e.target.style.background = '#fff'; }}
-                      onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; e.target.style.background = '#f9fafb'; }}
-                    />
-                  </div>
-                  <button type="button" onClick={() => onRemoveArray(activeTable, array.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', width: '32px', height: '32px', background: 'transparent', border: 'none', borderRadius: '4px', color: '#ef4444', cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0 }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                    title="Remove array"
-                  >
-                    <span className="material-icons" style={{ fontSize: '18px' }}>delete</span>
-                  </button>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <div style={{ fontSize: '12px', fontWeight: 600, color: '#64748b' }}>Fields ({array.fields?.length || 0})</div>
-                    <button type="button" onClick={() => onAddArrayField(activeTable, array.id)} style={{ padding: '6px 12px', border: '1px solid #d1d5db', borderRadius: '4px', background: '#fff', color: '#374151', fontSize: '11px', fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      onMouseEnter={(e) => { e.currentTarget.style.background = '#3b82f6'; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = '#3b82f6'; }}
-                      onMouseLeave={(e) => { e.currentTarget.style.background = '#fff'; e.currentTarget.style.color = '#374151'; e.currentTarget.style.borderColor = '#d1d5db'; }}
-                    >
-                      <span className="material-icons" style={{ fontSize: '14px' }}>add</span>
-                      Add Field
-                    </button>
-                  </div>
-                  {(!array.fields || array.fields.length === 0) ? (
-                    <div style={{ textAlign: 'center', padding: '20px', color: '#94a3b8', background: '#f9fafb', borderRadius: '4px', border: '1px dashed #d1d5db', fontSize: '12px' }}>
-                      No fields in this aggregate. Click "Add Field" to add fields.
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {array.fields.map((field, fieldIndex) => (
-                        <div key={field.id} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px', background: fieldIndex % 2 === 0 ? '#f9fafb' : '#fff', borderRadius: '4px', border: '1px solid #e5e7eb' }}>
-                          <div style={{ minWidth: '20px', fontSize: '11px', fontWeight: 500, color: '#9ca3af', textAlign: 'center' }}>{fieldIndex + 1}.</div>
-                          <div style={{ flex: '0 0 150px', minWidth: 0 }}>
-                            <input type="text" value={field.fieldName || ''} onChange={(e) => onUpdateArrayField(activeTable, array.id, field.id, 'fieldName', e.target.value)} placeholder="Field name"
-                              style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '11px', outline: 'none', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
-                              onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 2px #3b82f620'; }}
-                              onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
-                            />
-                          </div>
-                          <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-                            <input type="text" value={field.formula || ''} onChange={(e) => onUpdateArrayField(activeTable, array.id, field.id, 'formula', e.target.value)} placeholder="Formula (e.g., $Parent:Ledger:$PartyLedgerName)"
-                              style={{ width: '100%', padding: '6px 8px', border: '1px solid #d1d5db', borderRadius: '4px', fontSize: '11px', outline: 'none', fontFamily: '"Consolas", "Monaco", "Courier New", monospace', background: '#fff', color: '#1f2937', boxSizing: 'border-box' }}
-                              onFocus={(e) => { e.target.style.borderColor = '#3b82f6'; e.target.style.boxShadow = '0 0 0 2px #3b82f620'; }}
-                              onBlur={(e) => { e.target.style.borderColor = '#d1d5db'; e.target.style.boxShadow = 'none'; }}
-                            />
-                          </div>
-                          <button type="button" onClick={() => onRemoveArrayField(activeTable, array.id, field.id)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '28px', width: '28px', height: '28px', background: 'transparent', border: 'none', borderRadius: '4px', color: '#ef4444', cursor: 'pointer', transition: 'all 0.2s', flexShrink: 0 }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = '#fee2e2'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-                            title="Remove field"
-                          >
-                            <span className="material-icons" style={{ fontSize: '16px' }}>delete</span>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
   };
 
   // Save configurations for a company
