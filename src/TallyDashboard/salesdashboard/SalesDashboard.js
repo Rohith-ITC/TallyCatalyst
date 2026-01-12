@@ -617,6 +617,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             flatCard.dateGrouping = parsedCardConfig.dateGrouping || flatCard.dateGrouping;
             flatCard.mapSubType = parsedCardConfig.mapSubType || 'choropleth';
             flatCard.overrideDateFilter = parsedCardConfig.overrideDateFilter || false;
+            // Year compare specific properties
+            flatCard.yearCompareCategory = parsedCardConfig.yearCompareCategory;
+            flatCard.yearCompareValue = parsedCardConfig.yearCompareValue;
           }
           
           // Force date grouping to 'day' (daily) for all date-based cards
@@ -648,7 +651,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             chartType: flatCard.chartType,
             multiAxisSeries: flatCard.multiAxisSeries,
             hasMultiAxis: !!flatCard.multiAxisSeries,
-            filters: flatCard.filters
+            filters: flatCard.filters,
+            yearCompareCategory: flatCard.yearCompareCategory,
+            yearCompareValue: flatCard.yearCompareValue
           });
           
           return flatCard;
@@ -6699,7 +6704,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         console.log('🔧 Updating card:', {
           cardId: editingCardId,
           cardConfig,
-          cardToUpdate
+          cardToUpdate,
+          yearCompareCategory: cardConfig.yearCompareCategory,
+          yearCompareValue: cardConfig.yearCompareValue
         });
         
         const updatePayload = {
@@ -6717,6 +6724,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             dateGrouping: cardConfig.dateGrouping,
             mapSubType: cardConfig.mapSubType,
             overrideDateFilter: cardConfig.overrideDateFilter || false,
+            yearCompareCategory: cardConfig.yearCompareCategory,
+            yearCompareValue: cardConfig.yearCompareValue,
             ...(cardConfig.cardConfig || {})
           },
           sortOrder: cardConfig.sortOrder || cardToUpdate.sortOrder || 0,
@@ -6748,6 +6757,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             updatedCard.dateGrouping = parsedCardConfig.dateGrouping || updatedCard.dateGrouping;
             updatedCard.mapSubType = parsedCardConfig.mapSubType || 'choropleth';
             updatedCard.overrideDateFilter = parsedCardConfig.overrideDateFilter || false;
+            // Year compare specific properties
+            updatedCard.yearCompareCategory = parsedCardConfig.yearCompareCategory;
+            updatedCard.yearCompareValue = parsedCardConfig.yearCompareValue;
           }
           
           // Force date grouping to 'day' (daily) for all date-based cards
@@ -6807,6 +6819,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             dateGrouping: cardConfig.dateGrouping,
             mapSubType: cardConfig.mapSubType,
             overrideDateFilter: cardConfig.overrideDateFilter || false,
+            yearCompareCategory: cardConfig.yearCompareCategory,
+            yearCompareValue: cardConfig.yearCompareValue,
             ...(cardConfig.cardConfig || {})
           },
           sortOrder: cardConfig.sortOrder || 0
@@ -17411,6 +17425,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     setSelectedCountry={setSelectedCountry}
                     setSelectedPeriod={setSelectedPeriod}
                     setSelectedLedgerGroup={setSelectedLedgerGroup}
+                    setSelectedPincode={setSelectedPincode}
                     setDateRange={setDateRange}
                     selectedCustomer={selectedCustomer}
                     selectedItem={selectedItem}
@@ -17419,6 +17434,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     selectedCountry={selectedCountry}
                     selectedPeriod={selectedPeriod}
                     selectedLedgerGroup={selectedLedgerGroup}
+                    selectedPincode={selectedPincode}
                     dateRange={dateRange}
                     genericFilters={genericFilters}
                     setGenericFilters={setGenericFilters}
@@ -17431,6 +17447,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     formatDateForDisplay={formatDateForDisplay}
                     formatChartValue={formatChartValue}
                     formatChartCompactValue={formatChartCompactValue}
+                    countryStateChartData={countryStateChartData}
+                    regionPincodeChartData={regionPincodeChartData}
                   />
                 </div>
               );
@@ -21238,6 +21256,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     setSelectedCountry={setSelectedCountry}
                     setSelectedPeriod={setSelectedPeriod}
                     setSelectedLedgerGroup={setSelectedLedgerGroup}
+                    setSelectedPincode={setSelectedPincode}
                     setDateRange={setDateRange}
                     selectedCustomer={selectedCustomer}
                     selectedItem={selectedItem}
@@ -21246,6 +21265,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     selectedCountry={selectedCountry}
                     selectedPeriod={selectedPeriod}
                     selectedLedgerGroup={selectedLedgerGroup}
+                    selectedPincode={selectedPincode}
                     dateRange={dateRange}
                     genericFilters={genericFilters}
                     setGenericFilters={setGenericFilters}
@@ -21256,6 +21276,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     parseDateFromNewFormat={parseDateFromNewFormat}
                     parseDateFromAPI={parseDateFromAPI}
                     formatDateForDisplay={formatDateForDisplay}
+                    countryStateChartData={countryStateChartData}
+                    regionPincodeChartData={regionPincodeChartData}
                     formatChartValue={formatChartValue}
                     formatChartCompactValue={formatChartCompactValue}
                   />
@@ -25385,6 +25407,7 @@ const CustomCard = React.memo(({
   setSelectedCountry,
   setSelectedPeriod,
   setSelectedLedgerGroup,
+  setSelectedPincode,
   setDateRange,
   selectedCustomer,
   selectedItem,
@@ -25393,6 +25416,7 @@ const CustomCard = React.memo(({
   selectedCountry,
   selectedPeriod,
   selectedLedgerGroup,
+  selectedPincode,
   dateRange,
   genericFilters,
   setGenericFilters,
@@ -25405,8 +25429,13 @@ const CustomCard = React.memo(({
   parseDateFromAPI,
   formatDateForDisplay,
   formatChartValue,
-  formatChartCompactValue
+  formatChartCompactValue,
+  countryStateChartData,
+  regionPincodeChartData
 }) => {
+  // Tooltip state for yearCompare charts - must be declared at the top (Rules of Hooks)
+  const [yearCompareTooltip, setYearCompareTooltip] = useState(null);
+  
   // Log when date override is enabled (salesData will be all sales instead of filtered)
   useMemo(() => {
     if (card.overrideDateFilter) {
@@ -25417,8 +25446,76 @@ const CustomCard = React.memo(({
   
   const cardData = useMemo(() => generateCustomCardData(card, salesData), [card, salesData, generateCustomCardData]);
   
-  // Tooltip state for yearCompare charts
-  const [yearCompareTooltip, setYearCompareTooltip] = useState(null);
+  // Compute state-level data for country drilldown (for custom cards)
+  const customCountryStateChartData = useMemo(() => {
+    if (selectedCountry === 'all') {
+      return [];
+    }
+    
+    const normalizedCountry = String(selectedCountry).trim().toLowerCase();
+    const isIndia = normalizedCountry === 'india' || normalizedCountry === 'ind' || normalizedCountry === 'in';
+    
+    if (!isIndia) {
+      return [];
+    }
+    
+    // Group by region/state for the selected country
+    const stateMap = {};
+    salesData.forEach((sale) => {
+      const saleCountry = String(sale.country || 'Unknown').trim().toLowerCase();
+      if (saleCountry === 'india' || saleCountry === 'ind' || saleCountry === 'in') {
+        const region = sale.region || 'Unknown';
+        if (!stateMap[region]) {
+          stateMap[region] = 0;
+        }
+        stateMap[region] += parseFloat(sale.amount) || 0;
+      }
+    });
+    
+    return Object.entries(stateMap)
+      .map(([name, value]) => ({ name, value }))
+      .filter(item => item.name !== 'Unknown')
+      .sort((a, b) => b.value - a.value);
+  }, [salesData, selectedCountry]);
+  
+  // Compute pincode-level data for region drilldown (for custom cards)
+  const customRegionPincodeChartData = useMemo(() => {
+    if (selectedRegion === 'all') {
+      return [];
+    }
+    
+    // Group by pincode for the selected region
+    const pincodeMap = {};
+    salesData.forEach((sale) => {
+      const saleRegion = String(sale.region || '').trim().toLowerCase();
+      const selectedRegionLower = String(selectedRegion).trim().toLowerCase();
+      
+      // For country drilldown, also filter by country
+      if (selectedCountry !== 'all') {
+        const saleCountry = String(sale.country || '').trim().toLowerCase();
+        const selectedCountryLower = String(selectedCountry).trim().toLowerCase();
+        if (saleCountry !== selectedCountryLower && 
+            !(saleCountry === 'india' && (selectedCountryLower === 'ind' || selectedCountryLower === 'in')) &&
+            !(saleCountry === 'ind' && (selectedCountryLower === 'india' || selectedCountryLower === 'in')) &&
+            !(saleCountry === 'in' && (selectedCountryLower === 'india' || selectedCountryLower === 'ind'))) {
+          return;
+        }
+      }
+      
+      if (saleRegion === selectedRegionLower) {
+        const pincode = sale.pincode || 'Unknown';
+        if (!pincodeMap[pincode]) {
+          pincodeMap[pincode] = 0;
+        }
+        pincodeMap[pincode] += parseFloat(sale.amount) || 0;
+      }
+    });
+    
+    return Object.entries(pincodeMap)
+      .map(([name, value]) => ({ name, value }))
+      .filter(item => item.name !== 'Unknown')
+      .sort((a, b) => b.value - a.value);
+  }, [salesData, selectedRegion, selectedCountry]);
 
   // Multi-axis data builder using existing generateCustomCardData for each series
   const multiAxisData = useMemo(() => {
@@ -25514,16 +25611,69 @@ const CustomCard = React.memo(({
 
   // Prepare data for geographic map visualization
   const geoMapData = useMemo(() => {
-    if (chartType !== 'geoMap' || !cardData || cardData.length === 0) {
+    if (chartType !== 'geoMap') {
       return null;
     }
     
-    return cardData.map(item => ({
-      name: item.name || item.label, // Region/pincode/country name
-      value: item.value,              // Aggregated value
-      percentage: item.percentage
-    }));
-  }, [chartType, cardData]);
+    const groupByLower = card.groupBy?.toLowerCase() || '';
+    
+    // For country groupBy with drilldown
+    if (groupByLower === 'country') {
+      const normalizedCountry = selectedCountry !== 'all' ? String(selectedCountry).trim().toLowerCase() : '';
+      const isIndia = normalizedCountry === 'india' || normalizedCountry === 'ind' || normalizedCountry === 'in';
+      
+      // If showing pincodes (country + region selected)
+      if (selectedCountry !== 'all' && selectedRegion !== 'all' && isIndia && customRegionPincodeChartData.length > 0) {
+        return customRegionPincodeChartData.map(item => ({
+          name: item.name,
+          value: item.value
+        }));
+      }
+      // If showing states (only country selected, India)
+      else if (selectedCountry !== 'all' && selectedRegion === 'all' && isIndia && customCountryStateChartData.length > 0) {
+        return customCountryStateChartData.map(item => ({
+          name: item.name,
+          value: item.value
+        }));
+      }
+      // Otherwise show countries (base level)
+      else if (cardData && cardData.length > 0) {
+        return cardData.map(item => ({
+          name: item.name || item.label,
+          value: item.value,
+          percentage: item.percentage
+        }));
+      }
+    }
+    // For region/state groupBy with drilldown
+    else if (groupByLower === 'region' || groupByLower === 'state') {
+      // If showing pincodes (region selected)
+      if (selectedRegion !== 'all' && customRegionPincodeChartData.length > 0) {
+        return customRegionPincodeChartData.map(item => ({
+          name: item.name,
+          value: item.value
+        }));
+      }
+      // Otherwise show states (base level)
+      else if (cardData && cardData.length > 0) {
+        return cardData.map(item => ({
+          name: item.name || item.label,
+          value: item.value,
+          percentage: item.percentage
+        }));
+      }
+    }
+    // For other groupBy types (pincode, etc.)
+    else if (cardData && cardData.length > 0) {
+      return cardData.map(item => ({
+        name: item.name || item.label,
+        value: item.value,
+        percentage: item.percentage
+      }));
+    }
+    
+    return null;
+  }, [chartType, cardData, card.groupBy, selectedCountry, selectedRegion, customCountryStateChartData, customRegionPincodeChartData]);
 
   // Detect if current card supports map visualization based on its groupBy field
   const supportsMapVisualization = useMemo(() => {
@@ -25576,17 +25726,68 @@ const CustomCard = React.memo(({
         showBackButton: selectedStockGroup !== 'all',
         currentValue: selectedStockGroup
       };
-    } else if (groupByLower === 'region') {
+    } else if (groupByLower === 'region' || groupByLower === 'state') {
+      // Support state → pincode drilldown for custom cards
       return {
-        onClick: setSelectedRegion,
-        onBackClick: () => setSelectedRegion('all'),
+        onClick: (region) => {
+          if (selectedRegion !== 'all') {
+            // Already at state level, clicking on pincode - set pincode filter
+            setSelectedPincode(region);
+          } else {
+            // At state level, clicking on state - drill down to pincodes for that state
+            setSelectedRegion(region);
+          }
+        },
+        onBackClick: () => {
+          if (selectedPincode) {
+            // If pincode is selected, clear pincode but keep region selected
+            setSelectedPincode(null);
+          } else {
+            // If only region is selected, clear region to go back to state view
+            setSelectedRegion('all');
+          }
+        },
         showBackButton: selectedRegion !== 'all',
         currentValue: selectedRegion
       };
     } else if (groupByLower === 'country') {
+      // Support country → state → pincode drilldown for custom cards (India only)
       return {
-        onClick: setSelectedCountry,
-        onBackClick: () => setSelectedCountry('all'),
+        onClick: (value) => {
+          if (selectedCountry !== 'all') {
+            // Country is already selected
+            const normalizedCountry = String(selectedCountry).trim().toLowerCase();
+            const isIndia = normalizedCountry === 'india' || normalizedCountry === 'ind' || normalizedCountry === 'in';
+            
+            if (isIndia) {
+              if (selectedRegion !== 'all') {
+                // At pincode level, clicking on pincode - set pincode filter
+                setSelectedPincode(value);
+              } else {
+                // At state level, clicking on state - drill down to pincodes for that state
+                setSelectedRegion(value);
+              }
+            } else {
+              // Non-India country - just set country filter (no state drilldown)
+              setSelectedCountry(value);
+            }
+          } else {
+            // No country selected yet, set the country filter
+            setSelectedCountry(value);
+          }
+        },
+        onBackClick: () => {
+          if (selectedPincode) {
+            // If pincode is selected, clear pincode but keep region selected
+            setSelectedPincode(null);
+          } else if (selectedRegion !== 'all') {
+            // If region is selected, clear region to go back to state view
+            setSelectedRegion('all');
+          } else if (selectedCountry !== 'all') {
+            // If only country is selected, clear country to go back to country view
+            setSelectedCountry('all');
+          }
+        },
         showBackButton: selectedCountry !== 'all',
         currentValue: selectedCountry
       };
@@ -26424,52 +26625,108 @@ const CustomCard = React.memo(({
             };
             return <MultiAxisContainer />;
           })()}
-          {chartType === 'geoMap' && geoMapData && (
-            <div style={{
-              background: 'white',
-              borderRadius: '12px',
-              border: '1px solid #e2e8f0',
-              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-              display: 'flex',
-              flexDirection: 'column',
-              height: '100%',
-              overflow: 'hidden'
-            }}>
+          {chartType === 'geoMap' && geoMapData && (() => {
+            // Implement drilldown logic for custom cards
+            const groupByLower = card.groupBy?.toLowerCase() || '';
+            
+            // Determine current map type based on drilldown state
+            // geoMapData already contains the correct data for the current drilldown level
+            let mapData = geoMapData;
+            let mapType = supportsMapVisualization.mapType;
+            let mapSubType = card.mapSubType || 'choropleth';
+            let showBackBtn = filterHandler?.showBackButton || false;
+            
+            // For country groupBy: country → state (India only) → pincode
+            if (groupByLower === 'country') {
+              const normalizedCountry = selectedCountry !== 'all' ? String(selectedCountry).trim().toLowerCase() : '';
+              const isIndia = normalizedCountry === 'india' || normalizedCountry === 'ind' || normalizedCountry === 'in';
+              
+              if (selectedCountry !== 'all' && selectedRegion !== 'all' && isIndia) {
+                // Showing pincodes
+                mapType = 'pincode';
+                showBackBtn = true;
+              } else if (selectedCountry !== 'all' && isIndia) {
+                // Showing states
+                mapType = 'state';
+                showBackBtn = true;
+              } else {
+                // Showing countries (base level)
+                mapType = 'country';
+              }
+            }
+            // For region/state groupBy: state → pincode
+            else if (groupByLower === 'region' || groupByLower === 'state') {
+              if (selectedRegion !== 'all') {
+                // Showing pincodes
+                mapType = 'pincode';
+                showBackBtn = true;
+              } else {
+                // Showing states (base level)
+                mapType = 'state';
+              }
+            }
+            // For pincode groupBy: just show pincodes (no drilldown)
+            else if (groupByLower === 'pincode') {
+              mapType = 'pincode';
+            }
+            
+            console.log('🗺️ Custom card geoMap drilldown:', {
+              cardTitle: card.title,
+              groupBy: card.groupBy,
+              mapType,
+              selectedCountry,
+              selectedRegion,
+              selectedPincode,
+              dataPoints: mapData.length
+            });
+            
+            return (
               <div style={{
-                padding: '12px 16px',
-                flexShrink: 0
-              }}>
-                {customHeader}
-              </div>
-              <div style={{ 
-                flex: 1, 
-                minHeight: 0, 
-                padding: isMobile ? '8px' : '12px 16px',
+                background: 'white',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
                 display: 'flex',
                 flexDirection: 'column',
+                height: '100%',
                 overflow: 'hidden'
               }}>
-                <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-                  <GeoMapChart
-                    mapType={supportsMapVisualization.mapType}
-                    chartSubType={card.mapSubType || 'choropleth'}
-                    data={geoMapData}
-                    height={isMobile ? 340 : 450}
-                    isMobile={isMobile}
-                    onRegionClick={(regionName) => {
-                      console.log('🗺️ Custom card map click:', { cardTitle: card.title, regionName, groupBy: card.groupBy, hasHandler: !!filterHandler });
-                      filterHandler?.onClick?.(regionName);
-                    }}
-                    onBackClick={() => {
-                      console.log('🗺️ Custom card map back click:', { cardTitle: card.title, groupBy: card.groupBy });
-                      filterHandler?.onBackClick?.();
-                    }}
-                    showBackButton={filterHandler?.showBackButton || false}
-                  />
+                <div style={{
+                  padding: '12px 16px',
+                  flexShrink: 0
+                }}>
+                  {customHeader}
+                </div>
+                <div style={{ 
+                  flex: 1, 
+                  minHeight: 0, 
+                  padding: isMobile ? '8px' : '12px 16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden'
+                }}>
+                  <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
+                    <GeoMapChart
+                      mapType={mapType}
+                      chartSubType={mapSubType}
+                      data={mapData}
+                      height={isMobile ? 340 : 450}
+                      isMobile={isMobile}
+                      onRegionClick={(regionName) => {
+                        console.log('🗺️ Custom card map click:', { cardTitle: card.title, regionName, groupBy: card.groupBy, mapType, hasHandler: !!filterHandler });
+                        filterHandler?.onClick?.(regionName);
+                      }}
+                      onBackClick={() => {
+                        console.log('🗺️ Custom card map back click:', { cardTitle: card.title, groupBy: card.groupBy, mapType });
+                        filterHandler?.onBackClick?.();
+                      }}
+                      showBackButton={showBackBtn}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
           {chartType === 'pie' && (
             <PieChart
               data={cardData}
