@@ -16,6 +16,7 @@ const MultiAxisChart = ({
   const chartRef = useRef(null);
   const instanceRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
+  const [showAvgLines, setShowAvgLines] = useState({});
 
   useEffect(() => {
     if (!chartRef.current) return;
@@ -51,6 +52,15 @@ const MultiAxisChart = ({
       return () => clearTimeout(timer);
     }
   }, []);
+
+  // Calculate average for a series
+  const calculateAverage = (data) => {
+    if (!data || data.length === 0) return 0;
+    const validData = data.filter(d => d != null && !isNaN(d));
+    if (validData.length === 0) return 0;
+    const sum = validData.reduce((acc, val) => acc + val, 0);
+    return sum / validData.length;
+  };
 
   useEffect(() => {
     if (!isReady || !instanceRef.current || !categories || categories.length === 0) return;
@@ -248,7 +258,7 @@ const MultiAxisChart = ({
       grid: {
         left: isMobile ? 40 : 20,
         right: isMobile ? 40 : 20,
-        top: 35,
+        top: series.length > 0 ? 50 : 35,
         bottom: categories.length > 10 ? 30 : categories.length > 6 ? 30 : 30,
         containLabel: true,
       },
@@ -322,20 +332,64 @@ const MultiAxisChart = ({
           splitLine: { show: false },
         },
       ],
-      series: series.map((s) => ({
-        name: s.name,
-        type: s.type || 'bar',
-        data: s.data || [],
-        yAxisIndex: s.axis === 'right' ? 1 : 0,
-        smooth: s.type === 'line',
-        symbol: s.type === 'line' ? 'circle' : 'none',
-        symbolSize: 6,
-        barMaxWidth: 32,
-        itemStyle: {
-          color: s.color,
-        },
-        lineStyle: s.type === 'line' ? { width: 2, color: s.color } : undefined,
-      })),
+      series: series.map((s) => {
+        const seriesData = s.data || [];
+        const avgValue = calculateAverage(seriesData);
+        const showAvgLine = showAvgLines[s.name] || false;
+        
+        const seriesConfig = {
+          name: s.name,
+          type: s.type || 'bar',
+          data: seriesData,
+          yAxisIndex: s.axis === 'right' ? 1 : 0,
+          smooth: s.type === 'line',
+          symbol: s.type === 'line' ? 'circle' : 'none',
+          symbolSize: 6,
+          barMaxWidth: 32,
+          itemStyle: {
+            color: s.color,
+          },
+          lineStyle: s.type === 'line' ? { width: 2, color: s.color } : undefined,
+        };
+
+        // Add markLine for average if enabled
+        if (showAvgLine && seriesData.length > 0) {
+          seriesConfig.markLine = {
+            silent: true,
+            symbol: 'none',
+            lineStyle: {
+              type: 'dashed',
+              width: 2,
+              color: s.color,
+              opacity: 0.7,
+            },
+            label: {
+              show: true,
+              position: 'end',
+              formatter: (params) => {
+                const value = params.value || avgValue;
+                if (formatValue) {
+                  return `Avg: ${formatValue(value, '₹')}`;
+                }
+                const isCustomerField = s.name.toLowerCase().includes('customer');
+                if (isCustomerField) {
+                  return `Avg: ${Math.round(value).toLocaleString()}`;
+                }
+                return `Avg: ₹${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+              },
+              fontSize: isMobile ? 10 : 11,
+            },
+            data: [
+              {
+                yAxis: avgValue,
+                name: 'Average',
+              },
+            ],
+          };
+        }
+
+        return seriesConfig;
+      }),
     };
 
     try {
@@ -365,7 +419,7 @@ const MultiAxisChart = ({
         instanceRef.current.off('click', handleClick);
       }
     };
-  }, [isReady, categories, series, isMobile, onCategoryClick, formatValue, formatCompactValue]);
+  }, [isReady, categories, series, isMobile, onCategoryClick, formatValue, formatCompactValue, showAvgLines]);
 
   // Handle window resize
   useEffect(() => {
@@ -392,14 +446,89 @@ const MultiAxisChart = ({
     };
   }, []);
 
+  const toggleAvgLine = (seriesName) => {
+    setShowAvgLines(prev => ({
+      ...prev,
+      [seriesName]: !prev[seriesName],
+    }));
+  };
+
   return (
-    <div style={{ position: 'relative', width: '100%', height: typeof height === 'number' ? `${height}px` : height, overflow: 'hidden' }}>
+    <div style={{ position: 'relative', width: '100%', height: typeof height === 'number' ? `${height}px` : height, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      {/* Avg line toggles control panel */}
+      {series.length > 0 && (
+        <div style={{
+          padding: '6px 12px',
+          background: '#f8fafc',
+          borderBottom: '1px solid #e2e8f0',
+          flexShrink: 0,
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '8px',
+          alignItems: 'center',
+          zIndex: 10,
+        }}>
+          <span style={{
+            fontSize: isMobile ? '11px' : '12px',
+            fontWeight: '600',
+            color: '#64748b',
+            marginRight: '4px',
+          }}>
+            Show Avg Line:
+          </span>
+          {series.map((s) => {
+            const isChecked = showAvgLines[s.name] || false;
+            return (
+              <label
+                key={s.name}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  cursor: 'pointer',
+                  fontSize: isMobile ? '11px' : '12px',
+                  color: '#475569',
+                  userSelect: 'none',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  transition: 'background 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#e2e8f0';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  onChange={() => toggleAvgLine(s.name)}
+                  style={{
+                    cursor: 'pointer',
+                    accentColor: s.color || '#3b82f6',
+                  }}
+                />
+                <span style={{
+                  display: 'inline-block',
+                  width: '12px',
+                  height: '12px',
+                  backgroundColor: s.color || '#3b82f6',
+                  borderRadius: '2px',
+                  flexShrink: 0,
+                }} />
+                <span>{s.name}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
       {showBackButton && onBackClick && (
         <button
           onClick={onBackClick}
           style={{
             position: 'absolute',
-            top: '10px',
+            top: series.length > 0 ? '46px' : '10px',
             right: '10px',
             zIndex: 100,
             display: 'flex',
@@ -435,7 +564,8 @@ const MultiAxisChart = ({
         ref={chartRef}
         style={{
           width: '100%',
-          height: '100%',
+          flex: 1,
+          minHeight: 0,
           overflow: 'hidden',
         }}
       />
