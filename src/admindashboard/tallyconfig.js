@@ -42,6 +42,14 @@ function TallyConfig() {
   // Structure: { companyGuid: { tableName: [{ arrayName: string, fields: [{ fieldName, formula, id }], id: string }] } }
   const [voucherUdfArrays, setVoucherUdfArrays] = useState({});
   
+  // Bank/UPI data state
+  // Structure: { companyGuid: { banks: [], upis: [], bankCount: 0, upiCount: 0, loading: false, error: null } }
+  const [bankUpiData, setBankUpiData] = useState({});
+  
+  // Company info cache state
+  // Structure: { "companyGuid_tallyloc_id": { data: {...}, loading: false, error: null, timestamp: number } }
+  const [companyInfoCache, setCompanyInfoCache] = useState({});
+  
   // Link Account Modal State
   const [showLinkAccountModal, setShowLinkAccountModal] = useState(false);
   const [googleAccessToken, setGoogleAccessToken] = useState(null);
@@ -218,6 +226,13 @@ function TallyConfig() {
         });
 
       setConnectionCompanies(grouped);
+      
+      // Fetch user-access for all companies first, then fetch company info
+      const allCompanies = Object.values(grouped).flat();
+      await fetchUserAccessForAll(allCompanies);
+      
+      // Fetch company info for all companies and cache it (after user-access)
+      await fetchCompanyInfoForAll(allCompanies);
     } catch (error) {
       console.error('Failed to fetch connection companies:', error);
       setConnectionCompanies({});
@@ -225,6 +240,129 @@ function TallyConfig() {
       setCompaniesLoading(false);
     }
   }, []);
+
+  // Fetch user-access for all companies
+  const fetchUserAccessForAll = async (companies) => {
+    if (!companies || companies.length === 0) return;
+    
+    // Fetch user-access for each company in parallel
+    const fetchPromises = companies.map(async (company) => {
+      if (!company.guid || !company.tallyloc_id) return;
+      
+      try {
+        const cacheBuster = Date.now();
+        const response = await apiGet(`/api/access-control/user-access?tallylocId=${company.tallyloc_id}&co_guid=${company.guid}&ts=${cacheBuster}`);
+        
+        if (response && response.success) {
+          // Cache user-access data in sessionStorage
+          const cacheKey = `user_access_${company.guid}_${company.tallyloc_id}`;
+          sessionStorage.setItem(cacheKey, JSON.stringify(response.data));
+          console.log(`✅ User access cached for company: ${company.company}`);
+        }
+      } catch (error) {
+        console.error(`Error fetching user-access for ${company.guid}_${company.tallyloc_id}:`, error);
+        // Don't throw - continue with other companies
+      }
+    });
+    
+    // Wait for all requests to complete
+    await Promise.all(fetchPromises);
+  };
+
+  // Fetch company info for all companies and cache it
+  const fetchCompanyInfoForAll = async (companies) => {
+    if (!companies || companies.length === 0) return;
+    
+    // Fetch company info for each company in parallel
+    const fetchPromises = companies.map(async (company) => {
+      if (!company.guid || !company.tallyloc_id) return;
+      
+      // Create unique cache key using companyGuid + tallyloc_id
+      const uniqueKey = `${company.guid}_${company.tallyloc_id}`;
+      const cacheKey = `company_info_${uniqueKey}`;
+      const cachedData = localStorage.getItem(cacheKey);
+      
+      // If cached data exists and is recent (less than 1 hour old), use it
+      if (cachedData) {
+        try {
+          const parsed = JSON.parse(cachedData);
+          const cacheAge = Date.now() - (parsed.timestamp || 0);
+          const oneHour = 60 * 60 * 1000;
+          
+          if (cacheAge < oneHour && parsed.data) {
+            setCompanyInfoCache(prev => ({
+              ...prev,
+              [uniqueKey]: {
+                data: parsed.data,
+                loading: false,
+                error: null,
+                timestamp: parsed.timestamp
+              }
+            }));
+            return; // Use cached data, skip API call
+          }
+        } catch (e) {
+          console.warn('Failed to parse cached company info:', e);
+        }
+      }
+      
+      // Set loading state
+      setCompanyInfoCache(prev => ({
+        ...prev,
+        [uniqueKey]: { ...prev[uniqueKey], loading: true, error: null }
+      }));
+      
+      try {
+        const payload = {
+          tallyloc_id: company.tallyloc_id,
+          company: company.company || '',
+          guid: company.guid
+        };
+        
+        const data = await apiPost('/api/tally/masterdata/companyinfo', payload);
+        
+        if (data) {
+          const timestamp = Date.now();
+          
+          // Store in state using unique key
+          setCompanyInfoCache(prev => ({
+            ...prev,
+            [uniqueKey]: {
+              data: data,
+              loading: false,
+              error: null,
+              timestamp: timestamp
+            }
+          }));
+          
+          // Store in localStorage for persistence
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify({
+              data: data,
+              timestamp: timestamp
+            }));
+          } catch (e) {
+            console.warn('Failed to cache company info to localStorage:', e);
+          }
+        } else {
+          throw new Error('No data received from API');
+        }
+      } catch (error) {
+        console.error(`Error fetching company info for ${uniqueKey}:`, error);
+        setCompanyInfoCache(prev => ({
+          ...prev,
+          [uniqueKey]: {
+            data: null,
+            loading: false,
+            error: error.message || 'Failed to load company info'
+          }
+        }));
+      }
+    });
+    
+    // Wait for all requests to complete
+    await Promise.all(fetchPromises);
+  };
 
   // Handle form input
   const handleInput = e => {
@@ -292,9 +430,10 @@ function TallyConfig() {
     setConfigurations({});
     setShowConfigModal(true);
     
-    // Fetch configurations for all companies
+    // Fetch configurations and bank/UPI data for all companies
     companies.forEach((company, index) => {
       fetchCompanyConfig(company, connection, index === 0);
+      fetchBankUpiData(company, connection);
     });
   };
 
@@ -405,6 +544,62 @@ function TallyConfig() {
           configs: [],
           loading: false,
           error: error.message || 'Failed to load configurations'
+        }
+      }));
+    }
+  };
+
+  // Fetch bank/UPI data for a company
+  const fetchBankUpiData = async (company, connection) => {
+    const tallyloc_id = company.tallyloc_id || connection.tallyloc_id;
+    if (!company.guid || !tallyloc_id) {
+      setBankUpiData(prev => ({
+        ...prev,
+        [company.guid]: { banks: [], upis: [], bankCount: 0, upiCount: 0, loading: false, error: 'Missing company or connection information' }
+      }));
+      return;
+    }
+
+    setBankUpiData(prev => ({
+      ...prev,
+      [company.guid]: { ...prev[company.guid], loading: true, error: null }
+    }));
+
+    try {
+      const payload = {
+        tallyloc_id: tallyloc_id,
+        company: company.company || company.co_name || '',
+        guid: company.guid
+      };
+      
+      const data = await apiPost('/api/tally/masterdata/bankupi', payload);
+      
+      if (data) {
+        setBankUpiData(prev => ({
+          ...prev,
+          [company.guid]: {
+            banks: data.banks || [],
+            upis: data.upis || [],
+            bankCount: data.bankCount || 0,
+            upiCount: data.upiCount || 0,
+            loading: false,
+            error: null
+          }
+        }));
+      } else {
+        throw new Error('No data received from API');
+      }
+    } catch (error) {
+      console.error('Error fetching bank/UPI data:', error);
+      setBankUpiData(prev => ({
+        ...prev,
+        [company.guid]: {
+          banks: [],
+          upis: [],
+          bankCount: 0,
+          upiCount: 0,
+          loading: false,
+          error: error.message || 'Failed to load bank/UPI data'
         }
       }));
     }
@@ -3229,63 +3424,152 @@ function TallyConfig() {
                               </div>
                             </div>
 
-                            {/* Permission Value Input - Only show when enabled and config_type is not null */}
-                            {isEnabled && (config.config_type || config.permission_type || config.value_type) && (
+                            {/* Permission Value Input - Only show when enabled and config_type is not null, or for bank_details/upi_details */}
+                            {isEnabled && ((config.config_type || config.permission_type || config.value_type) || (config.config_key || '').toLowerCase() === 'bank_details' || (config.config_key || '').toLowerCase() === 'upi_details') && (
                               <div style={{ marginLeft: '16px', minWidth: '220px', maxWidth: '300px' }}>
-                                {(config.config_type === 'select' || config.permission_type === 'select' || config.value_type === 'select') ? (
-                                  <select
-                                    value={config.permission_value || config.config_value || config.value || ''}
-                                    onChange={(e) => !isLinkAccount && handleConfigChange(activeCompany.guid, config.config_id || config.id, 'permission_value', e.target.value)}
-                                    disabled={isLinkAccount}
-                                    style={{
-                                      width: '100%',
-                                      padding: '10px 12px',
-                                      border: `2px solid ${isLinkAccount ? '#e2e8f0' : '#d1d5db'}`,
-                                      borderRadius: 8,
-                                      fontSize: 13,
-                                      outline: 'none',
-                                      background: isLinkAccount ? '#f3f4f6' : '#fff',
-                                      color: isLinkAccount ? '#6b7280' : '#374151',
-                                      cursor: isLinkAccount ? 'not-allowed' : 'pointer',
-                                      transition: 'all 0.2s',
-                                      fontWeight: 500
-                                    }}
-                                    onFocus={(e) => !isLinkAccount && (e.target.style.borderColor = '#3b82f6')}
-                                    onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                                  >
-                                    <option value="">Select option</option>
-                                    {(config.config_options || config.permission_options || config.options || []) && (config.config_options || config.permission_options || config.options || []).map((option, idx) => (
-                                      <option key={idx} value={option}>
-                                        {option}
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <input
-                                    type={(config.config_type === 'number' || config.permission_type === 'number' || config.value_type === 'number') ? 'number' : 'text'}
-                                    value={config.permission_value || config.config_value || config.value || ''}
-                                    onChange={(e) => !isLinkAccount && handleConfigChange(activeCompany.guid, config.config_id || config.id, 'permission_value', e.target.value)}
-                                    readOnly={isLinkAccount}
-                                    placeholder={isLinkAccount 
-                                      ? 'Will be displayed here' 
-                                      : ((config.config_type === 'number' || config.permission_type === 'number' || config.value_type === 'number') ? 'Enter number' : 'Enter value')}
-                                    style={{
-                                      width: '100%',
-                                      padding: '10px 12px',
-                                      border: `2px solid ${isLinkAccount ? '#e2e8f0' : '#d1d5db'}`,
-                                      borderRadius: 8,
-                                      fontSize: 13,
-                                      outline: 'none',
-                                      background: isLinkAccount ? '#f3f4f6' : '#fff',
-                                      color: isLinkAccount ? '#6b7280' : '#374151',
-                                      cursor: isLinkAccount ? 'not-allowed' : 'text',
-                                      transition: 'all 0.2s',
-                                      fontWeight: 500
-                                    }}
-                                    onFocus={(e) => !isLinkAccount && (e.target.style.borderColor = '#3b82f6')}
-                                    onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
-                                  />
-                                )}
+                                {(() => {
+                                  const configKey = (config.config_key || '').toLowerCase();
+                                  const bankUpiInfo = bankUpiData[activeCompany?.guid];
+                                  
+                                  // Special handling for bank_details and upi_details
+                                  if (configKey === 'bank_details' && bankUpiInfo) {
+                                    const banks = bankUpiInfo.banks || [];
+                                    return (
+                                      <select
+                                        value={config.permission_value || config.config_value || config.value || ''}
+                                        onChange={(e) => !isLinkAccount && handleConfigChange(activeCompany.guid, config.config_id || config.id, 'permission_value', e.target.value)}
+                                        disabled={isLinkAccount || bankUpiInfo.loading}
+                                        style={{
+                                          width: '100%',
+                                          padding: '10px 12px',
+                                          border: `2px solid ${isLinkAccount ? '#e2e8f0' : '#d1d5db'}`,
+                                          borderRadius: 8,
+                                          fontSize: 13,
+                                          outline: 'none',
+                                          background: isLinkAccount ? '#f3f4f6' : '#fff',
+                                          color: isLinkAccount ? '#6b7280' : '#374151',
+                                          cursor: isLinkAccount || bankUpiInfo.loading ? 'not-allowed' : 'pointer',
+                                          transition: 'all 0.2s',
+                                          fontWeight: 500
+                                        }}
+                                        onFocus={(e) => !isLinkAccount && !bankUpiInfo.loading && (e.target.style.borderColor = '#3b82f6')}
+                                        onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+                                      >
+                                        <option value="">{bankUpiInfo.loading ? 'Loading...' : 'Select Bank'}</option>
+                                        {banks.map((bank, idx) => {
+                                          const displayText = bank.accountno 
+                                            ? `${bank.name} - ${bank.accountno}`
+                                            : bank.name;
+                                          const optionValue = bank.accountno 
+                                            ? `${bank.name}|${bank.accountno}`
+                                            : bank.name;
+                                          return (
+                                            <option key={idx} value={optionValue}>
+                                              {displayText}
+                                            </option>
+                                          );
+                                        })}
+                                      </select>
+                                    );
+                                  }
+                                  
+                                  if (configKey === 'upi_details' && bankUpiInfo) {
+                                    const upis = bankUpiInfo.upis || [];
+                                    return (
+                                      <select
+                                        value={config.permission_value || config.config_value || config.value || ''}
+                                        onChange={(e) => !isLinkAccount && handleConfigChange(activeCompany.guid, config.config_id || config.id, 'permission_value', e.target.value)}
+                                        disabled={isLinkAccount || bankUpiInfo.loading}
+                                        style={{
+                                          width: '100%',
+                                          padding: '10px 12px',
+                                          border: `2px solid ${isLinkAccount ? '#e2e8f0' : '#d1d5db'}`,
+                                          borderRadius: 8,
+                                          fontSize: 13,
+                                          outline: 'none',
+                                          background: isLinkAccount ? '#f3f4f6' : '#fff',
+                                          color: isLinkAccount ? '#6b7280' : '#374151',
+                                          cursor: isLinkAccount || bankUpiInfo.loading ? 'not-allowed' : 'pointer',
+                                          transition: 'all 0.2s',
+                                          fontWeight: 500
+                                        }}
+                                        onFocus={(e) => !isLinkAccount && !bankUpiInfo.loading && (e.target.style.borderColor = '#3b82f6')}
+                                        onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+                                      >
+                                        <option value="">{bankUpiInfo.loading ? 'Loading...' : 'Select UPI'}</option>
+                                        {upis.map((upi, idx) => {
+                                          const displayText = upi.merchantid 
+                                            ? `${upi.name} - ${upi.merchantid}`
+                                            : upi.name;
+                                          const optionValue = upi.merchantid 
+                                            ? `${upi.name}|${upi.merchantid}`
+                                            : upi.name;
+                                          return (
+                                            <option key={idx} value={optionValue}>
+                                              {displayText}
+                                            </option>
+                                          );
+                                        })}
+                                      </select>
+                                    );
+                                  }
+                                  
+                                  // Default handling for other config types
+                                  return (config.config_type === 'select' || config.permission_type === 'select' || config.value_type === 'select') ? (
+                                    <select
+                                      value={config.permission_value || config.config_value || config.value || ''}
+                                      onChange={(e) => !isLinkAccount && handleConfigChange(activeCompany.guid, config.config_id || config.id, 'permission_value', e.target.value)}
+                                      disabled={isLinkAccount}
+                                      style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: `2px solid ${isLinkAccount ? '#e2e8f0' : '#d1d5db'}`,
+                                        borderRadius: 8,
+                                        fontSize: 13,
+                                        outline: 'none',
+                                        background: isLinkAccount ? '#f3f4f6' : '#fff',
+                                        color: isLinkAccount ? '#6b7280' : '#374151',
+                                        cursor: isLinkAccount ? 'not-allowed' : 'pointer',
+                                        transition: 'all 0.2s',
+                                        fontWeight: 500
+                                      }}
+                                      onFocus={(e) => !isLinkAccount && (e.target.style.borderColor = '#3b82f6')}
+                                      onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+                                    >
+                                      <option value="">Select option</option>
+                                      {(config.config_options || config.permission_options || config.options || []) && (config.config_options || config.permission_options || config.options || []).map((option, idx) => (
+                                        <option key={idx} value={option}>
+                                          {option}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type={(config.config_type === 'number' || config.permission_type === 'number' || config.value_type === 'number') ? 'number' : 'text'}
+                                      value={config.permission_value || config.config_value || config.value || ''}
+                                      onChange={(e) => !isLinkAccount && handleConfigChange(activeCompany.guid, config.config_id || config.id, 'permission_value', e.target.value)}
+                                      readOnly={isLinkAccount}
+                                      placeholder={isLinkAccount 
+                                        ? 'Will be displayed here' 
+                                        : ((config.config_type === 'number' || config.permission_type === 'number' || config.value_type === 'number') ? 'Enter number' : 'Enter value')}
+                                      style={{
+                                        width: '100%',
+                                        padding: '10px 12px',
+                                        border: `2px solid ${isLinkAccount ? '#e2e8f0' : '#d1d5db'}`,
+                                        borderRadius: 8,
+                                        fontSize: 13,
+                                        outline: 'none',
+                                        background: isLinkAccount ? '#f3f4f6' : '#fff',
+                                        color: isLinkAccount ? '#6b7280' : '#374151',
+                                        cursor: isLinkAccount ? 'not-allowed' : 'text',
+                                        transition: 'all 0.2s',
+                                        fontWeight: 500
+                                      }}
+                                      onFocus={(e) => !isLinkAccount && (e.target.style.borderColor = '#3b82f6')}
+                                      onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
+                                    />
+                                  );
+                                })()}
                               </div>
                             )}
                           </div>

@@ -33,7 +33,7 @@ import {
   isAlwaysVisible,
   shouldUseRightSideDropdown
 } from '../config/SideBarConfigurations';
-import { apiGet } from '../utils/apiUtils';
+import { apiGet, apiPost } from '../utils/apiUtils';
 import { GOOGLE_DRIVE_CONFIG, isGoogleDriveFullyConfigured } from '../config';
 import { MobileMenu, useIsMobile } from './MobileViewConfig';
 import { syncCustomers, syncItems } from '../utils/cacheSyncManager';
@@ -667,7 +667,12 @@ function TallyDashboard() {
     );
     if (currentCompany) {
       console.log('🔐 Company changed, fetching fresh permissions for:', currentCompany.company);
-      fetchUserAccessPermissions(currentCompany);
+      fetchUserAccessPermissions(currentCompany).then(async () => {
+        console.log('📡 User-access completed, now fetching company info');
+        await fetchCompanyInfo(currentCompany, true); // Force refresh on company change
+      }).catch((error) => {
+        console.error('❌ Error in user-access or company info fetch:', error);
+      });
       initialPermissionsRequestedRef.current = true;
     }
   }, [allConnections, selectedCompanyGuid]); // Include dependencies
@@ -696,7 +701,13 @@ function TallyDashboard() {
       initialPermissionsRequestedRef.current = true;
       console.log('🔐 Initial permissions missing, requesting using connection list entry');
       setSidebarLoading(true);
-      fetchUserAccessPermissions(connectionFromList);
+      fetchUserAccessPermissions(connectionFromList).then(async () => {
+        console.log('📡 User-access completed, now fetching company info');
+        await fetchCompanyInfo(connectionFromList);
+      }).catch((error) => {
+        console.error('❌ Error in user-access or company info fetch:', error);
+        setSidebarLoading(false);
+      });
       return;
     }
 
@@ -707,7 +718,7 @@ function TallyDashboard() {
       initialPermissionsRequestedRef.current = true;
       console.log('🔐 Initial permissions missing, requesting using stored session values');
       setSidebarLoading(true);
-      fetchUserAccessPermissions({
+      const companyData = {
         tallyloc_id: storedTallyloc,
         company: storedCompany,
         guid: storedGuid,
@@ -715,6 +726,13 @@ function TallyDashboard() {
         shared_email: sessionStorage.getItem('shared_email') || '',
         status: sessionStorage.getItem('status') || '',
         access_type: sessionStorage.getItem('access_type') || ''
+      };
+      fetchUserAccessPermissions(companyData).then(async () => {
+        console.log('📡 User-access completed, now fetching company info');
+        await fetchCompanyInfo(companyData);
+      }).catch((error) => {
+        console.error('❌ Error in user-access or company info fetch:', error);
+        setSidebarLoading(false);
       });
     }
   }, [selectedCompanyGuid, allConnections, resolveActiveSidebar]);
@@ -904,6 +922,76 @@ function TallyDashboard() {
     };
   }, [setActiveSidebarWithPersistence]);
 
+  // Fetch company info and cache it
+  const fetchCompanyInfo = async (companyConnection, forceRefresh = false) => {
+    if (!companyConnection.guid || !companyConnection.tallyloc_id) {
+      console.warn('⚠️ Missing company guid or tallyloc_id for company info', companyConnection);
+      return;
+    }
+
+    try {
+      // Create unique cache key using companyGuid + tallyloc_id
+      const uniqueKey = `${companyConnection.guid}_${companyConnection.tallyloc_id}`;
+      const cacheKey = `company_info_${uniqueKey}`;
+      const cachedData = localStorage.getItem(cacheKey);
+
+      console.log(`🔍 Checking cache for company info: ${companyConnection.company} (${uniqueKey})`);
+
+      // If cached data exists and is recent (less than 1 hour old), use it (unless forceRefresh is true)
+      if (!forceRefresh && cachedData) {
+        try {
+          const parsed = JSON.parse(cachedData);
+          const cacheAge = Date.now() - (parsed.timestamp || 0);
+          const oneHour = 60 * 60 * 1000;
+
+          if (cacheAge < oneHour && parsed.data) {
+            console.log(`✅ Using cached company info for ${companyConnection.company} (age: ${Math.round(cacheAge / 1000)}s)`);
+            return; // Use cached data, skip API call
+          } else {
+            console.log(`⏰ Cache expired for ${companyConnection.company} (age: ${Math.round(cacheAge / 1000)}s), fetching fresh data`);
+          }
+        } catch (e) {
+          console.warn('Failed to parse cached company info:', e);
+        }
+      } else if (cachedData && forceRefresh) {
+        console.log(`🔄 Force refresh requested for ${companyConnection.company}, ignoring cache`);
+      } else if (!cachedData) {
+        console.log(`📭 No cache found for ${companyConnection.company}, fetching fresh data`);
+      }
+
+      const payload = {
+        tallyloc_id: companyConnection.tallyloc_id,
+        company: companyConnection.company || '',
+        guid: companyConnection.guid
+      };
+
+      console.log('📡 Making API call to fetch company info for:', companyConnection.company, 'Payload:', payload);
+      const data = await apiPost('/api/tally/masterdata/companyinfo', payload);
+      console.log('📥 Company info API response received:', data ? 'Success' : 'No data');
+
+      if (data) {
+        const timestamp = Date.now();
+
+        // Store in localStorage for persistence
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify({
+            data: data,
+            timestamp: timestamp
+          }));
+          console.log(`✅ Company info cached for ${companyConnection.company}`);
+        } catch (e) {
+          console.warn('Failed to cache company info to localStorage:', e);
+        }
+      } else {
+        console.warn('⚠️ No data received from company info API');
+      }
+    } catch (error) {
+      console.error(`❌ Error fetching company info for ${companyConnection.company}:`, error);
+      console.error('Error details:', error.message, error.stack);
+      // Don't throw - continue with other operations
+    }
+  };
+
   // Fetch user access permissions for a company
   const fetchUserAccessPermissions = async (companyConnection) => {
     try {
@@ -986,6 +1074,11 @@ function TallyDashboard() {
     console.log('🚀 About to call fetchUserAccessPermissions for company:', companyConnection.company);
     await fetchUserAccessPermissions(companyConnection);
     console.log('✅ fetchUserAccessPermissions completed for company:', companyConnection.company);
+
+    // Fetch company info after user-access completes (force refresh on company change)
+    console.log('📡 User-access completed, now fetching company info for:', companyConnection.company);
+    await fetchCompanyInfo(companyConnection, true); // Force refresh on company change
+    console.log('✅ Company info fetch completed for:', companyConnection.company);
 
     // Trigger refresh of child components by dispatching an event
     window.dispatchEvent(new CustomEvent('companyChanged', { detail: companyConnection }));

@@ -98,6 +98,7 @@ function Ledgerbook() {
   const [showLedgerDropdown, setShowLedgerDropdown] = useState(false);
   const [filteredLedgerOptions, setFilteredLedgerOptions] = useState([]);
   const [tableData, setTableData] = useState(null);
+  const [showBankDetailsModal, setShowBankDetailsModal] = useState(false);
   const [tableLoading, setTableLoading] = useState(false);
   const [tableError, setTableError] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -2247,6 +2248,46 @@ function Ledgerbook() {
                 Submit
               </button>
             </div>
+            
+            {/* Show Bank Details Button - Below Submit */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-start'
+            }}>
+              <button
+                type="button"
+                onClick={() => setShowBankDetailsModal(true)}
+                style={{
+                  background: 'linear-gradient(135deg, #059669 0%, #10b981 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px 24px',
+                  cursor: 'pointer',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  boxShadow: '0 4px 6px rgba(5, 150, 105, 0.25)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s ease',
+                  minWidth: '160px',
+                  justifyContent: 'center'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.transform = 'translateY(-2px)';
+                  e.target.style.boxShadow = '0 6px 12px rgba(5, 150, 105, 0.35)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.transform = 'translateY(0)';
+                  e.target.style.boxShadow = '0 4px 6px rgba(5, 150, 105, 0.25)';
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '16px' }}>account_balance</span>
+                Show Bank Details
+              </button>
+            </div>
 
           </div>
 
@@ -3300,6 +3341,304 @@ function Ledgerbook() {
             </div>
           )}
         </div>
+        
+        {/* Bank Details Modal */}
+        {showBankDetailsModal && (() => {
+          // Get company info from cache
+          const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId') || '';
+          const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+          const uniqueKey = `${selectedCompanyGuid}_${selectedCompanyTallylocId}`;
+          const cacheKey = `company_info_${uniqueKey}`;
+          const cachedData = localStorage.getItem(cacheKey);
+          
+          let bankUpiData = { banks: [], upis: [], bankCount: 0, upiCount: 0 };
+          
+          if (cachedData) {
+            try {
+              const parsed = JSON.parse(cachedData);
+              if (parsed.data) {
+                bankUpiData = parsed.data;
+              }
+            } catch (e) {
+              console.error('Failed to parse cached company info:', e);
+            }
+          }
+          
+          return (
+            <div
+              style={{
+                position: 'fixed',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                background: 'rgba(15, 23, 42, 0.55)',
+                backdropFilter: 'blur(2px)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '32px',
+                zIndex: 10000
+              }}
+              onClick={(e) => {
+                if (e.target === e.currentTarget) {
+                  setShowBankDetailsModal(false);
+                }
+              }}
+            >
+              <div
+                style={{
+                  background: '#fff',
+                  borderRadius: '18px',
+                  width: '96%',
+                  maxWidth: '1200px',
+                  maxHeight: '90vh',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  boxShadow: '0 20px 50px rgba(15, 23, 42, 0.25)',
+                  overflow: 'hidden',
+                  border: '1px solid #e2e8f0'
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Header */}
+                <div
+                  style={{
+                    padding: '24px 28px',
+                    borderBottom: '1px solid #e2e8f0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    background: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)'
+                  }}
+                >
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1e293b' }}>
+                      Bank & UPI Details
+                    </h2>
+                    <div style={{ marginTop: 8, fontSize: 14, color: '#64748b', fontWeight: 500 }}>
+                      {bankUpiData.bankCount || 0} Banks • {bankUpiData.upiCount || 0} UPIs
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowBankDetailsModal(false)}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      width: 40,
+                      height: 40,
+                      borderRadius: '50%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'background 0.2s'
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(15, 23, 42, 0.08)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <span className="material-icons" style={{ fontSize: 24, color: '#475569' }}>close</span>
+                  </button>
+                </div>
+
+                {/* Content - Two Column Layout */}
+                <div style={{ flex: 1, overflow: 'auto', padding: '28px', display: 'flex', gap: '24px' }}>
+                  {/* Left Section - Bank Details */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 8, 
+                      fontSize: 18, 
+                      fontWeight: 700, 
+                      color: '#1e293b', 
+                      marginBottom: 18 
+                    }}>
+                      <span className="material-icons" style={{ fontSize: 20, color: '#1e40af' }}>account_balance</span>
+                      Bank Details ({bankUpiData.banks?.length || 0})
+                    </h3>
+                    {bankUpiData.banks && bankUpiData.banks.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {bankUpiData.banks.map((bank, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              background: '#f8fafc',
+                              borderRadius: '12px',
+                              border: '1px solid #e2e8f0',
+                              padding: '20px',
+                              transition: 'all 0.2s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.borderColor = '#3b82f6';
+                              e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.15)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.borderColor = '#e2e8f0';
+                              e.currentTarget.style.boxShadow = 'none';
+                            }}
+                          >
+                            <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginBottom: 12 }}>
+                              {bank.name || '-'}
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: 14 }}>
+                              <div>
+                                <div style={{ color: '#64748b', fontWeight: 600, marginBottom: 4 }}>Bank Name</div>
+                                <div style={{ color: '#1e293b', fontWeight: 500 }}>{bank.bankname || '-'}</div>
+                              </div>
+                              <div>
+                                <div style={{ color: '#64748b', fontWeight: 600, marginBottom: 4 }}>Account No.</div>
+                                <div style={{ color: '#1e293b', fontWeight: 500 }}>{bank.accountno || '-'}</div>
+                              </div>
+                              <div>
+                                <div style={{ color: '#64748b', fontWeight: 600, marginBottom: 4 }}>IFSC Code</div>
+                                <div style={{ color: '#1e293b', fontWeight: 500 }}>{bank.ifscode || '-'}</div>
+                              </div>
+                              <div>
+                                <div style={{ color: '#64748b', fontWeight: 600, marginBottom: 4 }}>Branch Name</div>
+                                <div style={{ color: '#1e293b', fontWeight: 500 }}>{bank.branchname || '-'}</div>
+                              </div>
+                              <div>
+                                <div style={{ color: '#64748b', fontWeight: 600, marginBottom: 4 }}>SWIFT Code</div>
+                                <div style={{ color: '#1e293b', fontWeight: 500 }}>{bank.swiftcode || '-'}</div>
+                              </div>
+                              <div>
+                                <div style={{ color: '#64748b', fontWeight: 600, marginBottom: 4 }}>Account Holder</div>
+                                <div style={{ color: '#1e293b', fontWeight: 500 }}>{bank.accholdername || '-'}</div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ 
+                        padding: '40px', 
+                        textAlign: 'center', 
+                        color: '#64748b', 
+                        fontSize: 16,
+                        background: '#f8fafc',
+                        borderRadius: '12px',
+                        border: '1px solid #e2e8f0'
+                      }}>
+                        No bank details available
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right Section - UPI Details */}
+                  <div style={{ flex: 1, minWidth: 0, borderLeft: '1px solid #e2e8f0', paddingLeft: '24px' }}>
+                    <h3 style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: 8, 
+                      fontSize: 18, 
+                      fontWeight: 700, 
+                      color: '#1e293b', 
+                      marginBottom: 18 
+                    }}>
+                      <span className="material-icons" style={{ fontSize: 20, color: '#059669' }}>payment</span>
+                      UPI Details ({bankUpiData.upis?.length || 0})
+                    </h3>
+                    {bankUpiData.upis && bankUpiData.upis.length > 0 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {bankUpiData.upis.map((upi, idx) => {
+                          const upiId = upi.merchantid || '';
+                          // Create UPI payment URI format for QR code
+                          // Format: upi://pay?pa=<UPI_ID>&pn=<PAYEE_NAME>
+                          const payeeName = encodeURIComponent(upi.merchantname || upi.name || '');
+                          const upiUri = upiId ? `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${payeeName}` : '';
+                          const qrCodeUrl = upiUri ? `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiUri)}` : '';
+                          
+                          return (
+                            <div
+                              key={idx}
+                              style={{
+                                background: '#f8fafc',
+                                borderRadius: '12px',
+                                border: '1px solid #e2e8f0',
+                                padding: '20px',
+                                transition: 'all 0.2s ease'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.borderColor = '#10b981';
+                                e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.15)';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.borderColor = '#e2e8f0';
+                                e.currentTarget.style.boxShadow = 'none';
+                              }}
+                            >
+                              <div style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', marginBottom: 16 }}>
+                                {upi.name || '-'}
+                              </div>
+                              <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start' }}>
+                                <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '1fr', gap: '12px', fontSize: 14 }}>
+                                  <div>
+                                    <div style={{ color: '#64748b', fontWeight: 600, marginBottom: 4 }}>Merchant ID</div>
+                                    <div style={{ color: '#1e293b', fontWeight: 500, wordBreak: 'break-word' }}>{upiId || '-'}</div>
+                                  </div>
+                                  <div>
+                                    <div style={{ color: '#64748b', fontWeight: 600, marginBottom: 4 }}>Merchant Name</div>
+                                    <div style={{ color: '#1e293b', fontWeight: 500 }}>{upi.merchantname || '-'}</div>
+                                  </div>
+                                </div>
+                                {qrCodeUrl && (
+                                  <div style={{ 
+                                    display: 'flex', 
+                                    flexDirection: 'column', 
+                                    alignItems: 'center',
+                                    gap: '8px',
+                                    padding: '12px',
+                                    background: '#fff',
+                                    borderRadius: '8px',
+                                    border: '1px solid #e2e8f0'
+                                  }}>
+                                    <img 
+                                      src={qrCodeUrl} 
+                                      alt={`QR Code for ${upiId}`}
+                                      style={{
+                                        width: '150px',
+                                        height: '150px',
+                                        borderRadius: '8px',
+                                        border: '2px solid #e2e8f0'
+                                      }}
+                                    />
+                                    <div style={{ 
+                                      fontSize: 11, 
+                                      color: '#64748b', 
+                                      textAlign: 'center',
+                                      maxWidth: '150px',
+                                      wordBreak: 'break-word'
+                                    }}>
+                                      Scan to pay
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ 
+                        padding: '40px', 
+                        textAlign: 'center', 
+                        color: '#64748b', 
+                        fontSize: 16,
+                        background: '#f8fafc',
+                        borderRadius: '12px',
+                        border: '1px solid #e2e8f0'
+                      }}>
+                        No UPI details available
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+        
         {showVoucherDetails && viewingVoucher && (
           <div
             className="ledgerbook-voucher-modal"
