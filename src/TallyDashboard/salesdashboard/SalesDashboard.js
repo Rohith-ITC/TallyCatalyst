@@ -71,6 +71,35 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [showNavigationWarning, setShowNavigationWarning] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState(null);
   const abortLoadingRef = useRef(false);
+  
+  // Fixed header positioning
+  const containerRef = useRef(null);
+  const headerRef = useRef(null);
+  const [headerLeft, setHeaderLeft] = useState(0);
+  const [headerWidth, setHeaderWidth] = useState('100%');
+  
+  useEffect(() => {
+    const updateHeaderPosition = () => {
+      if (containerRef.current && headerRef.current) {
+        const containerRect = containerRef.current.getBoundingClientRect();
+        setHeaderLeft(containerRect.left);
+        setHeaderWidth(`${containerRect.width}px`);
+      }
+    };
+    
+    updateHeaderPosition();
+    window.addEventListener('resize', updateHeaderPosition);
+    window.addEventListener('scroll', updateHeaderPosition);
+    
+    // Update on sidebar toggle (check periodically or use MutationObserver)
+    const interval = setInterval(updateHeaderPosition, 100);
+    
+    return () => {
+      window.removeEventListener('resize', updateHeaderPosition);
+      window.removeEventListener('scroll', updateHeaderPosition);
+      clearInterval(interval);
+    };
+  }, [isMobile, windowWidth]);
 
   // Form state
   const [fromDate, setFromDate] = useState('');
@@ -9945,9 +9974,29 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               transform: translateX(400%);
             }
           }
+          /* Fixed header that stays at top when scrolling */
+          #sales-dashboard-header {
+            position: fixed !important;
+            top: 0 !important;
+            z-index: 1000 !important;
+            box-sizing: border-box !important;
+          }
+          /* Spacer to prevent content from jumping under fixed header */
+          #sales-dashboard-header-spacer {
+            height: 64px;
+            width: 100%;
+            flex-shrink: 0;
+          }
+          @media (max-width: 768px) {
+            #sales-dashboard-header-spacer {
+              height: 72px;
+            }
+          }
         `}
       </style>
      <div
+       id="sales-dashboard-container"
+       ref={containerRef}
        style={{
          background: 'transparent',
          minHeight: '100vh',
@@ -9959,21 +10008,29 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
        }}
      >
         {/* Header */}
-        <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', position: 'relative', boxSizing: 'border-box' }}>
-        <div style={{
+        <form onSubmit={handleSubmit} style={{ width: '100%', overflow: 'visible', boxSizing: 'border-box' }}>
+        <div 
+          id="sales-dashboard-header" 
+          ref={headerRef}
+          style={{
             padding: isMobile ? '16px 20px' : '12px 20px',
-          borderBottom: 'none',
-          background: '#0b1736',
-          borderRadius: '12px',
-          position: 'relative',
-          marginBottom: isMobile ? '16px' : '28px',
-          boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.07)',
-          border: 'none',
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '12px'
+            borderBottom: 'none',
+            background: '#0b1736',
+            borderRadius: isMobile ? '0' : '12px',
+            position: 'fixed',
+            top: 0,
+            left: `${headerLeft}px`,
+            width: headerWidth,
+            zIndex: 1000,
+            marginBottom: 0,
+            boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1), 0 4px 6px rgba(0, 0, 0, 0.07)',
+            border: 'none',
+            display: 'flex',
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            boxSizing: 'border-box'
           }}>
             {/* Header Layout: Left Section (Title) | Right Section (Actions) */}
         {isMobile ? (
@@ -10717,6 +10774,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         )}
         </div>
         </form>
+        
+        {/* Spacer to prevent content from jumping under fixed header */}
+        <div id="sales-dashboard-header-spacer" />
 
         {/* Progress Bar - Removed: Sales dashboard uses cache-only mode, no server fetching notifications */}
 
@@ -11367,7 +11427,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             display: 'grid',
             gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(160px, 1fr))',
             gap: isMobile ? '12px' : '16px',
-            marginBottom: '0'
+            marginBottom: '0',
+            marginTop: isMobile ? '8px' : '12px'
           }}>
             {isCardVisible('Total Revenue') && (
               <div style={{
