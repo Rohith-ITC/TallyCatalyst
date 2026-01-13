@@ -5,6 +5,7 @@
 /.pnp
 .pnp.js
 .env
+
 # testing
 /coverage
 
@@ -18,13 +19,41 @@
 .env.test.local
 .env.production.local
 
+# logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
+build-output.log
+error-capture.log
+latest-build-errors.log
+
+# backup files
+*.bak
+*.backup
+*.tmp
 
 # secrets
 client_secret_*.json
+*.pem
+*.key
 
 # Postman collections
 CustomerPortal.postman_collection.json
 CustomerPortal.postman_collection (*).json
+
+# IDE and editor files
+.cursor/plans
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# OneDrive
+~$*
