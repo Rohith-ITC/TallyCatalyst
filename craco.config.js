@@ -2,7 +2,17 @@ const webpack = require('webpack');
 
 module.exports = {
   webpack: {
-    configure: (webpackConfig) => {
+    configure: (webpackConfig, { env, paths }) => {
+      // Set public path to root
+      webpackConfig.output.publicPath = '/';
+
+      // Fix chunk loading issues
+      if (env === 'development') {
+        webpackConfig.output.filename = 'static/js/[name].bundle.js';
+        webpackConfig.output.chunkFilename = 'static/js/[name].chunk.js';
+        webpackConfig.output.crossOriginLoading = 'anonymous';
+      }
+
       webpackConfig.resolve.fallback = {
         ...webpackConfig.resolve.fallback,
         "buffer": require.resolve("buffer/"),
@@ -16,7 +26,44 @@ module.exports = {
           Buffer: ['buffer', 'Buffer'],
         }),
       ];
+
+      // Optimize chunk splitting to prevent loading issues
+      webpackConfig.optimization = {
+        ...webpackConfig.optimization,
+        runtimeChunk: 'single', // Extract runtime into a separate chunk
+        splitChunks: {
+          chunks: 'all',
+          cacheGroups: {
+            defaultVendors: {
+              test: /[\\/]node_modules[\\/]/,
+              priority: -10,
+              reuseExistingChunk: true,
+              name: 'vendors',
+            },
+            default: {
+              minChunks: 2,
+              priority: -20,
+              reuseExistingChunk: true,
+            },
+          },
+        },
+      };
+
       return webpackConfig;
     },
+  },
+  devServer: {
+    // Disable caching for HTML files
+    headers: {
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0',
+    },
+    // Enable hot module replacement
+    hot: true,
+    // Fallback to index.html for SPA routing
+    historyApiFallback: true,
+    // Disable host check for local development
+    allowedHosts: 'all',
   },
 };
