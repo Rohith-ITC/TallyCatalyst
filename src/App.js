@@ -23,23 +23,6 @@ const MasterInvitationForm = lazy(() => import('./TallyDashboard/MasterInvitatio
 const PrivacyPolicy = lazy(() => import('./PrivacyPolicy'));
 const TermsOfService = lazy(() => import('./TermsOfService'));
 
-// Loading fallback component
-const LoadingFallback = () => (
-  <div style={{
-    display: 'flex',
-    justifyContent: 'center',
-    alignItems: 'center',
-    minHeight: '100vh',
-    background: 'linear-gradient(135deg, #e6f4ea 0%, #dbeafe 100%)',
-  }}>
-    <div style={{
-      fontSize: '18px',
-      color: '#1e40af',
-      fontWeight: 500,
-    }}>Loading...</div>
-  </div>
-);
-
 // Protected Route Component
 function ProtectedRoute({ children }) {
   const token = sessionStorage.getItem('token');
@@ -169,7 +152,7 @@ function App() {
   
   return (
     <Router basename={process.env.REACT_APP_HOMEPAGE || ''}>
-      <Suspense fallback={<LoadingFallback />}>
+      <Suspense fallback={null}>
         <Routes>
           <Route path="/" element={<Login onLogin={handleLogin} />} />
           <Route path="/home" element={<LandingPage />} />

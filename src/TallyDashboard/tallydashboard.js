@@ -20,6 +20,7 @@ import SalesOrderReport from './SalesOrderReport';
 import PaymentVoucherReport from './PaymentVoucherReport';
 import VendorExpenses from './VendorExpenses';
 import GmailJsonViewer from './GmailJsonViewer';
+import CustomReports from './CustomReports';
 import {
   MODULE_SEQUENCE,
   hasModuleAccess,
@@ -3350,6 +3351,11 @@ function TallyDashboard() {
             {activeSidebar === 'master_authorization' && <MasterAuthorization />}
             {activeSidebar === 'master_list' && <MasterList />}
             {activeSidebar === 'gmail_json' && <GmailJsonViewer />}
+            {activeSidebar === 'custom_reports' && (
+              <div style={{ margin: '-20px', padding: '0' }}>
+                <CustomReports />
+              </div>
+            )}
           </>
         </div>
       </main>

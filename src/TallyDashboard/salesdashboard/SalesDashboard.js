@@ -163,6 +163,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [rawDataPageSizeInput, setRawDataPageSizeInput] = useState('20');
   const [rawDataSortBy, setRawDataSortBy] = useState(null); // column key or null
   const [rawDataSortOrder, setRawDataSortOrder] = useState('asc'); // 'asc' or 'desc'
+  const [removeDuplicates, setRemoveDuplicates] = useState(true); // Default: enabled - removes duplicate rows
   
   // Column filter states
   const [columnFilters, setColumnFilters] = useState({});
@@ -187,6 +188,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [editingCardId, setEditingCardId] = useState(null);
   const [customCardChartTypes, setCustomCardChartTypes] = useState({});
   const customCardsSectionRef = useRef(null);
+
+  // Custom report modal state
+  const [showCustomReportModal, setShowCustomReportModal] = useState(false);
 
   // Calendar modal state
   const [showCalendarModal, setShowCalendarModal] = useState(false);
@@ -6112,6 +6116,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
         categoryKey = `W${String(weekNum).padStart(2, '0')}`;
         categoryLabel = `Week ${weekNum}`;
+      } else if (category === 'dayOfWeek') {
+        const dayOfWeek = date.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        categoryKey = String(dayOfWeek).padStart(2, '0'); // "00", "01", ..., "06"
+        categoryLabel = dayNames[dayOfWeek];
       }
       
       if (!categoryKey) return;
@@ -6207,6 +6216,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         return parseInt(a.replace('Q', '')) - parseInt(b.replace('Q', ''));
       } else if (category === 'week') {
         return parseInt(a.replace('W', '')) - parseInt(b.replace('W', ''));
+      } else if (category === 'dayOfWeek') {
+        // Sort days: Sunday (0) to Saturday (6)
+        return parseInt(a) - parseInt(b);
       }
       return a.localeCompare(b);
     });
@@ -6870,13 +6882,36 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             const filterValuesSet = new Set(filter.filterValues.map(v => String(v).trim().toLowerCase()));
             const beforeCount = filteredData.length;
             filteredData = filteredData.filter(s => {
-              // Use case-insensitive field access
-              const fieldValue = getFieldValue(s, filterFieldName);
-              if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
-                return false;
+              // Check if this is a nested array field
+              const isNestedArrayField = filterFieldName.includes('.');
+              
+              if (isNestedArrayField) {
+                // For nested array fields, check if ANY value matches
+                const masterid = s.masterid || s.mstid;
+                let sourceObject = s;
+                if (masterid && window.__voucherLookupMap) {
+                  const voucher = window.__voucherLookupMap.get(String(masterid));
+                  if (voucher) {
+                    sourceObject = voucher;
+                  }
+                }
+                const allValues = getNestedFieldValues(sourceObject, filterFieldName);
+                return allValues.some(value => {
+                  if (value === null || value === undefined || value === '') {
+                    return false;
+                  }
+                  const normalizedValue = String(value).trim().toLowerCase();
+                  return filterValuesSet.has(normalizedValue);
+                });
+              } else {
+                // For non-nested fields, use existing logic
+                const fieldValue = getFieldValue(s, filterFieldName);
+                if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+                  return false;
+                }
+                const normalizedValue = String(fieldValue).trim().toLowerCase();
+                return filterValuesSet.has(normalizedValue);
               }
-              const normalizedValue = String(fieldValue).trim().toLowerCase();
-              return filterValuesSet.has(normalizedValue);
             });
             console.log(`✅ Applied filter ${filterIndex + 1}: ${filterFieldName} = [${filter.filterValues.join(', ')}]`, {
               beforeCount,
@@ -6921,13 +6956,36 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         const filterFieldName = cardConfig.filters.filterField;
         const filterValuesSet = new Set(cardConfig.filters.filterValues.map(v => String(v).trim().toLowerCase()));
         filteredData = filteredData.filter(s => {
-          // Use case-insensitive field access
-          const fieldValue = getFieldValue(s, filterFieldName);
-          if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
-            return false;
+          // Check if this is a nested array field
+          const isNestedArrayField = filterFieldName.includes('.');
+          
+          if (isNestedArrayField) {
+            // For nested array fields, check if ANY value matches
+            const masterid = s.masterid || s.mstid;
+            let sourceObject = s;
+            if (masterid && window.__voucherLookupMap) {
+              const voucher = window.__voucherLookupMap.get(String(masterid));
+              if (voucher) {
+                sourceObject = voucher;
+              }
+            }
+            const allValues = getNestedFieldValues(sourceObject, filterFieldName);
+            return allValues.some(value => {
+              if (value === null || value === undefined || value === '') {
+                return false;
+              }
+              const normalizedValue = String(value).trim().toLowerCase();
+              return filterValuesSet.has(normalizedValue);
+            });
+          } else {
+            // For non-nested fields, use existing logic
+            const fieldValue = getFieldValue(s, filterFieldName);
+            if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+              return false;
+            }
+            const normalizedValue = String(fieldValue).trim().toLowerCase();
+            return filterValuesSet.has(normalizedValue);
           }
-          const normalizedValue = String(fieldValue).trim().toLowerCase();
-          return filterValuesSet.has(normalizedValue);
         });
         }
       }
@@ -7184,14 +7242,115 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
       } else {
         // Generic field access - use helper function for case-insensitive search
-        const fieldValue = getFieldValue(sale, cardConfig.groupBy);
-        // Normalize to lowercase for grouping, but preserve original for display
-        const normalizedValue = fieldValue ? String(fieldValue).trim() : 'Unknown';
-        groupKey = normalizedValue.toLowerCase();
-        originalKey = normalizedValue;
+        // Check if this is a nested array field (e.g., ledgerentries.grouplist)
+        const isNestedArrayField = cardConfig.groupBy.includes('.');
+        let fieldValues = [];
+        
+        if (isNestedArrayField) {
+          // For nested array fields, get all values from all entries
+          const masterid = sale.masterid || sale.mstid;
+          let sourceObject = sale;
+          if (masterid && window.__voucherLookupMap) {
+            const voucher = window.__voucherLookupMap.get(String(masterid));
+            if (voucher) {
+              sourceObject = voucher;
+            }
+          }
+          // Get all values from nested array field
+          fieldValues = getNestedFieldValues(sourceObject, cardConfig.groupBy);
+          // Filter out null/undefined and convert to strings
+          fieldValues = fieldValues
+            .filter(v => v !== null && v !== undefined && v !== '')
+            .map(v => String(v).trim());
+          
+          // If no values found, use Unknown
+          if (fieldValues.length === 0) {
+            fieldValues = ['Unknown'];
+          }
+        } else {
+          // For non-nested fields, use single value
+          const fieldValue = getFieldValue(sale, cardConfig.groupBy);
+          const normalizedValue = fieldValue ? String(fieldValue).trim() : 'Unknown';
+          fieldValues = [normalizedValue];
+        }
+        
+        // Process each unique value (for nested arrays, a sale can appear in multiple groups)
+        const uniqueValues = [...new Set(fieldValues)];
+        uniqueValues.forEach(fieldValue => {
+          const normalizedValue = fieldValue || 'Unknown';
+          const currentGroupKey = normalizedValue.toLowerCase();
+          const currentOriginalKey = normalizedValue;
+          
+          // Initialize group if needed
+          if (!grouped[currentGroupKey]) {
+            grouped[currentGroupKey] = { 
+              items: [], 
+              originalKey: currentOriginalKey,
+              // Initialize segments if stacking is enabled
+              segments: cardConfig.enableStacking && cardConfig.segmentBy ? {} : null
+            };
+          } else {
+            // For case-insensitive fields, keep the most common casing (use first encountered)
+            if (cardConfig.groupBy !== 'date' && cardConfig.groupBy !== 'profit_margin' && cardConfig.groupBy !== 'order_value') {
+              if (grouped[currentGroupKey].originalKey === 'Unknown' && currentOriginalKey !== 'Unknown') {
+                grouped[currentGroupKey].originalKey = currentOriginalKey;
+              }
+            }
+          }
+          
+          // If stacking is enabled, also group by segment
+          if (cardConfig.enableStacking && cardConfig.segmentBy && grouped[currentGroupKey].segments) {
+            // Check if segmentBy is also a nested array field
+            const isSegmentNestedArrayField = cardConfig.segmentBy.includes('.');
+            let segmentValues = [];
+            
+            if (isSegmentNestedArrayField) {
+              const masterid = sale.masterid || sale.mstid;
+              let sourceObject = sale;
+              if (masterid && window.__voucherLookupMap) {
+                const voucher = window.__voucherLookupMap.get(String(masterid));
+                if (voucher) {
+                  sourceObject = voucher;
+                }
+              }
+              segmentValues = getNestedFieldValues(sourceObject, cardConfig.segmentBy);
+              segmentValues = segmentValues
+                .filter(v => v !== null && v !== undefined && v !== '')
+                .map(v => String(v).trim());
+              
+              if (segmentValues.length === 0) {
+                segmentValues = ['Unknown'];
+              }
+            } else {
+              const segmentValue = getFieldValue(sale, cardConfig.segmentBy);
+              const segmentKey = segmentValue ? String(segmentValue).trim() : 'Unknown';
+              segmentValues = [segmentKey];
+            }
+            
+            // Process each segment value
+            const uniqueSegmentValues = [...new Set(segmentValues)];
+            uniqueSegmentValues.forEach(segmentValue => {
+              const segmentKey = segmentValue || 'Unknown';
+              const normalizedSegmentKey = segmentKey.toLowerCase();
+              
+              if (!grouped[currentGroupKey].segments[normalizedSegmentKey]) {
+                grouped[currentGroupKey].segments[normalizedSegmentKey] = {
+                  items: [],
+                  originalKey: segmentKey
+                };
+              }
+              grouped[currentGroupKey].segments[normalizedSegmentKey].items.push(sale);
+            });
+          }
+          
+          grouped[currentGroupKey].items.push(sale);
+        });
+        
+        // Skip the old single-group logic since we're handling it above
+        return;
       }
       
-      // Initialize group if needed
+      // Initialize group if needed (for non-nested array fields)
       if (!grouped[groupKey]) {
         grouped[groupKey] = { 
           items: [], 
@@ -7210,17 +7369,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       
       // If stacking is enabled, also group by segment
       if (cardConfig.enableStacking && cardConfig.segmentBy && grouped[groupKey].segments) {
-        const segmentValue = getFieldValue(sale, cardConfig.segmentBy);
-        const segmentKey = segmentValue ? String(segmentValue).trim() : 'Unknown';
-        const normalizedSegmentKey = segmentKey.toLowerCase();
+        // Check if segmentBy is also a nested array field
+        const isSegmentNestedArrayField = cardConfig.segmentBy.includes('.');
+        let segmentValues = [];
         
-        if (!grouped[groupKey].segments[normalizedSegmentKey]) {
-          grouped[groupKey].segments[normalizedSegmentKey] = {
-            items: [],
-            originalKey: segmentKey
-          };
+        if (isSegmentNestedArrayField) {
+          const masterid = sale.masterid || sale.mstid;
+          let sourceObject = sale;
+          if (masterid && window.__voucherLookupMap) {
+            const voucher = window.__voucherLookupMap.get(String(masterid));
+            if (voucher) {
+              sourceObject = voucher;
+            }
+          }
+          segmentValues = getNestedFieldValues(sourceObject, cardConfig.segmentBy);
+          segmentValues = segmentValues
+            .filter(v => v !== null && v !== undefined && v !== '')
+            .map(v => String(v).trim());
+          
+          if (segmentValues.length === 0) {
+            segmentValues = ['Unknown'];
+          }
+        } else {
+          const segmentValue = getFieldValue(sale, cardConfig.segmentBy);
+          const segmentKey = segmentValue ? String(segmentValue).trim() : 'Unknown';
+          segmentValues = [segmentKey];
         }
-        grouped[groupKey].segments[normalizedSegmentKey].items.push(sale);
+        
+        // Process each segment value
+        const uniqueSegmentValues = [...new Set(segmentValues)];
+        uniqueSegmentValues.forEach(segmentValue => {
+          const segmentKey = segmentValue || 'Unknown';
+          const normalizedSegmentKey = segmentKey.toLowerCase();
+          
+          if (!grouped[groupKey].segments[normalizedSegmentKey]) {
+            grouped[groupKey].segments[normalizedSegmentKey] = {
+              items: [],
+              originalKey: segmentKey
+            };
+          }
+          grouped[groupKey].segments[normalizedSegmentKey].items.push(sale);
+        });
       }
       
       grouped[groupKey].items.push(sale);
@@ -10061,6 +10250,36 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       );
     }
     
+    // Remove duplicates if enabled
+    if (removeDuplicates && rawDataModal.columns.length > 0) {
+      const seen = new Set();
+      filtered = filtered.filter((row) => {
+        // Create a unique signature by comparing ALL column values
+        // Only rows with ALL columns exactly the same will be considered duplicates
+        const rowSignature = rawDataModal.columns
+          .map((column) => {
+            const value = row[column.key];
+            // Normalize null/undefined to consistent string representation
+            if (value === null || value === undefined) {
+              return '__NULL__';
+            }
+            // Convert to string for exact comparison
+            // This ensures all column values must match exactly
+            return String(value);
+          })
+          .join('|||'); // Use separator unlikely to appear in actual data
+        
+        // If we've seen this exact signature before, it's a duplicate (remove it)
+        if (seen.has(rowSignature)) {
+          return false; // Duplicate - remove this row
+        }
+        
+        // First time seeing this combination - keep it and mark as seen
+        seen.add(rowSignature);
+        return true; // Keep this row
+      });
+    }
+    
     // Apply sorting if sortBy is set
     if (rawDataSortBy) {
       // Find the column to determine its type
@@ -10137,7 +10356,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     }
     
     return filtered;
-  }, [rawDataModal, rawDataSearch, applyColumnFilters, rawDataSortBy, rawDataSortOrder]);
+  }, [rawDataModal, rawDataSearch, applyColumnFilters, rawDataSortBy, rawDataSortOrder, removeDuplicates]);
 
   const totalRawPages = rawDataModal.open
     ? Math.max(1, Math.ceil(Math.max(filteredRawRows.length, 1) / rawDataPageSize))
@@ -10178,6 +10397,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       setRawDataPageInput('1');
       setRawDataSortBy(null);
       setRawDataSortOrder('asc');
+      setRemoveDuplicates(true); // Reset to enabled by default
     }
   }, [rawDataModal.open]);
 
@@ -10983,6 +11203,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               justifyContent: 'flex-end',
               flex: '1'
             }}>
+              {/* Create Custom Report Button */}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowCustomReportModal(true);
+                }}
+                disabled={sales.length === 0}
+                style={{
+                  background: 'transparent',
+                  color: sales.length === 0 ? '#6b7280' : 'white',
+                  border: sales.length === 0 ? '1px solid rgba(107, 114, 128, 0.3)' : '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '8px',
+                  padding: '6px 12px',
+                  cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease',
+                  whiteSpace: 'nowrap',
+                  opacity: sales.length === 0 ? 0.5 : 0.9
+                }}
+                onMouseEnter={(e) => {
+                  if (sales.length > 0) {
+                    e.currentTarget.style.opacity = '1';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.4)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (sales.length > 0) {
+                    e.currentTarget.style.opacity = '0.9';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  }
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '16px' }}>assessment</span>
+                <span>Create Custom Report</span>
+              </button>
+
               {/* Create Custom Card Button */}
               <button
                 onClick={(e) => {
@@ -11335,6 +11596,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               justifyContent: 'flex-end',
               flexShrink: 0
             }}>
+              {/* Create Custom Report Button - Desktop */}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setShowCustomReportModal(true);
+                }}
+                disabled={sales.length === 0}
+                style={{
+                  background: 'transparent',
+                  color: sales.length === 0 ? '#6b7280' : 'white',
+                  border: sales.length === 0 ? '1px solid rgba(107, 114, 128, 0.3)' : '1px solid rgba(255, 255, 255, 0.2)',
+                  borderRadius: '8px',
+                  padding: '8px 14px',
+                  cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  transition: 'all 0.2s ease',
+                  whiteSpace: 'nowrap',
+                  opacity: sales.length === 0 ? 0.5 : 0.9
+                }}
+                onMouseEnter={(e) => {
+                  if (sales.length > 0) {
+                    e.currentTarget.style.opacity = '1';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.4)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (sales.length > 0) {
+                    e.currentTarget.style.opacity = '0.9';
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
+                  }
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: '16px' }}>assessment</span>
+                <span>Create Custom Report</span>
+              </button>
+
               {/* Create Custom Card Button - Desktop */}
               <button
                 onClick={(e) => {
@@ -19109,6 +19411,47 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             )}
             <button
               type="button"
+              onClick={() => setRemoveDuplicates(!removeDuplicates)}
+              style={{
+                background: removeDuplicates 
+                  ? 'linear-gradient(135deg, #2563eb 0%, #1e40af 100%)'
+                  : 'linear-gradient(135deg, #64748b 0%, #475569 100%)',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '10px 16px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                color: '#fff',
+                fontSize: '14px',
+                fontWeight: 600,
+                boxShadow: removeDuplicates 
+                  ? '0 2px 6px rgba(37, 99, 235, 0.2)'
+                  : '0 2px 6px rgba(100, 116, 139, 0.2)',
+                transition: 'transform 0.2s ease, box-shadow 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-1px)';
+                e.currentTarget.style.boxShadow = removeDuplicates
+                  ? '0 4px 12px rgba(37, 99, 235, 0.3)'
+                  : '0 4px 12px rgba(100, 116, 139, 0.3)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = removeDuplicates
+                  ? '0 2px 6px rgba(37, 99, 235, 0.2)'
+                  : '0 2px 6px rgba(100, 116, 139, 0.2)';
+              }}
+              title={removeDuplicates ? 'Click to show duplicate entries' : 'Click to remove duplicate entries'}
+            >
+              <span className="material-icons" style={{ fontSize: '18px' }}>
+                {removeDuplicates ? 'check_circle' : 'content_copy'}
+              </span>
+              {removeDuplicates ? 'Duplicates Removed' : 'Show Duplicates'}
+            </button>
+            <button
+              type="button"
               onClick={exportRawDataToCSV}
               style={{
                 background: 'linear-gradient(135deg, #047857 0%, #065f46 100%)',
@@ -19677,6 +20020,85 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     )}
 
     {/* Custom Card Modal */}
+    {/* Custom Report Modal */}
+    {showCustomReportModal && (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          zIndex: 16000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px'
+        }}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) {
+            setShowCustomReportModal(false);
+          }
+        }}
+      >
+        <div
+          style={{
+            background: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            padding: '24px',
+            maxWidth: '600px',
+            width: '100%',
+            maxHeight: '90vh',
+            overflow: 'auto'
+          }}
+        >
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            marginBottom: '20px'
+          }}>
+            <h2 style={{
+              fontSize: '20px',
+              fontWeight: '700',
+              color: '#1e293b',
+              margin: 0
+            }}>
+              Create Custom Report
+            </h2>
+            <button
+              onClick={() => setShowCustomReportModal(false)}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: 'pointer',
+                padding: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+                color: '#64748b'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = '#f1f5f9';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: '24px' }}>close</span>
+            </button>
+          </div>
+          <CustomReportModalContent
+            salesData={sales}
+            onClose={() => setShowCustomReportModal(false)}
+          />
+        </div>
+      </div>
+    )}
+
     {showCustomCardModal && (
       <div
         style={{
@@ -23200,6 +23622,1132 @@ const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTe
 };
 
 // Custom Card Modal Component
+// Custom Report Modal Component
+const CustomReportModalContent = ({ salesData, onClose }) => {
+  // Mobile detection
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Helper function to parse date from various formats
+  const parseDateValue = useCallback((dateValue) => {
+    if (!dateValue) return null;
+    if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+      return dateValue;
+    }
+    const dateStr = String(dateValue).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const date = new Date(dateStr);
+      if (!isNaN(date.getTime())) return date;
+    }
+    if (/^\d{8}$/.test(dateStr)) {
+      const year = parseInt(dateStr.substring(0, 4), 10);
+      const month = parseInt(dateStr.substring(4, 6), 10) - 1;
+      const day = parseInt(dateStr.substring(6, 8), 10);
+      const date = new Date(year, month, day);
+      if (!isNaN(date.getTime())) return date;
+    }
+    return null;
+  }, []);
+
+  // Helper function to get field value for filter
+  const getFieldValueForFilter = useCallback((item, fieldName) => {
+    if (!item || !fieldName) return null;
+    
+    if (fieldName === 'month' || fieldName === 'year' || fieldName === 'quarter' || fieldName === 'week') {
+      const dateValue = item.cp_date || item.date || item.Date || item.DATE;
+      if (dateValue) {
+        const date = parseDateValue(dateValue);
+        if (date && !isNaN(date.getTime())) {
+          if (fieldName === 'month') {
+            const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            return `${monthAbbr[date.getMonth()]}-${String(date.getFullYear()).slice(-2)}`;
+          } else if (fieldName === 'year') {
+            return String(date.getFullYear());
+          } else if (fieldName === 'quarter') {
+            const month = date.getMonth();
+            const quarter = Math.floor(month / 3) + 1;
+            return `Q${quarter} ${date.getFullYear()}`;
+          } else if (fieldName === 'week') {
+            const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+            const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+            const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+            return `Week ${weekNum}, ${date.getFullYear()}`;
+          }
+        }
+      }
+      return null;
+    }
+    
+    if (fieldName.includes('.')) {
+      const masterid = item.masterid || item.mstid;
+      let sourceObject = item;
+      if (masterid && window.__voucherLookupMap) {
+        const voucher = window.__voucherLookupMap.get(String(masterid));
+        if (voucher) {
+          sourceObject = voucher;
+        }
+      }
+      // For filter dropdowns, we want to get all values from nested arrays
+      // Return the first value for backward compatibility, but the caller should use getNestedFieldValues
+      // for getting all unique values for filter dropdowns
+      const value = getNestedFieldValue(sourceObject, fieldName);
+      if (value !== null && value !== undefined) {
+        return value;
+      }
+      return getNestedFieldValue(item, fieldName);
+    }
+    
+    if (item[fieldName] !== undefined) return item[fieldName];
+    const matchingKey = Object.keys(item).find(k => k.toLowerCase() === fieldName.toLowerCase());
+    if (matchingKey) {
+      return item[matchingKey];
+    }
+    
+    return null;
+  }, [parseDateValue]);
+
+  // Form state
+  const [reportTitle, setReportTitle] = useState('');
+  const [selectedFields, setSelectedFields] = useState(new Set());
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortIndexes, setSortIndexes] = useState({}); // field -> sort index
+  const [filters, setFilters] = useState([]); // array of { field: string, values: Set<string> }
+  
+  // Filter state
+  const [currentFilterField, setCurrentFilterField] = useState('');
+  const [currentFilterValues, setCurrentFilterValues] = useState(new Set());
+  const [filterValuesSearchTerm, setFilterValuesSearchTerm] = useState('');
+  const [filterFieldSearchTerm, setFilterFieldSearchTerm] = useState('');
+  
+  // UDF and raw voucher data state
+  const [udfConfig, setUdfConfig] = useState(null);
+  const [udfFields, setUdfFields] = useState([]);
+  const [rawVoucherData, setRawVoucherData] = useState([]);
+
+  // Load raw voucher data and UDF config (similar to CustomCardModal)
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+        const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+        const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId') || '';
+        
+        const currentCompanyObj = companies.find(c =>
+          c.guid === selectedCompanyGuid &&
+          (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+        );
+        
+        if (!currentCompanyObj || !currentCompanyObj.tallyloc_id || !currentCompanyObj.guid) {
+          setRawVoucherData([]);
+          return;
+        }
+        
+        // Load raw voucher data - use ALL vouchers from complete cache for field extraction
+        const completeCache = await hybridCache.getCompleteSalesData(currentCompanyObj);
+        if (completeCache && completeCache.data && completeCache.data.vouchers) {
+          // Use ALL vouchers from complete cache for field extraction (not just filtered date range)
+          const allVouchers = completeCache.data.vouchers;
+          setRawVoucherData(allVouchers);
+          
+          const voucherLookupMap = new Map();
+          allVouchers.forEach(voucher => {
+            const masterid = voucher.masterid || voucher.mstid;
+            if (masterid) {
+              voucherLookupMap.set(String(masterid), voucher);
+            }
+          });
+          window.__voucherLookupMap = voucherLookupMap;
+          console.log('📋 Loaded ALL vouchers from complete cache for field extraction:', allVouchers.length, 'vouchers');
+        }
+        
+        // Load UDF config
+        const config = await loadUdfConfig(currentCompanyObj.tallyloc_id, currentCompanyObj.guid);
+        setUdfConfig(config);
+        if (config) {
+          const availableUdf = getAvailableUdfFields(config);
+          const udfFieldsList = [
+            ...availableUdf.fields.map(f => ({
+              value: f.name,
+              label: `UDF: ${f.name}`,
+              type: 'category',
+              hierarchy: 'udf',
+              isUdf: true,
+              formula: f.formula,
+              table: f.table
+            })),
+            ...availableUdf.aggregates.flatMap(agg => 
+              agg.fields.map(f => ({
+                value: `${agg.name}.${f.fieldName}`,
+                label: `UDF: ${agg.name} → ${f.fieldName}`,
+                type: 'category',
+                hierarchy: 'udf',
+                isUdf: true,
+                aggregateName: agg.name,
+                fieldName: f.fieldName,
+                formula: f.formula,
+                table: agg.table
+              }))
+            )
+          ];
+          setUdfFields(udfFieldsList);
+        }
+      } catch (error) {
+        console.error('Error loading data for Custom Report:', error);
+      }
+    };
+    
+    loadData();
+  }, [salesData]);
+
+  // Field label mapping (reuse from CustomCardModal)
+  const fieldLabelMap = {
+    'partyledgername': 'Party Ledger Name',
+    'customer': 'Customer',
+    'party': 'Party',
+    'stockitemname': 'Stock Item Name',
+    'item': 'Item',
+    'region': 'State/Region',
+    'state': 'State',
+    'country': 'Country',
+    'pincode': 'PIN Code',
+    'ledgername': 'Ledger Name',
+    'ledgerGroup': 'Ledger Group',
+    'salesperson': 'Salesperson',
+    'date': 'Date',
+    'amount': 'Amount',
+    'quantity': 'Quantity',
+    'profit': 'Profit',
+    'vouchernumber': 'Voucher Number',
+  };
+
+  const getFieldLabel = (fieldName) => {
+    const lowerKey = fieldName.toLowerCase();
+    if (fieldLabelMap[lowerKey]) {
+      return fieldLabelMap[lowerKey];
+    }
+    for (const [key, label] of Object.entries(fieldLabelMap)) {
+      if (lowerKey.includes(key) || key.includes(lowerKey)) {
+        return label;
+      }
+    }
+    return fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
+  };
+
+  // Extract all available fields
+  const allFields = useMemo(() => {
+    if (!salesData || !Array.isArray(salesData) || salesData.length === 0) {
+      return udfFields;
+    }
+
+    const dataForExtraction = rawVoucherData.length > 0 ? rawVoucherData : salesData;
+    const extracted = extractAllFieldsFromCache(dataForExtraction);
+    const cacheFields = extracted.fields || [];
+    
+    const allKeysSet = new Set();
+    salesData.forEach(sale => {
+      Object.keys(sale).forEach(key => allKeysSet.add(key));
+    });
+    const allKeys = Array.from(allKeysSet);
+
+    const fieldsMap = new Map();
+    
+    // Add date field if found
+    const dateFieldVariations = ['cp_date', 'date', 'transaction_date'];
+    const foundDateFields = [];
+    allKeys.forEach(key => {
+      const lowerKey = key.toLowerCase();
+      if (dateFieldVariations.some(dv => lowerKey === dv)) {
+        foundDateFields.push({ original: key, lower: lowerKey });
+      }
+    });
+    
+    if (foundDateFields.length > 0) {
+      fieldsMap.set('date', {
+        value: 'date',
+        label: 'Date',
+        type: 'category'
+      });
+    }
+    
+    // Process other fields
+    allKeys.forEach(key => {
+      const lowerKey = key.toLowerCase();
+      if (fieldsMap.has(lowerKey)) return;
+      
+      const isDateField = dateFieldVariations.some(dv => lowerKey === dv);
+      if (isDateField && fieldsMap.has('date')) return;
+      
+      const value = salesData[0]?.[key];
+      const isNumeric = typeof value === 'number' || (typeof value === 'string' && !isNaN(parseFloat(value)) && isFinite(parseFloat(value)));
+      
+      fieldsMap.set(lowerKey, {
+        value: key,
+        label: getFieldLabel(key),
+        type: isNumeric ? 'value' : 'category',
+        hierarchy: 'voucher'
+      });
+    });
+    
+    // Add cache fields (hierarchical)
+    cacheFields.forEach(field => {
+      const lowerKey = field.value.toLowerCase();
+      if (!fieldsMap.has(lowerKey)) {
+        fieldsMap.set(lowerKey, field);
+      }
+    });
+    
+    // Add UDF fields
+    udfFields.forEach(udfField => {
+      const lowerKey = udfField.value.toLowerCase();
+      if (!fieldsMap.has(lowerKey)) {
+        fieldsMap.set(lowerKey, udfField);
+      }
+    });
+    
+    return Array.from(fieldsMap.values());
+  }, [salesData, rawVoucherData, udfFields]);
+
+  // Filter fields based on search
+  const filteredFields = useMemo(() => {
+    if (!searchTerm.trim()) return allFields;
+    const searchLower = searchTerm.toLowerCase();
+    return allFields.filter(f => 
+      f.label.toLowerCase().includes(searchLower) || 
+      f.value.toLowerCase().includes(searchLower)
+    );
+  }, [allFields, searchTerm]);
+
+  // Handle field toggle
+  const handleFieldToggle = (fieldValue) => {
+    setSelectedFields(prev => {
+      const next = new Set(prev);
+      if (next.has(fieldValue)) {
+        next.delete(fieldValue);
+        // Remove sort index if field is deselected
+        setSortIndexes(prevSort => {
+          const nextSort = { ...prevSort };
+          delete nextSort[fieldValue];
+          return nextSort;
+        });
+      } else {
+        next.add(fieldValue);
+      }
+      return next;
+    });
+  };
+
+  // Handle sort index change
+  const handleSortIndexChange = (fieldValue, indexValue) => {
+    const numValue = indexValue === '' ? null : parseInt(indexValue, 10);
+    if (indexValue !== '' && isNaN(numValue)) {
+      return; // Invalid number
+    }
+    setSortIndexes(prev => {
+      const next = { ...prev };
+      if (numValue === null || numValue === undefined) {
+        delete next[fieldValue];
+      } else {
+        next[fieldValue] = numValue;
+      }
+      return next;
+    });
+  };
+
+  // Filter handlers (similar to CustomCardModal)
+  const handleFilterFieldChange = (fieldValue) => {
+    setCurrentFilterField(fieldValue || '');
+    setCurrentFilterValues(new Set());
+    setFilterValuesSearchTerm('');
+  };
+
+  const getFilterFieldValues = useCallback(() => {
+    if (!currentFilterField || !salesData || !Array.isArray(salesData) || salesData.length === 0) {
+      return [];
+    }
+    const valuesSet = new Set();
+    salesData.forEach(sale => {
+      // Check if this is a nested array field
+      const isNestedArrayField = currentFilterField.includes('.');
+      
+      if (isNestedArrayField) {
+        // For nested array fields, get all values from all entries
+        const masterid = sale.masterid || sale.mstid;
+        let sourceObject = sale;
+        if (masterid && window.__voucherLookupMap) {
+          const voucher = window.__voucherLookupMap.get(String(masterid));
+          if (voucher) {
+            sourceObject = voucher;
+          }
+        }
+        const allValues = getNestedFieldValues(sourceObject, currentFilterField);
+        allValues.forEach(value => {
+          if (value !== null && value !== undefined && value !== '') {
+            const stringValue = String(value).trim();
+            if (stringValue) {
+              valuesSet.add(stringValue);
+            }
+          }
+        });
+      } else {
+        // For non-nested fields, use helper function
+        const fieldValue = getFieldValueForFilter(sale, currentFilterField);
+        if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
+          const stringValue = String(fieldValue).trim();
+          if (stringValue) {
+            valuesSet.add(stringValue);
+          }
+        }
+      }
+    });
+    return Array.from(valuesSet).sort((a, b) => {
+      const numA = parseFloat(a);
+      const numB = parseFloat(b);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      return a.localeCompare(b);
+    });
+  }, [currentFilterField, salesData, getFieldValueForFilter]);
+
+  const currentFilterFieldValues = useMemo(() => getFilterFieldValues(), [getFilterFieldValues]);
+  
+  const filteredFilterFieldValues = useMemo(() => {
+    if (!filterValuesSearchTerm.trim()) return currentFilterFieldValues;
+    const searchLower = filterValuesSearchTerm.toLowerCase();
+    return currentFilterFieldValues.filter(value => 
+      value.toLowerCase().includes(searchLower)
+    );
+  }, [currentFilterFieldValues, filterValuesSearchTerm]);
+
+  const handleFilterValueToggle = (value) => {
+    setCurrentFilterValues(prev => {
+      const next = new Set(prev);
+      if (next.has(value)) {
+        next.delete(value);
+      } else {
+        next.add(value);
+      }
+      return next;
+    });
+  };
+
+  const handleAddFilter = () => {
+    if (!currentFilterField || currentFilterValues.size === 0) return;
+    
+    setFilters(prev => {
+      const existingIndex = prev.findIndex(f => f.field === currentFilterField);
+      if (existingIndex >= 0) {
+        const updated = [...prev];
+        updated[existingIndex] = {
+          field: currentFilterField,
+          values: new Set(currentFilterValues)
+        };
+        return updated;
+      }
+      return [...prev, {
+        field: currentFilterField,
+        values: new Set(currentFilterValues)
+      }];
+    });
+    
+    setCurrentFilterField('');
+    setCurrentFilterValues(new Set());
+    setFilterValuesSearchTerm('');
+    setFilterFieldSearchTerm('');
+  };
+
+  const handleRemoveFilter = (index) => {
+    setFilters(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleRemoveFilterValue = (filterIndex, value) => {
+    setFilters(prev => {
+      const updated = [...prev];
+      updated[filterIndex].values.delete(value);
+      return updated;
+    });
+  };
+
+  // Available filter fields (exclude value/numeric fields)
+  const availableFilterFields = useMemo(() => {
+    return allFields.filter(f => f.type === 'category');
+  }, [allFields]);
+
+  const filteredAvailableFilterFields = useMemo(() => {
+    if (!filterFieldSearchTerm.trim()) return availableFilterFields;
+    const searchLower = filterFieldSearchTerm.toLowerCase();
+    return availableFilterFields.filter(f => 
+      f.label.toLowerCase().includes(searchLower) || 
+      f.value.toLowerCase().includes(searchLower)
+    );
+  }, [availableFilterFields, filterFieldSearchTerm]);
+
+  // Get selected fields in order (sorted by sort index)
+  const selectedFieldsArray = useMemo(() => {
+    return Array.from(selectedFields).map(fieldValue => {
+      const field = allFields.find(f => f.value === fieldValue);
+      return {
+        value: fieldValue,
+        label: field ? field.label : fieldValue,
+        sortIndex: sortIndexes[fieldValue] ?? null
+      };
+    }).sort((a, b) => {
+      // Sort by sort index (ascending), nulls last
+      if (a.sortIndex === null && b.sortIndex === null) return 0;
+      if (a.sortIndex === null) return 1;
+      if (b.sortIndex === null) return -1;
+      return a.sortIndex - b.sortIndex;
+    });
+  }, [selectedFields, allFields, sortIndexes]);
+
+  return (
+    <div style={{
+      maxHeight: '90vh',
+      overflowY: 'auto',
+      paddingRight: '8px'
+    }}>
+      {/* Title Input */}
+      <div style={{ marginBottom: '24px' }}>
+        <label style={{
+          display: 'block',
+          fontSize: '14px',
+          fontWeight: '600',
+          color: '#1e293b',
+          marginBottom: '8px'
+        }}>
+          Report Title *
+        </label>
+        <input
+          type="text"
+          value={reportTitle}
+          onChange={(e) => setReportTitle(e.target.value)}
+          placeholder="Enter report title"
+          style={{
+            width: '100%',
+            padding: '12px 16px',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            fontSize: '14px',
+            outline: 'none',
+            transition: 'all 0.15s ease',
+            background: '#ffffff',
+            color: '#1e293b',
+            boxSizing: 'border-box'
+          }}
+          onFocus={(e) => {
+            e.target.style.borderColor = '#3b82f6';
+            e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+          }}
+          onBlur={(e) => {
+            e.target.style.borderColor = '#e2e8f0';
+            e.target.style.boxShadow = 'none';
+          }}
+        />
+      </div>
+
+      {/* Field Selection */}
+      <div style={{ marginBottom: '24px' }}>
+        <div style={{
+          fontSize: '14px',
+          fontWeight: '600',
+          color: '#1e293b',
+          marginBottom: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>view_list</span>
+          Select Fields *
+        </div>
+
+        {/* Search Input */}
+        <div style={{ marginBottom: '12px', position: 'relative' }}>
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search fields..."
+            style={{
+              width: '100%',
+              padding: '10px 40px 10px 14px',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
+              fontSize: '14px',
+              outline: 'none',
+              transition: 'all 0.15s ease',
+              background: '#ffffff',
+              color: '#1e293b',
+              boxSizing: 'border-box'
+            }}
+            onFocus={(e) => {
+              e.target.style.borderColor = '#3b82f6';
+            }}
+            onBlur={(e) => {
+              e.target.style.borderColor = '#e2e8f0';
+            }}
+          />
+          <span className="material-icons" style={{
+            position: 'absolute',
+            right: '12px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            fontSize: '20px',
+            color: '#94a3b8',
+            pointerEvents: 'none'
+          }}>search</span>
+        </div>
+
+        {/* Fields list */}
+        <HierarchicalFieldList
+          fields={filteredFields}
+          selectedFields={selectedFields}
+          onFieldToggle={handleFieldToggle}
+          searchTerm={searchTerm}
+        />
+      </div>
+
+      {/* Filters Section */}
+      <div style={{ marginBottom: '24px' }}>
+        <div style={{
+          fontSize: '14px',
+          fontWeight: '600',
+          color: '#1e293b',
+          marginBottom: '12px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>filter_list</span>
+          Filters <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '400' }}>(Optional)</span>
+        </div>
+
+        {/* Add Filter Section */}
+        <div style={{
+          background: '#f8fafc',
+          border: '1px solid #e2e8f0',
+          borderRadius: '8px',
+          padding: '12px',
+          marginBottom: '12px'
+        }}>
+          <div style={{
+            fontSize: '12px',
+            fontWeight: '500',
+            color: '#64748b',
+            marginBottom: '10px'
+          }}>
+            Add Filter:
+          </div>
+
+          {/* Filter Field Selection */}
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ marginBottom: '12px', position: 'relative' }}>
+              <input
+                type="text"
+                value={filterFieldSearchTerm}
+                onChange={(e) => setFilterFieldSearchTerm(e.target.value)}
+                placeholder="Search field to filter..."
+                style={{
+                  width: '100%',
+                  padding: '10px 40px 10px 14px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                  background: '#ffffff',
+                  color: '#1e293b',
+                  boxSizing: 'border-box'
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0';
+                }}
+              />
+              <span className="material-icons" style={{
+                position: 'absolute',
+                right: '12px',
+                top: '50%',
+                transform: 'translateY(-50%)',
+                fontSize: '20px',
+                color: '#94a3b8',
+                pointerEvents: 'none'
+              }}>search</span>
+            </div>
+
+            <HierarchicalFieldList
+              fields={filteredAvailableFilterFields}
+              selectedFields={currentFilterField ? new Set([currentFilterField]) : new Set()}
+              onFieldToggle={(fieldValue) => handleFilterFieldChange(fieldValue)}
+              searchTerm={filterFieldSearchTerm}
+              selectionMode="single"
+            />
+          </div>
+
+          {/* Filter Values Selection */}
+          {currentFilterField && currentFilterFieldValues.length > 0 && (
+            <div style={{ marginBottom: '12px' }}>
+              <input
+                type="text"
+                placeholder="Search values..."
+                value={filterValuesSearchTerm}
+                onChange={(e) => setFilterValuesSearchTerm(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '10px 14px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                  background: '#ffffff',
+                  color: '#1e293b',
+                  boxSizing: 'border-box',
+                  marginBottom: '12px'
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0';
+                  e.target.style.boxShadow = 'none';
+                }}
+              />
+
+              <div style={{
+                background: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '8px',
+                padding: '12px',
+                maxHeight: '200px',
+                overflowY: 'auto',
+                marginBottom: '12px'
+              }}>
+                <div style={{
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  color: '#64748b',
+                  marginBottom: '8px'
+                }}>
+                  Select values to include:
+                </div>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '6px'
+                }}>
+                  {filteredFilterFieldValues.map((value) => (
+                    <div
+                      key={value}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '6px 8px',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        transition: 'background 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f8fafc';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                      }}
+                      onClick={() => handleFilterValueToggle(value)}
+                    >
+                      <div style={{
+                        width: '18px',
+                        height: '18px',
+                        border: currentFilterValues.has(value) ? 'none' : '2px solid #cbd5e1',
+                        borderRadius: '4px',
+                        background: currentFilterValues.has(value) ? '#10b981' : 'transparent',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginRight: '10px',
+                        flexShrink: 0
+                      }}>
+                        {currentFilterValues.has(value) && (
+                          <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
+                        )}
+                      </div>
+                      <span style={{
+                        fontSize: '13px',
+                        fontWeight: currentFilterValues.has(value) ? '600' : '400',
+                        color: '#1e293b'
+                      }}>
+                        {value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {currentFilterValues.size > 0 && (
+                  <div style={{
+                    marginTop: '10px',
+                    paddingTop: '10px',
+                    borderTop: '1px solid #e2e8f0',
+                    fontSize: '12px',
+                    color: '#64748b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between'
+                  }}>
+                    <span>{currentFilterValues.size} value(s) selected</span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentFilterValues(new Set())}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        color: '#ef4444',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        transition: 'background 0.15s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = '#fef2f2';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'transparent';
+                      }}
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {currentFilterField && currentFilterValues.size > 0 && (
+            <button
+              type="button"
+              onClick={handleAddFilter}
+              style={{
+                width: '100%',
+                padding: '10px 16px',
+                background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                border: 'none',
+                borderRadius: '8px',
+                color: '#ffffff',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 2px 4px rgba(59, 130, 246, 0.2)'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.transform = 'translateY(-1px)';
+                e.target.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.3)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2)';
+              }}
+            >
+              {filters.find(f => f.field === currentFilterField) ? 'Update Filter' : 'Add Filter'}
+            </button>
+          )}
+        </div>
+
+        {/* Active Filters Display */}
+        {filters.length > 0 && (
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '12px',
+            minHeight: '80px'
+          }}>
+            <div style={{
+              background: '#ffffff',
+              border: '1px dashed #cbd5e1',
+              borderRadius: '6px',
+              padding: '8px',
+              minHeight: '60px'
+            }}>
+              {filters.map((filter, index) => {
+                const field = allFields.find(f => f.value === filter.field);
+                const fieldLabel = field ? field.label : filter.field;
+                const valuesArray = Array.from(filter.values);
+                return (
+                  <div
+                    key={index}
+                    style={{
+                      display: 'inline-flex',
+                      flexDirection: 'column',
+                      alignItems: 'flex-start',
+                      background: '#fef3c7',
+                      border: '1px solid #fbbf24',
+                      color: '#92400e',
+                      padding: '8px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: '500',
+                      margin: '4px',
+                      gap: '6px',
+                      maxWidth: '100%'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', width: '100%' }}>
+                      <span style={{ fontWeight: '600' }}>{fieldLabel}:</span>
+                      <span 
+                        className="material-icons" 
+                        style={{ 
+                          fontSize: '16px',
+                          cursor: 'pointer',
+                          padding: '2px',
+                          borderRadius: '2px',
+                          transition: 'background 0.2s',
+                          marginLeft: 'auto'
+                        }}
+                        onClick={() => handleRemoveFilter(index)}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = '#fde68a';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'transparent';
+                        }}
+                        title="Remove filter"
+                      >
+                        close
+                      </span>
+                    </div>
+                    <div style={{ 
+                      fontSize: '11px', 
+                      color: '#78350f',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px',
+                      maxWidth: '100%',
+                      width: '100%'
+                    }}>
+                      {valuesArray.length > 0 ? (
+                        valuesArray.slice(0, 3).map((val, i) => (
+                          <div key={i} style={{
+                            background: '#fef3c7',
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            border: '1px solid #fbbf24',
+                            width: '100%'
+                          }}>
+                            {val}
+                          </div>
+                        ))
+                      ) : (
+                        <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>No values selected</span>
+                      )}
+                      {valuesArray.length > 3 && (
+                        <span style={{ fontSize: '10px', color: '#64748b' }}>
+                          +{valuesArray.length - 3} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Sort Index Section */}
+      {selectedFields.size > 0 && (
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{
+            fontSize: '14px',
+            fontWeight: '600',
+            color: '#1e293b',
+            marginBottom: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>sort</span>
+            Column Sort Order
+            <span style={{ color: '#94a3b8', fontSize: '12px', fontWeight: '400' }}>(Columns will be sorted by index in ascending order)</span>
+          </div>
+
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            padding: '12px'
+          }}>
+            {selectedFieldsArray.map((field) => (
+              <div
+                key={field.value}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '10px',
+                  background: '#ffffff',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  marginBottom: '8px'
+                }}
+              >
+                <span style={{
+                  fontSize: '13px',
+                  fontWeight: '500',
+                  color: '#1e293b',
+                  flex: 1
+                }}>
+                  {field.label}
+                </span>
+                <label style={{
+                  fontSize: '12px',
+                  color: '#64748b',
+                  marginRight: '8px'
+                }}>
+                  Sort Index:
+                </label>
+                <input
+                  type="number"
+                  value={field.sortIndex ?? ''}
+                  onChange={(e) => handleSortIndexChange(field.value, e.target.value)}
+                  placeholder="0, 1, 2..."
+                  min="0"
+                  style={{
+                    width: '100px',
+                    padding: '8px 12px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    fontSize: '13px',
+                    outline: 'none',
+                    transition: 'all 0.15s ease',
+                    background: '#ffffff',
+                    color: '#1e293b',
+                    boxSizing: 'border-box'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#e2e8f0';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Action Buttons */}
+      <div style={{
+        display: 'flex',
+        gap: '12px',
+        justifyContent: 'flex-end',
+        marginTop: '24px',
+        paddingTop: '20px',
+        borderTop: '1px solid #e2e8f0'
+      }}>
+        <button
+          type="button"
+          onClick={onClose}
+          style={{
+            padding: '10px 20px',
+            background: 'transparent',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            color: '#64748b',
+            fontSize: '14px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease'
+          }}
+          onMouseEnter={(e) => {
+            e.target.style.background = '#f8fafc';
+            e.target.style.borderColor = '#cbd5e1';
+          }}
+          onMouseLeave={(e) => {
+            e.target.style.background = 'transparent';
+            e.target.style.borderColor = '#e2e8f0';
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={!reportTitle.trim() || selectedFields.size === 0}
+          onClick={() => {
+            // Save report to localStorage
+            const reportConfig = {
+              id: Date.now().toString(),
+              title: reportTitle,
+              fields: Array.from(selectedFields),
+              sortIndexes,
+              filters: filters.map(f => ({
+                field: f.field,
+                values: Array.from(f.values)
+              })),
+              createdAt: new Date().toISOString()
+            };
+            
+            try {
+              const existingReports = JSON.parse(localStorage.getItem('customReports') || '[]');
+              existingReports.push(reportConfig);
+              localStorage.setItem('customReports', JSON.stringify(existingReports));
+              console.log('✅ Report saved:', reportConfig);
+            } catch (error) {
+              console.error('❌ Failed to save report:', error);
+              alert('Failed to save report. Please try again.');
+              return;
+            }
+            
+            onClose();
+          }}
+          style={{
+            padding: '10px 20px',
+            background: (!reportTitle.trim() || selectedFields.size === 0) 
+              ? '#cbd5e1' 
+              : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+            border: 'none',
+            borderRadius: '8px',
+            color: '#ffffff',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: (!reportTitle.trim() || selectedFields.size === 0) ? 'not-allowed' : 'pointer',
+            transition: 'all 0.2s ease',
+            boxShadow: (!reportTitle.trim() || selectedFields.size === 0) 
+              ? 'none' 
+              : '0 2px 4px rgba(59, 130, 246, 0.2)'
+          }}
+          onMouseEnter={(e) => {
+            if (reportTitle.trim() && selectedFields.size > 0) {
+              e.target.style.transform = 'translateY(-1px)';
+              e.target.style.boxShadow = '0 4px 8px rgba(59, 130, 246, 0.3)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (reportTitle.trim() && selectedFields.size > 0) {
+              e.target.style.transform = 'translateY(0)';
+              e.target.style.boxShadow = '0 2px 4px rgba(59, 130, 246, 0.2)';
+            }
+          }}
+        >
+          Create Report
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
@@ -23500,13 +25048,13 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
         const completeCache = await hybridCache.getCompleteSalesData(currentCompanyObj);
         
         if (completeCache && completeCache.data && completeCache.data.vouchers) {
-          // Use first 10 vouchers for field extraction (to understand structure)
-          const sampleVouchers = completeCache.data.vouchers.slice(0, 10);
-          setRawVoucherData(sampleVouchers);
-          console.log('📋 Loaded raw voucher data for field extraction:', sampleVouchers.length, 'vouchers');
+          // Use ALL vouchers from complete cache for field extraction (not just filtered date range)
+          // This ensures all fields are discovered regardless of the current date filter
+          const allVouchers = completeCache.data.vouchers;
+          setRawVoucherData(allVouchers);
+          console.log('📋 Loaded ALL vouchers from complete cache for field extraction:', allVouchers.length, 'vouchers');
           
           // Also store all vouchers for value lookup (create a map by masterid for quick access)
-          const allVouchers = completeCache.data.vouchers;
           const voucherLookupMap = new Map();
           allVouchers.forEach(voucher => {
             const masterid = voucher.masterid || voucher.mstid;
@@ -25708,6 +27256,7 @@ IMPORTANT RULES:
                 <option value="month">Month</option>
                 <option value="quarter">Quarter</option>
                 <option value="week">Week</option>
+                <option value="dayOfWeek">Day of Week</option>
               </select>
             </div>
 
@@ -26184,12 +27733,36 @@ IMPORTANT RULES:
                   }
                   const valuesSet = new Set();
                   salesData.forEach(sale => {
-                    // Use helper function to get field value (handles derived fields like year, quarter, etc.)
-                    const fieldValue = getFieldValueForFilter(sale, filterState.filterField);
-                    if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
-                      const stringValue = String(fieldValue).trim();
-                      if (stringValue) {
-                        valuesSet.add(stringValue);
+                    // Check if this is a nested array field
+                    const isNestedArrayField = filterState.filterField.includes('.');
+                    
+                    if (isNestedArrayField) {
+                      // For nested array fields, get all values from all entries
+                      const masterid = sale.masterid || sale.mstid;
+                      let sourceObject = sale;
+                      if (masterid && window.__voucherLookupMap) {
+                        const voucher = window.__voucherLookupMap.get(String(masterid));
+                        if (voucher) {
+                          sourceObject = voucher;
+                        }
+                      }
+                      const allValues = getNestedFieldValues(sourceObject, filterState.filterField);
+                      allValues.forEach(value => {
+                        if (value !== null && value !== undefined && value !== '') {
+                          const stringValue = String(value).trim();
+                          if (stringValue) {
+                            valuesSet.add(stringValue);
+                          }
+                        }
+                      });
+                    } else {
+                      // For non-nested fields, use helper function
+                      const fieldValue = getFieldValueForFilter(sale, filterState.filterField);
+                      if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
+                        const stringValue = String(fieldValue).trim();
+                        if (stringValue) {
+                          valuesSet.add(stringValue);
+                        }
                       }
                     }
                   });
@@ -28315,12 +29888,37 @@ const CustomCard = React.memo(({
         }
         const filterFieldName = filter.filterField;
         const filterValuesSet = new Set(filter.filterValues.map(v => String(v).trim().toLowerCase()));
-        const fieldValue = getFieldValueLocal(sale, filterFieldName);
-        if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
-          return false;
+        
+        // Check if this is a nested array field
+        const isNestedArrayField = filterFieldName.includes('.');
+        
+        if (isNestedArrayField) {
+          // For nested array fields, check if ANY value matches
+          const masterid = sale.masterid || sale.mstid;
+          let sourceObject = sale;
+          if (masterid && window.__voucherLookupMap) {
+            const voucher = window.__voucherLookupMap.get(String(masterid));
+            if (voucher) {
+              sourceObject = voucher;
+            }
+          }
+          const allValues = getNestedFieldValues(sourceObject, filterFieldName);
+          return allValues.some(value => {
+            if (value === null || value === undefined || value === '') {
+              return false;
+            }
+            const normalizedValue = String(value).trim().toLowerCase();
+            return filterValuesSet.has(normalizedValue);
+          });
+        } else {
+          // For non-nested fields, use existing logic
+          const fieldValue = getFieldValueLocal(sale, filterFieldName);
+          if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+            return false;
+          }
+          const normalizedValue = String(fieldValue).trim().toLowerCase();
+          return filterValuesSet.has(normalizedValue);
         }
-        const normalizedValue = String(fieldValue).trim().toLowerCase();
-        return filterValuesSet.has(normalizedValue);
       });
     }
 
@@ -28367,13 +29965,41 @@ const CustomCard = React.memo(({
       if (card.filters.filterField && card.filters.filterValues && card.filters.filterValues.length > 0) {
         const filterFieldName = card.filters.filterField;
         const filterValuesSet = new Set(card.filters.filterValues.map(v => String(v).trim().toLowerCase()));
-        const fieldValue = getFieldValueLocal(sale, filterFieldName);
-        if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
-          return false;
-        }
-        const normalizedValue = String(fieldValue).trim().toLowerCase();
-        if (!filterValuesSet.has(normalizedValue)) {
-          return false;
+        
+        // Check if this is a nested array field
+        const isNestedArrayField = filterFieldName.includes('.');
+        
+        if (isNestedArrayField) {
+          // For nested array fields, check if ANY value matches
+          const masterid = sale.masterid || sale.mstid;
+          let sourceObject = sale;
+          if (masterid && window.__voucherLookupMap) {
+            const voucher = window.__voucherLookupMap.get(String(masterid));
+            if (voucher) {
+              sourceObject = voucher;
+            }
+          }
+          const allValues = getNestedFieldValues(sourceObject, filterFieldName);
+          const hasMatch = allValues.some(value => {
+            if (value === null || value === undefined || value === '') {
+              return false;
+            }
+            const normalizedValue = String(value).trim().toLowerCase();
+            return filterValuesSet.has(normalizedValue);
+          });
+          if (!hasMatch) {
+            return false;
+          }
+        } else {
+          // For non-nested fields, use existing logic
+          const fieldValue = getFieldValueLocal(sale, filterFieldName);
+          if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+            return false;
+          }
+          const normalizedValue = String(fieldValue).trim().toLowerCase();
+          if (!filterValuesSet.has(normalizedValue)) {
+            return false;
+          }
         }
       }
     }

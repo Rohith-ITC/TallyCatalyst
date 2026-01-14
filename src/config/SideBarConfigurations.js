@@ -139,6 +139,14 @@ export const MODULE_SEQUENCE = [
       permissions       : {}
     },
     {
+      key               : 'custom_reports',
+      id                : 'custom_reports',
+      label             : 'Custom Reports',
+      icon              : 'summarize',
+      alwaysVisible     : true,
+      permissions       : {}
+    },
+    {
       key               : 'transaction',
       id                : 'transaction',
       label             : 'Transaction',
