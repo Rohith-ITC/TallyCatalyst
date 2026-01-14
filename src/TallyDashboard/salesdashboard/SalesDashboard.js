@@ -35,6 +35,10 @@ import { getCompanyConfigValue, clearCompanyConfigCache } from '../../utils/comp
 import { hybridCache, DateRangeUtils } from '../../utils/hybridCache';
 import { syncSalesData, cacheSyncManager, checkInterruptedDownload, clearDownloadProgress } from '../../utils/cacheSyncManager';
 import ResumeDownloadModal from '../components/ResumeDownloadModal';
+import { UdfEvaluator } from '../../utils/udfEvaluator';
+import { loadUdfConfig, getAvailableUdfFields } from '../../utils/udfConfigLoader';
+import UdfFieldSelector from './components/UdfFieldSelector';
+import { extractAllFieldsFromCache, getNestedFieldValue, getNestedFieldValues, HIERARCHY_MAP } from './utils/fieldExtractor';
 
 const SalesDashboard = ({ onNavigationAttempt }) => {
   // Mobile detection
@@ -614,6 +618,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             flatCard.dateGrouping = parsedCardConfig.dateGrouping || flatCard.dateGrouping;
             flatCard.mapSubType = parsedCardConfig.mapSubType || 'choropleth';
             flatCard.overrideDateFilter = parsedCardConfig.overrideDateFilter || false;
+            // Year compare specific properties
+            flatCard.yearCompareCategory = parsedCardConfig.yearCompareCategory;
+            flatCard.yearCompareValue = parsedCardConfig.yearCompareValue;
+            // Company compare specific properties
+            flatCard.companyCompareCategory = parsedCardConfig.companyCompareCategory;
+            flatCard.companyCompareValue = parsedCardConfig.companyCompareValue;
           }
           
           // Force date grouping to 'day' (daily) for all date-based cards
@@ -645,7 +655,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             chartType: flatCard.chartType,
             multiAxisSeries: flatCard.multiAxisSeries,
             hasMultiAxis: !!flatCard.multiAxisSeries,
-            filters: flatCard.filters
+            filters: flatCard.filters,
+            yearCompareCategory: flatCard.yearCompareCategory,
+            yearCompareValue: flatCard.yearCompareValue,
+            companyCompareCategory: flatCard.companyCompareCategory,
+            companyCompareValue: flatCard.companyCompareValue
           });
           
           return flatCard;
@@ -2856,6 +2870,178 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     setSelectedPeriodType(null);
   };
 
+  // Helper function to get field value with case-insensitive fallback (defined early for use in metrics)
+  const getFieldValue = useCallback((item, fieldName) => {
+    if (!item || !fieldName) return null;
+    
+    // Handle derived count fields (these are computed, not direct values)
+    // These should return 1 for each item (for count aggregation) or the actual count
+    if (fieldName === 'transactions' || fieldName === 'unique_customers' || 
+        fieldName === 'unique_items' || fieldName === 'unique_orders') {
+      // For count aggregation, return 1 for each item
+      // The actual unique count will be calculated during aggregation
+      return 1;
+    }
+    
+    // Handle derived fields that are computed from the date
+    if (fieldName === 'month' || fieldName === 'year' || fieldName === 'quarter' || fieldName === 'week') {
+      const dateValue = item.cp_date || item.date || item.Date || item.DATE || 
+                       (Object.keys(item).find(k => k.toLowerCase() === 'date' || k.toLowerCase() === 'cp_date') ? 
+                        item[Object.keys(item).find(k => k.toLowerCase() === 'date' || k.toLowerCase() === 'cp_date')] : null);
+      
+      if (dateValue) {
+        const date = new Date(dateValue);
+        if (!isNaN(date.getTime())) {
+          if (fieldName === 'month') {
+            const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            return `${monthAbbr[date.getMonth()]}-${String(date.getFullYear()).slice(-2)}`;
+          } else if (fieldName === 'year') {
+            return String(date.getFullYear());
+          } else if (fieldName === 'quarter') {
+            const month = date.getMonth();
+            const quarter = Math.floor(month / 3) + 1;
+            return `Q${quarter} ${date.getFullYear()}`;
+          } else if (fieldName === 'week') {
+            const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+            const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+            const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+            return `Week ${weekNum}, ${date.getFullYear()}`;
+          }
+        }
+      }
+      return null;
+    }
+    
+    // Handle nested field paths (dot notation)
+    if (fieldName.includes('.')) {
+      // For nested fields, we need to access the original voucher structure
+      // Try to get the voucher from lookup map using masterid
+      const masterid = item.masterid || item.mstid;
+      if (masterid && window.__voucherLookupMap) {
+        const voucher = window.__voucherLookupMap.get(String(masterid));
+        if (voucher) {
+          // Use getNestedFieldValue on the original voucher
+          const value = getNestedFieldValue(voucher, fieldName);
+          if (value !== null && value !== undefined) {
+            return value;
+          }
+        }
+      }
+      // Fallback: try to get from flattened item (might work for some nested fields that were flattened)
+      return getNestedFieldValue(item, fieldName);
+    }
+    
+    // Special handling for customer field - might be an object or string
+    if (fieldName === 'customer' || fieldName.toLowerCase() === 'customer') {
+      // Try direct access first
+      let customerValue = item.customer || item.Customer || item.CUSTOMER;
+      
+      // If customer is an object, extract the name/ledgerName
+      if (customerValue && typeof customerValue === 'object') {
+        customerValue = customerValue.ledgerName || customerValue.ledger_name || 
+                       customerValue.name || customerValue.Name || 
+                       customerValue.NAME || customerValue.partyledgername ||
+                       customerValue.party || customerValue.Party ||
+                       (customerValue.toString && customerValue.toString() !== '[object Object]' ? customerValue.toString() : null);
+      }
+      
+      if (customerValue !== null && customerValue !== undefined) {
+        const strValue = String(customerValue).trim();
+        if (strValue && strValue !== 'Unknown' && strValue !== 'null' && strValue !== 'undefined') {
+          return strValue;
+        }
+      }
+      
+      // Try alternative field names for customer
+      const altFields = ['partyledgername', 'party', 'Party', 'PARTY', 'PARTYLEDGERNAME'];
+      for (const altField of altFields) {
+        const altValue = item[altField];
+        if (altValue !== null && altValue !== undefined) {
+          const strValue = String(altValue).trim();
+          if (strValue && strValue !== 'Unknown') {
+            return strValue;
+          }
+        }
+      }
+      
+      return null;
+    }
+    
+    // List of voucher-level fields that might not be in flattened salesData
+    // These should be retrieved from the original voucher if not found in item
+    const voucherLevelFields = [
+      'partygstin', 'partygstinid', 'gstin', 'gstno',
+      'partyledgername', 'partyledgernameid', 'partyid', 'party',
+      'reservedname', 'vchtype', 'vouchertypename',
+      'vouchernumber', 'vchno', 'voucher_number', 'voucher_no',
+      'masterid', 'mstid', 'alterid',
+      'department', 'salesperson', 'salespersonname'
+    ];
+    
+    const fieldNameLower = fieldName.toLowerCase();
+    const isVoucherLevelField = voucherLevelFields.some(vf => vf.toLowerCase() === fieldNameLower);
+    
+    // Try direct access first
+    if (item[fieldName] !== undefined) {
+      const value = item[fieldName];
+      // If value is an object, try to extract a meaningful string
+      if (value && typeof value === 'object' && !(value instanceof Date)) {
+        return value.ledgerName || value.name || value.Name || value.toString();
+      }
+      return value;
+    }
+    // Try lowercase
+    if (item[fieldName.toLowerCase()] !== undefined) {
+      const value = item[fieldName.toLowerCase()];
+      if (value && typeof value === 'object' && !(value instanceof Date)) {
+        return value.ledgerName || value.name || value.Name || value.toString();
+      }
+      return value;
+    }
+    // Try uppercase
+    if (item[fieldName.toUpperCase()] !== undefined) {
+      const value = item[fieldName.toUpperCase()];
+      if (value && typeof value === 'object' && !(value instanceof Date)) {
+        return value.ledgerName || value.name || value.Name || value.toString();
+      }
+      return value;
+    }
+    // Try case-insensitive search
+    const matchingKey = Object.keys(item).find(k => k.toLowerCase() === fieldName.toLowerCase());
+    if (matchingKey) {
+      const value = item[matchingKey];
+      if (value && typeof value === 'object' && !(value instanceof Date)) {
+        return value.ledgerName || value.name || value.Name || value.toString();
+      }
+      return value;
+    }
+    
+    // If field not found in item and it's a voucher-level field, try voucher lookup map
+    if (isVoucherLevelField) {
+      const masterid = item.masterid || item.mstid;
+      if (masterid && window.__voucherLookupMap) {
+        const voucher = window.__voucherLookupMap.get(String(masterid));
+        if (voucher) {
+          // Try to get the field from the original voucher with case-insensitive matching
+          const voucherKeys = Object.keys(voucher);
+          const matchingVoucherKey = voucherKeys.find(k => k.toLowerCase() === fieldNameLower);
+          if (matchingVoucherKey) {
+            const value = voucher[matchingVoucherKey];
+            if (value !== null && value !== undefined) {
+              if (value && typeof value === 'object' && !(value instanceof Date) && !Array.isArray(value)) {
+                return value.ledgerName || value.name || value.Name || value.toString();
+              }
+              return value;
+            }
+          }
+        }
+      }
+    }
+    
+    return null;
+  }, []);
+
   // Calculate metrics
   const metrics = useMemo(() => {
     const totalRevenue = filteredSales.reduce((sum, sale) => sum + sale.amount, 0);
@@ -5040,8 +5226,558 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return matchingKey ? item[matchingKey] : null;
   }, []);
 
+  // Generate company-wise comparison data
+  const generateCompanyCompareData = useCallback(async (cardConfig, salesData) => {
+    // Handle overrideDateFilter - check for both boolean true and string "true"
+    const overrideDateFilter = cardConfig?.overrideDateFilter === true || cardConfig?.overrideDateFilter === 'true';
+    
+    console.log('🔍 generateCompanyCompareData called with:', {
+      cardConfig,
+      hasCompanyCompareValue: !!cardConfig?.companyCompareValue,
+      companyCompareValue: cardConfig?.companyCompareValue,
+      companyCompareCategory: cardConfig?.companyCompareCategory,
+      chartType: cardConfig?.chartType,
+      overrideDateFilter: cardConfig?.overrideDateFilter,
+      overrideDateFilterType: typeof cardConfig?.overrideDateFilter,
+      overrideDateFilterResolved: overrideDateFilter,
+      fromDate,
+      toDate
+    });
+    
+    if (!cardConfig || !cardConfig.companyCompareValue) {
+      console.warn('Invalid company compare config:', cardConfig);
+      return { data: [], companies: [], valueField: '' };
+    }
+
+    const selectedCompanyGuids = cardConfig.companyCompareCategory || [];
+    const valueField = cardConfig.companyCompareValue;
+    const aggregation = cardConfig.aggregation || 'sum';
+
+    // Get all companies from sessionStorage
+    const allCompanies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+    
+    // Filter to selected companies (or all if none selected)
+    const companiesToCompare = selectedCompanyGuids.length > 0
+      ? allCompanies.filter(c => selectedCompanyGuids.includes(c.guid))
+      : allCompanies;
+
+    if (companiesToCompare.length === 0) {
+      console.warn('No companies selected for comparison');
+      return { data: [], companies: [], valueField: '' };
+    }
+
+    // Get financial year start month for the first company (use as reference for all companies)
+    let fyStartMonth = 3; // Default to April (0-indexed)
+    let fyStartDay = 1;
+    if (companiesToCompare.length > 0) {
+      try {
+        const firstCompany = companiesToCompare[0];
+        const fyStart = getFinancialYearStartMonthDay(firstCompany.guid, firstCompany.tallyloc_id);
+        fyStartMonth = fyStart.month;
+        fyStartDay = fyStart.day;
+      } catch (err) {
+        // Use default if not available
+      }
+    }
+
+    // Fetch sales data from each company's cache
+    const companyDataPromises = companiesToCompare.map(async (company) => {
+      try {
+        const companyInfo = {
+          guid: company.guid,
+          tallyloc_id: company.tallyloc_id,
+          company: company.company || company.name || 'Unknown'
+        };
+        
+        const cacheData = await hybridCache.getCompleteSalesData(companyInfo);
+        
+        if (cacheData && cacheData.data && cacheData.data.vouchers) {
+          let vouchers = cacheData.data.vouchers;
+          
+          // Apply date filtering only if overrideDateFilter is false
+          // When overrideDateFilter is true, use ALL vouchers regardless of date range
+          if (overrideDateFilter) {
+            // Explicitly use all vouchers - no filtering
+            console.log(`📅 Company compare: Using all cached data for ${companyInfo.company} (overrideDateFilter: ${overrideDateFilter}) - ${vouchers.length} vouchers (fromDate: ${fromDate}, toDate: ${toDate} - IGNORED)`);
+            // vouchers already contains all vouchers, no need to filter
+          } else if (fromDate && toDate) {
+            const filteredVouchers = vouchers.filter(voucher => {
+              const voucherDate = voucher.cp_date || voucher.date || voucher.DATE || voucher.CP_DATE;
+              if (!voucherDate) {
+                return false;
+              }
+              
+              // Parse date - handle different formats using existing helper function
+              let dateStr = parseDateFromNewFormat(voucherDate);
+              if (!dateStr && typeof voucherDate === 'string') {
+                // Try parsing YYYYMMDD format
+                if (/^\d{8}$/.test(voucherDate)) {
+                  dateStr = parseDateFromAPI(voucherDate);
+                } else {
+                  // If still not parsed, try to use as-is if it's already in YYYY-MM-DD format
+                  if (/^\d{4}-\d{2}-\d{2}$/.test(voucherDate)) {
+                    dateStr = voucherDate;
+                  }
+                }
+              }
+              
+              if (!dateStr) {
+                return false;
+              }
+              
+              // Ensure dateStr is in YYYY-MM-DD format for comparison
+              if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+                return false;
+              }
+              
+              return dateStr >= fromDate && dateStr <= toDate;
+            });
+            
+            vouchers = filteredVouchers;
+            
+            console.log(`📅 Company compare: Filtered ${filteredVouchers.length} vouchers from ${cacheData.data.vouchers.length} total for ${companyInfo.company} (date range: ${fromDate} to ${toDate}, overrideDateFilter: false)`);
+          } else {
+            console.log(`📅 Company compare: No date filter applied for ${companyInfo.company} (fromDate: ${fromDate}, toDate: ${toDate}, overrideDateFilter: ${overrideDateFilter}) - using all ${vouchers.length} vouchers`);
+          }
+          
+          // Transform vouchers to sales data format (same as loadSales does)
+          // Helper function to extract country from voucher
+          const extractCountry = (voucher) => {
+            const predefinedFields = [
+              voucher.country, voucher.COUNTRY, voucher.countryname, voucher.Country,
+              voucher.COUNTRYOFRESIDENCE, voucher.CP_Country, voucher.cp_country,
+              voucher.country_name, voucher.CountryName,
+              voucher.address?.country, voucher.address?.COUNTRY, voucher.address?.countryname,
+              voucher.customer?.country, voucher.customer?.COUNTRY, voucher.customer?.countryname,
+            ];
+            
+            for (const field of predefinedFields) {
+              if (field && String(field).trim() !== '' && String(field).trim().toLowerCase() !== 'unknown') {
+                return String(field).trim();
+              }
+            }
+            
+            for (const key in voucher) {
+              if (voucher.hasOwnProperty(key)) {
+                const lowerKey = key.toLowerCase();
+                if ((lowerKey.includes('country') || lowerKey.includes('nation') || lowerKey.includes('residence')) 
+                    && !lowerKey.includes('unknown')) {
+                  const value = voucher[key];
+                  if (value && String(value).trim() !== '' && String(value).trim().toLowerCase() !== 'unknown') {
+                    return String(value).trim();
+                  }
+                }
+              }
+            }
+            
+            if (voucher.address && typeof voucher.address === 'object') {
+              for (const key in voucher.address) {
+                if (voucher.address.hasOwnProperty(key)) {
+                  const lowerKey = key.toLowerCase();
+                  if (lowerKey.includes('country') || lowerKey.includes('nation') || lowerKey.includes('residence')) {
+                    const value = voucher.address[key];
+                    if (value && String(value).trim() !== '' && String(value).trim().toLowerCase() !== 'unknown') {
+                      return String(value).trim();
+                    }
+                  }
+                }
+              }
+            }
+            
+            if (voucher.customer && typeof voucher.customer === 'object') {
+              for (const key in voucher.customer) {
+                if (voucher.customer.hasOwnProperty(key)) {
+                  const lowerKey = key.toLowerCase();
+                  if (lowerKey.includes('country') || lowerKey.includes('nation') || lowerKey.includes('residence')) {
+                    const value = voucher.customer[key];
+                    if (value && String(value).trim() !== '' && String(value).trim().toLowerCase() !== 'unknown') {
+                      return String(value).trim();
+                    }
+                  }
+                }
+              }
+            }
+            
+            return 'Unknown';
+          };
+          
+          // Extract salesperson from voucher
+          const extractSalesperson = (voucher) => {
+            return voucher.salesprsn || voucher.SalesPrsn || voucher.SALESPRSN ||
+                   voucher.salesperson || voucher.SalesPerson || 
+                   voucher.salespersonname || voucher.SalesPersonName || 
+                   voucher.sales_person || voucher.SALES_PERSON || 
+                   voucher.sales_person_name || voucher.SALES_PERSON_NAME ||
+                   voucher.salespersonname || voucher.SALESPERSONNAME || 'Unassigned';
+          };
+          
+          // Parse amount helper
+          const parseAmount = (amountStr) => {
+            if (!amountStr) return 0;
+            const cleaned = String(amountStr).replace(/,/g, '').replace(/[()]/g, '');
+            const isNegative = cleaned.includes('(-)') || (cleaned.startsWith('-') && !cleaned.startsWith('(-)'));
+            const numValue = parseFloat(cleaned.replace(/[()]/g, '')) || 0;
+            return isNegative ? -Math.abs(numValue) : numValue;
+          };
+          
+          // Filter vouchers to only include sales-related vouchers
+          const salesVouchers = vouchers.filter(voucher => {
+            const reservedname = (voucher.reservedname || '').toLowerCase().trim();
+            const isoptional = (voucher.isoptional || voucher.isOptional || '').toString().toLowerCase().trim();
+            const iscancelled = (voucher.iscancelled || voucher.isCancelled || '').toString().toLowerCase().trim();
+            const reservednameMatch = reservedname === 'sales' || reservedname === 'credit note';
+            const isoptionalMatch = isoptional === 'no';
+            const iscancelledMatch = iscancelled === 'no';
+            const ledgerEntries = voucher.ledgerentries || voucher.ledgers || [];
+            const hasPartyLedger = Array.isArray(ledgerEntries) && ledgerEntries.some(ledger => {
+              const ispartyledger = (ledger.ispartyledger || ledger.isPartyLedger || '').toString().toLowerCase().trim();
+              return ispartyledger === 'yes';
+            });
+            return reservednameMatch && isoptionalMatch && iscancelledMatch && hasPartyLedger;
+          });
+          
+          // Transform vouchers to sales data format
+          const transformedSales = [];
+          
+          salesVouchers.forEach((voucher) => {
+            const voucherSalesperson = extractSalesperson(voucher);
+            const voucherDateRaw = voucher.cp_date || voucher.date || voucher.DATE || voucher.CP_DATE;
+            let voucherDate = null;
+            if (voucherDateRaw) {
+              voucherDate = parseDateFromNewFormat(voucherDateRaw);
+              if (!voucherDate && /^\d{8}$/.test(voucherDateRaw)) {
+                voucherDate = parseDateFromAPI(voucherDateRaw);
+              }
+              if (!voucherDate) {
+                voucherDate = voucherDateRaw;
+              }
+            }
+            const voucherCountry = extractCountry(voucher);
+            const voucherState = voucher.state || 'Unknown';
+            
+            // Extract tax information from ledgers
+            let totalCgst = 0;
+            let totalSgst = 0;
+            let totalRoundoff = 0;
+            let totalSalesAmount = 0;
+            
+            const ledgerEntries = voucher.ledgerentries || voucher.ledgers || [];
+            let voucherLedgerGroup = 'Other';
+            if (Array.isArray(ledgerEntries)) {
+              ledgerEntries.forEach(ledger => {
+                const ledgerName = (ledger.ledgername || ledger.ledger || '').toLowerCase();
+                const ledgerAmt = parseAmount(ledger.amount || ledger.amt);
+                const ispartyledger = (ledger.ispartyledger || ledger.isPartyLedger || '').toString().toLowerCase().trim();
+                if (ispartyledger === 'yes' && ledger.group) {
+                  voucherLedgerGroup = ledger.group;
+                }
+                if (ledgerName.includes('cgst')) {
+                  totalCgst += Math.abs(ledgerAmt);
+                } else if (ledgerName.includes('sgst')) {
+                  totalSgst += Math.abs(ledgerAmt);
+                } else if (ledgerName.includes('round off') || ledgerName.includes('roundoff')) {
+                  totalRoundoff += ledgerAmt;
+                }
+              });
+            }
+            
+            // Calculate total sales amount from inventory items
+            const inventoryEntries = voucher.allinventoryentries || voucher.inventry || [];
+            if (Array.isArray(inventoryEntries)) {
+              inventoryEntries.forEach(inventoryItem => {
+                const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt);
+                totalSalesAmount += itemAmount;
+              });
+            }
+            
+            // Process inventory items
+            const inventoryItems = voucher.allinventoryentries || voucher.inventry || [];
+            if (Array.isArray(inventoryItems) && inventoryItems.length > 0) {
+              inventoryItems.forEach((inventoryItem) => {
+                const parseQuantity = (qtyStr) => {
+                  if (!qtyStr) return 0;
+                  const cleaned = String(qtyStr).replace(/,/g, '');
+                  return parseInt(cleaned, 10) || 0;
+                };
+                
+                const itemAmount = parseAmount(inventoryItem.amount || inventoryItem.amt);
+                const taxRatio = totalSalesAmount > 0 ? itemAmount / totalSalesAmount : 0;
+                const itemCgst = totalCgst * taxRatio;
+                const itemSgst = totalSgst * taxRatio;
+                const itemRoundoff = totalRoundoff * taxRatio;
+                
+                let ledgerGroup = voucherLedgerGroup;
+                if (ledgerGroup === 'Other' && inventoryItem.accalloc && Array.isArray(inventoryItem.accalloc) && inventoryItem.accalloc.length > 0) {
+                  const accountAlloc = inventoryItem.accalloc[0];
+                  ledgerGroup = accountAlloc.ledgergroupidentify || accountAlloc.group || accountAlloc.grouplist?.split('|')[0] || 'Other';
+                }
+                
+                const stockGroup = inventoryItem.stockitemgroup || inventoryItem.group || inventoryItem.stockitemgrouplist?.split('|')[0] || inventoryItem.grouplist?.split('|')[0] || 'Other';
+                const stockCategory = inventoryItem.stockitemcategory || inventoryItem.stockitemcategorylist?.split('|')[0] || stockGroup;
+                
+                const saleRecord = {
+                  category: stockCategory,
+                  item: inventoryItem.stockitemname || inventoryItem.item || 'Unknown',
+                  quantity: parseQuantity(inventoryItem.billedqty || inventoryItem.qty || inventoryItem.actualqty),
+                  amount: itemAmount,
+                  profit: parseAmount(inventoryItem.profit) || 0,
+                  customer: voucher.partyledgername || voucher.party || 'Unknown',
+                  date: voucherDate,
+                  cp_date: voucherDate,
+                  vchno: voucher.vouchernumber || voucher.vchno || '',
+                  masterid: voucher.masterid || voucher.mstid || '',
+                  region: voucherState,
+                  country: voucherCountry,
+                  salesperson: voucherSalesperson,
+                  ledgerGroup: ledgerGroup,
+                  cgst: itemCgst,
+                  sgst: itemSgst,
+                  roundoff: itemRoundoff,
+                  alterid: voucher.alterid,
+                  partyid: voucher.partyledgernameid || voucher.partyid,
+                  gstno: voucher.partygstin || voucher.gstno || '',
+                  pincode: voucher.pincode || '',
+                  reference: voucher.reference || '',
+                  vchtype: voucher.vouchertypename || voucher.vchtype || '',
+                  itemid: inventoryItem.stockitemnameid || inventoryItem.itemid || '',
+                  uom: inventoryItem.uom || '',
+                  grosscost: parseAmount(inventoryItem.grosscost) || 0,
+                  grossexpense: parseAmount(inventoryItem.grossexpense) || 0,
+                  issales: true,
+                  // Add company identifier
+                  _companyName: companyInfo.company,
+                  _companyGuid: company.guid,
+                  // Include other voucher fields
+                  ...Object.keys(voucher).reduce((acc, key) => {
+                    const mappedKeys = ['mstid', 'masterid', 'alterid', 'vchno', 'vouchernumber', 'date', 'party', 'partyledgername', 'partyid', 'partyledgernameid', 'state', 'country', 'amt', 'amount', 'vchtype', 'vouchertypename', 'reservedname', 'gstno', 'partygstin', 'pincode', 'reference', 'ledgers', 'ledgerentries', 'inventry', 'allinventoryentries', 'salesprsn', 'SalesPrsn', 'SALESPRSN', 'salesperson', 'SalesPerson', 'salespersonname', 'SalesPersonName', 'sales_person', 'SALES_PERSON', 'sales_person_name', 'SALES_PERSON_NAME', 'SALESPERSONNAME'];
+                    if (!mappedKeys.includes(key) && !key.toLowerCase().includes('sales') && !key.toLowerCase().includes('person') && !key.toLowerCase().includes('prsn')) {
+                      acc[key] = voucher[key];
+                    }
+                    return acc;
+                  }, {})
+                };
+                
+                transformedSales.push(saleRecord);
+              });
+            }
+          });
+          
+          return transformedSales;
+        }
+        return [];
+      } catch (error) {
+        console.error(`Error fetching data for company ${company.company}:`, error);
+        return [];
+      }
+    });
+
+    // Wait for all company data to be fetched
+    const allCompanyDataArrays = await Promise.all(companyDataPromises);
+    
+    // Flatten all vouchers into a single array
+    const allSalesData = allCompanyDataArrays.flat();
+
+    if (allSalesData.length === 0) {
+      console.warn('No sales data found for any company');
+      return { data: [], companies: [], valueField: '' };
+    }
+
+    // Group data by month (category) and company
+    // Structure: { monthKey: { label: 'Jan', companies: { companyGuid: { values: [], count: 0, companyName: '...' } } } }
+    const grouped = {};
+    const allMonths = new Set();
+    const companyNameMap = {}; // Map companyGuid to companyName
+
+    allSalesData.forEach(sale => {
+      const saleDate = sale.cp_date || sale.date || sale.DATE || sale.CP_DATE;
+      if (!saleDate) return;
+      
+      const date = new Date(saleDate);
+      if (isNaN(date.getTime())) return;
+      
+      // Extract month
+      const month = date.getMonth() + 1; // 1-12
+      const monthKey = String(month).padStart(2, '0'); // "01", "02", etc.
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthLabel = monthNames[date.getMonth()];
+      allMonths.add(monthKey);
+      
+      const companyName = sale._companyName || 'Unknown';
+      const companyGuid = sale._companyGuid || '';
+      
+      if (!companyNameMap[companyGuid]) {
+        companyNameMap[companyGuid] = companyName;
+      }
+      
+      if (!grouped[monthKey]) {
+        grouped[monthKey] = {
+          label: monthLabel,
+          companies: {}
+        };
+      }
+      
+      if (!grouped[monthKey].companies[companyGuid]) {
+        grouped[monthKey].companies[companyGuid] = {
+          values: [],
+          count: 0,
+          companyName: companyName
+        };
+      }
+      
+      // Handle count fields specially
+      if (valueField === 'transactions' || valueField === 'unique_customers' || 
+          valueField === 'unique_items' || valueField === 'unique_orders') {
+        // For count fields, we need to track unique values, not just sum
+        if (!grouped[monthKey].companies[companyGuid].uniqueTransactions) {
+          grouped[monthKey].companies[companyGuid].uniqueTransactions = new Set();
+          grouped[monthKey].companies[companyGuid].uniqueCustomers = new Set();
+          grouped[monthKey].companies[companyGuid].uniqueItems = new Set();
+          grouped[monthKey].companies[companyGuid].uniqueOrders = new Set();
+        }
+        
+        // Track unique values for count fields
+        if (valueField === 'transactions' || valueField === 'unique_orders') {
+          const masterid = sale.masterid || sale.mstid;
+          if (masterid) {
+            if (valueField === 'transactions') {
+              grouped[monthKey].companies[companyGuid].uniqueTransactions.add(String(masterid));
+            } else {
+              grouped[monthKey].companies[companyGuid].uniqueOrders.add(String(masterid));
+            }
+          }
+        } else if (valueField === 'unique_customers') {
+          const customer = getFieldValue(sale, 'customer') || getFieldValue(sale, 'partyledgername');
+          if (customer) {
+            grouped[monthKey].companies[companyGuid].uniqueCustomers.add(String(customer).trim());
+          }
+        } else if (valueField === 'unique_items') {
+          const item = getFieldValue(sale, 'item') || getFieldValue(sale, 'stockitemname') || 
+                      getFieldValue(sale, 'stockitemnameid');
+          if (item) {
+            grouped[monthKey].companies[companyGuid].uniqueItems.add(String(item).trim());
+          }
+        }
+        
+        grouped[monthKey].companies[companyGuid].count += 1;
+      } else {
+        // For regular fields, get value normally
+        const value = parseFloat(getFieldValue(sale, valueField) || 0);
+        grouped[monthKey].companies[companyGuid].values.push(value);
+        grouped[monthKey].companies[companyGuid].count += 1;
+      }
+    });
+
+    // Sort months in financial year order (e.g., April to March)
+    const sortedMonthKeys = Array.from(allMonths).sort((a, b) => {
+      const monthA = parseInt(a);
+      const monthB = parseInt(b);
+      // Convert to financial year month index (FYStartMonth=0, FYStartMonth+1=1, ..., FYStartMonth-1=11)
+      const fyMonthIndexA = monthA >= fyStartMonth + 1 
+        ? monthA - (fyStartMonth + 1)  // e.g., April=0, May=1, ..., Dec=8
+        : monthA + (12 - (fyStartMonth + 1)); // e.g., Jan=9, Feb=10, Mar=11
+      const fyMonthIndexB = monthB >= fyStartMonth + 1
+        ? monthB - (fyStartMonth + 1)
+        : monthB + (12 - (fyStartMonth + 1));
+      return fyMonthIndexA - fyMonthIndexB;
+    });
+    
+    // Get all companies (from companyNameMap)
+    const companyGuids = Object.keys(companyNameMap).sort((a, b) => 
+      companyNameMap[a].localeCompare(companyNameMap[b])
+    );
+    const companies = companyGuids.map(guid => companyNameMap[guid]);
+
+    // Build result array: for each month, create entries for each company
+    const result = [];
+    
+    sortedMonthKeys.forEach(monthKey => {
+      const monthData = grouped[monthKey];
+      companyGuids.forEach(companyGuid => {
+        const companyData = monthData.companies[companyGuid];
+        let finalValue = 0;
+        
+        if (companyData) {
+          // Handle count fields specially (for both count and sum aggregation)
+          if (valueField === 'transactions') {
+            finalValue = companyData.uniqueTransactions ? companyData.uniqueTransactions.size : companyData.count;
+          } else if (valueField === 'unique_customers') {
+            finalValue = companyData.uniqueCustomers ? companyData.uniqueCustomers.size : 0;
+          } else if (valueField === 'unique_items') {
+            finalValue = companyData.uniqueItems ? companyData.uniqueItems.size : 0;
+          } else if (valueField === 'unique_orders') {
+            finalValue = companyData.uniqueOrders ? companyData.uniqueOrders.size : companyData.count;
+          } else if (companyData.values.length > 0) {
+            // Regular fields
+            if (aggregation === 'sum') {
+              finalValue = companyData.values.reduce((a, b) => a + b, 0);
+            } else if (aggregation === 'average') {
+              finalValue = companyData.values.reduce((a, b) => a + b, 0) / companyData.values.length;
+            } else if (aggregation === 'count') {
+              finalValue = companyData.count;
+            } else if (aggregation === 'min') {
+              finalValue = Math.min(...companyData.values);
+            } else if (aggregation === 'max') {
+              finalValue = Math.max(...companyData.values);
+            }
+          }
+        }
+        
+        result.push({
+          category: monthData.label,
+          company: companyNameMap[companyGuid],
+          companyGuid: companyGuid,
+          value: finalValue,
+          key: `${monthData.label}-${companyGuid}`
+        });
+      });
+    });
+
+    return {
+      data: result,
+      companies: companies,
+      categories: sortedMonthKeys.map(key => grouped[key].label),
+      valueField: valueField
+    };
+  }, [getFieldValue, fromDate, toDate, parseDateFromNewFormat, parseDateFromAPI, getFinancialYearStartMonthDay]);
+
   const generateCustomCardData = useCallback((cardConfig, salesData) => {
+    // Helper function to check if a field is non-numeric (text/ID fields that shouldn't be summed)
+    const isNonNumericField = (fieldName) => {
+      if (!fieldName) return false;
+      const lowerField = fieldName.toLowerCase().trim();
+      
+      // List of non-numeric field suffixes (field names that should not be summed)
+      // These can appear as direct fields or as nested fields (e.g., "ledgerentries.ledgernameid")
+      const nonNumericSuffixes = [
+        'ledgernameid', 'ledgername',
+        'billcreditperiod', 'billname',
+        'stockitemname', 'stockitemnameid',
+        'partyledgernameid', 'partyid', 'itemid',
+        // Note: grossexpense is numeric, so it's NOT in this list
+      ];
+      
+      // Extract the last part of the field name (the actual field name, not the parent)
+      // For nested fields like "ledgerentries.ledgernameid", get "ledgernameid"
+      // For direct fields like "ledgernameid", get "ledgernameid"
+      const fieldParts = lowerField.split('.');
+      const fieldSuffix = fieldParts[fieldParts.length - 1];
+      
+      // Check if the field suffix matches any non-numeric field
+      return nonNumericSuffixes.some(suffix => fieldSuffix === suffix.toLowerCase());
+    };
     if (!salesData || salesData.length === 0) return [];
+    
+    // Handle yearCompare chart type
+    if (cardConfig.chartType === 'yearCompare') {
+      return generateYearCompareData(cardConfig, salesData);
+    }
+    
+    // Handle companyCompare chart type - this will be handled separately as it's async
+    if (cardConfig.chartType === 'companyCompare') {
+      // Return a promise that will be handled in the component
+      return generateCompanyCompareData(cardConfig, salesData);
+    }
+    
     if (!cardConfig || !cardConfig.groupBy || !cardConfig.valueField) {
       console.warn('Invalid card config:', cardConfig);
       return [];
@@ -5489,32 +6225,143 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             return sum + profit;
           }, 0);
           value = totalQuantity > 0 ? totalProfit / totalQuantity : 0;
+        } else if (cardConfig.valueField === 'transactions') {
+          // For transactions, sum is just the count
+          value = items.length;
+        } else if (cardConfig.valueField === 'unique_customers') {
+          // For unique customers, return the unique count
+          value = new Set(items.map(item => getFieldValue(item, 'customer') || getFieldValue(item, 'partyledgername')).filter(v => v)).size;
+        } else if (cardConfig.valueField === 'unique_items') {
+          // For unique items, return the unique count
+          value = new Set(items.map(item => getFieldValue(item, 'item') || getFieldValue(item, 'stockitemname')).filter(v => v)).size;
+        } else if (cardConfig.valueField === 'unique_orders') {
+          // For unique orders, return the unique count
+          value = new Set(items.map(item => getFieldValue(item, 'masterid') || getFieldValue(item, 'mstid')).filter(v => v)).size;
         } else {
-          // Generic sum for any numeric field
-          value = items.reduce((sum, item) => {
-            const fieldValue = getFieldValue(item, cardConfig.valueField);
-            return sum + (parseFloat(fieldValue) || 0);
-          }, 0);
+          // Check if this is a non-numeric field that shouldn't be summed
+          if (isNonNumericField(cardConfig.valueField)) {
+            // Non-numeric fields cannot be summed - return 0
+            value = 0;
+          } else {
+            // Generic sum for any numeric field (including nested array fields)
+            value = items.reduce((sum, item) => {
+              // Check if this is a nested array field (e.g., ledgerentries.amount)
+              if (cardConfig.valueField.includes('.')) {
+                // For nested fields, get the original voucher first
+                const masterid = item.masterid || item.mstid;
+                let sourceObject = item;
+                if (masterid && window.__voucherLookupMap) {
+                  const voucher = window.__voucherLookupMap.get(String(masterid));
+                  if (voucher) {
+                    sourceObject = voucher;
+                  }
+                }
+                // Get all values from nested array field
+                const allValues = getNestedFieldValues(sourceObject, cardConfig.valueField);
+                // Sum all values from the array (only numeric values)
+                const arraySum = allValues.reduce((arrSum, val) => {
+                  const numVal = parseFloat(val);
+                  // Only add if it's a valid number
+                  return arrSum + (!isNaN(numVal) && isFinite(numVal) ? numVal : 0);
+                }, 0);
+                return sum + arraySum;
+              } else {
+                // Regular field access
+                const fieldValue = getFieldValue(item, cardConfig.valueField);
+                const numVal = parseFloat(fieldValue);
+                // Only add if it's a valid number
+                return sum + (!isNaN(numVal) && isFinite(numVal) ? numVal : 0);
+              }
+            }, 0);
+          }
         }
       } else if (cardConfig.aggregation === 'count') {
         if (cardConfig.valueField === 'transactions') {
-          value = items.length;
+          // Count unique vouchers (transactions), not total rows
+          value = new Set(items.map(item => {
+            const masterid = item.masterid || item.mstid;
+            return masterid ? String(masterid) : null;
+          }).filter(v => v)).size;
         } else if (cardConfig.valueField === 'unique_customers') {
-          value = new Set(items.map(item => getFieldValue(item, 'customer')).filter(v => v)).size;
+          // Get unique customers from original vouchers (customer is at voucher level)
+          const customerSet = new Set();
+          items.forEach(item => {
+            const masterid = item.masterid || item.mstid;
+            if (masterid && window.__voucherLookupMap) {
+              const voucher = window.__voucherLookupMap.get(String(masterid));
+              if (voucher) {
+                const customer = voucher.partyledgername || voucher.party || voucher.partyledgernameid || 
+                                getFieldValue(voucher, 'customer') || getFieldValue(voucher, 'partyledgername');
+                if (customer) {
+                  customerSet.add(String(customer).trim());
+                }
+              }
+            } else {
+              // Fallback to flattened item
+              const customer = getFieldValue(item, 'customer') || getFieldValue(item, 'partyledgername');
+              if (customer) {
+                customerSet.add(String(customer).trim());
+              }
+            }
+          });
+          value = customerSet.size;
         } else if (cardConfig.valueField === 'unique_items') {
-          value = new Set(items.map(item => getFieldValue(item, 'item')).filter(v => v)).size;
+          // Get unique items (items are already flattened per inventory entry)
+          const itemSet = new Set();
+          items.forEach(item => {
+            const itemName = getFieldValue(item, 'item') || getFieldValue(item, 'stockitemname') || 
+                            getFieldValue(item, 'stockitemnameid');
+            if (itemName) {
+              itemSet.add(String(itemName).trim());
+            }
+          });
+          value = itemSet.size;
         } else if (cardConfig.valueField === 'unique_orders') {
-          value = new Set(items.map(item => getFieldValue(item, 'masterid')).filter(v => v)).size;
+          // Count unique orders (vouchers)
+          value = new Set(items.map(item => {
+            const masterid = item.masterid || item.mstid;
+            return masterid ? String(masterid) : null;
+          }).filter(v => v)).size;
         } else {
           value = items.length;
         }
       } else if (cardConfig.aggregation === 'average') {
-        // Generic average for any numeric field
-        const sum = items.reduce((sum, item) => {
-          const fieldValue = getFieldValue(item, cardConfig.valueField);
-          return sum + (parseFloat(fieldValue) || 0);
-        }, 0);
-        value = items.length > 0 ? sum / items.length : 0;
+        // Generic average for any numeric field (including nested array fields)
+        let totalSum = 0;
+        let totalCount = 0;
+        
+        items.forEach(item => {
+          if (cardConfig.valueField.includes('.')) {
+            // For nested fields, get the original voucher first
+            const masterid = item.masterid || item.mstid;
+            let sourceObject = item;
+            if (masterid && window.__voucherLookupMap) {
+              const voucher = window.__voucherLookupMap.get(String(masterid));
+              if (voucher) {
+                sourceObject = voucher;
+              }
+            }
+            // Get all values from nested array field
+            const allValues = getNestedFieldValues(sourceObject, cardConfig.valueField);
+            allValues.forEach(val => {
+              const numVal = parseFloat(val);
+              if (!isNaN(numVal) && isFinite(numVal)) {
+                totalSum += numVal;
+                totalCount += 1;
+              }
+            });
+          } else {
+            // Regular field access
+            const fieldValue = getFieldValue(item, cardConfig.valueField);
+            const numVal = parseFloat(fieldValue);
+            if (!isNaN(numVal) && isFinite(numVal)) {
+              totalSum += numVal;
+              totalCount += 1;
+            }
+          }
+        });
+        
+        value = totalCount > 0 ? totalSum / totalCount : 0;
       } else if (cardConfig.aggregation === 'min') {
         // Minimum value for any numeric field
         let values = [];
@@ -5553,23 +6400,79 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               return quantity > 0 ? profit / quantity : 0;
             })
             .filter(v => !isNaN(v) && isFinite(v));
-        } else if (cardConfig.valueField === 'transactions' || 
-                   cardConfig.valueField === 'unique_customers' || 
-                   cardConfig.valueField === 'unique_items' || 
-                   cardConfig.valueField === 'unique_orders') {
-          // For count fields, min/max don't make much sense, but return the count
-          value = items.length;
+        } else if (cardConfig.valueField === 'transactions') {
+          // For transactions, return unique voucher count
+          value = new Set(items.map(item => {
+            const masterid = item.masterid || item.mstid;
+            return masterid ? String(masterid) : null;
+          }).filter(v => v)).size;
+        } else if (cardConfig.valueField === 'unique_customers') {
+          // Get unique customers count
+          const customerSet = new Set();
+          items.forEach(item => {
+            const masterid = item.masterid || item.mstid;
+            if (masterid && window.__voucherLookupMap) {
+              const voucher = window.__voucherLookupMap.get(String(masterid));
+              if (voucher) {
+                const customer = voucher.partyledgername || voucher.party || voucher.partyledgernameid || 
+                                getFieldValue(voucher, 'customer') || getFieldValue(voucher, 'partyledgername');
+                if (customer) {
+                  customerSet.add(String(customer).trim());
+                }
+              }
+            } else {
+              const customer = getFieldValue(item, 'customer') || getFieldValue(item, 'partyledgername');
+              if (customer) {
+                customerSet.add(String(customer).trim());
+              }
+            }
+          });
+          value = customerSet.size;
+        } else if (cardConfig.valueField === 'unique_items') {
+          // Get unique items count
+          const itemSet = new Set();
+          items.forEach(item => {
+            const itemName = getFieldValue(item, 'item') || getFieldValue(item, 'stockitemname') || 
+                            getFieldValue(item, 'stockitemnameid');
+            if (itemName) {
+              itemSet.add(String(itemName).trim());
+            }
+          });
+          value = itemSet.size;
+        } else if (cardConfig.valueField === 'unique_orders') {
+          // Count unique orders
+          value = new Set(items.map(item => {
+            const masterid = item.masterid || item.mstid;
+            return masterid ? String(masterid) : null;
+          }).filter(v => v)).size;
         } else {
-          // Generic min for any numeric field
-          values = items
-            .map(item => {
+          // Generic min for any numeric field (including nested array fields)
+          values = items.flatMap(item => {
+            if (cardConfig.valueField.includes('.')) {
+              // For nested fields, get the original voucher first
+              const masterid = item.masterid || item.mstid;
+              let sourceObject = item;
+              if (masterid && window.__voucherLookupMap) {
+                const voucher = window.__voucherLookupMap.get(String(masterid));
+                if (voucher) {
+                  sourceObject = voucher;
+                }
+              }
+              // Get all values from nested array field
+              const allValues = getNestedFieldValues(sourceObject, cardConfig.valueField);
+              return allValues.map(val => {
+                const numVal = typeof val === 'number' ? val : parseFloat(val);
+                return isNaN(numVal) || !isFinite(numVal) ? null : numVal;
+              }).filter(v => v !== null);
+            } else {
+              // Regular field access
               const fieldValue = getFieldValue(item, cardConfig.valueField);
-              return typeof fieldValue === 'number' ? fieldValue : parseFloat(fieldValue);
-            })
-            .filter(v => !isNaN(v) && isFinite(v));
+              const numVal = typeof fieldValue === 'number' ? fieldValue : parseFloat(fieldValue);
+              return isNaN(numVal) || !isFinite(numVal) ? [] : [numVal];
+            }
+          }).filter(v => !isNaN(v) && isFinite(v));
+          value = values.length > 0 ? Math.min(...values) : 0;
         }
-        
-        value = values.length > 0 ? Math.min(...values) : 0;
       } else if (cardConfig.aggregation === 'max') {
         // Maximum value for any numeric field
         let values = [];
@@ -5608,23 +6511,79 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               return quantity > 0 ? profit / quantity : 0;
             })
             .filter(v => !isNaN(v) && isFinite(v));
-        } else if (cardConfig.valueField === 'transactions' || 
-                   cardConfig.valueField === 'unique_customers' || 
-                   cardConfig.valueField === 'unique_items' || 
-                   cardConfig.valueField === 'unique_orders') {
-          // For count fields, min/max don't make much sense, but return the count
-          value = items.length;
+        } else if (cardConfig.valueField === 'transactions') {
+          // For transactions, return unique voucher count
+          value = new Set(items.map(item => {
+            const masterid = item.masterid || item.mstid;
+            return masterid ? String(masterid) : null;
+          }).filter(v => v)).size;
+        } else if (cardConfig.valueField === 'unique_customers') {
+          // Get unique customers count
+          const customerSet = new Set();
+          items.forEach(item => {
+            const masterid = item.masterid || item.mstid;
+            if (masterid && window.__voucherLookupMap) {
+              const voucher = window.__voucherLookupMap.get(String(masterid));
+              if (voucher) {
+                const customer = voucher.partyledgername || voucher.party || voucher.partyledgernameid || 
+                                getFieldValue(voucher, 'customer') || getFieldValue(voucher, 'partyledgername');
+                if (customer) {
+                  customerSet.add(String(customer).trim());
+                }
+              }
+            } else {
+              const customer = getFieldValue(item, 'customer') || getFieldValue(item, 'partyledgername');
+              if (customer) {
+                customerSet.add(String(customer).trim());
+              }
+            }
+          });
+          value = customerSet.size;
+        } else if (cardConfig.valueField === 'unique_items') {
+          // Get unique items count
+          const itemSet = new Set();
+          items.forEach(item => {
+            const itemName = getFieldValue(item, 'item') || getFieldValue(item, 'stockitemname') || 
+                            getFieldValue(item, 'stockitemnameid');
+            if (itemName) {
+              itemSet.add(String(itemName).trim());
+            }
+          });
+          value = itemSet.size;
+        } else if (cardConfig.valueField === 'unique_orders') {
+          // Count unique orders
+          value = new Set(items.map(item => {
+            const masterid = item.masterid || item.mstid;
+            return masterid ? String(masterid) : null;
+          }).filter(v => v)).size;
         } else {
-          // Generic max for any numeric field
-          values = items
-            .map(item => {
+          // Generic max for any numeric field (including nested array fields)
+          values = items.flatMap(item => {
+            if (cardConfig.valueField.includes('.')) {
+              // For nested fields, get the original voucher first
+              const masterid = item.masterid || item.mstid;
+              let sourceObject = item;
+              if (masterid && window.__voucherLookupMap) {
+                const voucher = window.__voucherLookupMap.get(String(masterid));
+                if (voucher) {
+                  sourceObject = voucher;
+                }
+              }
+              // Get all values from nested array field
+              const allValues = getNestedFieldValues(sourceObject, cardConfig.valueField);
+              return allValues.map(val => {
+                const numVal = typeof val === 'number' ? val : parseFloat(val);
+                return isNaN(numVal) || !isFinite(numVal) ? null : numVal;
+              }).filter(v => v !== null);
+            } else {
+              // Regular field access
               const fieldValue = getFieldValue(item, cardConfig.valueField);
-              return typeof fieldValue === 'number' ? fieldValue : parseFloat(fieldValue);
-            })
-            .filter(v => !isNaN(v) && isFinite(v));
+              const numVal = typeof fieldValue === 'number' ? fieldValue : parseFloat(fieldValue);
+              return isNaN(numVal) || !isFinite(numVal) ? [] : [numVal];
+            }
+          }).filter(v => !isNaN(v) && isFinite(v));
+          value = values.length > 0 ? Math.max(...values) : 0;
         }
-        
-        value = values.length > 0 ? Math.max(...values) : 0;
       }
 
       // Calculate segments if stacking is enabled
@@ -5889,6 +6848,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             dateGrouping: cardConfig.dateGrouping,
             mapSubType: cardConfig.mapSubType,
             overrideDateFilter: cardConfig.overrideDateFilter || false,
+            yearCompareCategory: cardConfig.yearCompareCategory,
+            yearCompareValue: cardConfig.yearCompareValue,
+            companyCompareCategory: cardConfig.companyCompareCategory,
+            companyCompareValue: cardConfig.companyCompareValue,
             ...(cardConfig.cardConfig || {})
           },
           sortOrder: cardConfig.sortOrder || cardToUpdate.sortOrder || 0,
@@ -5920,6 +6883,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             updatedCard.dateGrouping = parsedCardConfig.dateGrouping || updatedCard.dateGrouping;
             updatedCard.mapSubType = parsedCardConfig.mapSubType || 'choropleth';
             updatedCard.overrideDateFilter = parsedCardConfig.overrideDateFilter || false;
+            // Year compare specific properties
+            updatedCard.yearCompareCategory = parsedCardConfig.yearCompareCategory;
+            updatedCard.yearCompareValue = parsedCardConfig.yearCompareValue;
+            // Company compare specific properties
+            updatedCard.companyCompareCategory = parsedCardConfig.companyCompareCategory;
+            updatedCard.companyCompareValue = parsedCardConfig.companyCompareValue;
           }
           
           // Force date grouping to 'day' (daily) for all date-based cards
@@ -5979,6 +6948,10 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             dateGrouping: cardConfig.dateGrouping,
             mapSubType: cardConfig.mapSubType,
             overrideDateFilter: cardConfig.overrideDateFilter || false,
+            yearCompareCategory: cardConfig.yearCompareCategory,
+            yearCompareValue: cardConfig.yearCompareValue,
+            companyCompareCategory: cardConfig.companyCompareCategory,
+            companyCompareValue: cardConfig.companyCompareValue,
             ...(cardConfig.cardConfig || {})
           },
           sortOrder: cardConfig.sortOrder || 0
@@ -18094,6 +19067,271 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   );
 };
 
+// Hierarchical Field List Component
+const HierarchicalFieldList = ({ fields, selectedFields, onFieldToggle, searchTerm, selectionMode = 'multiple' }) => {
+  const [expandedGroups, setExpandedGroups] = useState(() => {
+    // Default: expand all groups
+    const groups = new Set();
+    fields.forEach(f => {
+      if (f.hierarchy) {
+        groups.add(f.hierarchy);
+      }
+    });
+    return groups;
+  });
+  
+  const handleFieldClick = (fieldValue) => {
+    if (selectionMode === 'single') {
+      // For single selection, toggle means select this one (deselect others)
+      if (selectedFields.has(fieldValue)) {
+        onFieldToggle(''); // Deselect
+      } else {
+        onFieldToggle(fieldValue); // Select this one
+      }
+    } else {
+      // Multiple selection mode
+      onFieldToggle(fieldValue);
+    }
+  };
+  
+  // Group fields by hierarchy
+  const groupedFields = useMemo(() => {
+    const groups = {};
+    fields.forEach(field => {
+      const hierarchy = field.hierarchy || 'voucher';
+      if (!groups[hierarchy]) {
+        groups[hierarchy] = {
+          name: HIERARCHY_MAP[hierarchy] || hierarchy,
+          level: hierarchy,
+          fields: []
+        };
+      }
+      groups[hierarchy].fields.push(field);
+    });
+    return groups;
+  }, [fields]);
+  
+  const toggleGroup = (hierarchy) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(hierarchy)) {
+        next.delete(hierarchy);
+      } else {
+        next.add(hierarchy);
+      }
+      return next;
+    });
+  };
+  
+  const hierarchyOrder = ['voucher', 'ledgerentries', 'billallocations', 
+                         'allinventoryentries', 'batchallocation', 'accountingallocation', 'address', 'udf'];
+  const sortedGroups = Object.values(groupedFields).sort((a, b) => {
+    const aOrder = hierarchyOrder.indexOf(a.level) >= 0 ? hierarchyOrder.indexOf(a.level) : 999;
+    const bOrder = hierarchyOrder.indexOf(b.level) >= 0 ? hierarchyOrder.indexOf(b.level) : 999;
+    return aOrder - bOrder;
+  });
+  
+  if (fields.length === 0) {
+    return (
+      <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
+        No fields found
+      </div>
+    );
+  }
+  
+  return (
+    <div style={{
+      background: '#ffffff',
+      border: '1px solid #e2e8f0',
+      borderRadius: '8px',
+      padding: '12px',
+      maxHeight: '400px',
+      overflowY: 'auto'
+    }}>
+      {sortedGroups.map((group) => {
+        const isExpanded = expandedGroups.has(group.level);
+        const isUdf = group.level === 'udf';
+        
+        return (
+          <div key={group.level} style={{ marginBottom: '8px' }}>
+            {/* Group Header */}
+            <div
+              onClick={() => toggleGroup(group.level)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '10px 12px',
+                background: isUdf ? '#fef3c7' : '#f8fafc',
+                border: `1px solid ${isUdf ? '#fbbf24' : '#e2e8f0'}`,
+                borderRadius: '6px',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                marginBottom: isExpanded ? '8px' : '0'
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = isUdf ? '#fde68a' : '#f1f5f9';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = isUdf ? '#fef3c7' : '#f8fafc';
+              }}
+            >
+              <span className="material-icons" style={{
+                fontSize: '18px',
+                color: isUdf ? '#d97706' : '#64748b',
+                marginRight: '8px',
+                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s'
+              }}>
+                chevron_right
+              </span>
+              <span style={{
+                fontSize: '14px',
+                fontWeight: 600,
+                color: isUdf ? '#92400e' : '#1e293b',
+                flex: 1
+              }}>
+                {group.name}
+              </span>
+              <span style={{
+                fontSize: '12px',
+                color: isUdf ? '#a16207' : '#64748b',
+                background: isUdf ? '#fde68a' : '#e2e8f0',
+                padding: '2px 8px',
+                borderRadius: '12px',
+                fontWeight: 500
+              }}>
+                {group.fields.length}
+              </span>
+            </div>
+            
+            {/* Group Fields */}
+            {isExpanded && (
+              <div style={{ paddingLeft: '8px', marginTop: '4px' }}>
+                {group.fields.map((field) => {
+                  const isNested = field.value.includes('.');
+                  const indentLevel = field.value.split('.').length - 1;
+                  
+                  return (
+                    <div
+                      key={field.value}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        padding: '8px 12px',
+                        paddingLeft: `${12 + (indentLevel * 16)}px`,
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        transition: 'background 0.15s ease',
+                        marginBottom: '2px',
+                        background: selectionMode === 'single' && selectedFields.has(field.value) ? '#eff6ff' : 'transparent'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!(selectionMode === 'single' && selectedFields.has(field.value))) {
+                          e.currentTarget.style.background = '#f8fafc';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!(selectionMode === 'single' && selectedFields.has(field.value))) {
+                          e.currentTarget.style.background = 'transparent';
+                        }
+                      }}
+                      onClick={() => handleFieldClick(field.value)}
+                    >
+                      {isNested && (
+                        <span className="material-icons" style={{
+                          fontSize: '14px',
+                          color: '#94a3b8',
+                          marginRight: '6px'
+                        }}>
+                          subdirectory_arrow_right
+                        </span>
+                      )}
+                      {selectionMode === 'single' ? (
+                        <div style={{
+                          width: '18px',
+                          height: '18px',
+                          border: selectedFields.has(field.value) ? 'none' : '2px solid #cbd5e1',
+                          borderRadius: '50%',
+                          background: selectedFields.has(field.value) ? '#3b82f6' : 'transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: '10px',
+                          flexShrink: 0
+                        }}>
+                          {selectedFields.has(field.value) && (
+                            <div style={{
+                              width: '6px',
+                              height: '6px',
+                              borderRadius: '50%',
+                              background: 'white'
+                            }}></div>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{
+                          width: '18px',
+                          height: '18px',
+                          border: selectedFields.has(field.value) ? 'none' : '2px solid #cbd5e1',
+                          borderRadius: '4px',
+                          background: selectedFields.has(field.value) ? '#10b981' : 'transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginRight: '10px',
+                          flexShrink: 0
+                        }}>
+                          {selectedFields.has(field.value) && (
+                            <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
+                          )}
+                        </div>
+                      )}
+                      <span style={{
+                        fontSize: '14px',
+                        fontWeight: selectedFields.has(field.value) ? '600' : '400',
+                        color: selectionMode === 'single' && selectedFields.has(field.value) ? '#1e40af' : '#1e293b',
+                        flex: 1
+                      }}>
+                        {field.label}
+                      </span>
+                      {field.isUdf && (
+                        <span style={{
+                          fontSize: '10px',
+                          color: '#d97706',
+                          background: '#fef3c7',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          marginLeft: '8px',
+                          fontWeight: 600
+                        }}>
+                          UDF
+                        </span>
+                      )}
+                      {field.type === 'value' && (
+                        <span style={{
+                          fontSize: '10px',
+                          color: '#3b82f6',
+                          background: '#dbeafe',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          marginLeft: '8px',
+                          fontWeight: 500
+                        }}>
+                          {field.aggregation || 'sum'}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 // Custom Card Modal Component
 const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   // Mobile detection
@@ -18107,6 +19345,173 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Helper function to parse date from various formats
+  const parseDateValue = useCallback((dateValue) => {
+    if (!dateValue) return null;
+    
+    // If already a Date object
+    if (dateValue instanceof Date && !isNaN(dateValue.getTime())) {
+      return dateValue;
+    }
+    
+    const dateStr = String(dateValue).trim();
+    
+    // Try YYYY-MM-DD format first
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      const date = new Date(dateStr);
+      if (!isNaN(date.getTime())) return date;
+    }
+    
+    // Try YYYYMMDD format (from API)
+    if (/^\d{8}$/.test(dateStr)) {
+      const year = parseInt(dateStr.substring(0, 4), 10);
+      const month = parseInt(dateStr.substring(4, 6), 10) - 1;
+      const day = parseInt(dateStr.substring(6, 8), 10);
+      const date = new Date(year, month, day);
+      if (!isNaN(date.getTime())) return date;
+    }
+    
+    // Try format like "1-Jun-25" or "15-Jul-25"
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const day = parseInt(parts[0], 10);
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const monthIndex = monthNames.findIndex(m => m.toLowerCase() === parts[1].toLowerCase());
+      if (monthIndex !== -1 && !isNaN(day)) {
+        const yearStr = parts[2].trim();
+        let fullYear;
+        if (yearStr.length === 4) {
+          fullYear = parseInt(yearStr, 10);
+        } else {
+          const year = parseInt(yearStr, 10);
+          if (!isNaN(year)) {
+            fullYear = year < 50 ? 2000 + year : 1900 + year;
+          } else {
+            return null;
+          }
+        }
+        const date = new Date(fullYear, monthIndex, day);
+        if (!isNaN(date.getTime())) return date;
+      }
+    }
+    
+    // Try standard Date parsing as last resort
+    const date = new Date(dateStr);
+    if (!isNaN(date.getTime()) && date.getFullYear() > 1900 && date.getFullYear() < 2100) {
+      return date;
+    }
+    
+    return null;
+  }, []);
+
+  // Helper function to get field value, handling derived fields (year, quarter, week, month) and nested paths
+  const getFieldValueForFilter = useCallback((item, fieldName) => {
+    if (!item || !fieldName) return null;
+    
+    // For derived count fields, they shouldn't be used for filtering
+    // But if they are, return null
+    if (fieldName === 'transactions' || fieldName === 'unique_customers' || 
+        fieldName === 'unique_items' || fieldName === 'unique_orders') {
+      return null;
+    }
+    
+    // Handle derived fields that are computed from the date
+    if (fieldName === 'month' || fieldName === 'year' || fieldName === 'quarter' || fieldName === 'week') {
+      // Try to get date from various possible field names
+      const dateValue = item.cp_date || item.date || item.Date || item.DATE || 
+                       (Object.keys(item).find(k => k.toLowerCase() === 'date' || k.toLowerCase() === 'cp_date') ? 
+                        item[Object.keys(item).find(k => k.toLowerCase() === 'date' || k.toLowerCase() === 'cp_date')] : null);
+      
+      if (dateValue) {
+        const date = parseDateValue(dateValue);
+        
+        if (date && !isNaN(date.getTime()) && date.getFullYear() > 1900 && date.getFullYear() < 2100) {
+          if (fieldName === 'month') {
+            const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            return `${monthAbbr[date.getMonth()]}-${String(date.getFullYear()).slice(-2)}`;
+          } else if (fieldName === 'year') {
+            return String(date.getFullYear());
+          } else if (fieldName === 'quarter') {
+            const month = date.getMonth();
+            const quarter = Math.floor(month / 3) + 1;
+            return `Q${quarter} ${date.getFullYear()}`;
+          } else if (fieldName === 'week') {
+            const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
+            const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+            const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+            return `Week ${weekNum}, ${date.getFullYear()}`;
+          }
+        }
+      }
+      return null;
+    }
+    
+    // Handle nested field paths (dot notation)
+    if (fieldName.includes('.')) {
+      // For nested fields, we need to access the original voucher structure
+      // Try to get the voucher from lookup map using masterid
+      const masterid = item.masterid || item.mstid;
+      if (masterid && window.__voucherLookupMap) {
+        const voucher = window.__voucherLookupMap.get(String(masterid));
+        if (voucher) {
+          // Use getNestedFieldValue on the original voucher
+          const value = getNestedFieldValue(voucher, fieldName);
+          if (value !== null && value !== undefined) {
+            return value;
+          }
+        }
+      }
+      // Fallback: try to get from flattened item (might work for some nested fields that were flattened)
+      return getNestedFieldValue(item, fieldName);
+    }
+    
+    // List of voucher-level fields that might not be in flattened salesData
+    // These should be retrieved from the original voucher if not found in item
+    const voucherLevelFields = [
+      'partygstin', 'partygstinid', 'gstin', 'gstno',
+      'partyledgername', 'partyledgernameid', 'partyid', 'party',
+      'reservedname', 'vchtype', 'vouchertypename',
+      'vouchernumber', 'vchno', 'voucher_number', 'voucher_no',
+      'masterid', 'mstid', 'alterid',
+      'department', 'salesperson', 'salespersonname'
+    ];
+    
+    const fieldNameLower = fieldName.toLowerCase();
+    const isVoucherLevelField = voucherLevelFields.some(vf => vf.toLowerCase() === fieldNameLower);
+    
+    // For regular fields, use case-insensitive field access
+    if (item[fieldName] !== undefined) return item[fieldName];
+    if (item[fieldName.toLowerCase()] !== undefined) return item[fieldName.toLowerCase()];
+    if (item[fieldName.toUpperCase()] !== undefined) return item[fieldName.toUpperCase()];
+    const matchingKey = Object.keys(item).find(k => k.toLowerCase() === fieldName.toLowerCase());
+    if (matchingKey) {
+      return item[matchingKey];
+    }
+    
+    // If field not found in item and it's a voucher-level field, try voucher lookup map
+    if (isVoucherLevelField) {
+      const masterid = item.masterid || item.mstid;
+      if (masterid && window.__voucherLookupMap) {
+        const voucher = window.__voucherLookupMap.get(String(masterid));
+        if (voucher) {
+          // Try to get the field from the original voucher with case-insensitive matching
+          const voucherKeys = Object.keys(voucher);
+          const matchingVoucherKey = voucherKeys.find(k => k.toLowerCase() === fieldNameLower);
+          if (matchingVoucherKey) {
+            const value = voucher[matchingVoucherKey];
+            if (value !== null && value !== undefined) {
+              return value;
+            }
+          }
+        }
+      }
+    }
+    
+    return null;
+  }, [parseDateValue]);
+
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
   // Initialize form state from editingCard if provided, otherwise use defaults
   const [cardTitle, setCardTitle] = useState(editingCard?.title || '');
   const [chartType, setChartType] = useState(editingCard?.chartType || 'bar');
@@ -18185,6 +19590,147 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   const [multiAxisSeries, setMultiAxisSeries] = useState(editingCard?.multiAxisSeries || []);
   // Date override state
   const [overrideDateFilter, setOverrideDateFilter] = useState(editingCard?.overrideDateFilter || false);
+<<<<<<< HEAD
+=======
+  // Year compare state
+  const [yearCompareCategory, setYearCompareCategory] = useState(editingCard?.yearCompareCategory || 'month');
+  const [yearCompareValue, setYearCompareValue] = useState(editingCard?.yearCompareValue || '');
+  const [yearCompareAggregation, setYearCompareAggregation] = useState(editingCard?.aggregation || 'sum');
+  
+  // Company compare state
+  const [companyCompareCategory, setCompanyCompareCategory] = useState(editingCard?.companyCompareCategory || []);
+  const [companyCompareValue, setCompanyCompareValue] = useState(editingCard?.companyCompareValue || '');
+  const [companyCompareAggregation, setCompanyCompareAggregation] = useState(editingCard?.aggregation || 'sum');
+  
+  // UDF config state
+  const [udfConfig, setUdfConfig] = useState(null);
+  const [udfConfigLoading, setUdfConfigLoading] = useState(false);
+  const [udfFields, setUdfFields] = useState([]);
+  
+  // Raw voucher data state for field extraction
+  const [rawVoucherData, setRawVoucherData] = useState([]);
+
+  // Load raw voucher data from cache for field extraction
+  useEffect(() => {
+    const loadRawVoucherData = async () => {
+      try {
+        // Get company info from sessionStorage
+        const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+        const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+        const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId') || '';
+        
+        const currentCompanyObj = companies.find(c =>
+          c.guid === selectedCompanyGuid &&
+          (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+        );
+        
+        if (!currentCompanyObj || !currentCompanyObj.tallyloc_id || !currentCompanyObj.guid) {
+          setRawVoucherData([]);
+          return;
+        }
+        
+        // Get raw voucher data from cache
+        // Use the hybridCache imported at the top of the file (line 35)
+        const completeCache = await hybridCache.getCompleteSalesData(currentCompanyObj);
+        
+        if (completeCache && completeCache.data && completeCache.data.vouchers) {
+          // Use first 10 vouchers for field extraction (to understand structure)
+          const sampleVouchers = completeCache.data.vouchers.slice(0, 10);
+          setRawVoucherData(sampleVouchers);
+          console.log('📋 Loaded raw voucher data for field extraction:', sampleVouchers.length, 'vouchers');
+          
+          // Also store all vouchers for value lookup (create a map by masterid for quick access)
+          const allVouchers = completeCache.data.vouchers;
+          const voucherLookupMap = new Map();
+          allVouchers.forEach(voucher => {
+            const masterid = voucher.masterid || voucher.mstid;
+            if (masterid) {
+              voucherLookupMap.set(String(masterid), voucher);
+            }
+          });
+          // Store in a ref or state that can be accessed by getFieldValue
+          window.__voucherLookupMap = voucherLookupMap;
+          console.log('📋 Created voucher lookup map:', voucherLookupMap.size, 'vouchers');
+        } else {
+          setRawVoucherData([]);
+          window.__voucherLookupMap = new Map();
+        }
+      } catch (error) {
+        console.error('Error loading raw voucher data:', error);
+        setRawVoucherData([]);
+      }
+    };
+    
+    loadRawVoucherData();
+  }, [salesData]); // Reload when salesData changes
+
+  // Load UDF configuration
+  useEffect(() => {
+    const loadUdfConfiguration = async () => {
+      try {
+        // Get company info from sessionStorage
+        const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+        const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
+        const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId') || '';
+        
+        const currentCompanyObj = companies.find(c =>
+          c.guid === selectedCompanyGuid &&
+          (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
+        );
+        
+        if (!currentCompanyObj || !currentCompanyObj.tallyloc_id || !currentCompanyObj.guid) {
+          setUdfConfig(null);
+          setUdfFields([]);
+          return;
+        }
+        
+        setUdfConfigLoading(true);
+        const config = await loadUdfConfig(currentCompanyObj.tallyloc_id, currentCompanyObj.guid);
+        setUdfConfig(config);
+        
+        // Extract available UDF fields
+        if (config) {
+          const availableUdf = getAvailableUdfFields(config);
+          const udfFieldsList = [
+            ...availableUdf.fields.map(f => ({
+              value: f.name,
+              label: `UDF: ${f.name}`,
+              type: 'category', // Default to category, can be enhanced
+              hierarchy: 'udf',
+              isUdf: true,
+              formula: f.formula,
+              table: f.table
+            })),
+            ...availableUdf.aggregates.flatMap(agg => 
+              agg.fields.map(f => ({
+                value: `${agg.name}.${f.fieldName}`,
+                label: `UDF: ${agg.name} → ${f.fieldName}`,
+                type: 'category', // Default to category
+                hierarchy: 'udf',
+                isUdf: true,
+                aggregateName: agg.name,
+                fieldName: f.fieldName,
+                formula: f.formula,
+                table: agg.table
+              }))
+            )
+          ];
+          setUdfFields(udfFieldsList);
+        } else {
+          setUdfFields([]);
+        }
+      } catch (error) {
+        console.error('Error loading UDF config in CustomCardModal:', error);
+        setUdfConfig(null);
+        setUdfFields([]);
+      } finally {
+        setUdfConfigLoading(false);
+      }
+    };
+    
+    loadUdfConfiguration();
+  }, [salesData]); // Reload when salesData changes (indicates company/data change)
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
 
   // Update form when editingCard changes
   useEffect(() => {
@@ -18236,6 +19782,20 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       setMultiAxisSeries(editingCard.multiAxisSeries || []);
       // Set date override
       setOverrideDateFilter(editingCard.overrideDateFilter || false);
+<<<<<<< HEAD
+=======
+      // Set year compare fields
+      setYearCompareCategory(editingCard.yearCompareCategory || 'month');
+      setYearCompareValue(editingCard.yearCompareValue || '');
+      setYearCompareAggregation(editingCard.aggregation || 'sum');
+      
+      // Company compare state
+      const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+      const defaultCompanyGuids = companies.length > 0 ? companies.map(c => c.guid) : [];
+      setCompanyCompareCategory(editingCard.companyCompareCategory || defaultCompanyGuids);
+      setCompanyCompareValue(editingCard.companyCompareValue || '');
+      setCompanyCompareAggregation(editingCard.aggregation || 'sum');
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
     } else {
       // Reset to defaults when not editing
       setCardTitle('');
@@ -18252,8 +19812,31 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       setSegmentBy('');
       setMultiAxisSeries([]);
       setOverrideDateFilter(false);
+<<<<<<< HEAD
+=======
+      setYearCompareCategory('month');
+      setYearCompareValue('');
+      setYearCompareAggregation('sum');
+      
+      // Reset company compare state
+      const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+      const defaultCompanyGuids = companies.length > 0 ? companies.map(c => c.guid) : [];
+      setCompanyCompareCategory(defaultCompanyGuids);
+      setCompanyCompareValue('');
+      setCompanyCompareAggregation('sum');
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
     }
   }, [editingCard]);
+  
+  // Set default companies for company compare when chart type changes
+  useEffect(() => {
+    if (chartType === 'companyCompare' && companyCompareCategory.length === 0) {
+      const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+      if (companies.length > 0) {
+        setCompanyCompareCategory(companies.map(c => c.guid));
+      }
+    }
+  }, [chartType, companyCompareCategory.length]);
 
   // Auto-set mapSubType to 'scatter' for pincode maps
   useEffect(() => {
@@ -18375,15 +19958,30 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     return fieldName.charAt(0).toUpperCase() + fieldName.slice(1).replace(/([A-Z])/g, ' $1').trim();
   };
 
-  // Extract all available fields from sales data dynamically
+  // Extract all available fields from sales data dynamically with hierarchy support
   // NOTE: This only processes existing data in memory - NO API calls are made
   const allFields = useMemo(() => {
     // Use existing data only - do not trigger any data fetching
     if (!salesData || !Array.isArray(salesData) || salesData.length === 0) {
-      return [];
+      // Still return UDF fields if available
+      return udfFields;
     }
 
-    // Get ALL unique keys from ALL records to ensure we capture every field
+    // Extract fields from raw voucher data (nested structure) if available
+    // Otherwise fall back to flattened salesData
+    const dataForExtraction = rawVoucherData.length > 0 ? rawVoucherData : salesData;
+    const extracted = extractAllFieldsFromCache(dataForExtraction);
+    const cacheFields = extracted.fields || [];
+    
+    console.log('🔍 Field extraction:', {
+      usingRawVouchers: rawVoucherData.length > 0,
+      rawVoucherCount: rawVoucherData.length,
+      salesDataCount: salesData.length,
+      extractedFieldsCount: cacheFields.length,
+      hierarchyGroups: Object.keys(extracted.grouped || {})
+    });
+    
+    // Get ALL unique keys from ALL records to ensure we capture every field (fallback for flattened data)
     const allKeysSet = new Set();
     // Check ALL records to get every possible field name
     salesData.forEach(sale => {
@@ -18481,13 +20079,18 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       console.log('📅 Consolidated date fields:', foundDateFields.map(f => f.original), '→ "date" (category)');
     }
     
-    // Process each field from the sales data
+    // Process each field from the sales data (top-level fields only)
     allKeys.forEach(key => {
       const lowerKey = key.toLowerCase();
       
-      // Skip if we've already added this field (case-insensitive check)
-      // This includes the consolidated "date" field we just added
+      // Skip if we've already added this field as a hierarchical field
       if (fieldsMap.has(lowerKey)) {
+        const existing = fieldsMap.get(lowerKey);
+        // If existing field is hierarchical (not voucher level), skip adding top-level version
+        if (existing.hierarchy && existing.hierarchy !== 'voucher') {
+          return; // Skip - hierarchical field already exists
+        }
+        // If it's a top-level field and we already have it, skip
         return;
       }
       
@@ -18523,28 +20126,54 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       }
       
       // Create field entry - include ALL fields regardless of type
+      // Mark as top-level voucher field (no hierarchy specified)
       const field = {
         value: key,
         label: getFieldLabel(key),
         type: isNumeric ? 'value' : 'category',
+        hierarchy: 'voucher', // Explicitly mark as voucher-level field
         ...(isNumeric && { aggregation: defaultAggregation }) // Add default aggregation for numeric fields
       };
       
       fieldsMap.set(lowerKey, field);
     });
     
+    // Add cache fields from hierarchical extractor FIRST (before top-level fields)
+    // This ensures hierarchical fields take precedence and are not overwritten
+    cacheFields.forEach(field => {
+      const key = field.value.toLowerCase();
+      // Always add hierarchical fields - they take precedence over top-level fields
+      // Hierarchical fields have hierarchy property set, top-level don't
+      if (field.hierarchy && field.hierarchy !== 'voucher') {
+        // This is a nested field - always add it
+        fieldsMap.set(key, field);
+      } else if (!fieldsMap.has(key)) {
+        // Top-level field - only add if not already present
+        fieldsMap.set(key, field);
+      } else {
+        // Check if existing field is hierarchical - if not, replace with hierarchical version
+        const existing = fieldsMap.get(key);
+        if (!existing.hierarchy || existing.hierarchy === 'voucher') {
+          // Existing is top-level, replace with hierarchical if available
+          if (field.hierarchy) {
+            fieldsMap.set(key, field);
+          }
+        }
+      }
+    });
+    
     // Add derived/computed fields (these are calculated, not from response)
     const derivedFields = [
       // Count fields
-      { value: 'transactions', label: 'Number of Transactions', type: 'value', aggregation: 'count' },
-      { value: 'unique_customers', label: 'Number of Unique Customers', type: 'value', aggregation: 'count' },
-      { value: 'unique_items', label: 'Number of Unique Items', type: 'value', aggregation: 'count' },
-      { value: 'unique_orders', label: 'Number of Unique Orders', type: 'value', aggregation: 'count' },
+      { value: 'transactions', label: 'Number of Transactions', type: 'value', aggregation: 'count', hierarchy: 'voucher' },
+      { value: 'unique_customers', label: 'Number of Unique Customers', type: 'value', aggregation: 'count', hierarchy: 'voucher' },
+      { value: 'unique_items', label: 'Number of Unique Items', type: 'value', aggregation: 'count', hierarchy: 'voucher' },
+      { value: 'unique_orders', label: 'Number of Unique Orders', type: 'value', aggregation: 'count', hierarchy: 'voucher' },
       // Date-derived fields
-      { value: 'month', label: 'Month', type: 'category' },
-      { value: 'year', label: 'Year', type: 'category' },
-      { value: 'quarter', label: 'Quarter', type: 'category' },
-      { value: 'week', label: 'Week', type: 'category' }
+      { value: 'month', label: 'Month', type: 'category', hierarchy: 'voucher' },
+      { value: 'year', label: 'Year', type: 'category', hierarchy: 'voucher' },
+      { value: 'quarter', label: 'Quarter', type: 'category', hierarchy: 'voucher' },
+      { value: 'week', label: 'Week', type: 'category', hierarchy: 'voucher' }
     ];
     
     derivedFields.forEach(field => {
@@ -18554,65 +20183,43 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       }
     });
     
-    // Convert back to array and remove duplicates by label (case-insensitive)
-    // This ensures we don't have multiple fields with the same label (e.g., "Date" appearing twice)
-    const uniqueFields = Array.from(fieldsMap.values());
-    const seenLabels = new Map(); // Use Map to store both label and field for easier replacement
-    
-    uniqueFields.forEach(field => {
-      const labelLower = field.label.toLowerCase();
-      
-      // For "Date" specifically, prioritize the consolidated one (value === 'date')
-      if (labelLower === 'date') {
-        if (!seenLabels.has('date')) {
-          // First "Date" field - add it
-          seenLabels.set('date', field);
-        } else {
-          // Already have a "Date" field - replace if this is the consolidated one
-          const existing = seenLabels.get('date');
-          if (field.value === 'date' && existing.value !== 'date') {
-            // Replace with consolidated "date" field
-            seenLabels.set('date', field);
-          }
-          // Otherwise keep the existing one (which should be the consolidated one)
-        }
-      } else {
-        // For other fields, only add if we haven't seen this label before
-        if (!seenLabels.has(labelLower)) {
-          seenLabels.set(labelLower, field);
-        }
+    // Add UDF fields
+    udfFields.forEach(field => {
+      const key = field.value.toLowerCase();
+      if (!fieldsMap.has(key)) {
+        fieldsMap.set(key, field);
       }
     });
     
-    const deduplicatedFields = Array.from(seenLabels.values());
-    const sortedFields = deduplicatedFields.sort((a, b) => a.label.localeCompare(b.label));
+    // Convert to array and sort by hierarchy, then by label
+    const allFieldsArray = Array.from(fieldsMap.values());
     
-    // Log date fields specifically to debug
-    const dateFields = sortedFields.filter(f => f.label.toLowerCase() === 'date');
-    if (dateFields.length > 1) {
-      console.warn('⚠️ Multiple "Date" fields found after deduplication:', dateFields.map(f => ({ value: f.value, type: f.type })));
-      // Force remove duplicates - keep only the one with value "date"
-      const dateFieldIndex = sortedFields.findIndex(f => f.label.toLowerCase() === 'date' && f.value === 'date');
-      if (dateFieldIndex >= 0) {
-        // Remove all other "Date" fields
-        for (let i = sortedFields.length - 1; i >= 0; i--) {
-          if (sortedFields[i].label.toLowerCase() === 'date' && i !== dateFieldIndex) {
-            sortedFields.splice(i, 1);
-          }
-        }
+    // Sort by hierarchy first, then by label
+    const hierarchyOrder = ['voucher', 'ledgerentries', 'billallocations', 
+                           'allinventoryentries', 'batchallocation', 'accountingallocation', 'address', 'udf'];
+    allFieldsArray.sort((a, b) => {
+      const aOrder = hierarchyOrder.indexOf(a.hierarchy || 'voucher') >= 0 ? hierarchyOrder.indexOf(a.hierarchy || 'voucher') : 999;
+      const bOrder = hierarchyOrder.indexOf(b.hierarchy || 'voucher') >= 0 ? hierarchyOrder.indexOf(b.hierarchy || 'voucher') : 999;
+      
+      if (aOrder !== bOrder) {
+        return aOrder - bOrder;
       }
-    }
+      
+      return a.label.localeCompare(b.label);
+    });
     
     console.log('📊 Available fields in Custom Card Modal:', {
-      totalFields: sortedFields.length,
-      categoryFields: sortedFields.filter(f => f.type === 'category').length,
-      valueFields: sortedFields.filter(f => f.type === 'value').length,
-      dateFieldsCount: dateFields.length,
-      sampleFields: sortedFields.slice(0, 10).map(f => `${f.label} (${f.type})`)
+      totalFields: allFieldsArray.length,
+      categoryFields: allFieldsArray.filter(f => f.type === 'category').length,
+      valueFields: allFieldsArray.filter(f => f.type === 'value').length,
+      cacheFields: cacheFields.length,
+      udfFields: udfFields.length,
+      hierarchyGroups: Object.keys(extracted.grouped || {}).length,
+      sampleFields: allFieldsArray.slice(0, 10).map(f => `${f.label} (${f.hierarchy || 'voucher'})`)
     });
     
-    return sortedFields;
-  }, [salesData]);
+    return allFieldsArray;
+  }, [salesData, udfFields, rawVoucherData]);
   
   // AI card generation function
   const generateCardWithAI = async (prompt) => {
@@ -18995,7 +20602,12 @@ IMPORTANT RULES:
     }
     
     const valuesSet = new Set();
+    
+    // Check if this is a nested array field (e.g., ledgerentries.ledgername)
+    const isNestedArrayField = currentFilterField.includes('.');
+    
     salesData.forEach(sale => {
+<<<<<<< HEAD
       // Use case-insensitive field access
       const fieldValue = sale[currentFilterField] || 
                         sale[currentFilterField.toLowerCase()] ||
@@ -19008,6 +20620,36 @@ IMPORTANT RULES:
         const stringValue = String(fieldValue).trim();
         if (stringValue) {
           valuesSet.add(stringValue);
+=======
+      if (isNestedArrayField) {
+        // For nested array fields, get all values from the array
+        const masterid = sale.masterid || sale.mstid;
+        let sourceObject = sale;
+        if (masterid && window.__voucherLookupMap) {
+          const voucher = window.__voucherLookupMap.get(String(masterid));
+          if (voucher) {
+            sourceObject = voucher;
+          }
+        }
+        // Get all values from nested array field
+        const allValues = getNestedFieldValues(sourceObject, currentFilterField);
+        allValues.forEach(val => {
+          if (val !== null && val !== undefined && val !== '') {
+            const stringValue = String(val).trim();
+            if (stringValue) {
+              valuesSet.add(stringValue);
+            }
+          }
+        });
+      } else {
+        // For regular fields, use helper function to get field value
+        const fieldValue = getFieldValueForFilter(sale, currentFilterField);
+        if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
+          const stringValue = String(fieldValue).trim();
+          if (stringValue) {
+            valuesSet.add(stringValue);
+          }
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
         }
       }
     });
@@ -19281,6 +20923,58 @@ IMPORTANT RULES:
       return;
     }
     
+<<<<<<< HEAD
+=======
+    // For yearCompare charts, validate differently
+    if (chartType === 'yearCompare') {
+      if (!yearCompareValue) {
+        alert('Please select a value field for year-wise comparison');
+        return;
+      }
+      
+      const cardConfig = {
+        title: cardTitle.trim(),
+        chartType: 'yearCompare',
+        yearCompareCategory: yearCompareCategory,
+        yearCompareValue: yearCompareValue,
+        valueField: yearCompareValue, // Required by API
+        aggregation: yearCompareAggregation, // Required by API
+        groupBy: yearCompareCategory, // Set groupBy to match category (month/quarter/week) - derived from date
+        overrideDateFilter: overrideDateFilter
+      };
+      
+      onCreate(cardConfig);
+      return;
+    }
+    
+    // For companyCompare charts, validate differently
+    if (chartType === 'companyCompare') {
+      if (!companyCompareValue) {
+        alert('Please select a value field for company-wise comparison');
+        return;
+      }
+      
+      if (!companyCompareCategory || companyCompareCategory.length === 0) {
+        alert('Please select at least one company for comparison');
+        return;
+      }
+      
+      const cardConfig = {
+        title: cardTitle.trim(),
+        chartType: 'companyCompare',
+        companyCompareCategory: companyCompareCategory,
+        companyCompareValue: companyCompareValue,
+        valueField: companyCompareValue, // Required by API
+        aggregation: companyCompareAggregation, // Required by API
+        groupBy: 'companyCompare', // Use a special identifier for company compare (not a real field)
+        overrideDateFilter: overrideDateFilter
+      };
+      
+      onCreate(cardConfig);
+      return;
+    }
+    
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
     // For multiAxis charts, validate differently
     if (chartType === 'multiAxis') {
       if (!multiAxisSeries || multiAxisSeries.length === 0) {
@@ -19833,6 +21527,11 @@ IMPORTANT RULES:
             <option value="line">Line Chart</option>
             <option value="table">Table</option>
             <option value="multiAxis">Multi Axis (Bar/Line)</option>
+<<<<<<< HEAD
+=======
+            <option value="yearCompare">Compare year wise</option>
+            <option value="companyCompare">Compare company wise</option>
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
             {supportsMapVisualization.isMapEligible && (
               <option value="geoMap">Geographic Map</option>
             )}
@@ -19847,8 +21546,311 @@ IMPORTANT RULES:
           </p>
         </div>
 
+<<<<<<< HEAD
         {/* Choose fields to add to report - Hide for Multi-Axis */}
         {chartType !== 'multiAxis' && (
+=======
+        {/* Company Compare specific fields */}
+        {chartType === 'companyCompare' && (
+          <>
+            <div>
+              <label style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569',
+                marginBottom: '6px',
+                letterSpacing: '0.01em'
+              }}>
+                Category (Companies) <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <select
+                multiple
+                value={companyCompareCategory}
+                onChange={(e) => {
+                  const selected = Array.from(e.target.selectedOptions, option => option.value);
+                  setCompanyCompareCategory(selected);
+                }}
+                style={{
+                  width: '100%',
+                  padding: '11px 14px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                  background: '#ffffff',
+                  color: '#1e293b',
+                  boxSizing: 'border-box',
+                  cursor: 'pointer',
+                  minHeight: '100px'
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0';
+                  e.target.style.boxShadow = 'none';
+                }}
+              >
+                {(() => {
+                  const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+                  return companies.map(company => (
+                    <option key={company.guid} value={company.guid}>
+                      {company.company || company.name || company.guid}
+                    </option>
+                  ));
+                })()}
+              </select>
+              <p style={{
+                margin: '6px 0 0 0',
+                fontSize: '11px',
+                color: '#64748b',
+                fontStyle: 'italic'
+              }}>
+                Hold Ctrl/Cmd to select multiple companies. All companies selected by default.
+              </p>
+            </div>
+
+            <div>
+              <label style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569',
+                marginBottom: '6px',
+                letterSpacing: '0.01em'
+              }}>
+                Values <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+                <select
+                  value={companyCompareValue}
+                  onChange={(e) => setCompanyCompareValue(e.target.value)}
+                  required
+                  style={{
+                    flex: 1,
+                    padding: '11px 14px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    transition: 'all 0.15s ease',
+                    background: '#ffffff',
+                    color: '#1e293b',
+                    boxSizing: 'border-box',
+                    cursor: 'pointer'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#e2e8f0';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                >
+                  <option value="">Select a numeric field...</option>
+                  {allFields.filter(f => f.type === 'value').map(field => (
+                    <option key={field.value} value={field.value}>
+                      {field.label}
+                    </option>
+                  ))}
+                </select>
+                {companyCompareValue && (
+                  <div style={{ flex: '0 0 auto', minWidth: '140px' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      color: '#475569',
+                      marginBottom: '6px',
+                      letterSpacing: '0.01em'
+                    }}>
+                      Aggregation
+                    </label>
+                    <select
+                      value={companyCompareAggregation}
+                      onChange={(e) => setCompanyCompareAggregation(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '11px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        transition: 'all 0.15s ease',
+                        background: '#ffffff',
+                        color: '#1e293b',
+                        boxSizing: 'border-box',
+                        cursor: 'pointer'
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = '#3b82f6';
+                        e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = '#e2e8f0';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                    >
+                      <option value="sum">Sum</option>
+                      <option value="average">Average</option>
+                      <option value="count">Count</option>
+                      <option value="min">Min</option>
+                      <option value="max">Max</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Year Compare specific fields */}
+        {chartType === 'yearCompare' && (
+          <>
+            <div>
+              <label style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569',
+                marginBottom: '6px',
+                letterSpacing: '0.01em'
+              }}>
+                Category <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <select
+                value={yearCompareCategory}
+                onChange={(e) => setYearCompareCategory(e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '11px 14px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '8px',
+                  fontSize: '14px',
+                  outline: 'none',
+                  transition: 'all 0.15s ease',
+                  background: '#ffffff',
+                  color: '#1e293b',
+                  boxSizing: 'border-box',
+                  cursor: 'pointer'
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = '#3b82f6';
+                  e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = '#e2e8f0';
+                  e.target.style.boxShadow = 'none';
+                }}
+              >
+                <option value="month">Month</option>
+                <option value="quarter">Quarter</option>
+                <option value="week">Week</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{
+                display: 'block',
+                fontSize: '13px',
+                fontWeight: '500',
+                color: '#475569',
+                marginBottom: '6px',
+                letterSpacing: '0.01em'
+              }}>
+                Values <span style={{ color: '#ef4444' }}>*</span>
+              </label>
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+                <select
+                  value={yearCompareValue}
+                  onChange={(e) => setYearCompareValue(e.target.value)}
+                  required
+                  style={{
+                    flex: 1,
+                    padding: '11px 14px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '8px',
+                    fontSize: '14px',
+                    outline: 'none',
+                    transition: 'all 0.15s ease',
+                    background: '#ffffff',
+                    color: '#1e293b',
+                    boxSizing: 'border-box',
+                    cursor: 'pointer'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = '#3b82f6';
+                    e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = '#e2e8f0';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                >
+                  <option value="">Select a numeric field...</option>
+                  {allFields.filter(f => f.type === 'value').map(field => (
+                    <option key={field.value} value={field.value}>
+                      {field.label}
+                    </option>
+                  ))}
+                </select>
+                {yearCompareValue && (
+                  <div style={{ flex: '0 0 auto', minWidth: '140px' }}>
+                    <label style={{
+                      display: 'block',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      color: '#475569',
+                      marginBottom: '6px',
+                      letterSpacing: '0.01em'
+                    }}>
+                      Aggregation
+                    </label>
+                    <select
+                      value={yearCompareAggregation}
+                      onChange={(e) => setYearCompareAggregation(e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '11px 14px',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        fontSize: '14px',
+                        outline: 'none',
+                        transition: 'all 0.15s ease',
+                        background: '#ffffff',
+                        color: '#1e293b',
+                        boxSizing: 'border-box',
+                        cursor: 'pointer'
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = '#3b82f6';
+                        e.target.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = '#e2e8f0';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                    >
+                      <option value="sum">Sum</option>
+                      <option value="average">Average</option>
+                      <option value="count">Count</option>
+                      <option value="min">Min</option>
+                      <option value="max">Max</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Choose fields to add to report - Hide for Multi-Axis, Year Compare, and Company Compare */}
+        {chartType !== 'multiAxis' && chartType !== 'yearCompare' && chartType !== 'companyCompare' && (
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
         <div>
           <label style={{
             display: 'block',
@@ -19897,133 +21899,13 @@ IMPORTANT RULES:
             }}>search</span>
           </div>
           
-          {/* Fields list with checkboxes */}
-          <div style={{
-            background: '#ffffff',
-            border: '1px solid #e2e8f0',
-            borderRadius: '8px',
-            padding: '12px',
-            maxHeight: '300px',
-            overflowY: 'auto'
-          }}>
-            {filteredFields.length === 0 ? (
-              <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8' }}>
-                No fields found
-              </div>
-            ) : (
-              (() => {
-                // Group date-related fields together on the same row
-                const dateFields = ['date', 'month', 'year', 'quarter'];
-                const dateFieldsToShow = filteredFields.filter(field => 
-                  dateFields.includes(field.value.toLowerCase())
-                );
-                const otherFields = filteredFields.filter(field => 
-                  !dateFields.includes(field.value.toLowerCase())
-                );
-                
-                return (
-                  <>
-                    {/* Date/Month/Year/Quarter fields on the same row */}
-                    {dateFieldsToShow.length > 0 && (
-                      <div style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: '0',
-                        padding: '8px',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        transition: 'background 0.15s ease'
-                      }}>
-                        {dateFieldsToShow.map((field, index) => (
-                          <div
-                            key={field.value}
-                            style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              flex: '1 1 auto',
-                              minWidth: 'fit-content'
-                            }}
-                            onClick={() => handleFieldToggle(field.value)}
-                          >
-                            <div style={{
-                              width: '18px',
-                              height: '18px',
-                              border: selectedFields.has(field.value) ? 'none' : '2px solid #cbd5e1',
-                              borderRadius: '4px',
-                              background: selectedFields.has(field.value) ? '#10b981' : 'transparent',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              marginRight: '10px',
-                              flexShrink: 0
-                            }}>
-                              {selectedFields.has(field.value) && (
-                                <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
-                              )}
-                            </div>
-                            <span style={{
-                              fontSize: '14px',
-                              fontWeight: selectedFields.has(field.value) ? '600' : '400',
-                              color: '#1e293b',
-                              marginRight: index < dateFieldsToShow.length - 1 ? '20px' : '0'
-                            }}>
-                              {field.label}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    
-                    {/* Other fields displayed normally */}
-                    {otherFields.map((field) => (
-                      <div
-                        key={field.value}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          padding: '8px',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          transition: 'background 0.15s ease'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = '#f8fafc';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'transparent';
-                        }}
-                        onClick={() => handleFieldToggle(field.value)}
-                      >
-                        <div style={{
-                          width: '18px',
-                          height: '18px',
-                          border: selectedFields.has(field.value) ? 'none' : '2px solid #cbd5e1',
-                          borderRadius: '4px',
-                          background: selectedFields.has(field.value) ? '#10b981' : 'transparent',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          marginRight: '10px',
-                          flexShrink: 0
-                        }}>
-                          {selectedFields.has(field.value) && (
-                            <span className="material-icons" style={{ fontSize: '14px', color: 'white' }}>check</span>
-                          )}
-                        </div>
-                        <span style={{
-                          fontSize: '14px',
-                          fontWeight: selectedFields.has(field.value) ? '600' : '400',
-                          color: '#1e293b'
-                        }}>
-                          {field.label}
-                        </span>
-                      </div>
-                    ))}
-                  </>
-                );
-              })()
-            )}
-          </div>
+          {/* Fields list with hierarchical structure */}
+          <HierarchicalFieldList
+            fields={filteredFields}
+            selectedFields={selectedFields}
+            onFieldToggle={handleFieldToggle}
+            searchTerm={searchTerm}
+          />
         </div>
         )}
 
@@ -20570,76 +22452,14 @@ IMPORTANT RULES:
               }}>search</span>
             </div>
 
-            {/* Fields List with Radio/Single Selection */}
-            <div style={{
-              background: '#ffffff',
-              border: '1px solid #e2e8f0',
-              borderRadius: '8px',
-              padding: '12px',
-              maxHeight: '200px',
-              overflowY: 'auto'
-            }}>
-              {filteredAvailableFilterFields.length === 0 ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
-                  {filterFieldSearchTerm ? 'No fields match your search' : 'No fields available'}
-                </div>
-              ) : (
-                filteredAvailableFilterFields.map((field) => (
-                  <div
-                    key={field.value}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '8px',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      transition: 'background 0.15s ease',
-                      background: currentFilterField === field.value ? '#eff6ff' : 'transparent'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (currentFilterField !== field.value) {
-                        e.currentTarget.style.background = '#f8fafc';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (currentFilterField !== field.value) {
-                        e.currentTarget.style.background = 'transparent';
-                      }
-                    }}
-                    onClick={() => handleFilterFieldChange(field.value)}
-                  >
-                    <div style={{
-                      width: '18px',
-                      height: '18px',
-                      border: currentFilterField === field.value ? 'none' : '2px solid #cbd5e1',
-                      borderRadius: '50%',
-                      background: currentFilterField === field.value ? '#3b82f6' : 'transparent',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      marginRight: '10px',
-                      flexShrink: 0
-                    }}>
-                      {currentFilterField === field.value && (
-                        <div style={{
-                          width: '6px',
-                          height: '6px',
-                          borderRadius: '50%',
-                          background: 'white'
-                        }}></div>
-                      )}
-                    </div>
-                    <span style={{
-                      fontSize: '14px',
-                      fontWeight: currentFilterField === field.value ? '600' : '400',
-                      color: currentFilterField === field.value ? '#1e40af' : '#1e293b'
-                    }}>
-                      {field.label}
-                    </span>
-                  </div>
-                ))
-              )}
-            </div>
+            {/* Fields List with Hierarchical Structure */}
+            <HierarchicalFieldList
+              fields={filteredAvailableFilterFields}
+              selectedFields={currentFilterField ? new Set([currentFilterField]) : new Set()}
+              onFieldToggle={(fieldValue) => handleFilterFieldChange(fieldValue)}
+              searchTerm={filterFieldSearchTerm}
+              selectionMode="single"
+            />
           </div>
 
           {/* Search input for filter values */}
@@ -21527,6 +23347,17 @@ const CustomCard = React.memo(({
   formatChartValue,
   formatChartCompactValue
 }) => {
+<<<<<<< HEAD
+=======
+  // Tooltip state for yearCompare charts - must be declared at the top (Rules of Hooks)
+  const [yearCompareTooltip, setYearCompareTooltip] = useState(null);
+  // Tooltip state for companyCompare charts
+  const [companyCompareTooltip, setCompanyCompareTooltip] = useState(null);
+  // Loading state for company compare data
+  const [companyCompareLoading, setCompanyCompareLoading] = useState(false);
+  const [companyCompareCardData, setCompanyCompareCardData] = useState(null);
+  
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
   // Log when date override is enabled (salesData will be all sales instead of filtered)
   useMemo(() => {
     if (card.overrideDateFilter) {
@@ -21535,7 +23366,116 @@ const CustomCard = React.memo(({
     return null;
   }, [card.overrideDateFilter, card.title, salesData.length]);
   
+<<<<<<< HEAD
   const cardData = useMemo(() => generateCustomCardData(card, salesData), [card, salesData, generateCustomCardData]);
+=======
+  useEffect(() => {
+    if (card.chartType === 'companyCompare') {
+      setCompanyCompareLoading(true);
+      const fetchData = async () => {
+        try {
+          const data = await generateCustomCardData(card, salesData);
+          console.log('📊 Company compare data fetched:', data);
+          // Ensure data structure is correct
+          if (data && data.data && Array.isArray(data.data)) {
+            setCompanyCompareCardData(data);
+          } else {
+            console.warn('Invalid company compare data structure:', data);
+            setCompanyCompareCardData({ data: [], companies: [], valueField: '' });
+          }
+        } catch (error) {
+          console.error('Error fetching company compare data:', error);
+          setCompanyCompareCardData({ data: [], companies: [], valueField: '' });
+        } finally {
+          setCompanyCompareLoading(false);
+        }
+      };
+      fetchData();
+    } else {
+      setCompanyCompareCardData(null);
+    }
+  }, [card, salesData, generateCustomCardData]);
+  
+  const cardData = useMemo(() => {
+    // For company compare, return the async data (or empty structure if null)
+    if (card.chartType === 'companyCompare') {
+      return companyCompareCardData || { data: [], companies: [], valueField: '' };
+    }
+    // For other chart types, use synchronous generation
+    return generateCustomCardData(card, salesData);
+  }, [card, salesData, generateCustomCardData, companyCompareCardData]);
+  
+  // Compute state-level data for country drilldown (for custom cards)
+  const customCountryStateChartData = useMemo(() => {
+    if (selectedCountry === 'all') {
+      return [];
+    }
+    
+    const normalizedCountry = String(selectedCountry).trim().toLowerCase();
+    const isIndia = normalizedCountry === 'india' || normalizedCountry === 'ind' || normalizedCountry === 'in';
+    
+    if (!isIndia) {
+      return [];
+    }
+    
+    // Group by region/state for the selected country
+    const stateMap = {};
+    salesData.forEach((sale) => {
+      const saleCountry = String(sale.country || 'Unknown').trim().toLowerCase();
+      if (saleCountry === 'india' || saleCountry === 'ind' || saleCountry === 'in') {
+        const region = sale.region || 'Unknown';
+        if (!stateMap[region]) {
+          stateMap[region] = 0;
+        }
+        stateMap[region] += parseFloat(sale.amount) || 0;
+      }
+    });
+    
+    return Object.entries(stateMap)
+      .map(([name, value]) => ({ name, value }))
+      .filter(item => item.name !== 'Unknown')
+      .sort((a, b) => b.value - a.value);
+  }, [salesData, selectedCountry]);
+  
+  // Compute pincode-level data for region drilldown (for custom cards)
+  const customRegionPincodeChartData = useMemo(() => {
+    if (selectedRegion === 'all') {
+      return [];
+    }
+    
+    // Group by pincode for the selected region
+    const pincodeMap = {};
+    salesData.forEach((sale) => {
+      const saleRegion = String(sale.region || '').trim().toLowerCase();
+      const selectedRegionLower = String(selectedRegion).trim().toLowerCase();
+      
+      // For country drilldown, also filter by country
+      if (selectedCountry !== 'all') {
+        const saleCountry = String(sale.country || '').trim().toLowerCase();
+        const selectedCountryLower = String(selectedCountry).trim().toLowerCase();
+        if (saleCountry !== selectedCountryLower && 
+            !(saleCountry === 'india' && (selectedCountryLower === 'ind' || selectedCountryLower === 'in')) &&
+            !(saleCountry === 'ind' && (selectedCountryLower === 'india' || selectedCountryLower === 'in')) &&
+            !(saleCountry === 'in' && (selectedCountryLower === 'india' || selectedCountryLower === 'ind'))) {
+          return;
+        }
+      }
+      
+      if (saleRegion === selectedRegionLower) {
+        const pincode = sale.pincode || 'Unknown';
+        if (!pincodeMap[pincode]) {
+          pincodeMap[pincode] = 0;
+        }
+        pincodeMap[pincode] += parseFloat(sale.amount) || 0;
+      }
+    });
+    
+    return Object.entries(pincodeMap)
+      .map(([name, value]) => ({ name, value }))
+      .filter(item => item.name !== 'Unknown')
+      .sort((a, b) => b.value - a.value);
+  }, [salesData, selectedRegion, selectedCountry]);
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
 
   // Multi-axis data builder using existing generateCustomCardData for each series
   const multiAxisData = useMemo(() => {
@@ -21949,6 +23889,11 @@ const CustomCard = React.memo(({
       return null;
     }
     
+    // Handle nested field paths (dot notation)
+    if (fieldName.includes('.')) {
+      return getNestedFieldValue(item, fieldName);
+    }
+    
     if (item[fieldName] !== undefined) return item[fieldName];
     if (item[fieldName.toLowerCase()] !== undefined) return item[fieldName.toLowerCase()];
     if (item[fieldName.toUpperCase()] !== undefined) return item[fieldName.toUpperCase()];
@@ -22179,7 +24124,20 @@ const CustomCard = React.memo(({
     };
   };
 
+<<<<<<< HEAD
   const valuePrefix = card.valueField === 'amount' || card.valueField === 'profit' || card.valueField === 'tax_amount' || card.valueField === 'order_value' || card.valueField === 'avg_order_value' || card.valueField === 'avg_amount' || card.valueField === 'avg_profit' || card.valueField === 'profit_per_quantity' ? '₹' : '';
+=======
+  const valuePrefix = (card.chartType === 'yearCompare' || card.chartType === 'companyCompare')
+    ? ((card.yearCompareValue || card.companyCompareValue) === 'amount' || 
+       (card.yearCompareValue || card.companyCompareValue) === 'profit' || 
+       (card.yearCompareValue || card.companyCompareValue) === 'tax_amount' || 
+       (card.yearCompareValue || card.companyCompareValue) === 'order_value' || 
+       (card.yearCompareValue || card.companyCompareValue) === 'avg_order_value' || 
+       (card.yearCompareValue || card.companyCompareValue) === 'avg_amount' || 
+       (card.yearCompareValue || card.companyCompareValue) === 'avg_profit' || 
+       (card.yearCompareValue || card.companyCompareValue) === 'profit_per_quantity' ? '₹' : '')
+    : (card.valueField === 'amount' || card.valueField === 'profit' || card.valueField === 'tax_amount' || card.valueField === 'order_value' || card.valueField === 'avg_order_value' || card.valueField === 'avg_amount' || card.valueField === 'avg_profit' || card.valueField === 'profit_per_quantity' ? '₹' : '');
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
 
   // Raw data button style (matching other cards)
   const rawDataIconButtonStyle = {
@@ -22264,6 +24222,7 @@ const CustomCard = React.memo(({
         {renderCardFilterBadges('custom', card.id)}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+<<<<<<< HEAD
         <select
           value={chartType}
           onChange={(e) => onChartTypeChange(e.target.value)}
@@ -22286,6 +24245,32 @@ const CustomCard = React.memo(({
             <option value="geoMap">Geographic Map</option>
           )}
         </select>
+=======
+        {chartType !== 'yearCompare' && chartType !== 'companyCompare' && (
+          <select
+            value={chartType}
+            onChange={(e) => onChartTypeChange(e.target.value)}
+            style={{
+              padding: '6px 12px',
+              border: '1px solid #d1d5db',
+              borderRadius: '6px',
+              fontSize: '12px',
+              background: 'white',
+              color: '#374151'
+            }}
+          >
+            <option value="bar">Bar</option>
+            <option value="pie">Pie</option>
+            <option value="treemap">Tree Map</option>
+            <option value="line">Line</option>
+            <option value="table">Table</option>
+            <option value="multiAxis">Multi Axis</option>
+            {supportsMapVisualization.isMapEligible && (
+              <option value="geoMap">Geographic Map</option>
+            )}
+          </select>
+        )}
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
         {onEdit && (
           <button
             type="button"
@@ -22349,16 +24334,24 @@ const CustomCard = React.memo(({
   // Determine if we should show the card
   const shouldShowCard = chartType === 'multiAxis' 
     ? (multiAxisData && multiAxisData.series && multiAxisData.series.length > 0)
+<<<<<<< HEAD
     : (cardData.length > 0);
+=======
+    : chartType === 'yearCompare' || chartType === 'companyCompare'
+    ? (cardData && cardData.data && Array.isArray(cardData.data))
+    : (cardData && Array.isArray(cardData) && cardData.length > 0);
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
 
   console.log('🎯 CustomCard Render Decision:', {
     cardId: card.id,
     cardTitle: card.title,
     chartType,
     shouldShowCard,
-    cardDataLength: cardData.length,
+    cardDataLength: Array.isArray(cardData) ? cardData.length : (cardData?.data?.length || 0),
+    cardDataStructure: cardData ? (Array.isArray(cardData) ? 'array' : typeof cardData) : 'null/undefined',
     hasMultiAxisData: !!multiAxisData,
-    multiAxisSeriesCount: multiAxisData?.series?.length
+    multiAxisSeriesCount: multiAxisData?.series?.length,
+    companyCompareData: chartType === 'companyCompare' ? cardData : undefined
   });
 
   return (
@@ -22640,6 +24633,522 @@ const CustomCard = React.memo(({
               }}
             />
           )}
+<<<<<<< HEAD
+=======
+          {chartType === 'yearCompare' && cardData && cardData.data && (
+            <div style={{
+              background: 'white',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              overflow: 'hidden',
+              position: 'relative'
+            }}>
+              <div style={{
+                padding: '8px 12px',
+                flexShrink: 0
+              }}>
+                {customHeader}
+              </div>
+              <div style={{ 
+                flex: 1, 
+                minHeight: 0, 
+                overflow: 'hidden', 
+                display: 'flex', 
+                alignItems: 'stretch', 
+                justifyContent: 'stretch',
+                padding: '8px',
+                position: 'relative'
+              }}>
+                {cardData.data && cardData.data.length > 0 ? (
+                  <>
+                    <svg viewBox="0 0 600 360" preserveAspectRatio="none" style={{ width: '100%', height: '100%', minHeight: 0, maxHeight: '100%' }}>
+                      {(() => {
+                        const maxValue = Math.max(...cardData.data.map(d => d.value), 1);
+                        const chartWidth = 560;
+                        const chartHeight = 300;
+                        const chartStartX = 50; // Increased to make room for Y-axis labels
+                        const chartStartY = 20;
+                        
+                        // Group data by category
+                        const dataByCategory = {};
+                        cardData.data.forEach(item => {
+                          if (!dataByCategory[item.category]) {
+                            dataByCategory[item.category] = [];
+                          }
+                          dataByCategory[item.category].push(item);
+                        });
+                        
+                        const categories = cardData.categories || Object.keys(dataByCategory);
+                        const years = cardData.years || [];
+                        const barWidth = chartWidth / categories.length;
+                        const barGroupWidth = barWidth * 0.8; // Use 80% of space for bars
+                        const barSpacing = barGroupWidth / years.length;
+                        
+                        // Color palette for years
+                        const yearColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+                        
+                        // Generate Y-axis tick values
+                        const numTicks = 5;
+                        const tickValues = [];
+                        for (let i = 0; i <= numTicks; i++) {
+                          tickValues.push((maxValue / numTicks) * i);
+                        }
+                        
+                        return (
+                          <>
+                            {/* Horizontal grid lines */}
+                            {tickValues.map((tickValue, index) => {
+                              const y = chartStartY + chartHeight - (tickValue / maxValue) * chartHeight;
+                              return (
+                                <line
+                                  key={`grid-${index}`}
+                                  x1={chartStartX}
+                                  y1={y}
+                                  x2={chartStartX + chartWidth}
+                                  y2={y}
+                                  stroke="#e5e7eb"
+                                  strokeWidth="1"
+                                />
+                              );
+                            })}
+                            
+                            {/* Y-axis line */}
+                            <line
+                              x1={chartStartX}
+                              y1={chartStartY}
+                              x2={chartStartX}
+                              y2={chartStartY + chartHeight}
+                              stroke="#cbd5e1"
+                              strokeWidth="1"
+                            />
+                            
+                            {/* Y-axis ticks and labels */}
+                            {tickValues.map((tickValue, index) => {
+                              const y = chartStartY + chartHeight - (tickValue / maxValue) * chartHeight;
+                              return (
+                                <g key={index}>
+                                  <line
+                                    x1={chartStartX - 5}
+                                    y1={y}
+                                    x2={chartStartX}
+                                    y2={y}
+                                    stroke="#cbd5e1"
+                                    strokeWidth="1"
+                                  />
+                                  <text
+                                    x={chartStartX - 8}
+                                    y={y + 4}
+                                    textAnchor="end"
+                                    style={{ fontSize: '10px', fill: '#64748b' }}
+                                  >
+                                    {formatChartCompactValue(tickValue, '')}
+                                  </text>
+                                </g>
+                              );
+                            })}
+                            
+                            {categories.map((category, catIndex) => {
+                              const x = chartStartX + catIndex * barWidth;
+                              const categoryData = dataByCategory[category] || [];
+                              
+                              return (
+                                <g key={category}>
+                                  {years.map((year, yearIndex) => {
+                                    const item = categoryData.find(d => d.year === year);
+                                    const value = item ? item.value : 0;
+                                    const barHeight = (value / maxValue) * chartHeight;
+                                    const barX = x + (barWidth - barGroupWidth) / 2 + yearIndex * barSpacing;
+                                    const barY = chartStartY + chartHeight - barHeight;
+                                    const color = yearColors[yearIndex % yearColors.length];
+                                    const formattedValue = formatChartValue(value, valuePrefix);
+                                    
+                                    return (
+                                      <g key={`${category}-${year}`}>
+                                        <rect
+                                          x={barX}
+                                          y={barY}
+                                          width={barSpacing * 0.9}
+                                          height={barHeight}
+                                          fill={color}
+                                          onClick={() => {
+                                            // Could add click handler for filtering
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            const containerDiv = e.currentTarget.closest('div[style*="position: relative"]');
+                                            if (containerDiv) {
+                                              const containerRect = containerDiv.getBoundingClientRect();
+                                              const barRect = e.currentTarget.getBoundingClientRect();
+                                              const xPos = barRect.left - containerRect.left + barRect.width / 2;
+                                              const yPos = barRect.top - containerRect.top + barRect.height / 2;
+                                              
+                                              setYearCompareTooltip({
+                                                category,
+                                                year,
+                                                value: formattedValue,
+                                                x: xPos,
+                                                y: yPos
+                                              });
+                                            }
+                                          }}
+                                          onMouseLeave={() => {
+                                            setYearCompareTooltip(null);
+                                          }}
+                                          style={{ cursor: 'pointer' }}
+                                        />
+                                      </g>
+                                    );
+                                  })}
+                                  <text
+                                    x={x + barWidth / 2}
+                                    y={chartStartY + chartHeight + 25}
+                                    textAnchor="middle"
+                                    style={{ fontSize: '10px', fill: '#6b7280' }}
+                                    transform={`rotate(-45 ${x + barWidth / 2} ${chartStartY + chartHeight + 25})`}
+                                  >
+                                    {category}
+                                  </text>
+                                </g>
+                              );
+                            })}
+                            
+                            {/* Legend */}
+                            <g transform="translate(20, 5)">
+                              {years.map((year, index) => {
+                                const color = yearColors[index % yearColors.length];
+                                return (
+                                  <g key={year} transform={`translate(0, ${index * 20})`}>
+                                    <rect x="0" y="0" width="15" height="10" fill={color} />
+                                    <text x="20" y="9" style={{ fontSize: '12px', fill: '#1e293b' }}>{year}</text>
+                                  </g>
+                                );
+                              })}
+                            </g>
+                          </>
+                        );
+                      })()}
+                    </svg>
+                    
+                    {/* Tooltip */}
+                    {yearCompareTooltip && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: `${yearCompareTooltip.x}px`,
+                          top: `${yearCompareTooltip.y}px`,
+                          transform: 'translate(-50%, -50%)',
+                          background: 'rgba(15, 23, 42, 0.95)',
+                          color: 'white',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          pointerEvents: 'none',
+                          zIndex: 1000,
+                          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <div style={{ marginBottom: '4px', fontWeight: '600' }}>
+                          {yearCompareTooltip.category} {yearCompareTooltip.year}
+                        </div>
+                        <div style={{ fontSize: '11px', opacity: 0.9 }}>
+                          {yearCompareTooltip.value}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ textAlign: 'center', color: '#6b7280', padding: '40px' }}>
+                    No data available
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {chartType === 'companyCompare' && (
+            companyCompareLoading ? (
+              <div style={{
+                background: 'white',
+                borderRadius: '12px',
+                border: '1px solid #e2e8f0',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                display: 'flex',
+                flexDirection: 'column',
+                height: '100%',
+                overflow: 'hidden',
+                position: 'relative'
+              }}>
+                <div style={{
+                  padding: '8px 12px',
+                  flexShrink: 0
+                }}>
+                  {customHeader}
+                </div>
+                <div style={{ 
+                  flex: 1, 
+                  minHeight: 0, 
+                  overflow: 'hidden', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  position: 'relative'
+                }}>
+                  <div style={{ textAlign: 'center', color: '#6b7280', padding: '40px' }}>
+                    Loading company data...
+                  </div>
+                </div>
+              </div>
+            ) : (cardData && cardData.data && Array.isArray(cardData.data) && cardData.data.length > 0 ? (
+            <div style={{
+              background: 'white',
+              borderRadius: '12px',
+              border: '1px solid #e2e8f0',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+              display: 'flex',
+              flexDirection: 'column',
+              height: '100%',
+              overflow: 'hidden',
+              position: 'relative'
+            }}>
+              <div style={{
+                padding: '8px 12px',
+                flexShrink: 0
+              }}>
+                {customHeader}
+              </div>
+              <div style={{ 
+                flex: 1, 
+                minHeight: 0, 
+                overflow: 'hidden', 
+                display: 'flex', 
+                alignItems: 'stretch', 
+                justifyContent: 'stretch',
+                padding: '8px',
+                position: 'relative'
+              }}>
+                {cardData.data && cardData.data.length > 0 ? (
+                  <>
+                    <svg viewBox="0 0 600 360" preserveAspectRatio="none" style={{ width: '100%', height: '100%', minHeight: 0, maxHeight: '100%' }}>
+                      {(() => {
+                        if (!cardData || !cardData.data || !Array.isArray(cardData.data) || cardData.data.length === 0) {
+                          return <text x="300" y="180" textAnchor="middle" style={{ fontSize: '14px', fill: '#6b7280' }}>No data available</text>;
+                        }
+                        
+                        const maxValue = Math.max(...cardData.data.map(d => (d && d.value !== undefined && d.value !== null ? d.value : 0)), 1);
+                        const chartWidth = 560;
+                        const chartHeight = 300;
+                        const chartStartX = 50;
+                        const chartStartY = 20;
+                        
+                        // Group data by category (month)
+                        const dataByCategory = {};
+                        cardData.data.forEach(item => {
+                          if (!dataByCategory[item.category]) {
+                            dataByCategory[item.category] = [];
+                          }
+                          dataByCategory[item.category].push(item);
+                        });
+                        
+                        const categories = cardData.categories || Object.keys(dataByCategory);
+                        const companies = cardData.companies || [];
+                        if (!categories || categories.length === 0) {
+                          return <text x="300" y="180" textAnchor="middle" style={{ fontSize: '14px', fill: '#6b7280' }}>No data available</text>;
+                        }
+                        if (!companies || companies.length === 0) {
+                          return <text x="300" y="180" textAnchor="middle" style={{ fontSize: '14px', fill: '#6b7280' }}>No companies to compare</text>;
+                        }
+                        
+                        const barWidth = chartWidth / categories.length;
+                        const barGroupWidth = barWidth * 0.8; // Use 80% of space for bars
+                        const barSpacing = barGroupWidth / companies.length;
+                        
+                        // Color palette for companies
+                        const companyColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
+                        
+                        // Generate Y-axis tick values
+                        const numTicks = 5;
+                        const tickValues = [];
+                        for (let i = 0; i <= numTicks; i++) {
+                          tickValues.push((maxValue / numTicks) * i);
+                        }
+                        
+                        return (
+                          <>
+                            {/* Horizontal grid lines */}
+                            {tickValues.map((tickValue, index) => {
+                              const y = chartStartY + chartHeight - (tickValue / maxValue) * chartHeight;
+                              return (
+                                <line
+                                  key={`grid-${index}`}
+                                  x1={chartStartX}
+                                  y1={y}
+                                  x2={chartStartX + chartWidth}
+                                  y2={y}
+                                  stroke="#e5e7eb"
+                                  strokeWidth="1"
+                                />
+                              );
+                            })}
+                            
+                            {/* Y-axis line */}
+                            <line
+                              x1={chartStartX}
+                              y1={chartStartY}
+                              x2={chartStartX}
+                              y2={chartStartY + chartHeight}
+                              stroke="#cbd5e1"
+                              strokeWidth="1"
+                            />
+                            
+                            {/* Y-axis ticks and labels */}
+                            {tickValues.map((tickValue, index) => {
+                              const y = chartStartY + chartHeight - (tickValue / maxValue) * chartHeight;
+                              return (
+                                <g key={index}>
+                                  <line
+                                    x1={chartStartX - 5}
+                                    y1={y}
+                                    x2={chartStartX}
+                                    y2={y}
+                                    stroke="#cbd5e1"
+                                    strokeWidth="1"
+                                  />
+                                  <text
+                                    x={chartStartX - 8}
+                                    y={y + 4}
+                                    textAnchor="end"
+                                    style={{ fontSize: '10px', fill: '#64748b' }}
+                                  >
+                                    {formatChartCompactValue(tickValue, '')}
+                                  </text>
+                                </g>
+                              );
+                            })}
+                            
+                            {categories.map((category, catIndex) => {
+                              const x = chartStartX + catIndex * barWidth;
+                              const categoryData = dataByCategory[category] || [];
+                              
+                              return (
+                                <g key={category}>
+                                  {companies.map((company, companyIndex) => {
+                                    const item = categoryData.find(d => d.company === company);
+                                    const value = item ? item.value : 0;
+                                    const barHeight = (value / maxValue) * chartHeight;
+                                    const barX = x + (barWidth - barGroupWidth) / 2 + companyIndex * barSpacing;
+                                    const barY = chartStartY + chartHeight - barHeight;
+                                    const color = companyColors[companyIndex % companyColors.length];
+                                    const formattedValue = formatChartValue(value, valuePrefix);
+                                    
+                                    return (
+                                      <g key={`${category}-${company}`}>
+                                        <rect
+                                          x={barX}
+                                          y={barY}
+                                          width={barSpacing * 0.9}
+                                          height={barHeight}
+                                          fill={color}
+                                          onClick={() => {
+                                            // Could add click handler for filtering
+                                          }}
+                                          onMouseEnter={(e) => {
+                                            const containerDiv = e.currentTarget.closest('div[style*="position: relative"]');
+                                            if (containerDiv) {
+                                              const containerRect = containerDiv.getBoundingClientRect();
+                                              const barRect = e.currentTarget.getBoundingClientRect();
+                                              const xPos = barRect.left - containerRect.left + barRect.width / 2;
+                                              const yPos = barRect.top - containerRect.top + barRect.height / 2;
+                                              
+                                              setCompanyCompareTooltip({
+                                                category,
+                                                company,
+                                                value: formattedValue,
+                                                x: xPos,
+                                                y: yPos
+                                              });
+                                            }
+                                          }}
+                                          onMouseLeave={() => {
+                                            setCompanyCompareTooltip(null);
+                                          }}
+                                          style={{ cursor: 'pointer' }}
+                                        />
+                                      </g>
+                                    );
+                                  })}
+                                  
+                                  {/* Category label */}
+                                  <text
+                                    x={x + barWidth / 2}
+                                    y={chartStartY + chartHeight + 25}
+                                    textAnchor="middle"
+                                    style={{ fontSize: '10px', fill: '#6b7280' }}
+                                  >
+                                    {category}
+                                  </text>
+                                </g>
+                              );
+                            })}
+                            
+                            {/* Legend */}
+                            <g transform="translate(20, 5)">
+                              {companies.map((company, index) => {
+                                const color = companyColors[index % companyColors.length];
+                                return (
+                                  <g key={company} transform={`translate(0, ${index * 20})`}>
+                                    <rect x="0" y="0" width="15" height="10" fill={color} />
+                                    <text x="20" y="9" style={{ fontSize: '12px', fill: '#1e293b' }}>{company}</text>
+                                  </g>
+                                );
+                              })}
+                            </g>
+                          </>
+                        );
+                      })()}
+                    </svg>
+                    
+                    {/* Tooltip */}
+                    {companyCompareTooltip && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: `${companyCompareTooltip.x}px`,
+                          top: `${companyCompareTooltip.y}px`,
+                          transform: 'translate(-50%, -50%)',
+                          background: 'rgba(15, 23, 42, 0.95)',
+                          color: 'white',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                          pointerEvents: 'none',
+                          zIndex: 1000,
+                          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+                          whiteSpace: 'nowrap'
+                        }}
+                      >
+                        <div style={{ marginBottom: '4px', fontWeight: '600' }}>
+                          {companyCompareTooltip.category} {companyCompareTooltip.company}
+                        </div>
+                        <div style={{ fontSize: '11px', opacity: 0.9 }}>
+                          {companyCompareTooltip.value}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ textAlign: 'center', color: '#6b7280', padding: '40px' }}>
+                    No data available
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null))}
+>>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
         </>
       ) : (
         <div style={{
