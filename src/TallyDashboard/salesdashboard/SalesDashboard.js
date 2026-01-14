@@ -5181,50 +5181,126 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   }, [numberFormat]);
 
   // Custom Cards Helper Functions
-  // Helper function to get field value with case-insensitive fallback
-  const getFieldValue = useCallback((item, fieldName) => {
-    if (!item || !fieldName) return null;
-    
-    // Handle derived fields that are computed from the date
-    if (fieldName === 'month' || fieldName === 'year' || fieldName === 'quarter' || fieldName === 'week') {
-      const dateValue = item.date || item.Date || item.DATE || 
-                       (Object.keys(item).find(k => k.toLowerCase() === 'date') ? 
-                        item[Object.keys(item).find(k => k.toLowerCase() === 'date')] : null);
-      
-      if (dateValue) {
-        const date = new Date(dateValue);
-        if (!isNaN(date.getTime())) {
-          if (fieldName === 'month') {
-            const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
-                              'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            return `${monthAbbr[date.getMonth()]}-${String(date.getFullYear()).slice(-2)}`;
-          } else if (fieldName === 'year') {
-            return String(date.getFullYear());
-          } else if (fieldName === 'quarter') {
-            const month = date.getMonth();
-            const quarter = Math.floor(month / 3) + 1;
-            return `Q${quarter} ${date.getFullYear()}`;
-          } else if (fieldName === 'week') {
-            const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
-            const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
-            const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
-            return `Week ${weekNum}, ${date.getFullYear()}`;
+  // Helper function to get financial year start month and day from company config
+  // Note: This is a synchronous wrapper that uses default values
+  // For async config fetching, use getCompanyConfigValue directly
+  const getFinancialYearStartMonthDay = useCallback((guid, tallyloc_id) => {
+    // Default to April 1st (month 3, day 1 in 0-indexed)
+    // In the future, this could be enhanced to use cached config values
+    return { month: 3, day: 1 };
+  }, []);
+
+  // Generate year-wise comparison data
+  const generateYearCompareData = useCallback((cardConfig, salesData) => {
+    if (!cardConfig || !cardConfig.yearCompareValue || !salesData || salesData.length === 0) {
+      return { data: [], categories: [], years: [] };
+    }
+
+    const valueField = cardConfig.yearCompareValue;
+    const aggregation = cardConfig.yearCompareAggregation || cardConfig.aggregation || 'sum';
+    const category = cardConfig.yearCompareCategory || 'month'; // month, quarter, or week
+
+    // Group data by year and category
+    const grouped = {};
+    const allYears = new Set();
+    const allCategories = new Set();
+
+    salesData.forEach(sale => {
+      const dateValue = getFieldValue(sale, 'date') || getFieldValue(sale, 'cp_date');
+      if (!dateValue) return;
+
+      const date = parseDateFromNewFormat(dateValue) || parseDateFromAPI(dateValue);
+      if (!date || isNaN(date.getTime())) return;
+
+      const year = date.getFullYear();
+      allYears.add(year);
+
+      let categoryKey = '';
+      let categoryLabel = '';
+
+      if (category === 'month') {
+        const month = date.getMonth();
+        const monthAbbr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        categoryKey = `${year}-${month}`;
+        categoryLabel = `${monthAbbr[month]}-${String(year).slice(-2)}`;
+      } else if (category === 'quarter') {
+        const quarter = Math.floor(date.getMonth() / 3) + 1;
+        categoryKey = `${year}-Q${quarter}`;
+        categoryLabel = `Q${quarter} ${year}`;
+      } else if (category === 'week') {
+        const firstDayOfYear = new Date(year, 0, 1);
+        const pastDaysOfYear = (date - firstDayOfYear) / 86400000;
+        const weekNum = Math.ceil((pastDaysOfYear + firstDayOfYear.getDay() + 1) / 7);
+        categoryKey = `${year}-W${weekNum}`;
+        categoryLabel = `Week ${weekNum}, ${year}`;
+      }
+
+      if (!categoryKey) return;
+
+      allCategories.add(categoryKey);
+
+      if (!grouped[categoryKey]) {
+        grouped[categoryKey] = {
+          label: categoryLabel,
+          years: {}
+        };
+      }
+
+      if (!grouped[categoryKey].years[year]) {
+        grouped[categoryKey].years[year] = {
+          values: [],
+          count: 0
+        };
+      }
+
+      // Get field value
+      const value = parseFloat(getFieldValue(sale, valueField) || 0);
+      grouped[categoryKey].years[year].values.push(value);
+      grouped[categoryKey].years[year].count += 1;
+    });
+
+    // Sort categories
+    const sortedCategoryKeys = Array.from(allCategories).sort();
+    const sortedYears = Array.from(allYears).sort();
+
+    // Build result array
+    const result = [];
+    sortedCategoryKeys.forEach(categoryKey => {
+      const categoryData = grouped[categoryKey];
+      sortedYears.forEach(year => {
+        const yearData = categoryData.years[year];
+        let finalValue = 0;
+
+        if (yearData && yearData.values.length > 0) {
+          if (aggregation === 'sum') {
+            finalValue = yearData.values.reduce((a, b) => a + b, 0);
+          } else if (aggregation === 'average') {
+            finalValue = yearData.values.reduce((a, b) => a + b, 0) / yearData.values.length;
+          } else if (aggregation === 'count') {
+            finalValue = yearData.count;
+          } else if (aggregation === 'min') {
+            finalValue = Math.min(...yearData.values);
+          } else if (aggregation === 'max') {
+            finalValue = Math.max(...yearData.values);
           }
         }
-      }
-      return null;
-    }
-    
-    // Try direct access first
-    if (item[fieldName] !== undefined) return item[fieldName];
-    // Try lowercase
-    if (item[fieldName.toLowerCase()] !== undefined) return item[fieldName.toLowerCase()];
-    // Try uppercase
-    if (item[fieldName.toUpperCase()] !== undefined) return item[fieldName.toUpperCase()];
-    // Try case-insensitive search
-    const matchingKey = Object.keys(item).find(k => k.toLowerCase() === fieldName.toLowerCase());
-    return matchingKey ? item[matchingKey] : null;
-  }, []);
+
+        result.push({
+          category: categoryData.label,
+          year: year,
+          value: finalValue,
+          key: `${categoryKey}-${year}`
+        });
+      });
+    });
+
+    return {
+      data: result,
+      categories: sortedCategoryKeys.map(key => grouped[key].label),
+      years: sortedYears
+    };
+  }, [getFieldValue, parseDateFromNewFormat, parseDateFromAPI]);
 
   // Generate company-wise comparison data
   const generateCompanyCompareData = useCallback(async (cardConfig, salesData) => {
@@ -19511,7 +19587,6 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     return null;
   }, [parseDateValue]);
 
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
   // Initialize form state from editingCard if provided, otherwise use defaults
   const [cardTitle, setCardTitle] = useState(editingCard?.title || '');
   const [chartType, setChartType] = useState(editingCard?.chartType || 'bar');
@@ -19590,8 +19665,6 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
   const [multiAxisSeries, setMultiAxisSeries] = useState(editingCard?.multiAxisSeries || []);
   // Date override state
   const [overrideDateFilter, setOverrideDateFilter] = useState(editingCard?.overrideDateFilter || false);
-<<<<<<< HEAD
-=======
   // Year compare state
   const [yearCompareCategory, setYearCompareCategory] = useState(editingCard?.yearCompareCategory || 'month');
   const [yearCompareValue, setYearCompareValue] = useState(editingCard?.yearCompareValue || '');
@@ -19730,7 +19803,6 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
     
     loadUdfConfiguration();
   }, [salesData]); // Reload when salesData changes (indicates company/data change)
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
 
   // Update form when editingCard changes
   useEffect(() => {
@@ -19782,8 +19854,6 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       setMultiAxisSeries(editingCard.multiAxisSeries || []);
       // Set date override
       setOverrideDateFilter(editingCard.overrideDateFilter || false);
-<<<<<<< HEAD
-=======
       // Set year compare fields
       setYearCompareCategory(editingCard.yearCompareCategory || 'month');
       setYearCompareValue(editingCard.yearCompareValue || '');
@@ -19795,7 +19865,6 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       setCompanyCompareCategory(editingCard.companyCompareCategory || defaultCompanyGuids);
       setCompanyCompareValue(editingCard.companyCompareValue || '');
       setCompanyCompareAggregation(editingCard.aggregation || 'sum');
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
     } else {
       // Reset to defaults when not editing
       setCardTitle('');
@@ -19812,8 +19881,6 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       setSegmentBy('');
       setMultiAxisSeries([]);
       setOverrideDateFilter(false);
-<<<<<<< HEAD
-=======
       setYearCompareCategory('month');
       setYearCompareValue('');
       setYearCompareAggregation('sum');
@@ -19824,7 +19891,6 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       setCompanyCompareCategory(defaultCompanyGuids);
       setCompanyCompareValue('');
       setCompanyCompareAggregation('sum');
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
     }
   }, [editingCard]);
   
@@ -20607,20 +20673,6 @@ IMPORTANT RULES:
     const isNestedArrayField = currentFilterField.includes('.');
     
     salesData.forEach(sale => {
-<<<<<<< HEAD
-      // Use case-insensitive field access
-      const fieldValue = sale[currentFilterField] || 
-                        sale[currentFilterField.toLowerCase()] ||
-                        sale[currentFilterField.toUpperCase()] ||
-                        (Object.keys(sale).find(k => k.toLowerCase() === currentFilterField.toLowerCase()) 
-                          ? sale[Object.keys(sale).find(k => k.toLowerCase() === currentFilterField.toLowerCase())] 
-                          : null);
-      
-      if (fieldValue !== null && fieldValue !== undefined && fieldValue !== '') {
-        const stringValue = String(fieldValue).trim();
-        if (stringValue) {
-          valuesSet.add(stringValue);
-=======
       if (isNestedArrayField) {
         // For nested array fields, get all values from the array
         const masterid = sale.masterid || sale.mstid;
@@ -20649,7 +20701,6 @@ IMPORTANT RULES:
           if (stringValue) {
             valuesSet.add(stringValue);
           }
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
         }
       }
     });
@@ -20923,8 +20974,6 @@ IMPORTANT RULES:
       return;
     }
     
-<<<<<<< HEAD
-=======
     // For yearCompare charts, validate differently
     if (chartType === 'yearCompare') {
       if (!yearCompareValue) {
@@ -20974,7 +21023,6 @@ IMPORTANT RULES:
       return;
     }
     
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
     // For multiAxis charts, validate differently
     if (chartType === 'multiAxis') {
       if (!multiAxisSeries || multiAxisSeries.length === 0) {
@@ -21527,11 +21575,8 @@ IMPORTANT RULES:
             <option value="line">Line Chart</option>
             <option value="table">Table</option>
             <option value="multiAxis">Multi Axis (Bar/Line)</option>
-<<<<<<< HEAD
-=======
             <option value="yearCompare">Compare year wise</option>
             <option value="companyCompare">Compare company wise</option>
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
             {supportsMapVisualization.isMapEligible && (
               <option value="geoMap">Geographic Map</option>
             )}
@@ -21546,10 +21591,6 @@ IMPORTANT RULES:
           </p>
         </div>
 
-<<<<<<< HEAD
-        {/* Choose fields to add to report - Hide for Multi-Axis */}
-        {chartType !== 'multiAxis' && (
-=======
         {/* Company Compare specific fields */}
         {chartType === 'companyCompare' && (
           <>
@@ -21850,7 +21891,6 @@ IMPORTANT RULES:
 
         {/* Choose fields to add to report - Hide for Multi-Axis, Year Compare, and Company Compare */}
         {chartType !== 'multiAxis' && chartType !== 'yearCompare' && chartType !== 'companyCompare' && (
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
         <div>
           <label style={{
             display: 'block',
@@ -23347,8 +23387,6 @@ const CustomCard = React.memo(({
   formatChartValue,
   formatChartCompactValue
 }) => {
-<<<<<<< HEAD
-=======
   // Tooltip state for yearCompare charts - must be declared at the top (Rules of Hooks)
   const [yearCompareTooltip, setYearCompareTooltip] = useState(null);
   // Tooltip state for companyCompare charts
@@ -23357,7 +23395,6 @@ const CustomCard = React.memo(({
   const [companyCompareLoading, setCompanyCompareLoading] = useState(false);
   const [companyCompareCardData, setCompanyCompareCardData] = useState(null);
   
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
   // Log when date override is enabled (salesData will be all sales instead of filtered)
   useMemo(() => {
     if (card.overrideDateFilter) {
@@ -23366,9 +23403,6 @@ const CustomCard = React.memo(({
     return null;
   }, [card.overrideDateFilter, card.title, salesData.length]);
   
-<<<<<<< HEAD
-  const cardData = useMemo(() => generateCustomCardData(card, salesData), [card, salesData, generateCustomCardData]);
-=======
   useEffect(() => {
     if (card.chartType === 'companyCompare') {
       setCompanyCompareLoading(true);
@@ -23475,7 +23509,6 @@ const CustomCard = React.memo(({
       .filter(item => item.name !== 'Unknown')
       .sort((a, b) => b.value - a.value);
   }, [salesData, selectedRegion, selectedCountry]);
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
 
   // Multi-axis data builder using existing generateCustomCardData for each series
   const multiAxisData = useMemo(() => {
@@ -24124,9 +24157,6 @@ const CustomCard = React.memo(({
     };
   };
 
-<<<<<<< HEAD
-  const valuePrefix = card.valueField === 'amount' || card.valueField === 'profit' || card.valueField === 'tax_amount' || card.valueField === 'order_value' || card.valueField === 'avg_order_value' || card.valueField === 'avg_amount' || card.valueField === 'avg_profit' || card.valueField === 'profit_per_quantity' ? '₹' : '';
-=======
   const valuePrefix = (card.chartType === 'yearCompare' || card.chartType === 'companyCompare')
     ? ((card.yearCompareValue || card.companyCompareValue) === 'amount' || 
        (card.yearCompareValue || card.companyCompareValue) === 'profit' || 
@@ -24137,7 +24167,6 @@ const CustomCard = React.memo(({
        (card.yearCompareValue || card.companyCompareValue) === 'avg_profit' || 
        (card.yearCompareValue || card.companyCompareValue) === 'profit_per_quantity' ? '₹' : '')
     : (card.valueField === 'amount' || card.valueField === 'profit' || card.valueField === 'tax_amount' || card.valueField === 'order_value' || card.valueField === 'avg_order_value' || card.valueField === 'avg_amount' || card.valueField === 'avg_profit' || card.valueField === 'profit_per_quantity' ? '₹' : '');
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
 
   // Raw data button style (matching other cards)
   const rawDataIconButtonStyle = {
@@ -24222,30 +24251,6 @@ const CustomCard = React.memo(({
         {renderCardFilterBadges('custom', card.id)}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-<<<<<<< HEAD
-        <select
-          value={chartType}
-          onChange={(e) => onChartTypeChange(e.target.value)}
-          style={{
-            padding: '6px 12px',
-            border: '1px solid #d1d5db',
-            borderRadius: '6px',
-            fontSize: '12px',
-            background: 'white',
-            color: '#374151'
-          }}
-        >
-          <option value="bar">Bar</option>
-          <option value="pie">Pie</option>
-          <option value="treemap">Tree Map</option>
-          <option value="line">Line</option>
-          <option value="table">Table</option>
-          <option value="multiAxis">Multi Axis</option>
-          {supportsMapVisualization.isMapEligible && (
-            <option value="geoMap">Geographic Map</option>
-          )}
-        </select>
-=======
         {chartType !== 'yearCompare' && chartType !== 'companyCompare' && (
           <select
             value={chartType}
@@ -24270,7 +24275,6 @@ const CustomCard = React.memo(({
             )}
           </select>
         )}
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
         {onEdit && (
           <button
             type="button"
@@ -24334,13 +24338,9 @@ const CustomCard = React.memo(({
   // Determine if we should show the card
   const shouldShowCard = chartType === 'multiAxis' 
     ? (multiAxisData && multiAxisData.series && multiAxisData.series.length > 0)
-<<<<<<< HEAD
-    : (cardData.length > 0);
-=======
     : chartType === 'yearCompare' || chartType === 'companyCompare'
     ? (cardData && cardData.data && Array.isArray(cardData.data))
     : (cardData && Array.isArray(cardData) && cardData.length > 0);
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
 
   console.log('🎯 CustomCard Render Decision:', {
     cardId: card.id,
@@ -24633,8 +24633,6 @@ const CustomCard = React.memo(({
               }}
             />
           )}
-<<<<<<< HEAD
-=======
           {chartType === 'yearCompare' && cardData && cardData.data && (
             <div style={{
               background: 'white',
@@ -25148,7 +25146,6 @@ const CustomCard = React.memo(({
               </div>
             </div>
           ) : null))}
->>>>>>> 2db0a99bb56622ec01c19c2a0b46388be320f853
         </>
       ) : (
         <div style={{
