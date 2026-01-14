@@ -365,7 +365,7 @@ const MultiAxisChart = ({
             },
             label: {
               show: true,
-              position: 'end',
+              position: 'middle',
               formatter: (params) => {
                 const value = params.value || avgValue;
                 if (formatValue) {
@@ -377,7 +377,9 @@ const MultiAxisChart = ({
                 }
                 return `Avg: ₹${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
               },
-              fontSize: isMobile ? 10 : 11,
+              fontSize: isMobile ? 12 : 14,
+              fontWeight: 'bold',
+              color: '#000000',
             },
             data: [
               {

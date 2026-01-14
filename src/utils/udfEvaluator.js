@@ -43,6 +43,8 @@ export class UdfEvaluator {
           current = voucher;
         } else if (context === 'batchallocations' && entry) {
           current = voucher;
+        } else if (context === 'accountingallocation' && entry) {
+          current = voucher;
         } else {
           // Try to find parent reference
           current = current.parent || current.Parent || current.PARENT || voucher;
@@ -170,7 +172,8 @@ export class UdfEvaluator {
       'ledgerentries': ['allledgerentries', 'ledgerentries', 'LEDGERENTRIES', 'AllLedgerEntries'],
       'inventoryentries': ['allinventoryentries', 'inventoryentries', 'INVENTORYENTRIES', 'AllInventoryEntries'],
       'billallocations': ['billallocations', 'BILLALLOCATIONS', 'BillAllocations', 'allbillallocations'],
-      'batchallocations': ['batchallocations', 'BATCHALLOCATIONS', 'BatchAllocations', 'allbatchallocations']
+      'batchallocations': ['batchallocations', 'BATCHALLOCATIONS', 'BatchAllocations', 'allbatchallocations', 'batchallocation'],
+      'accountingallocation': ['accountingallocation', 'ACCOUNTINGALLOCATION', 'AccountingAllocation', 'accountingallocations']
     };
     
     const propertyNames = tableToProperty[tableName] || [aggregateName.toLowerCase()];
@@ -227,8 +230,11 @@ export class UdfEvaluator {
       'vouchers': 'voucher',
       'ledgerentries': 'ledgerentries',
       'inventoryentries': 'inventoryentries',
+      'allinventoryentries': 'inventoryentries',
       'billallocations': 'billallocations',
-      'batchallocations': 'batchallocations'
+      'batchallocations': 'batchallocations',
+      'batchallocation': 'batchallocations',
+      'accountingallocation': 'accountingallocation'
     };
     return mapping[tableName] || 'voucher';
   }
