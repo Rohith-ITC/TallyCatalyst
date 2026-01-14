@@ -75,14 +75,11 @@ export const API_CONFIG = {
     TALLY_LEDGER_CHECK: '/api/tally/ledger-check',
 
     // Subscription endpoints
-    SUBSCRIPTION_STATUS: '/api/subscription/status',
     SUBSCRIPTION_PLANS: '/api/subscription/plans',
-    SUBSCRIPTION_USER_COUNT: '/api/subscription/user-count',
     SUBSCRIPTION_CREATE_ORDER: '/api/subscription/create-order',
     SUBSCRIPTION_VERIFY_PAYMENT: '/api/subscription/verify-payment',
     SUBSCRIPTION_UPDATE: '/api/subscription/update',
     SUBSCRIPTION_PAYMENTS: '/api/subscription/payments',
-    SUBSCRIPTION_TRIAL_STATUS: '/api/subscription/trial-status',
     SUBSCRIPTION_DISMISS_REMINDER: '/api/subscription/dismiss-reminder',
     
     // Custom Card endpoints

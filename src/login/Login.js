@@ -47,8 +47,12 @@ function Login({ onLogin }) {
       sessionStorage.setItem('name', data.name);
       sessionStorage.setItem('email', data.email);
       sessionStorage.setItem('token', data.token);
+      // Store user_type for role-based access control
+      if (data.user_type) {
+        sessionStorage.setItem('user_type', data.user_type);
+      }
       // Call onLogin with user info
-      onLogin({ name: data.name, email: data.email, token: data.token, is_first_login: data.is_first_login });
+      onLogin({ name: data.name, email: data.email, token: data.token, is_first_login: data.is_first_login, user_type: data.user_type });
       if (data.is_first_login === 1) {
         navigate('/change-password');
       } else {
