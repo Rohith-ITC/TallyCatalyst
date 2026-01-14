@@ -118,45 +118,94 @@ export async function loadUdfConfig(tallyloc_id, co_guid) {
  * @returns {Object} - { fields: [], aggregates: [] }
  */
 export function getAvailableUdfFields(udfConfig) {
-  if (!udfConfig) return { fields: [], aggregates: [] };
+  if (!udfConfig) {
+    console.log('getAvailableUdfFields: No UDF config provided');
+    return { fields: [], aggregates: [] };
+  }
+  
+  console.log('getAvailableUdfFields: Processing config', udfConfig);
   
   const fields = [];
   const aggregates = [];
   
-  Object.keys(udfConfig).forEach(tableName => {
-    const tableConfig = udfConfig[tableName];
-    if (!Array.isArray(tableConfig) || tableConfig.length === 0) return;
+  // Map API table names to normalized names (case-insensitive)
+  const tableNameMap = {
+    'vouchers': 'voucher',
+    'voucher': 'voucher',
+    'ledgerentries': 'ledgerentries',
+    'billallocations': 'billallocations',
+    'inventoryentries': 'inventoryentries',
+    'inventoryentry': 'inventoryentries',
+    'batchallocations': 'batchallocations',
+    'batchallocation': 'batchallocations'
+  };
+  
+  Object.keys(udfConfig).forEach(apiTableName => {
+    const tableConfig = udfConfig[apiTableName];
     
-    const configObj = tableConfig[0];
+    // Handle both array format and direct object format
+    let configObj = null;
+    if (Array.isArray(tableConfig)) {
+      if (tableConfig.length === 0) {
+        console.log(`getAvailableUdfFields: Table ${apiTableName} has empty array`);
+        return;
+      }
+      configObj = tableConfig[0];
+    } else if (typeof tableConfig === 'object' && tableConfig !== null) {
+      // Direct object format (fallback)
+      configObj = tableConfig;
+    } else {
+      console.log(`getAvailableUdfFields: Table ${apiTableName} has invalid format`, tableConfig);
+      return;
+    }
+    
+    if (!configObj || typeof configObj !== 'object') {
+      console.log(`getAvailableUdfFields: Table ${apiTableName} configObj is invalid`, configObj);
+      return;
+    }
+    
+    // Normalize table name (case-insensitive lookup)
+    const apiTableNameLower = apiTableName.toLowerCase();
+    const normalizedTableName = tableNameMap[apiTableNameLower] || apiTableName;
+    
+    console.log(`getAvailableUdfFields: Processing table ${apiTableName} (normalized: ${normalizedTableName})`, configObj);
     
     Object.keys(configObj).forEach(fieldName => {
       const formula = configObj[fieldName];
       
       if (Array.isArray(formula)) {
         // Aggregate
-        const aggregateFields = Object.keys(formula[0] || {}).map(f => ({
-          fullName: `${fieldName}.${f}`,
-          aggregateName: fieldName,
-          fieldName: f,
-          formula: formula[0][f],
-          table: tableName
-        }));
-        
-        aggregates.push({
-          name: fieldName,
-          table: tableName,
-          fields: aggregateFields
-        });
+        if (formula.length > 0 && typeof formula[0] === 'object') {
+          const aggregateFields = Object.keys(formula[0] || {}).map(f => ({
+            fullName: `${fieldName}.${f}`,
+            aggregateName: fieldName,
+            fieldName: f,
+            formula: formula[0][f],
+            table: normalizedTableName
+          }));
+          
+          aggregates.push({
+            name: fieldName,
+            table: normalizedTableName,
+            fields: aggregateFields
+          });
+          
+          console.log(`getAvailableUdfFields: Added aggregate ${fieldName} with ${aggregateFields.length} fields`);
+        }
       } else if (typeof formula === 'string') {
         // Simple field
         fields.push({
           name: fieldName,
           formula: formula,
-          table: tableName
+          table: normalizedTableName
         });
+        
+        console.log(`getAvailableUdfFields: Added field ${fieldName} with formula ${formula}`);
       }
     });
   });
+  
+  console.log(`getAvailableUdfFields: Final result - ${fields.length} fields, ${aggregates.length} aggregates`);
   
   return { fields, aggregates };
 }

@@ -39,8 +39,15 @@ const UdfFieldSelector = ({
       setUdfConfig(config);
       
       if (config) {
+        console.log('UDF Field Selector: Raw config received', config);
         const available = getAvailableUdfFields(config);
-        console.log('UDF Field Selector: Available fields', available);
+        console.log('UDF Field Selector: Available fields after processing', available);
+        console.log('UDF Field Selector: Fields count:', available.fields.length, 'Aggregates count:', available.aggregates.length);
+        
+        if (available.fields.length === 0 && available.aggregates.length === 0) {
+          console.warn('UDF Field Selector: Config exists but no fields/aggregates extracted. Config structure:', JSON.stringify(config, null, 2));
+        }
+        
         setAvailableFields(available);
       } else {
         console.log('UDF Field Selector: No config found or config is null');
@@ -123,33 +130,6 @@ const UdfFieldSelector = ({
     );
   }
   
-  // Always show the component, even if no config
-  // This helps with debugging and user awareness
-  if (loading) {
-    return (
-      <div style={{
-        padding: '16px',
-        background: '#f8fafc',
-        borderRadius: '8px',
-        border: '1px solid #e2e8f0',
-        textAlign: 'center'
-      }}>
-        <span className="material-icons" style={{ 
-          fontSize: '20px', 
-          color: '#3b82f6',
-          animation: 'spin 1s linear infinite',
-          display: 'block',
-          marginBottom: '8px'
-        }}>
-          sync
-        </span>
-        <div style={{ fontSize: '13px', color: '#64748b' }}>
-          Loading UDF fields...
-        </div>
-      </div>
-    );
-  }
-  
   if (!udfConfig || (availableFields.fields.length === 0 && availableFields.aggregates.length === 0)) {
     console.log('UDF Field Selector: Rendering empty state', {
       hasUdfConfig: !!udfConfig,
@@ -166,22 +146,37 @@ const UdfFieldSelector = ({
       }}>
         <div style={{
           fontSize: '13px',
-          fontWeight: '600',
-          color: '#64748b',
-          marginBottom: '8px',
+          fontWeight: '700',
+          color: '#1e293b',
+          marginBottom: '12px',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
           display: 'flex',
           alignItems: 'center',
           gap: '6px'
         }}>
-          <span className="material-icons" style={{ fontSize: '16px' }}>info</span>
+          <span className="material-icons" style={{ fontSize: '16px', color: '#3b82f6' }}>tune</span>
           UDF Fields
         </div>
         <div style={{
           fontSize: '12px',
-          color: '#94a3b8',
-          marginBottom: '8px'
+          color: '#64748b',
+          marginBottom: '12px',
+          lineHeight: '1.5'
         }}>
-          No UDF fields configured. Configure them in Tally Settings → Company Configurations.
+          {!companyInfo ? (
+            'No company selected. Please select a company first.'
+          ) : (
+            <>
+              No UDF fields configured for this company. To configure UDF fields:
+              <ol style={{ margin: '8px 0 0 20px', padding: 0, fontSize: '12px' }}>
+                <li style={{ marginBottom: '4px' }}>Go to <strong>Tally Settings</strong> → <strong>Company Configurations</strong></li>
+                <li style={{ marginBottom: '4px' }}>Navigate to <strong>Voucher UDF</strong> section</li>
+                <li style={{ marginBottom: '4px' }}>Configure your UDF fields and aggregates</li>
+                <li>Click <strong>Refresh</strong> below to reload</li>
+              </ol>
+            </>
+          )}
         </div>
         {companyInfo && (
           <button
@@ -192,18 +187,18 @@ const UdfFieldSelector = ({
               }
             }}
             style={{
-              padding: '6px 12px',
+              padding: '8px 14px',
               background: '#3b82f6',
               color: '#fff',
               border: 'none',
               borderRadius: '6px',
               fontSize: '12px',
-              fontWeight: 500,
+              fontWeight: 600,
               cursor: 'pointer',
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
               gap: '6px',
-              marginTop: '8px'
+              transition: 'background 0.2s'
             }}
             onMouseEnter={(e) => {
               e.target.style.background = '#2563eb';
@@ -213,7 +208,7 @@ const UdfFieldSelector = ({
             }}
           >
             <span className="material-icons" style={{ fontSize: '16px' }}>refresh</span>
-            Refresh
+            Refresh UDF Config
           </button>
         )}
       </div>
