@@ -1,10 +1,25 @@
 const webpack = require('webpack');
+const fs = require('fs');
+const path = require('path');
+
+// Read homepage from package.json
+const packageJsonPath = path.resolve(__dirname, 'package.json');
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+const homepage = packageJson.homepage || '';
 
 module.exports = {
   webpack: {
     configure: (webpackConfig, { env, paths }) => {
-      // Set public path to root
-      webpackConfig.output.publicPath = '/';
+      // Set public path based on environment
+      // For development, use root path (works with localhost)
+      // For production, use homepage value from package.json
+      if (env === 'production' && homepage) {
+        // Ensure homepage ends with / for proper path resolution
+        webpackConfig.output.publicPath = homepage.endsWith('/') ? homepage : homepage + '/';
+      } else {
+        // Development: use root path
+        webpackConfig.output.publicPath = '/';
+      }
 
       // Fix chunk loading issues
       if (env === 'development') {

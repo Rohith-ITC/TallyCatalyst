@@ -60,34 +60,80 @@
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
+    <!-- CRITICAL FIX ACTIVE - If you see this comment, the fix file is being served -->
     <div id="root"></div>
+    <!-- DIAGNOSTIC: This HTML was modified on 2024-01-15 to fix refresh loops -->
     
     <!-- Version check script -->
     <script>
+      // CRITICAL FIX: Clear all caches and service workers to prevent refresh loops
+      (function() {
+        // Unregister ALL service workers immediately
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            for(var i = 0; i < registrations.length; i++) {
+              registrations[i].unregister();
+            }
+          });
+        }
+        
+        // Clear ALL caches
+        if ('caches' in window) {
+          caches.keys().then(function(names) {
+            for(var i = 0; i < names.length; i++) {
+              caches.delete(names[i]);
+            }
+          });
+        }
+      })();
+      
+      // CRITICAL FIX: Disable version check reloads to prevent refresh loops
+      window.__RELOADS_DISABLED__ = true;
+      window.__VERSION_CHECK_DISABLED__ = true;
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem('__RELOADS_DISABLED__', 'true');
+        sessionStorage.setItem('__VERSION_CHECK_DISABLED__', 'true');
+      }
+      
       // Force reload if version changes
       const APP_VERSION = '%REACT_APP_VERSION%';
       const STORAGE_KEY = 'datalynk_version';
       
       // Track if reload has been triggered to prevent loops
       const RELOAD_FLAG_KEY = 'datalynk_reload_in_progress';
+      const RELOAD_TIMESTAMP_KEY = 'datalynk_reload_timestamp';
+      const RELOAD_COOLDOWN_MS = 5000; // 5 second cooldown to prevent rapid reloads
+      
+      // Prevent multiple simultaneous executions
+      let checkVersionInProgress = false;
       
       function checkVersion() {
-        // Skip version check entirely if APP_VERSION is still a placeholder
-        // This prevents infinite reload loops in development mode
-        if (!APP_VERSION || APP_VERSION === '%REACT_APP_VERSION%' || APP_VERSION.includes('%')) {
-          console.log('⚠️ Skipping version check - placeholder version detected (development mode)');
-          // Clean up any stale reload flags
-          if (localStorage.getItem(RELOAD_FLAG_KEY)) {
-            localStorage.removeItem(RELOAD_FLAG_KEY);
+        // CRITICAL: If reloads are disabled globally, skip version check entirely
+        if (window.__RELOADS_DISABLED__ || window.__VERSION_CHECK_DISABLED__ || 
+            (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('__RELOADS_DISABLED__') === 'true')) {
+          // Just set version if not set, but don't check or reload
+          if (!localStorage.getItem(STORAGE_KEY)) {
+            localStorage.setItem(STORAGE_KEY, APP_VERSION);
           }
           return;
         }
         
-        // Check if a reload was already triggered (prevents infinite loops)
-        const reloadFlag = sessionStorage.getItem(RELOAD_FLAG_KEY);
-        if (reloadFlag === 'true') {
-          console.log('⚠️ Reload already triggered, clearing flag');
+        // Prevent multiple simultaneous executions
+        if (checkVersionInProgress) {
+          return;
+        }
+        checkVersionInProgress = true;
+        
+        // Skip version check entirely if APP_VERSION is still a placeholder
+        // This prevents infinite reload loops in development mode
+        if (!APP_VERSION || APP_VERSION === '%REACT_APP_VERSION%' || APP_VERSION.includes('%')) {
+          // Clean up any stale reload flags
+          if (localStorage.getItem(RELOAD_FLAG_KEY)) {
+            localStorage.removeItem(RELOAD_FLAG_KEY);
+          }
           sessionStorage.removeItem(RELOAD_FLAG_KEY);
+          sessionStorage.removeItem(RELOAD_TIMESTAMP_KEY);
+          checkVersionInProgress = false;
           return;
         }
         
@@ -95,37 +141,29 @@
         
         // Don't clear if storedVersion is a placeholder (build issue)
         if (storedVersion && (storedVersion.includes('%') || storedVersion.includes('REACT_APP_VERSION'))) {
-          console.log('⚠️ Placeholder version detected in storage, setting to current version without clearing');
           localStorage.setItem(STORAGE_KEY, APP_VERSION);
+          checkVersionInProgress = false;
           return;
         }
         
-        // Only reload if versions are different AND both are valid (not placeholders)
+        // CRITICAL FIX: Disable automatic reload to prevent infinite loops
+        // Instead, just update the stored version without reloading
         if (storedVersion && storedVersion !== APP_VERSION && 
             storedVersion !== '%REACT_APP_VERSION%' && 
             !storedVersion.includes('%') &&
             APP_VERSION !== '%REACT_APP_VERSION%' &&
             !APP_VERSION.includes('%')) {
-          console.log('🔄 New version detected (' + storedVersion + ' -> ' + APP_VERSION + '), clearing cache and reloading...');
+          console.log('🔄 New version detected (' + storedVersion + ' -> ' + APP_VERSION + '). Automatic reload disabled.');
           
-          // Set flag to prevent reload loop
-          sessionStorage.setItem(RELOAD_FLAG_KEY, 'true');
-          
-          // Set the new version BEFORE clearing to prevent reload loop
+          // Just update the stored version without reloading
           localStorage.setItem(STORAGE_KEY, APP_VERSION);
           
-          // Only clear localStorage, NOT sessionStorage (sessionStorage should persist across refreshes)
-          // sessionStorage will naturally clear when the browser tab is closed
-          const savedVersion = APP_VERSION; // Save version
-          localStorage.clear();
-          localStorage.setItem(STORAGE_KEY, savedVersion); // Restore version immediately
-          
-          // Clear only cache-related sessionStorage items, preserve authentication
-          const authKeys = ['token', 'email', 'name', 'tallyloc_id', 'company', 'guid', 'status', 'access_type', RELOAD_FLAG_KEY];
+          // Clear cache-related sessionStorage items (but don't reload)
+          const authKeys = ['token', 'email', 'name', 'tallyloc_id', 'company', 'guid', 'status', 'access_type', RELOAD_FLAG_KEY, RELOAD_TIMESTAMP_KEY];
           const sessionKeys = Object.keys(sessionStorage);
           
           sessionKeys.forEach(function(key) {
-            // Only clear cache keys, preserve authentication data and reload flag
+            // Only clear cache keys, preserve authentication data and reload flags
             const isAuthKey = authKeys.indexOf(key) !== -1;
             const isCacheKey = key.indexOf('datalynk_') === 0 || 
                               key.indexOf('ledgerlist-w-addrs_') === 0 || 
@@ -136,22 +174,25 @@
             }
           });
           
-          // Clear all caches
+          // Clear service worker caches in background (non-blocking)
           if ('caches' in window) {
             caches.keys().then(function(names) {
-              for (let name of names) {
-                caches.delete(name);
-              }
+              const deletePromises = names.map(function(name) {
+                return caches.delete(name);
+              });
+              return Promise.all(deletePromises);
+            }).catch(function(error) {
+              console.error('Error clearing caches:', error);
             });
           }
           
-          // Small delay to ensure storage operations complete
-          setTimeout(function() {
-            window.location.reload(true);
-          }, 100);
+          checkVersionInProgress = false;
+          return;
         } else if (!storedVersion) {
           localStorage.setItem(STORAGE_KEY, APP_VERSION);
         }
+        
+        checkVersionInProgress = false;
       }
       
       // Check if Material Icons are loaded (non-blocking)
@@ -184,6 +225,15 @@
         }
       }
       
+      // CRITICAL FIX: Check if reloads are disabled before running version check
+      if (window.__RELOADS_DISABLED__ || sessionStorage.getItem('__RELOADS_DISABLED__') === 'true') {
+        // Still set version but don't check
+        if (!localStorage.getItem(STORAGE_KEY)) {
+          localStorage.setItem(STORAGE_KEY, APP_VERSION);
+        }
+        return;
+      }
+      
       // Run checks on page load (non-blocking)
       // Use requestIdleCallback if available for better performance
       if (window.requestIdleCallback) {
@@ -194,6 +244,29 @@
         setTimeout(checkVersion, 0);
         setTimeout(checkMaterialIcons, 1000);
       }
+    </script>
+    
+    <!-- Facebook SDK for JavaScript -->
+    <script>
+      window.fbAsyncInit = function() {
+        FB.init({
+          appId      : '%REACT_APP_META_APP_ID%',
+          cookie     : true,
+          xfbml      : true,
+          version    : '%REACT_APP_META_API_VERSION%'
+        });
+          
+        FB.AppEvents.logPageView();   
+          
+      };
+
+      (function(d, s, id){
+         var js, fjs = d.getElementsByTagName(s)[0];
+         if (d.getElementById(id)) {return;}
+         js = d.createElement(s); js.id = id;
+         js.src = "https://connect.facebook.net/en_US/sdk.js";
+         fjs.parentNode.insertBefore(js, fjs);
+       }(document, 'script', 'facebook-jssdk'));
     </script>
   </body>
 </html>
