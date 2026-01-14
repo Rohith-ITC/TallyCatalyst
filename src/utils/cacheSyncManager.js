@@ -6,7 +6,17 @@ import { deobfuscateStockItems } from './frontendDeobfuscate';
 import { getApiUrl } from '../config';
 
 // Cache version and utilities
-export const CACHE_VERSION = process.env.REACT_APP_VERSION || '1.0.0';
+// FIX: Handle undefined/invalid REACT_APP_VERSION gracefully
+let cacheVersion = '1.0.0';
+try {
+  const envVersion = process.env.REACT_APP_VERSION;
+  if (envVersion && typeof envVersion === 'string' && envVersion !== '%REACT_APP_VERSION%' && !envVersion.includes('%')) {
+    cacheVersion = envVersion;
+  }
+} catch (e) {
+  console.warn('⚠️ Could not read REACT_APP_VERSION, using default:', e.message);
+}
+export const CACHE_VERSION = cacheVersion;
 export const CACHE_KEY_PREFIX = 'datalynk_';
 
 // Helper: Add cache buster to URLs
@@ -105,7 +115,6 @@ export const checkVersionUpdate = () => {
     localStorage.setItem(`${CACHE_KEY_PREFIX}version`, CACHE_VERSION);
     return true;
   } else if (!storedVersion) {
-    console.log('🔄 No stored version found, setting initial version');
     localStorage.setItem(`${CACHE_KEY_PREFIX}version`, CACHE_VERSION);
   }
   

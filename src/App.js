@@ -1,9 +1,10 @@
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy, useRef } from 'react';
 import {
   BrowserRouter as Router,
   Routes,
   Route,
   Navigate,
+  useLocation,
 } from 'react-router-dom';
 
 // Keep Login as regular import since it's the landing page and should load immediately
@@ -23,8 +24,12 @@ const MasterInvitationForm = lazy(() => import('./TallyDashboard/MasterInvitatio
 const PrivacyPolicy = lazy(() => import('./PrivacyPolicy'));
 const TermsOfService = lazy(() => import('./TermsOfService'));
 
-// Protected Route Component
+// Protected Route Component with redirect loop prevention
 function ProtectedRoute({ children }) {
+  const location = useLocation();
+  const redirectCountRef = useRef(0);
+  const lastRedirectTimeRef = useRef(0);
+  
   const token = sessionStorage.getItem('token');
   const email = sessionStorage.getItem('email');
   const name = sessionStorage.getItem('name');
@@ -33,27 +38,29 @@ function ProtectedRoute({ children }) {
   const isRefresh = performance.navigation?.type === 1 || 
                    performance.getEntriesByType('navigation')[0]?.type === 'reload';
 
-  console.log('🔐 ProtectedRoute check:', {
-    isRefresh,
-    token: !!token,
-    email: !!email,
-    name: !!name,
-    tokenLength: token ? token.length : 0,
-    path: window.location.pathname,
-    sessionKeys: Object.keys(sessionStorage),
-    sessionSize: Object.keys(sessionStorage).length
-  });
 
   if (!token || !email) {
-    console.error('❌ ProtectedRoute: Auth failed - redirecting to login', {
-      missingToken: !token,
-      missingEmail: !email,
-      isRefresh
-    });
+    const now = Date.now();
+    const timeSinceLastRedirect = now - lastRedirectTimeRef.current;
+    
+    // Prevent redirect loops - if we redirected recently (within 1 second), block it
+    if (timeSinceLastRedirect < 1000 && redirectCountRef.current > 0) {
+      return null; // Block the redirect
+    }
+    
+    // CRITICAL FIX: Prevent redirect loops - if we're already on login page, don't redirect
+    if (location.pathname === '/' || location.pathname === '/login') {
+      return null; // Don't render anything, just return null
+    }
+    
+    redirectCountRef.current++;
+    lastRedirectTimeRef.current = now;
+    
     return <Navigate to="/" replace />;
   }
 
-  console.log('✅ ProtectedRoute: Auth passed');
+  // Reset redirect counter on successful auth
+  redirectCountRef.current = 0;
   return children;
 }
 
