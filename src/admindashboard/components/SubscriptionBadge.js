@@ -15,13 +15,11 @@ function SubscriptionBadge() {
 
   const fetchSubscriptionData = async () => {
     try {
-      const [subData, countData] = await Promise.all([
-        checkSubscriptionStatus(),
-        apiGet('/api/subscription/user-count')
-      ]);
+      const subData = await checkSubscriptionStatus();
       
       setSubscription(subData);
-      setUserCount(countData);
+      // API endpoint /api/subscription/user-count does not exist in backend
+      setUserCount(null);
     } catch (error) {
       console.error('Error fetching subscription data:', error);
     } finally {

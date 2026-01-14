@@ -21,6 +21,7 @@ import PaymentVoucherReport from './PaymentVoucherReport';
 import VendorExpenses from './VendorExpenses';
 import GmailJsonViewer from './GmailJsonViewer';
 import CustomReports from './CustomReports';
+import WhatsAppViewer from './WhatsAppViewer';
 import {
   MODULE_SEQUENCE,
   hasModuleAccess,
@@ -3356,6 +3357,7 @@ function TallyDashboard() {
                 <CustomReports />
               </div>
             )}
+            {activeSidebar === 'whatsapp' && <WhatsAppViewer />}
           </>
         </div>
       </main>

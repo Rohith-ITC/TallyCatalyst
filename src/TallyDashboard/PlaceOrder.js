@@ -3,8 +3,8 @@ import { apiPost, apiGet } from '../utils/apiUtils';
 import { deobfuscateStockItems, enhancedDeobfuscateValue } from '../utils/frontendDeobfuscate';
 import { getUserModules, hasPermission, getPermissionValue } from '../config/SideBarConfigurations';
 import { getCustomersFromOPFS, syncCustomers } from '../utils/cacheSyncManager';
+import GmailJsonViewer from './GmailJsonViewer';
 import '../RecvDashboard/ReceivablesPage.css';
-
 
 function PlaceOrder() {
 
@@ -15,8 +15,7 @@ function PlaceOrder() {
   const [isSmallDesktop, setIsSmallDesktop] = useState(window.innerWidth > 1024 && window.innerWidth <= 1200);
   const [isMedium, setIsMedium] = useState(window.innerWidth > 1200 && window.innerWidth <= 1280);
   const [isDesktop, setIsDesktop] = useState(window.innerWidth > 1280);
-
-
+  const [showGmailViewer, setShowGmailViewer] = useState(false);
 
   useEffect(() => {
 
@@ -27,33 +26,21 @@ function PlaceOrder() {
       setIsSmallDesktop(width > 1024 && width <= 1200);
       setIsMedium(width > 1200 && width <= 1280);
       setIsDesktop(width > 1280);
-
     };
 
     window.addEventListener('resize', handleResize);
-
     return () => window.removeEventListener('resize', handleResize);
-
   }, []);
 
   // Listen for company changes from top bar
 
   useEffect(() => {
-
     const handleCompanyChange = () => {
-
       // Company changed from top bar
-
       setSelectedCustomer('');
-
       setOrderItems([]);
-
       setCustomerSearchTerm('');
-
       setItemSearchTerm('');
-
-
-
       const newCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
       const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
       // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
@@ -61,84 +48,56 @@ function PlaceOrder() {
         c.guid === newCompanyGuid && 
         (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
       );
-
-
-
       if (currentCompany) {
 
         const { tallyloc_id, company: companyVal } = currentCompany;
-
-
-
         // Load cached customers immediately if available
-
         const customerCacheKey = `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`;
-
         const cachedCustomers = sessionStorage.getItem(customerCacheKey);
-
         if (cachedCustomers) {
 
           try {
 
             setCustomerOptions(JSON.parse(cachedCustomers));
-
           } catch {
 
             setCustomerOptions([]);
-
           }
 
         } else {
 
           setCustomerOptions([]);
-
         }
 
-
-
         // Load cached stock items immediately if available
-
         const stockCacheKey = `stockitems_${tallyloc_id}_${companyVal}`;
-
         const cachedStockItems = sessionStorage.getItem(stockCacheKey);
-
         if (cachedStockItems) {
 
           try {
 
             setStockItems(JSON.parse(cachedStockItems));
-
           } catch {
 
             setStockItems([]);
-
           }
 
         } else {
 
           setStockItems([]);
-
         }
 
       } else {
 
         setCustomerOptions([]);
-
         setStockItems([]);
-
       }
 
     };
 
-
-
     window.addEventListener('companyChanged', handleCompanyChange);
-
     return () => window.removeEventListener('companyChanged', handleCompanyChange);
-
   }, []);
-
-
 
   // Listen for global refresh from top bar
 
@@ -147,19 +106,12 @@ function PlaceOrder() {
     const handleGlobalRefresh = () => {
 
       console.log('🔄 PlaceOrder: Global refresh received');
-
       setRefreshCustomers(prev => prev + 1);
-
       setRefreshStockItems(prev => prev + 1);
-
     };
 
-
-
     window.addEventListener('globalRefresh', handleGlobalRefresh);
-
     return () => window.removeEventListener('globalRefresh', handleGlobalRefresh);
-
   }, []);
 
   // Listen for cache updates from Cache Management
@@ -167,21 +119,15 @@ function PlaceOrder() {
   useEffect(() => {
 
     const handleCacheUpdate = (event) => {
-
       const { type, company: updatedCompany } = event.detail || {};
-
       if (type === 'customers') {
 
         const currentCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
-
         // Read companies from sessionStorage inside the handler to avoid dependency issues
-
         let companies = [];
-
         try {
 
           companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
-
         } catch (e) { }
 
         const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
@@ -190,9 +136,7 @@ function PlaceOrder() {
           c.guid === currentCompanyGuid && 
           (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
         );
-
         // Only refresh if the update is for the current company
-
         if (currentCompany && updatedCompany &&
 
           (updatedCompany.guid === currentCompanyGuid ||
@@ -202,687 +146,354 @@ function PlaceOrder() {
               updatedCompany.company === currentCompany.company))) {
 
           console.log('🔄 PlaceOrder: Customer cache updated, refreshing...');
-
           setRefreshCustomers(prev => prev + 1);
-
         }
-
       }
 
     };
 
-
-
     window.addEventListener('ledgerCacheUpdated', handleCacheUpdate);
-
     return () => window.removeEventListener('ledgerCacheUpdated', handleCacheUpdate);
-
   }, []);
-
-
 
   // Auto-populate from E-commerce cart data
 
   useEffect(() => {
 
     const cartData = sessionStorage.getItem('ecommerceCartData');
-
     if (cartData) {
 
       try {
 
         const data = JSON.parse(cartData);
-
-
-
         // Set auto-population state
-
         setIsAutoPopulating(true);
-
         autoPopulatingRef.current = true;
-
-
-
         // Store cart data for later use after customerOptions are loaded
-
         if (data.company) {
 
           setCompany(data.company);
-
         }
 
-
-
         // Don't set customer yet - wait for customerOptions to be loaded
-
         // Store the customer data for later use
-
         if (data.customer) {
 
           console.log('Customer data found in cart, will set after customerOptions load:', data.customer);
-
           // Store customer data temporarily
-
           sessionStorage.setItem('pendingCustomer', data.customer);
-
         } else {
 
           console.log('No customer data found in cart');
-
         }
 
-
-
         // Add all cart items to order
-
         if (data.items && data.items.length > 0) {
 
           // Store items data temporarily
-
           sessionStorage.setItem('pendingItems', JSON.stringify(data.items));
-
         }
 
-
-
         // Clear the cart data after storing pending data
-
         sessionStorage.removeItem('ecommerceCartData');
-
-
-
       } catch (error) {
 
         console.error('Error parsing E-commerce cart data:', error);
-
       }
-
     }
 
   }, []); // Run only once when component mounts
 
-
-
   // Get all companies from sessionStorage
-
   let companies = [];
-
   try {
 
     companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
-
   } catch (e) { }
 
   // Show all companies without access_type filtering
-
   const filteredCompanies = companies;
-
-
-
   // Get company from sessionStorage (controlled by top bar)
-
   const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
-
   const company = selectedCompanyGuid;
-
-
-
   // Company-related state (kept for JSX compatibility but not used)
-
   const [companyFocused, setCompanyFocused] = useState(false);
-
   const [companySearchTerm, setCompanySearchTerm] = useState('');
-
   const [showCompanyDropdown, setShowCompanyDropdown] = useState(false);
-
   const [filteredCompanyOptions, setFilteredCompanyOptions] = useState([]);
 
   const setCompany = () => { }; // Dummy function for JSX compatibility
 
-
-
   // Customer list state (with addresses)
-
   const [customerOptions, setCustomerOptions] = useState([]);
-
   const [customerLoading, setCustomerLoading] = useState(false);
-
   const [customerError, setCustomerError] = useState('');
-
   const [selectedCustomer, setSelectedCustomer] = useState('');
-
   const [customerFocused, setCustomerFocused] = useState(false);
-
   const [refreshCustomers, setRefreshCustomers] = useState(0);
-
   const [refreshingCustomers, setRefreshingCustomers] = useState(false);
-
-
-
   // Auto-population state
-
   const [isAutoPopulating, setIsAutoPopulating] = useState(false);
-
   const autoPopulatingRef = useRef(false);
-
   const hasAutoPopulatedRef = useRef(false);
   const itemDropdownRef = useRef(null);
   const itemInputRef = useRef(null);
-
-
-
   // VoucherType state
-
   const [voucherTypes, setVoucherTypes] = useState([]);
-
   const [voucherTypesLoading, setVoucherTypesLoading] = useState(false);
-
   const [voucherTypesError, setVoucherTypesError] = useState('');
-
   const [selectedVoucherType, setSelectedVoucherType] = useState('');
-
   const [showVoucherTypeDropdown, setShowVoucherTypeDropdown] = useState(false);
-
   const [voucherTypeFocused, setVoucherTypeFocused] = useState(false);
-
   // Class Name state
   const [selectedClassName, setSelectedClassName] = useState('');
-
   const [showClassNameDropdown, setShowClassNameDropdown] = useState(false);
-
   const [classNameFocused, setClassNameFocused] = useState(false);
-
   // Ledger values state - stores user-defined values for ledgers
   const [ledgerValues, setLedgerValues] = useState({});
-
-
-
   // Customer search and dropdown state
-
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
-
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-
   const [filteredCustomers, setFilteredCustomers] = useState([]);
-
-
-
   // Stock items state
-
   const [stockItems, setStockItems] = useState([]);
-
   const [stockItemsLoading, setStockItemsLoading] = useState(false);
-
   const [stockItemsError, setStockItemsError] = useState('');
-
   const [refreshStockItems, setRefreshStockItems] = useState(0);
-
-
   // Units array (separate from stock items)
   const [units, setUnits] = useState([]);
-
-
   // Item search and dropdown state
-
   const [itemSearchTerm, setItemSearchTerm] = useState('');
-
   const [showItemDropdown, setShowItemDropdown] = useState(false);
-
   const [filteredItems, setFilteredItems] = useState([]);
-
-
-
   // Memoized stock item names for O(1) lookup performance with large lists (25k+ items)
-
   const stockItemNames = useMemo(() => {
-
     return new Set(stockItems.map(item => item.NAME));
-
   }, [stockItems]);
 
-
-
   // User permissions state
-
   const [userModules, setUserModules] = useState([]);
-
-
-
   // Load user permissions on component mount and when permissions change
-
   useEffect(() => {
 
     const updateUserModules = () => {
 
       const modules = getUserModules();
-
       setUserModules(modules);
-
     };
 
-
-
     updateUserModules();
-
-
-
     window.addEventListener('userAccessUpdated', updateUserModules);
-
     window.addEventListener('companyChanged', updateUserModules);
-
-
-
     return () => {
 
       window.removeEventListener('userAccessUpdated', updateUserModules);
-
       window.removeEventListener('companyChanged', updateUserModules);
-
     };
 
   }, []);
 
-
-
   // Check if coming from E-commerce (do this immediately, not in useEffect)
-
   const [isFromEcommerce, setIsFromEcommerce] = useState(() => {
-
     const cartData = sessionStorage.getItem('ecommerceCartData');
-
     return !!cartData;
-
   });
 
-
-
   // Determine which module to use for permissions (moved before auto-population logic)
-
   const permissionModule = isFromEcommerce ? 'ecommerce_place_order' : 'place_order';
-
-
-
   // Update default quantity when permissions change
-
   useEffect(() => {
 
     const defaultQuantity = getPermissionValue(permissionModule, 'def_qty', userModules);
-
     const newDefQtyValue = defaultQuantity ? parseInt(defaultQuantity) : 1;
-
     setItemQuantity(newDefQtyValue);
-
   }, [userModules, permissionModule]);
 
-
-
   // Check if user has edit_rate permission
-
   const canEditRate = hasPermission(permissionModule, 'edit_rate', userModules);
-
-
-
   // Check if user has edit_discount permission
-
   const canEditDiscount = hasPermission(permissionModule, 'edit_discount', userModules);
-
-
-
   // Check if user has save_optional permission
-
   const canSaveOptional = hasPermission(permissionModule, 'save_optional', userModules);
-
-
-
   // Check if user has show_payterms permission
-
   const canShowPayTerms = hasPermission(permissionModule, 'show_payterms', userModules);
-
-
-
   // Check if user has show_delvterms permission
-
   const canShowDelvTerms = hasPermission(permissionModule, 'show_delvterms', userModules);
-
-
-
   // Check if user has show_pricelvl permission
-
   const canShowPriceLevel = hasPermission(permissionModule, 'show_pricelvl', userModules);
-
-
-
   // Check if user has show_creditdayslimit permission
-
   const canShowCreditLimit = hasPermission(permissionModule, 'show_creditdayslimit', userModules);
-
-
-
   // Check if user has ctrl_creditdayslimit permission
-
   const canControlCreditLimit = hasPermission(permissionModule, 'ctrl_creditdayslimit', userModules);
-
-
 
   // Fetch credit limit data when customer changes and user has permission
 
   useEffect(() => {
 
     const fetchCreditLimitData = async () => {
-
       if (!selectedCustomer || (!canShowCreditLimit && !canControlCreditLimit)) {
 
         setCreditLimitData(null);
-
         return;
-
       }
-
-
 
       try {
 
         setCreditLimitLoading(true);
-
         const currentCompany = filteredCompanies.find(c => c.guid === company);
-
-
-
         if (!currentCompany) {
 
           console.error('No company found for credit limit API');
-
           setCreditLimitData(null);
-
           return;
-
         }
 
-
-
         const { tallyloc_id, company: companyVal, guid } = currentCompany;
-
-
-
         console.log('Credit Limit API - Current Company:', currentCompany);
-
         console.log('Credit Limit API - Selected Customer:', selectedCustomer);
-
-
-
         const payload = {
-
           tallyloc_id,
-
           company: companyVal,
 
           guid,
-
           ledgername: selectedCustomer
 
         };
 
-
-
         console.log('Credit Limit API - Payload:', payload);
-
-
-
         const data = await apiPost(`/api/tally/creditdayslimit?ts=${Date.now()}`, payload);
-
-
-
         if (data && data.creditLimitInfo) {
 
           setCreditLimitData(data);
-
         } else {
 
           setCreditLimitData(null);
-
         }
 
       } catch (error) {
 
         console.error('Error fetching credit limit data:', error);
-
         setCreditLimitData(null);
-
       } finally {
 
         setCreditLimitLoading(false);
-
       }
 
     };
 
-
-
     fetchCreditLimitData();
-
   }, [selectedCustomer, canShowCreditLimit, canControlCreditLimit]);
 
-
-
   // Check if user has show_rateamt_Column permission
-
   const canShowRateAmtColumn = hasPermission(permissionModule, 'show_rateamt_Column', userModules);
-
-
-
   // Check if user has show_disc_Column permission
-
   const canShowDiscColumn = hasPermission(permissionModule, 'show_disc_Column', userModules);
-
-
-
   // Check if user has show_itemdesc permission
-
   const canShowItemDesc = hasPermission(permissionModule, 'show_itemdesc', userModules);
-
-
-
   // Check if user has show_clsstck_Column permission
-
   const canShowClosingStock = hasPermission(permissionModule, 'show_ClsStck_Column', userModules);
-
-
-
   // Check if user has show_clsstck_yesno permission
-
   const canShowClosingStockYesNo = hasPermission(permissionModule, 'show_ClsStck_yesno', userModules);
-
-
-
   // Check if user has show_itemshasqty permission
-
   const canShowItemsHasQty = hasPermission(permissionModule, 'show_itemshasqty', userModules);
-
-
-
   // Check if user has show_godownbrkup permission
-
   const canShowGodownBrkup = hasPermission(permissionModule, 'show_godownbrkup', userModules);
-
-
-
   // Check if user has show_multicobrkup permission
-
   const canShowMulticoBrkup = hasPermission(permissionModule, 'show_multicobrkup', userModules);
-
-
-
   // Check if user has any stock breakdown permission
-
   const canShowStockBreakdown = canShowGodownBrkup || canShowMulticoBrkup;
-
-
-
   // Get default quantity value from def_qty permission
-
   const defaultQuantity = getPermissionValue(permissionModule, 'def_qty', userModules);
-
   const defQtyValue = defaultQuantity ? parseInt(defaultQuantity) : 1;
-
-
-
   // Compute rate for an item using the same logic as the Rate field
-
   const computeRateForItem = useMemo(() => {
-
     return (item) => {
 
       if (!item) return 0;
-
       const selectedCustomerData = customerOptions.find(customer => customer.NAME === selectedCustomer);
-
       if (selectedCustomerData && selectedCustomerData.PRICELEVEL) {
 
         const matchingPriceLevel = (item.PRICELEVELS || []).find(pl => pl.PLNAME === selectedCustomerData.PRICELEVEL);
-
         if (matchingPriceLevel) {
-
           return enhancedDeobfuscateValue(matchingPriceLevel.RATE) || 0;
-
         }
 
         return 0;
-
       }
-
       return item.STDPRICE || 0;
-
     };
 
   }, [customerOptions, selectedCustomer]);
 
-
-
   // Filter items based on search term with debouncing
-
   useEffect(() => {
 
     if (!itemSearchTerm.trim()) {
 
       // Only clear if filteredItems is not already empty to prevent unnecessary re-renders
-
       if (filteredItems.length > 0) {
 
         setFilteredItems([]);
-
       }
 
       return;
-
     }
 
-
-
     // Debounce search to improve performance
-
     const timeoutId = setTimeout(() => {
-
       const searchLower = itemSearchTerm.toLowerCase();
-
-
-
       // Optimized search: search in both NAME and PARTNO fields
-
       const exactMatches = [];
-
       const startsWithMatches = [];
-
       const containsMatches = [];
-
-
-
       for (let i = 0; i < stockItems.length; i++) {
 
         const item = stockItems[i];
-
         const itemName = item.NAME || '';
-
         const itemPartNo = item.PARTNO || '';
-
         const itemNameLower = itemName.toLowerCase();
-
         const itemPartNoLower = itemPartNo.toLowerCase();
-
-
-
         // Check if search term matches name or part number
-
         const nameMatch = itemNameLower.includes(searchLower);
-
         const partNoMatch = itemPartNoLower.includes(searchLower);
-
-
-
         if (nameMatch || partNoMatch) {
 
           // If user has show_itemshasqty permission, only show items with stock > 0
-
           if (canShowItemsHasQty) {
 
             const stockValue = item.CLOSINGSTOCK || 0;
-
             if (stockValue <= 0) {
 
               continue; // Skip items with no stock
-
             }
-
           }
 
-
-
           // Prioritize exact matches
-
           if (itemNameLower === searchLower || itemPartNoLower === searchLower) {
 
             exactMatches.push(item);
-
           } else if (itemNameLower.startsWith(searchLower) || itemPartNoLower.startsWith(searchLower)) {
 
             startsWithMatches.push(item);
-
           } else {
 
             containsMatches.push(item);
-
           }
-
         }
 
-
-
         // Early exit if we have enough results
-
         if (exactMatches.length + startsWithMatches.length + containsMatches.length >= 100) {
 
           break;
-
         }
-
       }
 
-
-
       // Combine results in priority order
-
       const filtered = [...exactMatches, ...startsWithMatches, ...containsMatches].slice(0, 100);
-
       setFilteredItems(filtered);
-
     }, 150); // 150ms debounce
-
-
-
     return () => clearTimeout(timeoutId);
-
   }, [itemSearchTerm, stockItems.length, canShowItemsHasQty]); // Use stockItems.length instead of array reference
-
-
 
   // Handle dropdown positioning when it opens
 
@@ -891,15 +502,9 @@ function PlaceOrder() {
     if (showItemDropdown && itemDropdownRef.current && itemInputRef.current) {
 
       // Position the dropdown using fixed positioning to escape overflow constraints
-
       const inputRect = itemInputRef.current.getBoundingClientRect();
-
       const dropdown = itemDropdownRef.current;
-
-      
-
       dropdown.style.position = 'fixed';
-
       dropdown.style.top = `${inputRect.bottom + 8}px`;
 
       dropdown.style.left = `${inputRect.left}px`;
@@ -909,221 +514,119 @@ function PlaceOrder() {
       dropdown.style.maxWidth = `${inputRect.width}px`;
 
       dropdown.style.right = 'auto';
-
-      
-
       // Ensure dropdown is visible in viewport
-
       const viewportHeight = window.innerHeight;
-
       const dropdownHeight = Math.min(400, dropdown.scrollHeight);
-
       const spaceBelow = viewportHeight - inputRect.bottom;
-
-      
-
       if (spaceBelow < dropdownHeight && inputRect.top > dropdownHeight) {
 
         // Position above input if not enough space below
-
         dropdown.style.top = `${inputRect.top - dropdownHeight - 8}px`;
-
       }
-
     }
 
   }, [showItemDropdown]);
 
-
-
   // Filter customers based on search term with debouncing
-
   useEffect(() => {
 
     // Capture the current search term to avoid closure issues
-
     const currentSearchTerm = customerSearchTerm.trim();
-
-
-
     // Clear results immediately if search term is empty
-
     if (!currentSearchTerm) {
 
       // Don't set to empty here - let the dropdown useEffect handle showing all customers
-
       return;
-
     }
 
-
-
     // Clear previous results immediately when search term changes
-
     // This ensures old results don't show when user types new search term
-
     setFilteredCustomers([]);
-
-
-
     // Debounce search to improve performance
-
     const timeoutId = setTimeout(() => {
-
       // Use captured search term to ensure we're searching with the correct value
-
       const searchLower = currentSearchTerm.toLowerCase();
-
-
-
       // Search in both NAME and GSTNO fields
-
       const exactMatches = [];
-
       const startsWithMatches = [];
-
       const containsMatches = [];
-
-
-
       for (let i = 0; i < customerOptions.length; i++) {
 
         const customer = customerOptions[i];
-
         const customerName = customer.NAME || '';
-
         const customerGstNo = customer.GSTNO || '';
-
         const customerNameLower = customerName.toLowerCase();
-
         const customerGstNoLower = customerGstNo.toLowerCase();
-
-
-
         // Check if search term matches name or GST number
-
         const nameMatch = customerNameLower.includes(searchLower);
-
         const gstMatch = customerGstNoLower.includes(searchLower);
-
-
-
         if (nameMatch || gstMatch) {
 
           // Prioritize exact matches
-
           if (customerNameLower === searchLower || customerGstNoLower === searchLower) {
 
             exactMatches.push(customer);
-
           } else if (customerNameLower.startsWith(searchLower) || customerGstNoLower.startsWith(searchLower)) {
 
             startsWithMatches.push(customer);
-
           } else {
 
             containsMatches.push(customer);
-
           }
-
         }
 
-
-
         // Early exit if we have enough results
-
         if (exactMatches.length + startsWithMatches.length + containsMatches.length >= 50) {
 
           break;
-
         }
-
       }
 
-
-
       // Combine results in priority order
-
       const filtered = [...exactMatches, ...startsWithMatches, ...containsMatches].slice(0, 50);
-
       setFilteredCustomers(filtered);
-
     }, 150); // 150ms debounce
-
-
-
     return () => clearTimeout(timeoutId);
-
   }, [customerSearchTerm, customerOptions]);
 
-
-
-
-
   // Show all customers when dropdown opens
-
   useEffect(() => {
 
     if (showCustomerDropdown && !customerSearchTerm.trim() && customerOptions.length > 0) {
 
       // Always show all customers when dropdown opens (like ecommerce)
-
       setFilteredCustomers(customerOptions);
-
     }
 
   }, [showCustomerDropdown, customerSearchTerm, customerOptions.length]); // Use length instead of array reference
 
-
-
-
-
   // Show all items when dropdown opens
-
   useEffect(() => {
 
     if (showItemDropdown && !itemSearchTerm.trim()) {
 
       // If user has show_itemshasqty permission, only show items with stock > 0
-
       if (canShowItemsHasQty) {
 
         const itemsWithStock = stockItems.filter(item => (item.CLOSINGSTOCK || 0) > 0);
-
         setFilteredItems(itemsWithStock);
-
       } else {
 
         // Always show all items when dropdown opens (like customer dropdown)
-
         setFilteredItems(stockItems);
-
       }
-
     }
 
   }, [showItemDropdown, itemSearchTerm, stockItems, canShowItemsHasQty]);
 
-
-
   // Additional form fields
-
   const [buyerOrderRef, setBuyerOrderRef] = useState('');
-
   const [paymentTerms, setPaymentTerms] = useState('');
-
   const [deliveryTerms, setDeliveryTerms] = useState('');
-
   const [narration, setNarration] = useState('');
-
-
-
   // Order item management state
-
   const [selectedItem, setSelectedItem] = useState('');
-
   const [itemQuantity, setItemQuantity] = useState(1);
-
   const [enteredUnitType, setEnteredUnitType] = useState('base'); // Track which unit user entered: 'base' or 'additional'
   const [customConversion, setCustomConversion] = useState(null); // Store custom conversion: { baseQty, addlQty, denominator, conversion }
   const [customAddlQty, setCustomAddlQty] = useState(null); // Store custom additional quantity when user enters "12 box = 20 nos"
@@ -1132,57 +635,30 @@ function PlaceOrder() {
   const [baseQtyOnly, setBaseQtyOnly] = useState(null); // Store only the base quantity (e.g., 3 box from "3 box 9 pkt 7 nos")
   const settingCustomConversionRef = useRef(false); // Prevent infinite loop when setting custom conversion
   const [itemRate, setItemRate] = useState(0);
-
   const [itemDiscountPercent, setItemDiscountPercent] = useState(0);
-
   const [itemGstPercent, setItemGstPercent] = useState(0);
-
   const [itemDescription, setItemDescription] = useState('');
-
   const [orderItems, setOrderItems] = useState([]);
-
   const [itemFocused, setItemFocused] = useState(false);
-
   const [quantityFocused, setQuantityFocused] = useState(false);
-
   const [descriptionFocused, setDescriptionFocused] = useState(false);
-
   const [showDescription, setShowDescription] = useState(false);
-
-
-
   // Simplified UOM state - Tally-style
   const [selectedItemUnitConfig, setSelectedItemUnitConfig] = useState(null);
-
   const [quantityInput, setQuantityInput] = useState(''); // Single text input (e.g., "10 Box", "5 Nos", "2 Kgs 500 Gms")
-
   // Rate UOM state (independent of quantity UOM)
   const [rateUOM, setRateUOM] = useState('base'); // 'base' or 'additional'
   const [showRateUOMDropdown, setShowRateUOMDropdown] = useState(false);
   const [rateUOMFocused, setRateUOMFocused] = useState(false);
-
-
   // Auto-calculated amount
-
   const [itemAmount, setItemAmount] = useState(0);
-
-
-
   // Credit limit state
-
   const [creditLimitData, setCreditLimitData] = useState(null);
-
   const [showOverdueBills, setShowOverdueBills] = useState(false);
-
   const [creditLimitLoading, setCreditLimitLoading] = useState(false);
-
-
-
   // Edit item state - track which item ID is being edited (null means not editing)
-
   const [editingItemId, setEditingItemId] = useState(null);
   const [editingItemIndex, setEditingItemIndex] = useState(null);
-
   const [editQuantity, setEditQuantity] = useState(1);
   const [editQuantityInput, setEditQuantityInput] = useState(''); // For Tally-style quantity input
   const [editItemQuantity, setEditItemQuantity] = useState(1); // Converted quantity in base units
@@ -1195,128 +671,61 @@ function PlaceOrder() {
   const [editItemAmount, setEditItemAmount] = useState(0);
   const [editShowRateUOMDropdown, setEditShowRateUOMDropdown] = useState(false);
   const [editSelectedItemUnitConfig, setEditSelectedItemUnitConfig] = useState(null);
-
   const [editRate, setEditRate] = useState(0);
-
   const [editDiscountPercent, setEditDiscountPercent] = useState(0);
-
   const [editDescription, setEditDescription] = useState('');
-
-
-
   // Editable customer details state
-
   const [editableAddress, setEditableAddress] = useState('');
-
   const [editableState, setEditableState] = useState('');
-
   const [editableCountry, setEditableCountry] = useState('');
-
   const [editableGstNo, setEditableGstNo] = useState('');
-
   const [editablePincode, setEditablePincode] = useState('');
-
-
-
   // Focus states for floating labels
-
   const [addressFocused, setAddressFocused] = useState(false);
-
   const [stateFocused, setStateFocused] = useState(false);
-
   const [countryFocused, setCountryFocused] = useState(false);
-
   const [gstNoFocused, setGstNoFocused] = useState(false);
-
   const [pincodeFocused, setPincodeFocused] = useState(false);
-
   const [buyerOrderRefFocused, setBuyerOrderRefFocused] = useState(false);
-
   const [paymentTermsFocused, setPaymentTermsFocused] = useState(false);
-
   const [deliveryTermsFocused, setDeliveryTermsFocused] = useState(false);
-
   const [narrationFocused, setNarrationFocused] = useState(false);
-
-
-
   // Popup modal state
-
   const [showEditModal, setShowEditModal] = useState(false);
-
   const [tempCustomerData, setTempCustomerData] = useState({
-
     address: '',
-
     state: '',
-
     country: '',
-
     gstno: '',
-
     email: '',
-
     pincode: ''
 
   });
 
-
-
   // Custom confirmation modal state
-
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-
   const [confirmMessage, setConfirmMessage] = useState('');
-
   const [confirmAction, setConfirmAction] = useState(null);
-
-
-
   // Order submission state
-
   const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
-
-
-
   // Order result modal state
-
   const [showOrderResultModal, setShowOrderResultModal] = useState(false);
-
   const [orderResult, setOrderResult] = useState({ success: false, message: '', tallyResponse: null, companyInfo: null, lastVchId: null });
-
   const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
-
-
-
   // Stock breakdown modal state
-
   const [showStockModal, setShowStockModal] = useState(false);
-
   const [stockBreakdownData, setStockBreakdownData] = useState(null);
-
   const [stockBreakdownLoading, setStockBreakdownLoading] = useState(false);
-
   const [stockBreakdownError, setStockBreakdownError] = useState('');
-
   const [showGodownStock, setShowGodownStock] = useState(() => {
-
     // Default to godown if user has godown permission, otherwise default to company
-
     return canShowGodownBrkup;
-
   });
 
-
-
-
-
   // =============== Utility Functions for Unit Handling ===============
-
-
   // Build unit config from item and units array
   const buildUnitConfig = (item, unitsArray) => {
     if (!item) return null;
-
     const config = {
       BASEUNITS: item.BASEUNITS || '',
       ADDITIONALUNITS: item.ADDITIONALUNITS || '',
@@ -1423,10 +832,8 @@ function PlaceOrder() {
     });
 
     if (!input || !unitConfig) return input;
-
     const trimmed = input.trim();
     if (!trimmed) return input;
-
     // Get allowed units for this item (preserve original case for display)
     const allowedBaseUnit = unitConfig.BASEUNITS || '';
     const allowedAddlUnit = unitConfig.ADDITIONALUNITS || '';
@@ -1472,7 +879,6 @@ function PlaceOrder() {
       if (trimmed.endsWith('.') && !trimmed.endsWith('..')) {
         // Check if unit allows decimals
         let decimalPlaces = null;
-
         // First try to get decimal places from units array
         if (unitsArray && unitsArray.length > 0) {
           const baseUnit = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
@@ -1502,7 +908,6 @@ function PlaceOrder() {
       const simpleNumber = parseFloat(trimmed);
       if (!isNaN(simpleNumber)) {
         let decimalPlaces = null;
-
         // First try to get decimal places from units array (case-insensitive match)
         if (unitsArray && unitsArray.length > 0 && unitConfig.BASEUNITS) {
           const baseUnit = unitsArray.find(u =>
@@ -1610,7 +1015,6 @@ function PlaceOrder() {
       // Try simple format first: "number unit = number unit"
       const simpleCustomConversionPattern = /^(\d+(?:\.\d+)?)\s*(\w+)\s*[=]?\s*(\d+(?:\.\d+)?)\s*(\w+)$/i;
       let customConversionMatch = trimmed.match(simpleCustomConversionPattern);
-
       // If simple format doesn't match, try compound format on right side: "number unit = number unit number unit"
       if (!customConversionMatch) {
         const compoundRightPattern = /^(\d+(?:\.\d+)?)\s*(\w+)\s*[=]?\s*(\d+(?:\.\d+)?)\s*(\w+)\s+(\d+(?:\.\d+)?)\s*(\w+)$/i;
@@ -1625,7 +1029,6 @@ function PlaceOrder() {
 
       if (customConversionMatch) {
         let qty1, unit1, qty2, unit2, qty3, unit3;
-
         if (customConversionMatch.length === 5) {
           // Simple format: "number unit = number unit"
           qty1 = parseFloat(customConversionMatch[1]);
@@ -1669,7 +1072,6 @@ function PlaceOrder() {
 
         const baseUnitLower = unitConfig.BASEUNITS.toLowerCase();
         const addlUnitLower = unitConfig.ADDITIONALUNITS.toLowerCase();
-
         // Check if BASEUNITS is compound and get component units
         let baseCompBaseUnit = null;
         let baseCompAddlUnit = null;
@@ -1686,26 +1088,22 @@ function PlaceOrder() {
         // Determine which side is base and which is additional
         let baseQty, addlQty, isBaseCompound = false, baseMainQty = 0, baseSubQty = 0;
         let baseMainUnit = '', baseSubUnit = '';
-
         // FIRST: Determine which side is compound (has qty3 and unit3, and right side has 3 parts)
         // For "number unit = number unit number unit": right is compound
         // For "number unit number unit = number unit": left is compound
         const hasThreeParts = qty3 !== null && unit3 !== null;
         let rightIsCompound = false;
         let leftIsCompound = false;
-
         if (hasThreeParts) {
           // Determine which side is compound by checking where the = sign is
           if (trimmed.includes('=')) {
             const parts = trimmed.split('=');
             const leftPart = parts[0].trim();
             const rightPart = parts[1].trim();
-
             // Check if left part matches compound pattern (has two units)
             const leftHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(leftPart);
             // Check if right part matches compound pattern (has two units)
             const rightHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(rightPart);
-
             if (leftHasTwoUnits && !rightHasTwoUnits) {
               leftIsCompound = true;
             } else if (!leftHasTwoUnits && rightHasTwoUnits) {
@@ -1736,7 +1134,6 @@ function PlaceOrder() {
         const rightMatchesAddl = leftIsCompound
           ? unitMatches(unit3, addlUnitLower)
           : (rightIsCompound ? false : unitMatches(unit2, addlUnitLower));
-
         // Check if left side matches base unit (simple or compound)
         // If left is compound, check if unit1 and unit2 match component units
         const leftMatchesBase = leftIsCompound
@@ -1746,7 +1143,6 @@ function PlaceOrder() {
           : (unitMatches(unit1, baseUnitLower) ||
             (baseCompBaseUnit && unitMatches(unit1, baseCompBaseUnit)) ||
             (baseCompAddlUnit && unitMatches(unit1, baseCompAddlUnit)));
-
         // Check if right side matches base unit (simple or compound)
         // If right is compound, check if unit2 and unit3 match component units
         const rightMatchesBase = rightIsCompound
@@ -1756,7 +1152,6 @@ function PlaceOrder() {
           : (unitMatches(unit2, baseUnitLower) ||
             (baseCompBaseUnit && unitMatches(unit2, baseCompBaseUnit)) ||
             (baseCompAddlUnit && unitMatches(unit2, baseCompAddlUnit)));
-
         if (leftMatchesAddl && (rightMatchesBase || (rightIsCompound && baseCompBaseUnit && baseCompAddlUnit))) {
           // Format: addlQty addlUnit = baseQty baseUnit (or compound)
           // Example: "1 box = 15 pkt 3 nos"
@@ -1851,7 +1246,6 @@ function PlaceOrder() {
           // Validate decimal places for both quantities
           let baseDecimalPlaces = 0;
           let addlDecimalPlaces = 0;
-
           // Get decimal places for base unit
           if (unitsArray && unitsArray.length > 0) {
             const baseUnitObj = unitsArray.find(u => u.NAME && u.NAME.toLowerCase() === unitConfig.BASEUNITS.toLowerCase());
@@ -1884,11 +1278,9 @@ function PlaceOrder() {
           let formattedBaseQty = baseDecimalPlaces === 0
             ? Math.round(baseQty).toString()
             : (isBlur ? baseQty.toFixed(baseDecimalPlaces) : baseQty.toString());
-
           let formattedAddlQty = addlDecimalPlaces === 0
             ? Math.round(addlQty).toString()
             : (isBlur ? addlQty.toFixed(addlDecimalPlaces) : addlQty.toString());
-
           // Format compound base unit if needed
           let formattedBaseDisplay = '';
           if (isBaseCompound && baseCompBaseUnit && baseCompAddlUnit) {
@@ -1898,7 +1290,6 @@ function PlaceOrder() {
             const subUnitObj = unitsArray.find(u => u.NAME && unitMatches(u.NAME, baseSubUnit));
             const mainUnitName = mainUnitObj ? mainUnitObj.NAME : baseMainUnit;
             const subUnitName = subUnitObj ? subUnitObj.NAME : baseSubUnit;
-
             // Get decimal places for sub unit
             let subDecimalPlaces = 0;
             if (subUnitObj) {
@@ -1910,7 +1301,6 @@ function PlaceOrder() {
             const formattedSubQty = subDecimalPlaces === 0
               ? Math.round(baseSubQty).toString()
               : (isBlur ? baseSubQty.toFixed(subDecimalPlaces) : baseSubQty.toString());
-
             formattedBaseDisplay = `${baseMainQty} ${mainUnitName} ${formattedSubQty} ${subUnitName}`;
           } else {
             // Simple base unit
@@ -1920,7 +1310,6 @@ function PlaceOrder() {
 
           // Preserve original unit name for additional unit
           const addlUnitName = unitConfig.ADDITIONALUNITS;
-
           // Return formatted custom conversion (preserve = if it was there, otherwise use space)
           const hasEquals = trimmed.includes('=');
           return `${formattedBaseDisplay}${hasEquals ? ' = ' : ' '}${formattedAddlQty} ${addlUnitName}`;
@@ -1933,14 +1322,12 @@ function PlaceOrder() {
     // This should be checked BEFORE compound unit matching to avoid false matches
     // Pattern: number unit number unit number unit (3 numbers, 3 units)
     let baseCompoundAddlMatch = null;
-
     if (isBlur) {
       console.log('validateQuantityInput: Starting baseCompoundAddlMatch check', { input: trimmed });
     }
 
     // Pattern 1: With spaces (e.g., "1 box 5 pkt 3 nos")
     baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s+([A-Za-z]+)$/i);
-
     // Pattern 2: No space between first number and unit, but spaces between units (e.g., "1box 5pkt 3nos" or "9p 2n 3b")
     if (!baseCompoundAddlMatch) {
       baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)([A-Za-z]+)$/i);
@@ -1981,7 +1368,6 @@ function PlaceOrder() {
       const addlMainUnit = baseCompoundAddlMatch[4].toLowerCase();
       const addlSubQty = parseFloat(baseCompoundAddlMatch[5]);
       const addlSubUnit = baseCompoundAddlMatch[6].toLowerCase();
-
       // Helper function to check if a unit matches
       const unitMatches = (inputUnit, targetUnit) => {
         const inputLower = inputUnit.toLowerCase();
@@ -2003,7 +1389,6 @@ function PlaceOrder() {
           const baseCompBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
           const baseCompAddlUnit = baseUnitObj.ADDITIONALUNITS?.toLowerCase();
           const addlUnitLower = unitConfig.ADDITIONALUNITS?.toLowerCase();
-
           // Debug logging
           if (isBlur) {
             console.log('validateQuantityInput: Checking compound base + simple additional', {
@@ -2033,17 +1418,13 @@ function PlaceOrder() {
               const baseMainQty = baseQty;
               const baseSubQty = addlMainQty;
               const addlQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
@@ -2057,7 +1438,6 @@ function PlaceOrder() {
               const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-
               handledCompoundBaseSimpleAddl = true;
               const result = `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
               if (isBlur) {
@@ -2079,17 +1459,13 @@ function PlaceOrder() {
               const baseSubQty = baseQty;
               const baseMainQty = addlMainQty;
               const addlQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
@@ -2103,7 +1479,6 @@ function PlaceOrder() {
               const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-
               handledCompoundBaseSimpleAddl = true;
               return `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
             }
@@ -2115,17 +1490,13 @@ function PlaceOrder() {
               const baseMainQty = baseQty;
               const addlQty = addlMainQty;
               const baseSubQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
@@ -2139,7 +1510,6 @@ function PlaceOrder() {
               const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-
               handledCompoundBaseSimpleAddl = true;
               return `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
             }
@@ -2151,17 +1521,13 @@ function PlaceOrder() {
               const baseSubQty = baseQty;
               const addlQty = addlMainQty;
               const baseMainQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
@@ -2175,7 +1541,6 @@ function PlaceOrder() {
               const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-
               handledCompoundBaseSimpleAddl = true;
               return `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
             }
@@ -2187,17 +1552,13 @@ function PlaceOrder() {
               const addlQty = baseQty;
               const baseMainQty = addlMainQty;
               const baseSubQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
@@ -2211,7 +1572,6 @@ function PlaceOrder() {
               const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-
               handledCompoundBaseSimpleAddl = true;
               return `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
             }
@@ -2223,17 +1583,13 @@ function PlaceOrder() {
               const addlQty = baseQty;
               const baseSubQty = addlMainQty;
               const baseMainQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               let baseUnitDecimal = 0;
               if (unitsArray && unitsArray.length > 0) {
                 const baseUnitObj2 = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
@@ -2247,7 +1603,6 @@ function PlaceOrder() {
               const formattedBaseQty = baseUnitDecimal === 0
                 ? Math.round(totalBaseQty).toString()
                 : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-
               handledCompoundBaseSimpleAddl = true;
               return `${formattedBaseQty} ${unitConfig.BASEUNITS}`;
             }
@@ -2265,20 +1620,16 @@ function PlaceOrder() {
             // ADDITIONALUNITS is compound - check if addlMainUnit and addlSubUnit match components
             const addlCompBaseUnit = addlUnitObj.BASEUNITS?.toLowerCase();
             const addlCompAddlUnit = addlUnitObj.ADDITIONALUNITS?.toLowerCase();
-
             // Check order: main-sub or sub-main
             if (addlCompBaseUnit && addlCompAddlUnit) {
               if (unitMatches(addlMainUnit, addlCompBaseUnit) && unitMatches(addlSubUnit, addlCompAddlUnit)) {
                 // Order: main sub (e.g., "5 pkt 3 nos")
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlMainQty + (addlSubQty / addlConversion);
-
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
-
                 // Get decimal places for base unit
                 let baseUnitDecimal = 0;
                 if (unitsArray && unitsArray.length > 0) {
@@ -2299,7 +1650,6 @@ function PlaceOrder() {
                 const formattedBaseQty = baseUnitDecimal === 0
                   ? Math.round(totalBaseQty).toString()
                   : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-
                 // Format the compound additional unit quantity for display
                 let addlMainDecimal = 0;
                 let addlSubDecimal = 0;
@@ -2319,29 +1669,23 @@ function PlaceOrder() {
                 const formattedAddlMainQty = addlMainDecimal === 0
                   ? Math.round(addlMainQty).toString()
                   : (isBlur ? addlMainQty.toFixed(addlMainDecimal) : addlMainQty.toString());
-
                 const formattedAddlSubQty = addlSubDecimal === 0
                   ? Math.round(addlSubQty).toString()
                   : (isBlur ? addlSubQty.toFixed(addlSubDecimal) : addlSubQty.toString());
-
                 // Get original unit names
                 const baseUnitName = unitConfig.BASEUNITS;
                 const addlMainUnitName = addlMainUnitObj ? addlMainUnitObj.NAME : addlMainUnit;
                 const addlSubUnitName = addlSubUnitObj ? addlSubUnitObj.NAME : addlSubUnit;
-
                 // Return formatted: "baseQty baseUnit" (the compound additional will be shown in brackets by the display logic)
                 return `${formattedBaseQty} ${baseUnitName}`;
               } else if (unitMatches(addlMainUnit, addlCompAddlUnit) && unitMatches(addlSubUnit, addlCompBaseUnit)) {
                 // Order: sub main (e.g., "3 nos 5 pkt")
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlSubQty + (addlMainQty / addlConversion);
-
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
-
                 // Get decimal places for base unit
                 let baseUnitDecimal = 0;
                 if (unitsArray && unitsArray.length > 0) {
@@ -2362,10 +1706,8 @@ function PlaceOrder() {
                 const formattedBaseQty = baseUnitDecimal === 0
                   ? Math.round(totalBaseQty).toString()
                   : (isBlur ? totalBaseQty.toFixed(baseUnitDecimal) : totalBaseQty.toString());
-
                 // Get original unit name
                 const baseUnitName = unitConfig.BASEUNITS;
-
                 // Return formatted: "baseQty baseUnit"
                 return `${formattedBaseQty} ${baseUnitName}`;
               }
@@ -2379,10 +1721,8 @@ function PlaceOrder() {
     // Pattern allows optional spaces between number and unit, and between units
     // Try multiple patterns to handle different spacing scenarios
     let compoundMatch = null;
-
     // Pattern 1: With spaces (e.g., "2 LTR 10 ML", "2LTR 10ML")
     compoundMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/i);
-
     // Pattern 2: No space between first number and unit, but space between units (e.g., "2LTR 10ML")
     if (!compoundMatch) {
       compoundMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/i);
@@ -2402,7 +1742,6 @@ function PlaceOrder() {
       let mainUnit = compoundMatch[2]; // Keep original case for matching
       let subQty = compoundMatch[3];
       let subUnit = compoundMatch[4]; // Keep original case for matching
-
       // Helper function to check if a unit matches (supports full name and abbreviations)
       const unitMatches = (inputUnit, targetUnit) => {
         const inputLower = inputUnit.toLowerCase();
@@ -2419,11 +1758,9 @@ function PlaceOrder() {
       // Check both orders and support abbreviations
       let mainUnitAllowed = false;
       let subUnitAllowed = false;
-
       // Try order 1: mainUnit, subUnit
       mainUnitAllowed = allowedUnits.some(u => unitMatches(mainUnit, u));
       subUnitAllowed = allowedUnits.some(u => unitMatches(subUnit, u));
-
       // If order 1 doesn't work, try order 2: subUnit, mainUnit (reversed)
       if (!mainUnitAllowed || !subUnitAllowed) {
         const tempMainAllowed = allowedUnits.some(u => unitMatches(subUnit, u));
@@ -2448,7 +1785,6 @@ function PlaceOrder() {
       // Convert to lowercase for further processing
       const mainUnitLower = mainUnit.toLowerCase();
       const subUnitLower = subUnit.toLowerCase();
-
       // Validate main unit decimal places
       const mainUnitObj = unitsArray && unitsArray.length > 0
         ? unitsArray.find(u => {
@@ -2458,7 +1794,6 @@ function PlaceOrder() {
             (unitNameLower.length >= 1 && mainUnitLower.startsWith(unitNameLower));
         })
         : null;
-
       let mainDecimalPlaces = 0;
       if (mainUnitObj) {
         mainDecimalPlaces = parseInt(mainUnitObj.DECIMALPLACES) || 0;
@@ -2478,7 +1813,6 @@ function PlaceOrder() {
       // Validate sub unit decimal places
       // For compound units, check if this is a compound base or additional unit
       let subDecimalPlaces = 0;
-
       // Check if this matches compound base unit structure
       if (unitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes') {
         const baseCompAddl = unitConfig.BASEUNITCOMP_ADDLUNIT?.toLowerCase();
@@ -2564,7 +1898,6 @@ function PlaceOrder() {
       // Get original unit names (preserve case)
       const mainUnitName = compoundMatch[2];
       const subUnitName = compoundMatch[4];
-
       return `${mainQty} ${mainUnitName} ${subQty} ${subUnitName}`;
     }
 
@@ -2580,14 +1913,11 @@ function PlaceOrder() {
     if (simpleMatch) {
       let qty = simpleMatch[1];
       let unit = simpleMatch[2].trim();
-
       // Validate that the unit is allowed for this item
       const unitLower = unit.toLowerCase();
-
       // First, try to find exact match or auto-complete partial match
       let matchedUnit = null;
       let isAllowed = false;
-
       // Check exact match first (handles compound units like "LTR of 1000 ML")
       for (const allowed of allowedUnits) {
         const allowedLower = allowed.toLowerCase();
@@ -2658,7 +1988,6 @@ function PlaceOrder() {
       const unitObj = unitsArray && unitsArray.length > 0
         ? unitsArray.find(u => u.NAME && u.NAME.toLowerCase() === unitToLookupLower)
         : null;
-
       let decimalPlaces = null;
       if (unitObj) {
         // Found unit in array - use its DECIMALPLACES
@@ -2745,10 +2074,8 @@ function PlaceOrder() {
     // This should be checked BEFORE custom conversion to avoid false matches
     // Pattern: number unit number unit number unit (3 numbers, 3 units)
     let baseCompoundAddlMatch = null;
-
     // Pattern 1: With spaces (e.g., "1 box 5 pkt 3 nos")
     baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s+([A-Za-z]+)$/i);
-
     // Pattern 2: No space between first number and unit, but spaces between units (e.g., "1box 5pkt 3nos")
     if (!baseCompoundAddlMatch) {
       baseCompoundAddlMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)([A-Za-z]+)$/i);
@@ -2771,7 +2098,6 @@ function PlaceOrder() {
       const addlMainUnit = baseCompoundAddlMatch[4].toLowerCase();
       const addlSubQty = parseFloat(baseCompoundAddlMatch[5]);
       const addlSubUnit = baseCompoundAddlMatch[6].toLowerCase();
-
       // Helper function to check if a unit matches
       const unitMatches = (inputUnit, targetUnit) => {
         const inputLower = inputUnit.toLowerCase();
@@ -2793,7 +2119,6 @@ function PlaceOrder() {
           const baseCompBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
           const baseCompAddlUnit = baseUnitObj.ADDITIONALUNITS?.toLowerCase();
           const addlUnitLower = unitConfig.ADDITIONALUNITS?.toLowerCase();
-
           // Check if the pattern matches: baseCompMain baseCompSub addlUnit
           // Try both orders: main-sub-addl or sub-main-addl
           if (baseCompBaseUnit && baseCompAddlUnit) {
@@ -2804,17 +2129,13 @@ function PlaceOrder() {
               const baseMainQty = baseQty;
               const baseSubQty = addlMainQty;
               const addlQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display (9)
@@ -2834,17 +2155,13 @@ function PlaceOrder() {
               const baseSubQty = baseQty;
               const baseMainQty = addlMainQty;
               const addlQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display
@@ -2864,17 +2181,13 @@ function PlaceOrder() {
               const baseMainQty = baseQty;
               const addlQty = addlMainQty;
               const baseSubQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display
@@ -2894,17 +2207,13 @@ function PlaceOrder() {
               const baseSubQty = baseQty;
               const addlQty = addlMainQty;
               const baseMainQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display
@@ -2924,17 +2233,13 @@ function PlaceOrder() {
               const addlQty = baseQty;
               const baseMainQty = addlMainQty;
               const baseSubQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display
@@ -2954,17 +2259,13 @@ function PlaceOrder() {
               const addlQty = baseQty;
               const baseSubQty = addlMainQty;
               const baseMainQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               const effectiveDenominator = denominator / baseConversion;
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               handledCompoundBaseSimpleAddl = true;
               return {
                 qty: baseMainQty, // Main quantity for compound display
@@ -2991,7 +2292,6 @@ function PlaceOrder() {
             // ADDITIONALUNITS is compound - check if addlMainUnit and addlSubUnit match components
             const addlCompBaseUnit = addlUnitObj.BASEUNITS?.toLowerCase();
             const addlCompAddlUnit = addlUnitObj.ADDITIONALUNITS?.toLowerCase();
-
             // Check all 6 orderings for simple base + compound additional
             if (addlCompBaseUnit && addlCompAddlUnit) {
               // Order 1: addl-main-sub-base (e.g., "5 pkt 3 nos 2 box")
@@ -3001,13 +2301,10 @@ function PlaceOrder() {
                 const addlMainQtyValue = baseQty; // 5 pkt
                 const addlSubQtyValue = addlMainQty; // 3 nos
                 const baseQtyValue = addlSubQty; // 2 box
-
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlMainQtyValue + (addlSubQtyValue / addlConversion);
-
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
 
@@ -3029,13 +2326,10 @@ function PlaceOrder() {
                 const addlSubQtyValue = baseQty; // 3 nos
                 const addlMainQtyValue = addlMainQty; // 5 pkt
                 const baseQtyValue = addlSubQty; // 2 box
-
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlMainQtyValue + (addlSubQtyValue / addlConversion);
-
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
 
@@ -3057,13 +2351,10 @@ function PlaceOrder() {
                 const addlMainQtyValue = baseQty; // 5 pkt
                 const baseQtyValue = addlMainQty; // 2 box
                 const addlSubQtyValue = addlSubQty; // 3 nos
-
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlMainQtyValue + (addlSubQtyValue / addlConversion);
-
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
 
@@ -3085,13 +2376,10 @@ function PlaceOrder() {
                 const addlSubQtyValue = baseQty; // 3 nos
                 const baseQtyValue = addlMainQty; // 2 box
                 const addlMainQtyValue = addlSubQty; // 5 pkt
-
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlMainQtyValue + (addlSubQtyValue / addlConversion);
-
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
 
@@ -3112,7 +2400,6 @@ function PlaceOrder() {
                 unitMatches(addlSubUnit, addlCompAddlUnit)) {
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlMainQty + (addlSubQty / addlConversion);
-
                 console.log('🔍 Parsing Order 5 (base-addl-main-sub):', {
                   baseQty,
                   addlMainQty,
@@ -3124,7 +2411,6 @@ function PlaceOrder() {
 
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
 
@@ -3145,10 +2431,8 @@ function PlaceOrder() {
                 unitMatches(addlSubUnit, addlCompBaseUnit)) {
                 const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                 const addlQtyInCompound = addlSubQty + (addlMainQty / addlConversion);
-
                 const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
                 const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
                 const addlQtyInSubComponent = addlQtyInCompound * addlConversion;
                 const calculatedBaseQty = (addlQtyInSubComponent * denominator) / conversion;
 
@@ -3178,7 +2462,6 @@ function PlaceOrder() {
           const baseCompBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
           const baseCompAddlUnit = baseUnitObj.ADDITIONALUNITS?.toLowerCase();
           const addlUnitLower = unitConfig.ADDITIONALUNITS?.toLowerCase();
-
           // Check if the pattern matches: baseCompMain baseCompSub addlUnit
           // Try both orders: main-sub-addl or sub-main-addl
           if (baseCompBaseUnit && baseCompAddlUnit) {
@@ -3190,25 +2473,19 @@ function PlaceOrder() {
               const baseMainQty = baseQty;
               const baseSubQty = addlMainQty;
               const addlQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               // Check if BASEUNITS is compound - if so, DENOMINATOR is in terms of sub-component unit
               // Convert DENOMINATOR from sub-component to compound units
               const effectiveDenominator = denominator / baseConversion;
-
               // Convert additional unit quantity to base units
               // Formula: effectiveDenominator BASEUNITS = conversion ADDITIONALUNITS
               // So: addlQty ADDITIONALUNITS = (addlQty * effectiveDenominator) / conversion BASEUNITS
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
-
               // Total base quantity = compound base quantity + additional unit quantity in base
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               // Return the compound structure preserved for display (user entered "9 pkt 2 nos 3 box")
               // The quantity field should show "9-2 pkt" and the additional quantity (3 box) will be shown in brackets
               // Store the total quantity separately for calculation purposes
@@ -3231,22 +2508,16 @@ function PlaceOrder() {
               const baseSubQty = baseQty;
               const baseMainQty = addlMainQty;
               const addlQty = addlSubQty;
-
               const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
               const baseQtyInCompound = baseMainQty + (baseSubQty / baseConversion);
-
               const denominator = parseFloat(unitConfig.DENOMINATOR) || 1;
               const conversion = parseFloat(unitConfig.CONVERSION) || 1;
-
               // Check if BASEUNITS is compound - if so, DENOMINATOR is in terms of sub-component unit
               const effectiveDenominator = denominator / baseConversion;
-
               // Convert additional unit quantity to base units
               const addlQtyInBase = (addlQty * effectiveDenominator) / conversion;
-
               // Total base quantity
               const totalBaseQty = baseQtyInCompound + addlQtyInBase;
-
               // Return the compound structure preserved for display (user entered "3 nos 9 pkt 2 box")
               // The quantity field should show "9-2 pkt" and the additional quantity (2 box) will be shown in brackets
               return {
@@ -3269,11 +2540,9 @@ function PlaceOrder() {
     // This allows users to override DENOMINATOR and CONVERSION
     // Supports both orders: base=additional or additional=base
     // Supports abbreviated units (partial matching)
-
     // First try simple format: "number unit = number unit"
     const simpleCustomConversionPattern = /^(\d+(?:\.\d+)?)\s*(\w+)\s*[=]?\s*(\d+(?:\.\d+)?)\s*(\w+)$/i;
     let customConversionMatch = trimmed.match(simpleCustomConversionPattern);
-
     // If simple format doesn't match, try compound format on right side: "number unit = number unit number unit"
     if (!customConversionMatch) {
       const compoundRightPattern = /^(\d+(?:\.\d+)?)\s*(\w+)\s*[=]?\s*(\d+(?:\.\d+)?)\s*(\w+)\s+(\d+(?:\.\d+)?)\s*(\w+)$/i;
@@ -3288,7 +2557,6 @@ function PlaceOrder() {
 
     if (customConversionMatch && unitConfig.BASEUNITS && unitConfig.ADDITIONALUNITS) {
       let qty1, unit1, qty2, unit2, qty3, unit3;
-
       if (customConversionMatch.length === 5) {
         // Simple format: "number unit = number unit"
         qty1 = parseFloat(customConversionMatch[1]);
@@ -3307,18 +2575,15 @@ function PlaceOrder() {
         unit2 = customConversionMatch[4].toLowerCase();
         qty3 = parseFloat(customConversionMatch[5]);
         unit3 = customConversionMatch[6].toLowerCase();
-
         // Determine which side is compound by checking where = sign is
         if (trimmed.includes('=')) {
           const parts = trimmed.split('=');
           const leftPart = parts[0].trim();
           const rightPart = parts[1].trim();
-
           // Check if left part has two units (compound pattern: "number unit number unit")
           const leftHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(leftPart);
           // Check if right part has two units (compound pattern: "number unit number unit")
           const rightHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(rightPart);
-
           // If left has two units, then qty1,unit1 and qty2,unit2 are on left, qty3,unit3 is on right
           // If right has two units, then qty1,unit1 is on left, qty2,unit2 and qty3,unit3 are on right
           // But the regex always captures in order, so we need to adjust based on which side is compound
@@ -3359,7 +2624,6 @@ function PlaceOrder() {
 
       const baseUnitLower = unitConfig.BASEUNITS.toLowerCase();
       const addlUnitLower = unitConfig.ADDITIONALUNITS.toLowerCase();
-
       // Check if BASEUNITS is compound and get component units
       let baseCompBaseUnit = null;
       let baseCompAddlUnit = null;
@@ -3375,26 +2639,22 @@ function PlaceOrder() {
 
       // Determine which side is base and which is additional
       let baseQty, addlQty, isBaseCompound = false, baseMainQty = 0, baseSubQty = 0;
-
       // FIRST: Determine which side is compound (has qty3 and unit3, and right side has 3 parts)
       // For "number unit = number unit number unit": right is compound
       // For "number unit number unit = number unit": left is compound
       const hasThreeParts = qty3 !== null && unit3 !== null;
       let rightIsCompound = false;
       let leftIsCompound = false;
-
       if (hasThreeParts) {
         // Determine which side is compound by checking where the = sign is
         if (trimmed.includes('=')) {
           const parts = trimmed.split('=');
           const leftPart = parts[0].trim();
           const rightPart = parts[1].trim();
-
           // Check if left part matches compound pattern (has two units)
           const leftHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(leftPart);
           // Check if right part matches compound pattern (has two units)
           const rightHasTwoUnits = /^\d+(?:\.\d+)?\s+\w+\s+\d+(?:\.\d+)?\s+\w+$/i.test(rightPart);
-
           if (leftHasTwoUnits && !rightHasTwoUnits) {
             leftIsCompound = true;
           } else if (!leftHasTwoUnits && rightHasTwoUnits) {
@@ -3425,7 +2685,6 @@ function PlaceOrder() {
       const rightMatchesAddl = leftIsCompound
         ? unitMatches(unit3, addlUnitLower)
         : (rightIsCompound ? false : unitMatches(unit2, addlUnitLower));
-
       // Check if left side matches base unit (simple or compound)
       // If left is compound, check if unit1 and unit2 match component units
       const leftMatchesBase = leftIsCompound
@@ -3438,7 +2697,6 @@ function PlaceOrder() {
           // Also check if baseUnitLower contains unit1 as a word (ONLY for compound base units like "pkt of 10 nos" matching "pkt")
           (baseCompBaseUnit && baseUnitLower &&
             (baseUnitLower.startsWith(unit1 + ' ') || baseUnitLower.includes(' ' + unit1 + ' ') || baseUnitLower.endsWith(' ' + unit1))));
-
       // Check if right side matches base unit (simple or compound)
       // If right is compound, check if unit2 and unit3 match component units
       const rightMatchesBase = rightIsCompound
@@ -3448,7 +2706,6 @@ function PlaceOrder() {
         : (unitMatches(unit2, baseUnitLower) ||
           (baseCompBaseUnit && unitMatches(unit2, baseCompBaseUnit)) ||
           (baseCompAddlUnit && unitMatches(unit2, baseCompAddlUnit)));
-
       if (leftMatchesAddl && (rightMatchesBase || (rightIsCompound && baseCompBaseUnit && baseCompAddlUnit))) {
         // Format: addlQty addlUnit = baseQty baseUnit (or compound)
         // Example: "1 box = 15 pkt 3 nos"
@@ -3520,7 +2777,6 @@ function PlaceOrder() {
             (baseUnitLower && (baseUnitLower.startsWith(unit2 + ' ') || baseUnitLower.includes(' ' + unit2 + ' ') || baseUnitLower.endsWith(' ' + unit2)));
           const unit1MatchesAddl = unitMatches(unit1, addlUnitLower);
           const unit2MatchesAddl = unitMatches(unit2, addlUnitLower);
-
           // Debug: Log the matching results for troubleshooting
           console.log('🔍 Custom conversion fallback matching:', {
             input: trimmed,
@@ -3589,7 +2845,6 @@ function PlaceOrder() {
     // Parse compound unit in two formats:
     // 1. Hyphen format (display format): "2-500.000 LTR" 
     // 2. Space format (input format): "2 LTR 500 ML" or "2LTR500ML"
-
     // First try hyphen format (display format: "2-500.000 LTR")
     const hyphenPattern = /^(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s+(\w+)$/i;
     const hyphenMatch = trimmed.match(hyphenPattern);
@@ -3600,7 +2855,6 @@ function PlaceOrder() {
         const subQty = parseFloat(hyphenMatch[2]);
         const displayUnit = hyphenMatch[3].toLowerCase();
         const compBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
-
         // Check if display unit matches the base component unit
         if (displayUnit === compBaseUnit) {
           // This is the display format - return as component compound
@@ -3628,10 +2882,8 @@ function PlaceOrder() {
     // The pattern should match: number + unit + number + unit
     // Try multiple patterns to handle different spacing scenarios
     let compoundMatch = null;
-
     // Pattern 1: With spaces (e.g., "2 LTR 10 ML", "2LTR 10ML", "2 LTR10ML")
     compoundMatch = trimmed.match(/^(\d+(?:\.\d+)?)\s+([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/i);
-
     // Pattern 2: No space between first number and unit, but space between units (e.g., "2LTR 10ML")
     if (!compoundMatch) {
       compoundMatch = trimmed.match(/^(\d+(?:\.\d+)?)([A-Za-z]+)\s+(\d+(?:\.\d+)?)\s*([A-Za-z]+)$/i);
@@ -3654,7 +2906,6 @@ function PlaceOrder() {
       const unit1 = compoundMatch[2];
       const qty2 = parseFloat(compoundMatch[3]);
       const unit2 = compoundMatch[4];
-
       // Helper function to check if a unit matches (supports full name and abbreviations)
       const unitMatches = (inputUnit, targetUnit) => {
         const inputLower = inputUnit.toLowerCase();
@@ -3671,7 +2922,6 @@ function PlaceOrder() {
       if (unitConfig.BASEUNITHASCOMPOUNDUNIT === 'Yes') {
         const baseUnit = unitConfig.BASEUNITCOMP_BASEUNIT?.toLowerCase();
         const addlUnit = unitConfig.BASEUNITCOMP_ADDLUNIT?.toLowerCase();
-
         // Order 1: qty1 unit1 = main, qty2 unit2 = sub
         if (unitMatches(unit1, baseUnit) && unitMatches(unit2, addlUnit)) {
           return {
@@ -3699,7 +2949,6 @@ function PlaceOrder() {
       // First check unitConfig flags, then check units array
       let addlBaseUnit = null;
       let addlAddlUnit = null;
-
       if (unitConfig.ADDITIONALUNITHASCOMPOUNDUNIT === 'Yes') {
         addlBaseUnit = unitConfig.ADDLUNITCOMP_BASEUNIT?.toLowerCase();
         addlAddlUnit = unitConfig.ADDLUNITCOMP_ADDLUNIT?.toLowerCase();
@@ -3758,7 +3007,6 @@ function PlaceOrder() {
         if (baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No') {
           const compBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
           const compAddlUnit = baseUnitObj.ADDITIONALUNITS?.toLowerCase();
-
           // Helper function to check if a unit matches (supports full name and abbreviations)
           const unitMatches = (inputUnit, targetUnit) => {
             const inputLower = inputUnit.toLowerCase();
@@ -3815,7 +3063,6 @@ function PlaceOrder() {
     if (simpleMatch) {
       const qty = parseFloat(simpleMatch[1]);
       const unit = simpleMatch[2].toLowerCase();
-
       console.log('🔍 Parsing simple unit input:', {
         input: trimmed,
         qty,
@@ -3845,7 +3092,6 @@ function PlaceOrder() {
           const addlCompBaseUnit = addlUnitObj.BASEUNITS?.toLowerCase();
           const addlCompAddlUnit = addlUnitObj.ADDITIONALUNITS?.toLowerCase();
           const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
-
           if (addlCompBaseUnit && unit === addlCompBaseUnit) {
             // User entered main component of compound additional unit (e.g., "25 pkt" for "pkt of 10 nos")
             // Convert to compound additional unit: qty is already in main component
@@ -3856,11 +3102,9 @@ function PlaceOrder() {
             // CONVERSION is in sub-component units, so convert qty to sub-component first
             const qtyInSubComponent = qty * addlConversion;
             const baseQty = (qtyInSubComponent * denominator) / conversion;
-
             // Preserve compound additional unit structure for alternative quantity display
             const mainQty = qty; // Already in main component (e.g., 25 pkt)
             const subQty = 0; // No sub component when entering main component directly
-
             console.log('🔍 Parsing component unit of compound additional:', {
               input: trimmed,
               qty,
@@ -3898,7 +3142,6 @@ function PlaceOrder() {
             const conversion = parseFloat(unitConfig.CONVERSION) || 1;
             const qtyInSubComponent = qtyInCompound * addlConversion;
             const baseQty = (qtyInSubComponent * denominator) / conversion;
-
             // Preserve compound additional unit structure for alternative quantity display
             // Extract main and sub quantities from compound additional unit
             const mainQty = Math.floor(qtyInCompound); // 2 pkt
@@ -3933,7 +3176,6 @@ function PlaceOrder() {
           const compBaseUnit = baseUnitObj.BASEUNITS?.toLowerCase();
           const compAddlUnit = baseUnitObj.ADDITIONALUNITS?.toLowerCase();
           const conversion = parseFloat(baseUnitObj.CONVERSION) || 1;
-
           if (compBaseUnit && unit === compBaseUnit) {
             // User entered main component unit (e.g., "2 LTR")
             // Convert to compound base unit: qty is already in main component
@@ -3989,15 +3231,12 @@ function PlaceOrder() {
   // Use the base component unit (e.g., "LTR") instead of the full compound unit name (e.g., "LTR of 1000 ML")
   const formatCompoundBaseUnit = (primaryQty, unitConfig, unitsArray) => {
     if (!unitConfig || !unitsArray || unitsArray.length === 0) return null;
-
     // Check if BASEUNITS is a compound unit
     const baseUnitObj = unitsArray.find(u => u.NAME === unitConfig.BASEUNITS);
     if (!baseUnitObj || baseUnitObj.ISSIMPLEUNIT === 'Yes') return null;
-
     const conversion = parseFloat(baseUnitObj.CONVERSION) || 1;
     const mainQty = Math.floor(primaryQty);
     const subQty = (primaryQty - mainQty) * conversion;
-
     // Get decimal places for sub unit
     let subDecimalPlaces = 0;
     if (baseUnitObj.ADDITIONALUNITS) {
@@ -4012,10 +3251,8 @@ function PlaceOrder() {
     const formattedSubQty = subDecimalPlaces === 0
       ? Math.round(subQty).toString()
       : subQty.toFixed(subDecimalPlaces);
-
     // Use the base component unit (e.g., "LTR") instead of the full compound unit name (e.g., "LTR of 1000 ML")
     const displayUnit = baseUnitObj.BASEUNITS || unitConfig.BASEUNITS;
-
     // Format: "mainQty-subQty BASEUNIT" (e.g., "2-500.000 LTR" or "2-0.000 LTR")
     // Always show the format even if subQty is 0
     return `${mainQty}-${formattedSubQty} ${displayUnit}`;
@@ -4026,7 +3263,6 @@ function PlaceOrder() {
   // unitsArray parameter is optional but recommended for compound units to get accurate CONVERSION
   const convertToPrimaryQty = (parsedQty, unitConfig, customConv = null, unitsArray = null) => {
     if (!parsedQty || !unitConfig) return 0;
-
     // If parsedQty has totalQty (for "1 box 5 pkt 3 nos" format), use it for calculation
     // Otherwise use qty for display
     if (parsedQty.totalQty !== undefined && parsedQty.totalQty !== null) {
@@ -4038,7 +3274,6 @@ function PlaceOrder() {
         // Compound base unit (e.g., 2 Kgs 500 Gms, or 2 LTR 500 ML)
         let mainQty = parsedQty.qty || 0;
         let subQty = parsedQty.subQty || 0;
-
         // Round main and sub quantities based on their decimal places before calculation
         if (unitsArray && unitsArray.length > 0) {
           // Get decimal places for main unit (base component of compound)
@@ -4048,7 +3283,6 @@ function PlaceOrder() {
               // BASEUNITS is compound - get main and sub unit decimal places
               const mainUnitObj = unitsArray.find(u => u.NAME === baseUnitObj.BASEUNITS);
               const subUnitObj = unitsArray.find(u => u.NAME === baseUnitObj.ADDITIONALUNITS);
-
               if (mainUnitObj) {
                 const mainDecimalPlaces = typeof mainUnitObj.DECIMALPLACES === 'string'
                   ? parseInt(mainUnitObj.DECIMALPLACES) || 0
@@ -4167,7 +3401,6 @@ function PlaceOrder() {
         // Compound additional unit
         let mainQty = parsedQty.qty || 0;
         let subQty = parsedQty.subQty || 0;
-
         // Round main and sub quantities based on their decimal places before calculation
         if (unitsArray && unitsArray.length > 0 && unitConfig.ADDITIONALUNITS) {
           const addlUnitObj = unitsArray.find(u => u.NAME === unitConfig.ADDITIONALUNITS);
@@ -4175,7 +3408,6 @@ function PlaceOrder() {
             // ADDITIONALUNITS is compound - get main and sub unit decimal places
             const mainUnitObj = unitsArray.find(u => u.NAME === addlUnitObj.BASEUNITS);
             const subUnitObj = unitsArray.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
-
             if (mainUnitObj) {
               const mainDecimalPlaces = typeof mainUnitObj.DECIMALPLACES === 'string'
                 ? parseInt(mainUnitObj.DECIMALPLACES) || 0
@@ -4216,7 +3448,6 @@ function PlaceOrder() {
         // e.g., "2 Box 5 Nos" where Box is main and Nos is sub
         // Total in additional unit = mainQty + (subQty / subConversion)
         const totalAddlUnits = mainQty + (subQty / subConversion);
-
         // Convert to base: (effectiveDenominator / CONVERSION) per additional unit
         // effectiveDenominator is already in compound units when BASEUNITS is compound
         return totalAddlUnits * (effectiveDenominator / conversion);
@@ -4252,7 +3483,6 @@ function PlaceOrder() {
   // If custom conversion is set, use that instead of default DENOMINATOR/CONVERSION
   const convertToAlternativeQty = (baseQty, unitConfig, unitsArray, customConv = null) => {
     if (!baseQty || !unitConfig || !unitConfig.ADDITIONALUNITS) return null;
-
     // Use custom conversion if available, otherwise use default
     let denominator, conversion;
     if (customConv && customConv.denominator && customConv.conversion) {
@@ -4283,7 +3513,6 @@ function PlaceOrder() {
       ? unitsArray.find(u => u.NAME === unitConfig.ADDITIONALUNITS)
       : null;
     const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
     // IMPORTANT: When ADDITIONALUNITS is compound, CONVERSION refers to the sub-component unit (nos),
     // not the compound unit itself (pkt of 10 nos).
     // Example: BASEUNITS = "box", ADDITIONALUNITS = "pkt of 10 nos", DENOMINATOR = 1, CONVERSION = 100
@@ -4327,7 +3556,6 @@ function PlaceOrder() {
       const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
       const mainQty = Math.floor(alternativeQty);
       const subQty = (alternativeQty - mainQty) * addlConversion;
-
       // Get decimal places for sub unit
       let subDecimalPlaces = 0;
       if (addlUnitObj.ADDITIONALUNITS) {
@@ -4342,10 +3570,8 @@ function PlaceOrder() {
       const formattedSubQty = subDecimalPlaces === 0
         ? Math.round(subQty).toString()
         : subQty.toFixed(subDecimalPlaces);
-
       // Use the base component unit (e.g., "pkt") instead of the full compound unit name (e.g., "pkt of 10 nos")
       const displayUnit = addlUnitObj.BASEUNITS || unitConfig.ADDITIONALUNITS;
-
       // Format: "mainQty-subQty BASEUNIT" (e.g., "20-0 pkt" or "20-5.000 pkt")
       // Always show the format even if subQty is 0
       return {
@@ -4365,131 +3591,73 @@ function PlaceOrder() {
     };
   };
 
-
   // Validate and format decimal places
-
   const validateDecimalPlaces = (value, maxDecimals) => {
-
     if (!value) return '';
-
-
-
     const strValue = value.toString();
-
     const parts = strValue.split('.');
-
-
-
     if (!maxDecimals || maxDecimals === '0' || maxDecimals === 0) {
 
       // No decimals allowed - return integer part only
-
       return parts[0];
-
     }
-
-
 
     if (parts.length === 1) {
 
       // No decimal point yet
-
       return strValue;
-
     }
-
-
 
     // Limit decimal places
-
     const decimals = parseInt(maxDecimals);
-
     return parts[0] + '.' + parts[1].substring(0, decimals);
-
   };
 
-
-
   // Format number with specific decimal places
-
   const formatWithDecimals = (value, maxDecimals) => {
-
     if (!value && value !== 0) return '';
-
     if (!maxDecimals || maxDecimals === '0' || maxDecimals === 0) {
-
       return Math.floor(parseFloat(value || 0)).toString();
-
     }
 
     const decimals = parseInt(maxDecimals);
-
     return parseFloat(value || 0).toFixed(decimals);
-
   };
 
-
-
   // Parse compound unit string (e.g., "LTR of 1000 ML" -> {base: "LTR", addl: "ML", conversion: "1000"})
-
   const parseCompoundUnit = (compoundUnitString) => {
-
     if (!compoundUnitString || typeof compoundUnitString !== 'string') return null;
-
-
-
     const parts = compoundUnitString.split(' of ');
-
     if (parts.length === 2) {
 
       const [baseUnit, rest] = parts;
-
       const match = rest.match(/^(\d+)\s+(.+)$/);
-
       if (match) {
-
         return {
 
           base: baseUnit.trim(),
-
           addl: match[2].trim(),
-
           conversion: match[1].trim()
 
         };
-
       }
-
     }
-
     return null;
-
   };
 
-
-
   // Old formula functions removed - using simplified Tally-style quantity input instead
-
-
   // =============== End of Utility Functions ===============
 
-
-
-
-
   // Dynamic grid template based on Rate/Amount columns, Discount column, and Stock column visibility
-
   const getGridTemplateColumns = () => {
 
     // Use flexible columns to fit within container without scrolling
     // Item Name gets more space, other columns are compact but visible
     // Note: Mobile uses card layout, this function is for desktop only
-
     if (isMobile) {
       // Mobile uses card layout, but keep this as fallback with minimal widths
       if (canShowRateAmtColumn) {
         let columns = 'minmax(80px, 1fr)'; // Item Name column (flexible)
-
         columns += ' minmax(40px, 50px)'; // Qty column
 
         if (canShowClosingStock) {
@@ -4509,11 +3677,9 @@ function PlaceOrder() {
         columns += ' minmax(50px, 55px)'; // Amount column
 
         columns += ' minmax(50px, 55px)'; // Action column
-
         return columns;
       } else {
         let columns = '1fr'; // Item Name column (flexible)
-
         columns += ' minmax(40px, 50px)'; // Qty column
 
         if (canShowClosingStock) {
@@ -4521,7 +3687,6 @@ function PlaceOrder() {
         }
 
         columns += ' minmax(50px, 55px)'; // Action column
-
         return columns;
       }
     }
@@ -4530,13 +3695,11 @@ function PlaceOrder() {
     if (canShowRateAmtColumn) {
 
       let columns = 'minmax(200px, 2fr)'; // Item Name column (flexible)
-
       columns += ' minmax(70px, 0.8fr)'; // Qty column
 
       if (canShowClosingStock) {
 
         columns += ' minmax(60px, 0.7fr)'; // Stock column
-
       }
 
       columns += ' minmax(70px, 0.8fr)'; // Rate column
@@ -4546,7 +3709,6 @@ function PlaceOrder() {
       if (canShowDiscColumn) {
 
         columns += ' minmax(60px, 0.7fr)'; // Disc % column
-
       }
 
       columns += ' minmax(60px, 0.7fr)'; // GST % column
@@ -4554,168 +3716,101 @@ function PlaceOrder() {
       columns += ' minmax(90px, 1fr)'; // Amount column
 
       columns += ' minmax(120px, 140px)'; // Action column (fixed min, flexible max)
-
       return columns;
-
     } else {
 
       let columns = 'minmax(200px, 1fr)'; // Item Name column (flexible)
-
       columns += ' minmax(70px, 0.8fr)'; // Qty column
 
       if (canShowClosingStock) {
 
         columns += ' minmax(60px, 0.7fr)'; // Stock column
-
       }
 
       columns += ' minmax(120px, 140px)'; // Action column (fixed min, flexible max)
-
       return columns;
-
     }
 
   };
-
-
-
-
-
-
-
-
-
-
 
   // Fetch voucher types when company changes
 
   useEffect(() => {
 
     const fetchVoucherTypes = async () => {
-
       if (!company) {
 
         setVoucherTypes([]);
-
         setSelectedVoucherType('');
-
         setVoucherTypesLoading(false);
-
         setVoucherTypesError('');
-
         return;
-
       }
 
-
-
       // Get the current company object directly from filteredCompanies
-
       const currentCompany = filteredCompanies.find(c => c.guid === company);
-
       if (!currentCompany) {
 
         setVoucherTypes([]);
-
         setSelectedVoucherType('');
-
         setVoucherTypesLoading(false);
-
         setVoucherTypesError('');
-
         return;
-
       }
 
-
-
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
-
-
-
       setVoucherTypesLoading(true);
-
       setVoucherTypesError('');
-
       setVoucherTypes([]); // Clear previous data while loading
-
-
-
       try {
 
         const data = await apiPost(`/api/tally/vouchertype?ts=${Date.now()}`, {
-
           tallyloc_id,
-
           company: companyVal,
 
           guid
 
         });
 
-
-
         if (data && data.voucherTypes && Array.isArray(data.voucherTypes)) {
 
           setVoucherTypes(data.voucherTypes);
-
-
-
           // Check if there's a previously selected voucher type in sessionStorage
-
           const savedVoucherType = sessionStorage.getItem('selectedVoucherType');
-
           if (savedVoucherType && data.voucherTypes.find(vt => vt.NAME === savedVoucherType)) {
 
             // Use the saved voucher type if it exists in the current list
-
             setSelectedVoucherType(savedVoucherType);
-
           } else if (data.voucherTypes.length > 0) {
 
             // Auto-select the first voucher type
-
             const firstVoucherType = data.voucherTypes[0].NAME;
-
             setSelectedVoucherType(firstVoucherType);
-
             // Save it for future use
-
             sessionStorage.setItem('selectedVoucherType', firstVoucherType);
-
           } else {
 
             setSelectedVoucherType('');
-
           }
 
         } else {
 
           setVoucherTypesError('No voucher types received');
-
         }
 
       } catch (error) {
 
         console.error('Error fetching voucher types:', error);
-
         setVoucherTypesError('Failed to fetch voucher types');
-
       } finally {
 
         setVoucherTypesLoading(false);
-
       }
 
     };
 
-
-
     fetchVoucherTypes();
-
   }, [company]);
-
-
 
   // Get available classes for selected voucher type
   const availableClasses = useMemo(() => {
@@ -4800,7 +3895,6 @@ function PlaceOrder() {
     const companyState = currentCompany?.statename || currentCompany?.STATENAME || currentCompany?.state || '';
     const customerState = selectedCustomerObj?.STATENAME || editableState || '';
     const isSameState = companyState && customerState && companyState.toLowerCase().trim() === customerState.toLowerCase().trim();
-
     // Helper function to determine GSTDUTYHEAD from ledger name
     const getGSTDUTYHEAD = (ledgerName) => {
       const nameUpper = (ledgerName || '').toUpperCase();
@@ -4814,7 +3908,6 @@ function PlaceOrder() {
     const shouldCalculateLedger = (ledger) => {
       const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
       if (!gstDutyHead) return false;
-
       if (isSameState) {
         return gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST';
       } else {
@@ -4829,19 +3922,15 @@ function PlaceOrder() {
     const gstLedgers = selectedClassLedgers.filter(
       ledger => ledger.METHODTYPE === 'GST' && shouldCalculateLedger(ledger)
     );
-
     const gstAmounts = {};
     gstLedgers.forEach(ledger => {
       const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
       const rateOfTaxCalc = parseFloat(ledger.RATEOFTAXCALCULATION || '0');
       let totalGST = 0;
-
       orderItems.forEach(item => {
         const itemGstPercent = parseFloat(item.gstPercent || 0);
-
         if (itemGstPercent > 0) {
           const itemTaxableAmount = parseFloat(item.amount || 0);
-
           if (rateOfTaxCalc === 0) {
             let effectiveGstRate = itemGstPercent;
             if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
@@ -4928,11 +4017,9 @@ function PlaceOrder() {
     const calculateAverageGSTRate = () => {
       let totalTaxableAmount = 0;
       let weightedGstRate = 0;
-
       orderItems.forEach(item => {
         const itemGstPercent = parseFloat(item.gstPercent || 0);
         const itemAmount = parseFloat(item.amount || 0);
-
         if (itemGstPercent > 0 && itemAmount > 0) {
           totalTaxableAmount += itemAmount;
           weightedGstRate += itemAmount * itemGstPercent;
@@ -4946,14 +4033,12 @@ function PlaceOrder() {
     };
 
     const avgGstRate = calculateAverageGSTRate();
-
     selectedClassLedgers.forEach(ledger => {
       if (ledger.METHODTYPE === 'GST' || ledger.METHODTYPE === 'As Total Amount Rounding') {
         return;
       }
 
       let ledgerValue = 0;
-
       if (ledger.METHODTYPE === 'As User Defined Value') {
         ledgerValue = parseFloat(ledgerValues[ledger.NAME] || 0);
       } else if (ledger.METHODTYPE === 'As Flat Rate') {
@@ -4969,27 +4054,20 @@ function PlaceOrder() {
       if (ledgerValue !== 0) {
         if (ledger.APPROPRIATEFOR === 'GST' && ledger.EXCISEALLOCTYPE === 'Based on Value') {
           const totalItemValue = orderItems.reduce((sum, item) => sum + (parseFloat(item.amount || 0)), 0);
-
           if (totalItemValue > 0) {
             gstLedgers.forEach(gstLedger => {
               const gstDutyHead = getGSTDUTYHEAD(gstLedger.NAME);
               if (!gstDutyHead) return;
-
               const shouldCalculate = (isSameState && (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST')) ||
                 (!isSameState && gstDutyHead === 'IGST');
-
               if (!shouldCalculate) return;
-
               let ledgerGstAmount = 0;
-
               orderItems.forEach(item => {
                 const itemAmount = parseFloat(item.amount || 0);
                 const itemGstPercent = parseFloat(item.gstPercent || 0);
-
                 if (itemAmount > 0 && itemGstPercent > 0) {
                   const itemDiscountPortion = (ledgerValue * itemAmount) / totalItemValue;
                   let effectiveGstRate = itemGstPercent;
-
                   if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
                     effectiveGstRate = itemGstPercent / 2;
                   }
@@ -5023,11 +4101,9 @@ function PlaceOrder() {
 
     // Calculate amount before rounding
     const amountBeforeRounding = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + finalOnCurrentSubTotal + totalGST + totalGstOnOtherLedgers;
-
     // Helper function to calculate rounding
     const calculateRounding = (amount, roundType, roundLimit) => {
       const limit = parseFloat(roundLimit) || 1;
-
       if (roundType === 'Normal Rounding') {
         return Math.round(amount / limit) * limit - amount;
       } else if (roundType === 'Upward Rounding') {
@@ -5042,7 +4118,6 @@ function PlaceOrder() {
     const roundingLedgers = selectedClassLedgers.filter(
       ledger => ledger.METHODTYPE === 'As Total Amount Rounding'
     );
-
     let cumulativeRounding = 0;
     const roundingAmounts = {};
     roundingLedgers.forEach(ledger => {
@@ -5066,9 +4141,7 @@ function PlaceOrder() {
       const isBasedOnQuantity = ledger.METHODTYPE === 'Based on Quantity';
       const isOnTotalSales = ledger.METHODTYPE === 'On Total Sales';
       const isOnCurrentSubTotal = ledger.METHODTYPE === 'On Current SubTotal';
-
       let amount = 0;
-
       if (isUserDefined) {
         amount = parseFloat(ledgerValues[ledger.NAME] || 0);
       } else if (isRounding) {
@@ -5087,7 +4160,6 @@ function PlaceOrder() {
 
       ledgerAmountsMap[ledger.NAME] = amount;
     });
-
     return {
       subtotal,
       ledgerAmounts: ledgerAmountsMap,
@@ -5110,35 +4182,24 @@ function PlaceOrder() {
     editableState
   ]);
 
-
-
   // Handle customer cache refresh
 
   const handleRefreshCustomers = async () => {
-
     if (!company) return;
-
     const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
     // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
     const currentCompany = companies.find(c => 
       c.guid === company && 
       (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
     );
-
     if (!currentCompany) return;
-
     setRefreshingCustomers(true);
-
     setCustomerError('');
-
     try {
 
       console.log('🔄 Refreshing customer cache...');
-
       await syncCustomers(currentCompany);
-
       console.log('✅ Customer cache refreshed successfully');
-
       // Dispatch event to notify other components
       window.dispatchEvent(new CustomEvent('ledgerCacheUpdated', {
         detail: { type: 'customers', company: currentCompany }
@@ -5146,21 +4207,15 @@ function PlaceOrder() {
 
       // Small delay to ensure cache is fully written and readable
       await new Promise(resolve => setTimeout(resolve, 100));
-
       // Trigger re-fetch by incrementing refreshCustomers
-
       setRefreshCustomers(prev => prev + 1);
-
     } catch (error) {
 
       console.error('❌ Error refreshing customer cache:', error);
-
       setCustomerError('Failed to refresh customer cache. Please try again.');
-
     } finally {
 
       setRefreshingCustomers(false);
-
     }
 
   };
@@ -5170,25 +4225,16 @@ function PlaceOrder() {
   useEffect(() => {
 
     const fetchCustomers = async () => {
-
       if (!company) {
 
         setCustomerOptions([]);
-
         setSelectedCustomer('');
-
         setCustomerLoading(false);
-
         setCustomerError('');
-
         return;
-
       }
 
-
-
       // Get the current company object directly from companies
-
       // Use companies directly to avoid dependency issues
       const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
       // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
@@ -5196,45 +4242,29 @@ function PlaceOrder() {
         c.guid === company && 
         (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
       );
-
       if (!currentCompany) {
 
         setCustomerOptions([]);
-
         setSelectedCustomer('');
-
         setCustomerLoading(false);
-
         setCustomerError('');
-
         return;
-
       }
 
-
-
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
-
       const cacheKey = `ledgerlist-w-addrs_${tallyloc_id}_${companyVal}`;
-
-
-
       // Only read from cache - do not fetch from API
-
       // Cache updates are handled by Cache Management page
-
       // Retry logic for reading cache (handles timing issues after cache write)
       let cachedCustomers = null;
       let retries = refreshCustomers > 0 ? 3 : 1; // Retry more times if we just refreshed
       let attempt = 0;
-
       while (attempt < retries && !cachedCustomers) {
         try {
           attempt++;
           console.log(`📖 Attempting to load customers from cache (attempt ${attempt}/${retries})...`);
 
           cachedCustomers = await getCustomersFromOPFS(cacheKey);
-
           if (cachedCustomers && Array.isArray(cachedCustomers) && cachedCustomers.length > 0) {
             console.log(`✅ Successfully loaded ${cachedCustomers.length} customers from cache`);
             break;
@@ -5273,49 +4303,31 @@ function PlaceOrder() {
       }
 
       setCustomerLoading(false);
-
-
-
       // Reset refresh counter
-
       if (refreshCustomers) {
 
         setRefreshCustomers(0);
-
       }
 
     };
 
-
-
     fetchCustomers();
-
   }, [company, refreshCustomers, filteredCompanies.length]); // Use length instead of array reference to prevent infinite loops
-
-
 
   // Fetch stock items when company changes or refreshStockItems increments
 
   useEffect(() => {
 
     const fetchStockItems = async () => {
-
       if (!company) {
 
         setStockItems([]);
-
         setStockItemsLoading(false);
-
         setStockItemsError('');
-
         return;
-
       }
 
-
-
       // Get the current company object directly from companies
-
       // Use companies directly to avoid dependency issues
       const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
       // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
@@ -5323,40 +4335,25 @@ function PlaceOrder() {
         c.guid === company && 
         (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
       );
-
       if (!currentCompany) {
 
         setStockItems([]);
-
         setStockItemsLoading(false);
-
         setStockItemsError('');
-
         return;
-
       }
 
-
-
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
-
       const cacheKey = `stockitems_${tallyloc_id}_${companyVal}`;
-
-
-
       // Check cache first
-
       const cached = sessionStorage.getItem(cacheKey);
-
       const cachedUnits = sessionStorage.getItem(`${cacheKey}_units`);
       if (cached && !refreshStockItems) {
 
         try {
 
           const items = JSON.parse(cached);
-
           setStockItems(items);
-
           if (cachedUnits) {
             try {
               const cachedUnitsData = JSON.parse(cachedUnits);
@@ -5372,51 +4369,31 @@ function PlaceOrder() {
             console.warn('⚠️ No cached units found');
           }
           setStockItemsError('');
-
           setStockItemsLoading(false);
-
           return;
-
         } catch { }
-
       }
 
-
-
       // Clear cache if refresh requested
-
       if (refreshStockItems) {
 
         sessionStorage.removeItem(cacheKey);
-
       }
 
-
-
       // Set loading state and fetch data
-
       setStockItemsLoading(true);
-
       setStockItemsError('');
-
       setStockItems([]); // Clear previous data while loading
-
-
-
       const token = sessionStorage.getItem('token');
-
       try {
 
         const data = await apiPost(`/api/tally/stockitem?ts=${Date.now()}`, {
-
           tallyloc_id,
-
           company: companyVal,
 
           guid
 
         });
-
 
         console.log('📥 Full API response:', {
           hasStockItems: !!data?.stockItems,
@@ -5427,12 +4404,9 @@ function PlaceOrder() {
           responseKeys: data ? Object.keys(data) : []
         });
 
-
         if (data && data.stockItems && Array.isArray(data.stockItems)) {
 
           console.log('Raw stock items from API:', data.stockItems);
-
-
           // Store units array if present
           if (data.units && Array.isArray(data.units)) {
             console.log('📦 Units array loaded:', {
@@ -5456,454 +4430,284 @@ function PlaceOrder() {
             });
           }
 
-
           // Test deobfuscation on first item
-
           if (data.stockItems.length > 0) {
 
             const firstItem = data.stockItems[0];
-
             console.log('Testing deobfuscation on first item:', firstItem);
-
             console.log('STDPRICE:', firstItem.STDPRICE);
-
             console.log('LASTPRICE:', firstItem.LASTPRICE);
-
             console.log('CLOSINGSTOCK:', firstItem.CLOSINGSTOCK);
-
             if (firstItem.PRICELEVELS && firstItem.PRICELEVELS.length > 0) {
 
               console.log('First PRICELEVEL RATE:', firstItem.PRICELEVELS[0].RATE);
-
             }
-
           }
 
-
-
           // Deobfuscate sensitive pricing data
-
           const decryptedItems = deobfuscateStockItems(data.stockItems);
-
           setStockItems(decryptedItems);
-
           setStockItemsError('');
-
           // Cache the deobfuscated result with graceful fallback
-
           try {
 
             sessionStorage.setItem(cacheKey, JSON.stringify(decryptedItems));
-
           } catch (cacheError) {
 
             console.warn('Failed to cache stock items in sessionStorage:', cacheError.message);
-
           }
 
           console.log('Stock items fetched and deobfuscated:', decryptedItems);
-
         } else if (data && data.error) {
 
           setStockItemsError(data.error);
-
           setStockItems([]);
-
         } else {
 
           setStockItemsError('Unknown error');
-
           setStockItems([]);
-
         }
 
       } catch (err) {
 
         console.error('Error fetching stock items:', err);
-
         setStockItemsError('Failed to fetch stock items');
-
         setStockItems([]);
-
       } finally {
 
         setStockItemsLoading(false);
-
         // Reset refresh counter after API call completes
-
         if (refreshStockItems) {
 
           setRefreshStockItems(0);
-
         }
-
       }
 
     };
 
-
-
     fetchStockItems();
-
   }, [company, refreshStockItems, companies.length]); // Use length instead of array reference to prevent infinite loops
 
-
-
   // Update editable fields when customer changes
-
   useEffect(() => {
 
     if (selectedCustomer && customerOptions.length > 0) {
 
       const selectedCustomerObj = customerOptions.find(c => c.NAME === selectedCustomer);
-
       if (selectedCustomerObj) {
 
         setEditableAddress(selectedCustomerObj.ADDRESS || '');
-
         setEditableState(selectedCustomerObj.STATENAME || '');
-
         setEditableCountry(selectedCustomerObj.COUNTRY || '');
-
         setEditableGstNo(selectedCustomerObj.GSTNO || '');
-
         setEditablePincode(selectedCustomerObj.PINCODE || '');
-
-
-
         // Update temporary data for modal
-
         setTempCustomerData({
-
           address: selectedCustomerObj.ADDRESS || '',
-
           state: selectedCustomerObj.STATENAME || '',
-
           country: selectedCustomerObj.COUNTRY || '',
-
           gstno: selectedCustomerObj.GSTNO || '',
-
           email: selectedCustomerObj.EMAIL || '',
-
           pincode: selectedCustomerObj.PINCODE || ''
 
         });
-
       }
 
     } else {
 
       setEditableAddress('');
-
       setEditableState('');
-
       setEditableCountry('');
-
       setEditableGstNo('');
-
       setEditablePincode('');
-
       setTempCustomerData({
-
         address: '',
-
         state: '',
-
         country: '',
-
         gstno: '',
-
         email: '',
-
         pincode: ''
 
       });
-
     }
 
   }, [selectedCustomer, customerOptions]);
-
-
 
   // Auto-populate customer and items after customerOptions are loaded (only once)
 
   useEffect(() => {
 
     // Only run once when customerOptions are first loaded and we have pending data
-
     if (customerOptions.length > 0 && !hasAutoPopulatedRef.current) {
 
       const pendingCustomer = sessionStorage.getItem('pendingCustomer');
-
       const pendingItems = sessionStorage.getItem('pendingItems');
-
-
-
       // Only process if there's actually pending data
-
       if (!pendingCustomer && !pendingItems) {
 
         return;
-
       }
 
-
-
       hasAutoPopulatedRef.current = true; // Mark as processed
-
-
 
       if (pendingCustomer) {
 
         setSelectedCustomer(pendingCustomer);
-
         setCustomerSearchTerm(pendingCustomer);
-
         sessionStorage.removeItem('pendingCustomer');
-
       }
-
-
 
       if (pendingItems) {
 
         try {
 
           const items = JSON.parse(pendingItems);
-
-
-
           items.forEach(item => {
 
             const cartItem = {
-
               NAME: item.NAME,
-
               PARTNO: item.PARTNO || '',
-
               STDPRICE: item.STDPRICE || 0,
-
               quantity: item.quantity,
-
               rate: parseFloat(item.STDPRICE || item.rate || 0),
-
               discountPercent: parseFloat(item.discountPercent || 0),
-
               gstPercent: parseFloat(item.gstPercent || 0),
-
               amount: item.amount || 0
 
             };
 
-
-
             addOrderItemFromCart(cartItem);
-
           });
 
-
-
           sessionStorage.removeItem('pendingItems');
-
         } catch (error) {
 
           console.error('Error parsing pending items:', error);
-
         }
-
       }
 
-
-
       // Don't clear auto-population state automatically
-
       // It will be cleared when user manually interacts with company/customer fields
-
     }
 
   }, [customerOptions.length]); // Only run when customerOptions length changes, not reference
 
-
-
   // Show warning when company changes and order items exist
-
   useEffect(() => {
 
     // Skip warning if we're auto-populating from cart
-
     if (isAutoPopulating || autoPopulatingRef.current) {
 
       return;
-
     }
-
-
 
     if (orderItems.length > 0) {
 
       setConfirmMessage('Changing company will clear all selected items and order items. Are you sure you want to continue?');
-
       setConfirmAction(() => {
-
         setOrderItems([]);
-
         setSelectedItem('');
-
         setCustomConversion(null);
         setCustomAddlQty(null);
         setCompoundBaseQty(null);
         setCompoundAddlQty(null);
         setBaseQtyOnly(null);
         setItemSearchTerm('');
-
         setFilteredItems([]);
-
         setItemQuantity(1);
-
         setItemRate(0);
-
         setItemGstPercent(0);
-
       });
 
       setShowConfirmModal(true);
-
     }
 
   }, [company, isAutoPopulating]);
 
-
-
   // Show warning when customer changes and order items exist
-
   useEffect(() => {
 
     // Skip warning if we're auto-populating from cart
-
     if (isAutoPopulating || autoPopulatingRef.current) {
 
       return;
-
     }
-
-
 
     if (orderItems.length > 0) {
 
       setConfirmMessage('Changing customer will clear all selected items and order items. Are you sure you want to continue?');
-
       setConfirmAction(() => {
-
         setOrderItems([]);
-
         setSelectedItem('');
-
         setCustomConversion(null);
         setCustomAddlQty(null);
         setCompoundBaseQty(null);
         setCompoundAddlQty(null);
         setBaseQtyOnly(null);
         setItemSearchTerm('');
-
         setFilteredItems([]);
-
         setItemQuantity(1);
-
         setItemRate(0);
-
         setItemGstPercent(0);
-
       });
 
       setShowConfirmModal(true);
-
     }
 
   }, [selectedCustomer, isAutoPopulating]);
 
-
-
   // Update rate when item or customer changes
-
   useEffect(() => {
 
     if (selectedItem && stockItems.length > 0) {
 
       const selectedStockItem = stockItems.find(item => item.NAME === selectedItem);
-
       if (selectedStockItem) {
 
         let finalRate = 0;
-
         let finalDiscount = 0;
-
-
-
         // If customer is selected, try to get customer-specific pricing
-
         if (selectedCustomer) {
 
           const selectedCustomerData = customerOptions.find(customer => customer.NAME === selectedCustomer);
-
-
-
           if (selectedCustomerData && selectedCustomerData.PRICELEVEL) {
 
             // Customer has PRICELEVEL - check PRICELEVELS array
-
             if (selectedStockItem.PRICELEVELS && Array.isArray(selectedStockItem.PRICELEVELS)) {
 
               const matchingPriceLevel = selectedStockItem.PRICELEVELS.find(pl => pl.PLNAME === selectedCustomerData.PRICELEVEL);
-
               if (matchingPriceLevel) {
 
                 // Decrypt the RATE and DISCOUNT values
-
                 finalRate = enhancedDeobfuscateValue(matchingPriceLevel.RATE) || 0;
-
                 finalDiscount = enhancedDeobfuscateValue(matchingPriceLevel.DISCOUNT) || 0;
-
               } else {
 
                 // No matching PRICELEVEL found - use STDPRICE
-
                 finalRate = selectedStockItem.STDPRICE || 0;
-
                 finalDiscount = 0;
-
               }
 
             } else {
 
               // PRICELEVELS array doesn't exist - use STDPRICE
-
               finalRate = selectedStockItem.STDPRICE || 0;
-
               finalDiscount = 0;
-
             }
 
           } else {
 
             // Customer doesn't have PRICELEVEL - use STDPRICE and zero discount
-
             finalRate = selectedStockItem.STDPRICE || 0;
-
             finalDiscount = 0;
-
           }
 
         } else {
 
           // No customer selected - use STDPRICE as fallback and zero discount
-
           finalRate = selectedStockItem.STDPRICE || 0;
-
           finalDiscount = 0;
-
         }
-
-
 
         console.log('💰 Rate Calculation:', {
 
@@ -5914,48 +4718,34 @@ function PlaceOrder() {
           finalRate,
 
           finalDiscount,
-
           stdPrice: selectedStockItem.STDPRICE
 
         });
 
-
-
         setItemRate(finalRate);
-
         setItemDiscountPercent(finalDiscount);
-
         setItemGstPercent(selectedStockItem.IGST || 0);
-
-
-
         // Build unit configuration from item and units array
         const unitConfig = buildUnitConfig(selectedStockItem, units);
         setSelectedItemUnitConfig(unitConfig);
-
         // Helper function to map API unit name to rateUOM value
         const mapUnitToRateUOM = (unitName, unitConfig, units) => {
           if (!unitName || !unitConfig) return null;
-
           const baseUnitObj = units && units.length > 0
             ? units.find(u => u.NAME === unitConfig.BASEUNITS)
             : null;
           const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-
           const addlUnitObj = units && units.length > 0 && unitConfig.ADDITIONALUNITS
             ? units.find(u => u.NAME === unitConfig.ADDITIONALUNITS)
             : null;
           const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
           // Normalize unit name for comparison (case-insensitive)
           const unitNameLower = unitName.toLowerCase().trim();
-
           // Check if it matches base unit
           if (hasCompoundBaseUnit && baseUnitObj) {
             // Check component units of compound base unit
             const baseCompBaseUnit = (baseUnitObj.BASEUNITS || '').toLowerCase().trim();
             const baseCompAddlUnit = (baseUnitObj.ADDITIONALUNITS || '').toLowerCase().trim();
-
             if (unitNameLower === baseCompBaseUnit) {
               return 'component-main';
             } else if (unitNameLower === baseCompAddlUnit) {
@@ -5974,7 +4764,6 @@ function PlaceOrder() {
             // Check component units of compound additional unit
             const addlCompBaseUnit = (addlUnitObj.BASEUNITS || '').toLowerCase().trim();
             const addlCompAddlUnit = (addlUnitObj.ADDITIONALUNITS || '').toLowerCase().trim();
-
             if (unitNameLower === addlCompBaseUnit) {
               return 'additional-component-main';
             } else if (unitNameLower === addlCompAddlUnit) {
@@ -5993,10 +4782,8 @@ function PlaceOrder() {
 
         // Set Rate UOM based on API response (STDPRICEUNIT, LASTPRICEUNIT, or RATEUNIT)
         let rateUOMFromAPI = null;
-
         if (selectedCustomer) {
           const selectedCustomerData = customerOptions.find(customer => customer.NAME === selectedCustomer);
-
           if (selectedCustomerData && selectedCustomerData.PRICELEVEL) {
             // Check PRICELEVELS for RATEUNIT
             if (selectedStockItem.PRICELEVELS && Array.isArray(selectedStockItem.PRICELEVELS)) {
@@ -6013,7 +4800,6 @@ function PlaceOrder() {
           // Check if we're using LASTPRICE (if LASTPRICE exists and is different from STDPRICE)
           const stdPrice = selectedStockItem.STDPRICE ? enhancedDeobfuscateValue(selectedStockItem.STDPRICE) : 0;
           const lastPrice = selectedStockItem.LASTPRICE ? enhancedDeobfuscateValue(selectedStockItem.LASTPRICE) : 0;
-
           // Use LASTPRICEUNIT if LASTPRICE is being used and LASTPRICEUNIT exists
           if (lastPrice && lastPrice !== stdPrice && selectedStockItem.LASTPRICEUNIT) {
             rateUOMFromAPI = mapUnitToRateUOM(selectedStockItem.LASTPRICEUNIT, unitConfig, units);
@@ -6033,12 +4819,10 @@ function PlaceOrder() {
             ? units.find(u => u.NAME === unitConfig.BASEUNITS)
             : null;
           const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-
           const addlUnitObj = units && units.length > 0 && unitConfig.ADDITIONALUNITS
             ? units.find(u => u.NAME === unitConfig.ADDITIONALUNITS)
             : null;
           const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
           if (hasCompoundBaseUnit) {
             // For compound base units, default to main component
             setRateUOM('component-main');
@@ -6070,7 +4854,6 @@ function PlaceOrder() {
           // Always update if BASEUNIT_DECIMAL changed or was previously undefined
           const shouldUpdate = !selectedItemUnitConfig ||
             unitConfig.BASEUNIT_DECIMAL !== selectedItemUnitConfig.BASEUNIT_DECIMAL;
-
           if (shouldUpdate) {
             console.log('🔄 Rebuilding unit config with units array:', {
               item: selectedItem,
@@ -6080,7 +4863,6 @@ function PlaceOrder() {
               unitsArrayLength: units.length
             });
             setSelectedItemUnitConfig(unitConfig);
-
             // If there's a quantity input, re-validate it with the new config
             if (quantityInput && quantityInput.trim()) {
               setTimeout(() => {
@@ -6131,7 +4913,6 @@ function PlaceOrder() {
     }
 
     const parsedQty = parseQuantityInput(quantityInput, selectedItemUnitConfig, units);
-
     // Reset custom conversion only if user explicitly enters a different format
     // Don't reset if:
     // 1. Input is just the base unit display (which happens after onBlur converts custom format to base)
@@ -6142,13 +4923,11 @@ function PlaceOrder() {
 
     // Calculate primary quantity first to use for comparison
     const primaryQty = convertToPrimaryQty(parsedQty, selectedItemUnitConfig, customConversion, units);
-
     // Check if the current quantity matches what would be from custom conversion
     // Use primaryQty instead of parsedQty.qty because parsedQty.qty might be the main quantity
     // (e.g., 10 for "10-2 pkt") while primaryQty is the total (e.g., 10.2)
     const matchesCustomConversion = customConversion &&
       Math.abs(primaryQty - customConversion.baseQty) < 0.0001;
-
     // Also check if the current input is the base unit display format that was converted from a custom conversion
     // This happens when onBlur converts "10 pkt 2 nos = 2 box" to "10-2 pkt"
     // The hyphen format "10-2 pkt" is parsed as compound, but the quantity (10.2) still matches the custom conversion
@@ -6157,7 +4936,6 @@ function PlaceOrder() {
       matchesCustomConversion &&
       parsedQty.uom === 'base' &&
       (matchesBaseUnitDisplay || parsedQty.isCompound || quantityInput.includes('-'));
-
     if (!parsedQty.isCustomConversion && customConversion && !matchesBaseUnitDisplay && !matchesCustomConversion && !isBaseUnitDisplayFromCustom) {
       // User changed to a different format (not custom conversion, not base unit display, and doesn't match custom conversion base qty)
       setCustomConversion(null);
@@ -6186,16 +4964,13 @@ function PlaceOrder() {
     const formattedQty = baseUnitDecimal === 0
       ? Math.round(primaryQty).toString()
       : primaryQty.toFixed(baseUnitDecimal);
-
     // Round primaryQty based on base unit's decimal places before setting itemQuantity
     // This ensures amount calculation uses rounded quantity when decimal places are 0
     const roundedPrimaryQty = baseUnitDecimal === 0
       ? Math.round(primaryQty)
       : parseFloat(primaryQty.toFixed(baseUnitDecimal));
-
     // Note: We don't update quantityInput here to avoid interfering with user typing
     // The conversion to BASEUNITS will happen in the onBlur handler
-
     console.log('📊 Quantity parsing:', {
       input: quantityInput,
       parsed: parsedQty,
@@ -6211,7 +4986,6 @@ function PlaceOrder() {
     setItemQuantity(roundedPrimaryQty);
     // Track which unit type was entered (for reference, but display will always be base)
     setEnteredUnitType(parsedQty.uom || 'base');
-
     // Set customAddlQty if parsed quantity has it (e.g., from "9 pkt 2 nos 3 box")
     // IMPORTANT: Only update if parsedQty has customAddlQty, otherwise preserve existing value
     // This ensures that when input is reformatted (e.g., "9-3 pkt"), customAddlQty is not cleared
@@ -6438,19 +5212,16 @@ function PlaceOrder() {
     // For amount calculation: convert quantity to rate's UOM, then multiply by rate
     let quantityInRateUOM = itemQuantity;
     let calculatedAmount = 0;
-
     // Check if BASEUNITS is compound and rate is in component unit
     const baseUnitObj = units && units.length > 0
       ? units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS)
       : null;
     const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-
     // Check if ADDITIONALUNITS is compound
     const addlUnitObj = units && units.length > 0 && selectedItemUnitConfig.ADDITIONALUNITS
       ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
       : null;
     const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
     if ((rateUOM === 'component-main' || (rateUOM === 'base' && hasCompoundBaseUnit)) && hasCompoundBaseUnit && baseUnitObj) {
       // Rate is in main component unit (e.g., "pkt" when BASEUNITS is "pkt of 10 nos")
       // Or rate is in base unit but BASEUNITS is compound, so treat as component-main
@@ -6485,7 +5256,6 @@ function PlaceOrder() {
       // - Use ONLY compound additional part: 25 pkt 7 nos = 25.7 pkt
       // - Amount = 25.7 pkt × 10/pkt = 257
       const addlCompoundConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
-
       if (compoundAddlQty !== null && compoundAddlQty !== undefined && !hasCompoundBaseUnit) {
         // BASEUNITS is simple, ADDITIONALUNITS is compound
         // Use compound additional quantity directly (already in compound units, e.g., 9.7 pkt)
@@ -6533,7 +5303,6 @@ function PlaceOrder() {
       // - Use ONLY compound additional part: 25 pkt = 250 nos, + 7 nos = 257 nos
       // - Amount = 257 nos × 10/nos = 2570
       const addlCompoundConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
-
       if (compoundAddlQty !== null && compoundAddlQty !== undefined && !hasCompoundBaseUnit) {
         // BASEUNITS is simple, ADDITIONALUNITS is compound
         // Convert compound additional quantity to sub component: compoundAddlQty * conversion
@@ -6625,7 +5394,6 @@ function PlaceOrder() {
         // Formula: effectiveDenominator BASEUNITS = conversion ADDITIONALUNITS
         // So: quantity_in_additional = quantity_in_base * (conversion / effectiveDenominator)
         let quantityInAddlUnits = itemQuantity * (conversion / effectiveDenominator);
-
         // Round the additional unit quantity based on its decimal places
         // This ensures the calculation matches what's displayed in the alternate quantity
         if (units && units.length > 0 && selectedItemUnitConfig.ADDITIONALUNITS) {
@@ -6685,7 +5453,6 @@ function PlaceOrder() {
 
     // Calculate amount: quantity in rate's UOM * rate
     calculatedAmount = quantityInRateUOM * itemRate * (1 - (itemDiscountPercent || 0) / 100);
-
     // Debug log for final amount calculation
     console.log('💰 Final amount calculation:', {
       itemQuantity,
@@ -6701,374 +5468,211 @@ function PlaceOrder() {
     });
 
     setItemAmount(calculatedAmount);
-
   }, [itemQuantity, itemRate, itemDiscountPercent, rateUOM, selectedItemUnitConfig, units, customConversion, compoundBaseQty, compoundAddlQty, customAddlQty, baseQtyOnly]);
 
-
   const selectStyle = {
-
     width: '100%',
-
     padding: '12px 16px',
-
     border: '1px solid #d1d5db',
-
     borderRadius: '8px',
-
     fontSize: '14px',
-
     backgroundColor: '#fff',
-
     color: '#374151',
-
     outline: 'none',
-
     transition: 'border-color 0.2s, box-shadow 0.2s',
 
   };
 
-
-
   const floatingLabelStyle = (focused, value) => ({
-
     position: 'absolute',
-
     left: 12,
-
     top: focused || value ? '-10px' : '10px',
-
     fontSize: focused || value ? 14 : 15,
-
     fontWeight: 600,
-
     color: '#60a5fa',
-
     backgroundColor: '#fff',
-
     padding: '0 6px',
-
     transition: 'all 0.25s cubic-bezier(.4,0,.2,1)',
-
     pointerEvents: 'none',
-
     letterSpacing: 0.5,
-
     fontFamily: 'Segoe UI, Roboto, Arial, sans-serif',
 
   });
 
-
-
   // Modal styles
-
   const modalOverlayStyle = {
-
     position: 'fixed',
-
     top: 0,
-
     left: 0,
-
     right: 0,
-
     bottom: 0,
-
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-
     display: 'flex',
-
     alignItems: 'center',
-
     justifyContent: 'center',
-
     zIndex: 1000,
 
   };
 
-
-
   const modalStyle = {
-
     backgroundColor: '#fff',
-
     borderRadius: isMobile ? '16px' : '12px',
-
     padding: isMobile ? '16px' : '24px',
-
     maxWidth: isMobile ? '95%' : '500px',
-
     width: isMobile ? '95%' : '90%',
-
     maxHeight: isMobile ? '90vh' : '80vh',
-
     overflow: 'auto',
-
     boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
 
   };
 
-
-
   const modalHeaderStyle = {
-
     display: 'flex',
-
     justifyContent: 'space-between',
-
     alignItems: 'center',
-
     marginBottom: isMobile ? '16px' : '20px',
-
     paddingBottom: isMobile ? '12px' : '16px',
-
     borderBottom: '2px solid #3b82f6',
 
   };
 
-
-
   const modalTitleStyle = {
-
     margin: 0,
-
     color: '#1f2937',
-
     fontSize: isMobile ? '18px' : '20px',
-
     fontWeight: '600',
 
   };
 
-
-
   const closeButtonStyle = {
-
     background: 'none',
-
     border: 'none',
-
     fontSize: isMobile ? '22px' : '24px',
-
     cursor: 'pointer',
-
     color: '#6b7280',
-
     padding: isMobile ? '6px' : '4px',
-
     borderRadius: '4px',
-
     transition: 'color 0.2s',
 
   };
 
-
-
   const formGroupStyle = {
-
     marginBottom: isMobile ? '16px' : '20px',
 
   };
 
-
-
   const labelStyle = {
-
     display: 'block',
-
     marginBottom: isMobile ? '6px' : '8px',
-
     fontWeight: '600',
-
     color: '#374151',
-
     fontSize: isMobile ? '13px' : '14px',
 
   };
 
-
-
   const inputStyle = {
-
     width: '100%',
-
     padding: isMobile ? '12px 14px' : '12px',
-
     border: '1px solid #d1d5db',
-
     borderRadius: isMobile ? '10px' : '8px',
-
     fontSize: isMobile ? '15px' : '14px',
-
     boxSizing: 'border-box',
-
     transition: 'border-color 0.2s',
 
   };
 
-
-
   const textareaStyle = {
-
     ...inputStyle,
-
     minHeight: isMobile ? '100px' : '80px',
-
     resize: 'vertical',
-
     height: 'auto',
-
     padding: isMobile ? '12px 14px' : '12px',
 
   };
 
-
-
   const readonlyInputStyle = {
-
     ...inputStyle,
-
     backgroundColor: '#f9fafb',
-
     color: '#6b7280',
 
   };
 
-
-
   const buttonGroupStyle = {
-
     display: 'flex',
-
     gap: isMobile ? '10px' : '12px',
-
     justifyContent: 'flex-end',
-
     marginTop: isMobile ? '20px' : '24px',
-
     flexDirection: isMobile ? 'column-reverse' : 'row',
 
   };
 
-
-
   const buttonStyle = {
-
     padding: isMobile ? '14px 20px' : '12px 24px',
-
     border: 'none',
-
     borderRadius: isMobile ? '10px' : '8px',
-
     fontSize: isMobile ? '15px' : '14px',
-
     fontWeight: '600',
-
     cursor: 'pointer',
-
     transition: 'all 0.2s',
-
     width: isMobile ? '100%' : 'auto',
 
   };
 
-
-
   const primaryButtonStyle = {
-
     ...buttonStyle,
-
     background: '#3b82f6',
-
     color: 'white',
 
   };
-
-
 
   const secondaryButtonStyle = {
-
     ...buttonStyle,
-
     background: '#6b7280',
-
     color: 'white',
 
   };
 
-
-
   const handleSubmit = async (e) => {
-
     e.preventDefault();
-
     const currentCompany = filteredCompanies.find(c => c.guid === company);
-
     const selectedCustomerObj = customerOptions.find(c => c.NAME === selectedCustomer);
-
-
-
     if (!currentCompany || !selectedCustomerObj || orderItems.length === 0) {
 
       console.error('Missing required data for order submission');
-
       return;
-
     }
 
-
-
     // Credit limit validation
-
     if (creditLimitData && (canShowCreditLimit || canControlCreditLimit) && Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) > 0) {
 
       const totalOrderAmount = orderItems.reduce((sum, item) => sum + item.amount, 0);
-
       const availableCredit = Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) - Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE);
-
       const hasOverdueBills = creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0;
-
       const exceedsCreditLimit = totalOrderAmount > availableCredit;
-
-
-
       if (canControlCreditLimit && (exceedsCreditLimit || hasOverdueBills)) {
 
         let errorMessage = 'Transaction cannot be saved due to:\n';
-
         if (exceedsCreditLimit) {
 
           errorMessage += `• Order amount (₹${totalOrderAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}) exceeds available credit limit (₹${availableCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })})\n`;
-
         }
 
         if (hasOverdueBills) {
 
           errorMessage += `• Customer has ${creditLimitData.overdueBills.length} overdue bill(s)\n`;
-
         }
 
         alert(errorMessage);
-
         return;
-
       }
-
     }
 
-
-
     setIsSubmittingOrder(true);
-
-
-
     try {
 
       // Prepare voucher number
-
       const now = new Date();
-
       const timestamp = now.getFullYear().toString() +
-
         (now.getMonth() + 1).toString().padStart(2, '0') +
 
         now.getDate().toString().padStart(2, '0') +
@@ -7078,127 +5682,72 @@ function PlaceOrder() {
         now.getMinutes().toString().padStart(2, '0') +
 
         now.getSeconds().toString().padStart(2, '0');
-
-
-
       // Find the selected voucher type to get PREFIX and SUFFIX, ISOUTENTRY, PERSISTEDVIEW
-
       const selectedVoucherTypeObj = voucherTypes.find(vt => vt.NAME === selectedVoucherType);
-
       const voucherNumber = selectedVoucherTypeObj
-
         ? `${selectedVoucherTypeObj.PREFIX}${timestamp}${selectedVoucherTypeObj.SUFFIX}`
 
         : '';
-
       // Get selected class object to access LEDGERFORINVENTORYLIST
-
       const selectedClassObj = selectedVoucherTypeObj && selectedVoucherTypeObj.VOUCHERCLASSLIST
-
         ? selectedVoucherTypeObj.VOUCHERCLASSLIST.find(cls => cls.CLASSNAME === selectedClassName)
 
         : null;
-
       // Get ledger name for inventory items from LEDGERFORINVENTORYLIST
-
       const inventoryLedgerName = selectedClassObj && selectedClassObj.LEDGERFORINVENTORYLIST && selectedClassObj.LEDGERFORINVENTORYLIST.length > 0
-
         ? selectedClassObj.LEDGERFORINVENTORYLIST[0].NAME
 
         : '';
-
-
-
       // Prepare the API payload
-
       const payload = {
-
         tallyloc_id: currentCompany.tallyloc_id,
-
         company: currentCompany.company,
-
         guid: currentCompany.guid,
-
         customer: selectedCustomer,
-
         address: (editableAddress || selectedCustomerObj.ADDRESS || '').replace(/\n/g, '|'),
-
         pincode: editablePincode || selectedCustomerObj.PINCODE || '',
-
         state: editableState || selectedCustomerObj.STATENAME || '',
-
         country: editableCountry || selectedCustomerObj.COUNTRY || '',
-
         gstno: editableGstNo || selectedCustomerObj.GSTNO || '',
-
         pricelevel: selectedCustomerObj.PRICELEVEL || '',
-
         buyerorderno: buyerOrderRef || '',
 
         ...(canShowPayTerms && { paymentterms: paymentTerms || '' }),
 
         ...(canShowDelvTerms && { deliveryterms: deliveryTerms || '' }),
-
         narration: narration || '',
-
         isoptional: (() => {
 
           // Default logic
-
           if (canSaveOptional) return "Yes";
-
-
-
           // Credit limit logic for show_creditdayslimit
-
           if (canShowCreditLimit && creditLimitData) {
 
             const hasOverdueBills = creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0;
-
-
-
             // Check for overdue bills first (regardless of credit limit)
-
             if (hasOverdueBills) {
-
               return "Yes";
-
             }
 
-
-
             // Check for credit limit exceed only if credit limit is set (> 0)
-
             if (Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) > 0) {
 
               const totalOrderAmount = orderItems.reduce((sum, item) => sum + item.amount, 0);
-
               const availableCredit = Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) - Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE);
-
               const exceedsCreditLimit = totalOrderAmount > availableCredit;
-
-
-
               if (exceedsCreditLimit) {
 
                 return "Yes";
-
               }
-
             }
-
           }
 
-
-
           return "No";
-
         })(),
 
         ...(canShowPayTerms && { basicduedateofpymt: paymentTerms || '' }),
 
         ...(canShowDelvTerms && { basicorderterms: deliveryTerms || '' }),
-
         vouchertype: selectedVoucherType || '',
 
         ...(selectedVoucherTypeObj?.ISOUTENTRY && { isoutentry: selectedVoucherTypeObj.ISOUTENTRY }),
@@ -7206,9 +5755,7 @@ function PlaceOrder() {
         ...(selectedVoucherTypeObj?.PERSISTEDVIEW && { persistedview: selectedVoucherTypeObj.PERSISTEDVIEW }),
 
         ...(selectedClassName && { classname: selectedClassName }),
-
         vouchernumber: voucherNumber,
-
         items: orderItems.map(item => {
           // Format quantity string
           let qtyString = '';
@@ -7226,7 +5773,6 @@ function PlaceOrder() {
             qtyString = item.quantity.toString();
           }
 
-
           // Append alternative quantity for:
           // 1. Simple base + simple additional units
           // 2. Compound base + simple additional units
@@ -7238,12 +5784,10 @@ function PlaceOrder() {
             const addlUnitObj = units && units.length > 0
               ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
               : null;
-
             const hasSimpleBaseUnit = !baseUnitObj || baseUnitObj.ISSIMPLEUNIT === 'Yes';
             const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
             const hasSimpleAddlUnit = !addlUnitObj || addlUnitObj.ISSIMPLEUNIT === 'Yes';
             const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
             // Append alternative quantity if:
             // 1. Both units are simple, OR
             // 2. Base unit is compound and additional unit is simple, OR
@@ -7308,12 +5852,10 @@ function PlaceOrder() {
               ? units.find(u => u.NAME === item.unitConfig.BASEUNITS)
               : null;
             const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-
             const addlUnitObj = units && units.length > 0 && item.unitConfig.ADDITIONALUNITS
               ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
               : null;
             const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
             let rateUnit = '';
             if (hasCompoundBaseUnit && baseUnitObj) {
               if (item.rateUOM === 'component-main') {
@@ -7368,7 +5910,6 @@ function PlaceOrder() {
                   ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
                   : null;
                 const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-                
                 if (hasCompoundAddlUnit && addlUnitObj) {
                   // Format as hyphenated (e.g., "3-0 pkt")
                   const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
@@ -7403,11 +5944,9 @@ function PlaceOrder() {
         // Build ledgers array with all ledger entries that have values (use pre-calculated values)
         ledgers: (() => {
           const ledgersArray = [];
-
           // Use the pre-calculated ledger amounts from useMemo
           selectedClassLedgers.forEach(ledger => {
             const ledgerAmount = calculatedLedgerAmounts.ledgerAmounts[ledger.NAME] || 0;
-
             // Add ledger if it has a non-zero amount (including negative values)
             if (ledgerAmount !== 0) {
               ledgersArray.push({
@@ -7422,150 +5961,91 @@ function PlaceOrder() {
 
       };
 
-
-
       console.log('Submitting order with payload:', payload);
-
-
-
       // Get the token for authorization
-
       const token = sessionStorage.getItem('token');
-
       if (!token) {
 
         throw new Error('No authentication token found');
-
       }
 
-
-
       // Make the API call
-
       const result = await apiPost('/api/tally/place_order', payload);
-
       console.log('Order submission response:', result);
-
-
-
       if (result.success) {
 
         // Order created successfully
-
         // Extract LASTVCHID from response - check both result.data.lastVchId and nested path
         const lastVchId = result.data?.lastVchId || 
                          result.data?.tallyResponse?.BODY?.DATA?.IMPORTRESULT?.LASTVCHID || 
                          result.tallyResponse?.BODY?.DATA?.IMPORTRESULT?.LASTVCHID || 
                          null;
-
         setOrderResult({
-
           success: true,
-
           message: 'Order placed successfully!',
-
           tallyResponse: result.data?.tallyResponse || result.tallyResponse,
-
           companyInfo: currentCompany ? {
             tallyloc_id: currentCompany.tallyloc_id,
             company: currentCompany.company,
             guid: currentCompany.guid
           } : null,
-
           lastVchId: lastVchId
 
         });
 
         setShowOrderResultModal(true);
-
-
-
         // Reset the form
-
         setSelectedItem('');
-
         setCustomConversion(null);
         setCustomAddlQty(null);
         setCompoundBaseQty(null);
         setCompoundAddlQty(null);
         setItemQuantity(1);
-
         setItemRate(0);
-
         setItemGstPercent(0);
-
         setOrderItems([]);
-
         setBuyerOrderRef('');
-
         setPaymentTerms('');
-
         setDeliveryTerms('');
-
         setNarration('');
-
         setSelectedCustomer('');
-
         setCustomerSearchTerm('');
-
         setEditableAddress('');
-
         setEditableState('');
-
         setEditableCountry('');
-
         setEditableGstNo('');
-
         setEditablePincode('');
-
         setItemDescription('');
-
         setShowDescription(false);
-
-
-
         // No need to refresh data since we're using cache
-
       } else {
 
         // Order creation failed
-
         setOrderResult({
-
           success: false,
-
           message: result.message || 'Order creation failed',
-
           tallyResponse: result.tallyResponse
 
         });
 
         setShowOrderResultModal(true);
-
       }
-
-
 
     } catch (error) {
 
       console.error('Error submitting order:', error);
-
       alert(`❌ Error submitting order: ${error.message}`);
 
     } finally {
 
       setIsSubmittingOrder(false);
-
     }
 
   };
 
-
-
   // Download PDF function
   const downloadPDF = async () => {
     setIsDownloadingPDF(true);
-
     try {
       // Extract company info - try from orderResult first, then from component state
       let companyInfo = orderResult.companyInfo;
@@ -7601,20 +6081,17 @@ function PlaceOrder() {
 
       console.log('Requesting PDF generation:', requestPayload);
       const requestResult = await apiPost('/api/tally/pdf/request', requestPayload);
-
       if (!requestResult || !requestResult.success || !requestResult.request_id) {
         throw new Error(requestResult?.message || 'Failed to request PDF generation');
       }
 
       const requestId = requestResult.request_id;
       console.log('PDF request ID:', requestId);
-
       // Step 2: Poll PDF status until ready (with timeout)
       let statusResult = null;
       const maxAttempts = 3; // Maximum 30 attempts
       const pollInterval = 1000; // Check every 1 second
       let attempts = 0;
-
       while (attempts < maxAttempts) {
         // Wait before checking (except first attempt)
         if (attempts > 0) {
@@ -7643,7 +6120,6 @@ function PlaceOrder() {
 
       // Step 4: Decode base64 and download PDF
       const pdfBase64 = statusResult.pdf_base64;
-      
       // Convert base64 to binary
       const binaryString = atob(pdfBase64);
       const bytes = new Uint8Array(binaryString.length);
@@ -7656,21 +6132,17 @@ function PlaceOrder() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      
       // Generate filename from voucher number if available
       const voucherNumber = orderResult.tallyResponse?.BODY?.DATA?.IMPORTRESULT?.VCHNUMBER || orderResult.lastVchId;
       a.download = `Order_${voucherNumber}.pdf`;
-      
+
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-
       console.log('PDF downloaded successfully');
-
       // Close the modal after successful download
       setShowOrderResultModal(false);
-
     } catch (error) {
       console.error('Error downloading PDF:', error);
       alert(`❌ Error downloading PDF: ${error.message}`);
@@ -7679,27 +6151,18 @@ function PlaceOrder() {
     }
   };
 
-
-
   const addOrderItem = () => {
 
     if (!selectedItem) {
 
       alert('Please select an item');
-
       return;
-
     }
-
-
 
     if (!quantityInput || !quantityInput.trim()) {
       alert('Please enter quantity');
-
       return;
-
     }
-
 
     if (itemQuantity <= 0) {
       alert('Please enter a valid quantity');
@@ -7708,54 +6171,32 @@ function PlaceOrder() {
 
     // Use itemAmount from state (already calculated with correct rateUOM)
     // Don't recalculate here as it might not match the displayed amount
-
-
-
     // Credit limit validation for ctrl_creditdayslimit
-
     if (canControlCreditLimit && creditLimitData) {
 
       // Check for overdue bills - block adding any items (regardless of credit limit)
-
       const hasOverdueBills = creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0;
-
       if (hasOverdueBills) {
 
         alert(`Cannot add items: Customer has ${creditLimitData.overdueBills.length} overdue bill(s). Please clear overdue bills first.`);
 
         return;
-
       }
 
-
-
       // Check credit limit - only if credit limit is set (> 0)
-
       if (Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) > 0) {
 
         const currentTotal = orderItems.reduce((sum, item) => sum + item.amount, 0);
-
         const newTotal = currentTotal + itemAmount;
-
         const availableCredit = Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) - Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE);
-
-
-
         if (newTotal > availableCredit) {
 
           alert(`Cannot add item: Total order amount (₹${newTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}) would exceed available credit limit (₹${availableCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}).\n\nCurrent total: ₹${currentTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\nItem amount: ₹${itemAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
 
-
-
           return;
-
         }
-
       }
-
     }
-
-
 
     // Calculate and store alternative quantity display (same logic as in input form)
     let altQtyDisplay = '';
@@ -7764,18 +6205,15 @@ function PlaceOrder() {
       const qtyToDisplay = customAddlQty !== null && customAddlQty !== undefined
         ? customAddlQty
         : (compoundAddlQty !== null && compoundAddlQty !== undefined ? compoundAddlQty : null);
-
       if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
         const addlUnitObj = units && units.length > 0
           ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
           : null;
         const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
         if (hasCompoundAddlUnit && addlUnitObj) {
           const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
           const mainQty = Math.floor(qtyToDisplay);
           const subQty = (qtyToDisplay - mainQty) * addlConversion;
-
           let subDecimalPlaces = 0;
           if (addlUnitObj.ADDITIONALUNITS) {
             const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
@@ -7789,7 +6227,6 @@ function PlaceOrder() {
           const formattedSubQty = subDecimalPlaces === 0
             ? Math.round(subQty).toString()
             : subQty.toFixed(subDecimalPlaces);
-
           const displayUnit = addlUnitObj.BASEUNITS || selectedItemUnitConfig.ADDITIONALUNITS;
           altQtyDisplay = `${mainQty}-${formattedSubQty} ${displayUnit}`;
         } else {
@@ -7817,23 +6254,16 @@ function PlaceOrder() {
     }
 
     const newItem = {
-
       id: editingItemId || `item_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`, // Preserve ID if editing
-
       name: selectedItem,
-
       quantity: itemQuantity, // Primary UOM quantity (converted)
       quantityDisplay: quantityInput, // User's input (e.g., "10 Box", "5 Nos")
       altQtyDisplay: altQtyDisplay, // Alternative quantity display (e.g., "5-5 pkt", "25 nos")
       rate: itemRate,
-
       rateUOM: rateUOM, // Store rate UOM for reference
       discountPercent: itemDiscountPercent || 0,
-
       gstPercent: itemGstPercent,
-
       description: itemDescription || '',
-
       amount: itemAmount, // Use itemAmount from state (calculated with correct rateUOM)
       unitConfig: selectedItemUnitConfig, // Store unit config for alternative unit display
       enteredUnitType: enteredUnitType, // Store which unit type was entered
@@ -7853,21 +6283,13 @@ function PlaceOrder() {
     }
 
     // Reset form
-
     setSelectedItem('');
-
     setItemQuantity(1);
-
     setItemRate(0);
-
     setItemDiscountPercent(0);
-
     setItemGstPercent(0);
-
     setItemDescription('');
-
     setSelectedItemUnitConfig(null);
-
     setQuantityInput('');
     setRateUOM('base');
     setEnteredUnitType('base');
@@ -7877,126 +6299,72 @@ function PlaceOrder() {
     setCompoundAddlQty(null);
     setBaseQtyOnly(null);
     // Don't reset showDescription - keep it on until order is saved
-
   };
 
-
-
   // Add order item from cart (for E-commerce integration)
-
   const addOrderItemFromCart = (cartItem) => {
-
     const amount = cartItem.amount || (parseFloat(cartItem.quantity || 0) * parseFloat(cartItem.rate || 0) * (1 - (parseFloat(cartItem.discountPercent || 0) / 100)));
-
-
-
     // Credit limit validation for ctrl_creditdayslimit
-
     if (canControlCreditLimit && creditLimitData) {
 
       // Check for overdue bills - block adding any items (regardless of credit limit)
-
       const hasOverdueBills = creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0;
-
       if (hasOverdueBills) {
 
         alert(`Cannot add items: Customer has ${creditLimitData.overdueBills.length} overdue bill(s). Please clear overdue bills first.`);
 
         return;
-
       }
 
-
-
       // Check credit limit - only if credit limit is set (> 0)
-
       if (Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) > 0) {
 
         const currentTotal = orderItems.reduce((sum, item) => sum + item.amount, 0);
-
         const newTotal = currentTotal + itemAmount;
-
         const availableCredit = Math.abs(creditLimitData.creditLimitInfo.CREDITLIMIT) - Math.abs(creditLimitData.creditLimitInfo.CLOSINGBALANCE);
-
-
-
         if (newTotal > availableCredit) {
 
           alert(`Cannot add item: Total order amount (₹${newTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}) would exceed available credit limit (₹${availableCredit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}).\n\nCurrent total: ₹${currentTotal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}\nItem amount: ₹${itemAmount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`);
 
-
-
           return;
-
         }
-
       }
-
     }
-
 
     // Build unit config for cart item
     const stockItem = stockItems.find(item => item.NAME === cartItem.NAME);
     const unitConfig = stockItem ? buildUnitConfig(stockItem, units) : null;
-
-
     const newItem = {
-
       id: `cart_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-
       name: cartItem.NAME,
-
       quantity: cartItem.quantity,
-
       rate: parseFloat(cartItem.rate || 0),
-
       discountPercent: parseFloat(cartItem.discountPercent || 0),
-
       gstPercent: parseFloat(cartItem.gstPercent || 0),
-
       amount: itemAmount, // Use itemAmount from state (calculated with correct rateUOM)
       unitConfig: unitConfig // Store unit config for alternative unit display
     };
 
-
-
     setOrderItems(prev => [...prev, newItem]);
-
   };
 
-
-
   const removeOrderItem = (id) => {
-
     console.log('🗑️ Removing order item with ID:', id);
-
     console.log('📊 Current order items before removal:', orderItems);
-
-
-
     setOrderItems(prev => {
-
       const filtered = prev.filter(item => item.id !== id);
-
       console.log('✅ Order items after removal:', filtered);
 
       return filtered;
-
     });
 
   };
 
-
-
   // Start editing an item
-
   const startEditItem = (index) => {
-
     const item = orderItems[index];
-
     // Set editing item ID (don't remove item from cart - it will be updated when saved)
     setEditingItemId(item.id);
-
     // Populate main form fields with item data
     setSelectedItem(item.name);
     setItemSearchTerm(item.name);
@@ -8013,7 +6381,6 @@ function PlaceOrder() {
     setCompoundAddlQty(item.compoundAddlQty || null);
     setBaseQtyOnly(item.baseQtyOnly || null);
     setEnteredUnitType(item.enteredUnitType || 'base');
-
     // Set quantity input AFTER unitConfig is set to prevent validation from clearing it
     // Use setTimeout to ensure it runs after all state updates
     setTimeout(() => {
@@ -8030,8 +6397,6 @@ function PlaceOrder() {
     }
 
   };
-
-
 
   // Cancel editing - clear form fields
   const cancelEditItem = () => {
@@ -8055,22 +6420,13 @@ function PlaceOrder() {
     setEnteredUnitType('base');
   };
 
-
-
   // Save edited item
-
   const saveEditItem = () => {
 
     if (editingItemIndex === null) return;
-
-
-
     const item = orderItems[editingItemIndex];
-
     const newRate = parseFloat(editRate) || 0;
-
     const newDiscountPercent = parseFloat(editDiscountPercent) || 0;
-
     // Use editItemQuantity (already calculated with correct UOM logic)
     const newQuantity = editItemQuantity || item.quantity;
 
@@ -8081,18 +6437,15 @@ function PlaceOrder() {
       const qtyToDisplay = editCustomAddlQty !== null && editCustomAddlQty !== undefined
         ? editCustomAddlQty
         : (editCompoundAddlQty !== null && editCompoundAddlQty !== undefined ? editCompoundAddlQty : null);
-
       if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
         const addlUnitObj = units && units.length > 0
           ? units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS)
           : null;
         const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
         if (hasCompoundAddlUnit && addlUnitObj) {
           const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
           const mainQty = Math.floor(qtyToDisplay);
           const subQty = (qtyToDisplay - mainQty) * addlConversion;
-
           let subDecimalPlaces = 0;
           if (addlUnitObj.ADDITIONALUNITS) {
             const subUnitObj = units.find(u => u.NAME === addlUnitObj.ADDITIONALUNITS);
@@ -8106,7 +6459,6 @@ function PlaceOrder() {
           const formattedSubQty = subDecimalPlaces === 0
             ? Math.round(subQty).toString()
             : subQty.toFixed(subDecimalPlaces);
-
           const displayUnit = addlUnitObj.BASEUNITS || editSelectedItemUnitConfig.ADDITIONALUNITS;
           altQtyDisplay = `${mainQty}-${formattedSubQty} ${displayUnit}`;
         } else {
@@ -8135,26 +6487,17 @@ function PlaceOrder() {
 
     // Use editItemAmount (already calculated with correct rateUOM)
     const newAmount = editItemAmount || item.amount;
-
-
-
     const updatedItems = [...orderItems];
-
     updatedItems[editingItemIndex] = {
 
       ...item,
-
       quantity: newQuantity,
       quantityDisplay: editQuantityInput,
       altQtyDisplay: altQtyDisplay,
-
       rate: newRate,
       rateUOM: editRateUOM,
-
       discountPercent: newDiscountPercent,
-
       amount: newAmount,
-
       description: editDescription,
       unitConfig: editSelectedItemUnitConfig,
       customConversion: editCustomConversion,
@@ -8165,12 +6508,8 @@ function PlaceOrder() {
 
     };
 
-
-
     setOrderItems(updatedItems);
-
     setEditingItemIndex(null);
-
     setEditQuantity(1);
     setEditQuantityInput('');
     setEditItemQuantity(1);
@@ -8186,7 +6525,6 @@ function PlaceOrder() {
     setEditBaseQtyOnly(null);
     setEditItemAmount(0);
     setEditShowRateUOMDropdown(false);
-
   };
 
   // Parse edit quantity input and calculate editItemQuantity (similar to main form)
@@ -8200,7 +6538,6 @@ function PlaceOrder() {
 
     const parsedQty = parseQuantityInput(editQuantityInput, editSelectedItemUnitConfig, units);
     const primaryQty = convertToPrimaryQty(parsedQty, editSelectedItemUnitConfig, editCustomConversion, units);
-
     // Get decimal places for base unit
     let baseUnitDecimal = 0;
     if (units && units.length > 0) {
@@ -8219,9 +6556,7 @@ function PlaceOrder() {
     const roundedPrimaryQty = baseUnitDecimal === 0
       ? Math.round(primaryQty)
       : parseFloat(primaryQty.toFixed(baseUnitDecimal));
-
     setEditItemQuantity(roundedPrimaryQty);
-
     // Store UOM-related quantities (similar to main form logic)
     if (parsedQty.customAddlQty !== undefined && parsedQty.customAddlQty !== null) {
       setEditCustomAddlQty(parsedQty.customAddlQty);
@@ -8259,12 +6594,10 @@ function PlaceOrder() {
 
     let quantityInRateUOM = editItemQuantity;
     let calculatedAmount = 0;
-
     const baseUnitObj = units && units.length > 0
       ? units.find(u => u.NAME === editSelectedItemUnitConfig.BASEUNITS)
       : null;
     const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-
     const addlUnitObj = units && units.length > 0 && editSelectedItemUnitConfig.ADDITIONALUNITS
       ? units.find(u => u.NAME === editSelectedItemUnitConfig.ADDITIONALUNITS)
       : null;
@@ -8290,11 +6623,9 @@ function PlaceOrder() {
     } else if (editRateUOM === 'additional') {
       const denominator = parseFloat(editSelectedItemUnitConfig.DENOMINATOR) || 1;
       const conversion = parseFloat(editSelectedItemUnitConfig.CONVERSION) || 1;
-
       // Use custom conversion if available
       const effectiveDenominator = editCustomConversion ? editCustomConversion.denominator : denominator;
       const effectiveConversion = editCustomConversion ? editCustomConversion.conversion : conversion;
-
       if (hasCompoundBaseUnit && baseUnitObj && !editCustomConversion) {
         const baseConversion = parseFloat(baseUnitObj.CONVERSION) || 1;
         const effectiveDenominator = denominator / baseConversion;
@@ -8323,8 +6654,6 @@ function PlaceOrder() {
     setEditItemAmount(calculatedAmount);
   }, [editItemQuantity, editRate, editDiscountPercent, editRateUOM, editSelectedItemUnitConfig, units, editCustomConversion, editCompoundBaseQty, editCompoundAddlQty, editCustomAddlQty, editBaseQtyOnly, editingItemIndex]);
 
-
-
   const calculateTotals = () => {
 
     if (orderItems.length === 0) {
@@ -8348,128 +6677,80 @@ function PlaceOrder() {
       }
 
       totals.totalAmount += item.amount;
-
       return totals;
-
     }, {
 
       totalQuantity: 0,
-
       totalAmount: 0,
-
       canShowQuantityTotal: allSameUnit
 
     });
 
   };
 
-
-
   const handleCloseModal = () => {
 
     setShowEditModal(false);
-
   };
-
-
 
   // Fetch stock breakdown data
 
   const fetchStockBreakdown = async (itemName) => {
-
     if (!selectedItem || !company) return;
-
-
-
     const currentCompany = filteredCompanies.find(c => c.guid === company);
-
     if (!currentCompany) return;
-
-
-
     setStockBreakdownLoading(true);
-
     setStockBreakdownError('');
-
-
-
     try {
 
       const { tallyloc_id, company: companyVal, guid } = currentCompany;
-
-
-
       // Determine which endpoint to use based on permissions
-
       let endpoint;
-
       if (canShowGodownBrkup && canShowMulticoBrkup) {
 
         // Both permissions - use toggle state
-
         endpoint = showGodownStock ? '/api/tally/godownStock' : '/api/tally/companystock';
-
       } else if (canShowGodownBrkup) {
 
         // Only godown permission
-
         endpoint = '/api/tally/godownStock';
-
       } else if (canShowMulticoBrkup) {
 
         // Only company permission
-
         endpoint = '/api/tally/companystock';
-
       } else {
 
         setStockBreakdownError('No stock breakdown permissions available');
-
         return;
-
       }
 
-
-
       const data = await apiPost(`${endpoint}?ts=${Date.now()}`, {
-
         tallyloc_id,
-
         company: companyVal,
 
         guid,
-
         item: itemName
 
       });
 
-
-
       if (data) {
 
         setStockBreakdownData(data);
-
       } else {
 
         setStockBreakdownError('Failed to fetch stock breakdown data');
-
       }
 
     } catch (error) {
 
       console.error('Error fetching stock breakdown:', error);
-
       setStockBreakdownError('Error fetching stock breakdown data');
-
     } finally {
 
       setStockBreakdownLoading(false);
-
     }
 
   };
-
-
 
   // Handle stock field click
 
@@ -8478,28 +6759,20 @@ function PlaceOrder() {
     if (selectedItem && canShowStockBreakdown) {
 
       setShowStockModal(true);
-
       fetchStockBreakdown(selectedItem);
-
     }
 
   };
 
-
-
   // Refetch data when toggle changes
-
   useEffect(() => {
 
     if (showStockModal && selectedItem) {
 
       fetchStockBreakdown(selectedItem);
-
     }
 
   }, [showGodownStock]);
-
-
 
   // Get current company for display
   const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId');
@@ -8512,33 +6785,19 @@ function PlaceOrder() {
   return (
 
     <div className="receivables-page place-order-page" style={{
-
       width: '100%',
-
       minHeight: '100vh',
-
       background: 'transparent',
-
       padding: isMobile ? '0 0 16px 0' : isTablet ? '0 0 20px 0' : isSmallDesktop ? '0 0 20px 0' : '0 0 24px 0',
-
       paddingLeft: 0,
-
       paddingRight: 0,
-
       margin: 0,
-
       marginTop: '20px',
-
       maxWidth: isMobile ? '100%' : isTablet ? '100%' : isSmallDesktop ? '100%' : isMedium ? '1280px' : '1400px',
-
       marginLeft: 'auto',
-
       marginRight: 'auto',
-
       boxSizing: 'border-box',
-
       overflowX: 'hidden',
-
       overflowY: 'auto'
 
     }}>
@@ -8552,37 +6811,26 @@ function PlaceOrder() {
             0% { transform: rotate(0deg); }
 
             100% { transform: rotate(360deg); }
-
           }
-
-          
 
           @keyframes dropdownFadeIn {
 
             from {
 
               opacity: 0;
-
               transform: translateY(-10px);
-
             }
 
             to {
 
               opacity: 1;
-
               transform: translateY(0);
-
             }
-
           }
-
-          
 
           .dropdown-animation {
 
             animation: dropdownFadeIn 0.2s ease-out;
-
           }
 
         `}
@@ -8590,31 +6838,19 @@ function PlaceOrder() {
       </style>
 
       {/* Feedback/Error */}
-
       {customerError && (
 
         <div style={{
-
           background: '#fee2e2',
-
           color: '#b91c1c',
-
           borderRadius: isMobile ? 8 : 8,
-
           padding: isMobile ? '8px 14px' : '8px 16px',
-
           margin: isMobile ? '12px 8px' : '0 auto 18px auto',
-
           fontWeight: 600,
-
           fontSize: isMobile ? 14 : 15,
-
           maxWidth: isMobile ? 'calc(100% - 16px)' : 1200,
-
           display: 'flex',
-
           alignItems: 'center',
-
           gap: 8
 
         }}>
@@ -8630,27 +6866,16 @@ function PlaceOrder() {
       {stockItemsError && (
 
         <div style={{
-
           background: '#fee2e2',
-
           color: '#b91c1c',
-
           borderRadius: isMobile ? 8 : 8,
-
           padding: isMobile ? '8px 14px' : '8px 16px',
-
           margin: isMobile ? '12px 8px' : '0 auto 18px auto',
-
           fontWeight: 600,
-
           fontSize: isMobile ? 14 : 15,
-
           maxWidth: isMobile ? 'calc(100% - 16px)' : 1200,
-
           display: 'flex',
-
           alignItems: 'center',
-
           gap: 8
 
         }}>
@@ -8662,10 +6887,6 @@ function PlaceOrder() {
         </div>
 
       )}
-
-
-
-
 
       {/* Page Header - Matching Receivables Dashboard */}
       <div className="page-header" style={{
@@ -8706,13 +6927,53 @@ function PlaceOrder() {
           gap: '0.75rem',
           flexShrink: 0,
         }}>
+          <button
+            onClick={() => setShowGmailViewer(!showGmailViewer)}
+            style={{
+              padding: isMobile ? '8px 12px' : '10px 16px',
+              background: showGmailViewer 
+                ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)' 
+                : '#f1f5f9',
+              color: showGmailViewer ? '#fff' : '#475569',
+              border: showGmailViewer ? 'none' : '1px solid #e2e8f0',
+              borderRadius: '8px',
+              fontWeight: 600,
+              fontSize: isMobile ? '13px' : '14px',
+              cursor: 'pointer',
+              boxShadow: showGmailViewer 
+                ? '0 2px 8px rgba(59, 130, 246, 0.25)' 
+                : '0 1px 2px rgba(0, 0, 0, 0.05)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s ease',
+              whiteSpace: 'nowrap'
+            }}
+            onMouseEnter={(e) => {
+              if (!showGmailViewer) {
+                e.currentTarget.style.background = '#e2e8f0';
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!showGmailViewer) {
+                e.currentTarget.style.background = '#f1f5f9';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }
+            }}
+          >
+            <span className="material-icons" style={{ fontSize: isMobile ? '18px' : '20px' }}>
+              {showGmailViewer ? 'email' : 'mail_outline'}
+            </span>
+            {showGmailViewer ? 'Hide Gmail' : 'View Gmail'}
+          </button>
         </div>
       </div>
 
       {/* Company, Customer, and Place Order Section */}
       <div className="receivables-content" style={{
         display: 'flex',
-        flexDirection: isMobile || isTablet || isSmallDesktop ? 'column' : 'row',
+        flexDirection: isMobile || isTablet || isSmallDesktop ? 'column' : (showGmailViewer ? 'row' : 'row'),
         width: '100%',
         maxWidth: '100%',
         boxSizing: 'border-box',
@@ -8722,9 +6983,9 @@ function PlaceOrder() {
       }}>
         {/* Left Content Area */}
         <div style={{
-          flex: isMobile || isTablet || isSmallDesktop ? '1 1 100%' : '1 1 auto',
-          minWidth: isMobile || isTablet || isSmallDesktop ? 'auto' : '600px',
-          maxWidth: '100%',
+          flex: isMobile || isTablet || isSmallDesktop ? '1 1 100%' : (showGmailViewer ? '0 1 55%' : '1 1 auto'),
+          minWidth: isMobile || isTablet || isSmallDesktop ? 'auto' : (showGmailViewer ? '500px' : '600px'),
+          maxWidth: isMobile || isTablet || isSmallDesktop ? '100%' : (showGmailViewer ? '60%' : '100%'),
           width: isMobile || isTablet || isSmallDesktop ? '100%' : 'auto',
           padding: isMobile ? '0 0 16px 0' : isTablet ? '0 0 20px 0' : isSmallDesktop ? '0 0 20px 0' : '0 0 24px 0',
           display: 'flex',
@@ -8753,11 +7014,6 @@ function PlaceOrder() {
             }}>
               {/* Customer Details Section */}
               <div style={{ maxWidth: '100%', boxSizing: 'border-box' }}>
-
-
-
-
-
 
               <div style={{
                 display: 'flex',
@@ -8920,17 +7176,11 @@ function PlaceOrder() {
                     {voucherTypesLoading && (
 
                       <div style={{
-
                         position: 'absolute',
-
                         right: '12px',
-
                         top: '50%',
-
                         transform: 'translateY(-50%)',
-
                         color: '#6b7280',
-
                         fontSize: '16px'
 
                       }}>
@@ -8969,15 +7219,10 @@ function PlaceOrder() {
                           onClick={() => {
 
                             setSelectedVoucherType(voucherType.NAME);
-
                             setShowVoucherTypeDropdown(false);
-
                             // Save the selected voucher type for future use
-
                             sessionStorage.setItem('selectedVoucherType', voucherType.NAME);
-
                             // Class name restoration is handled by useEffect
-
                           }}
 
                           style={{
@@ -8996,11 +7241,8 @@ function PlaceOrder() {
                         >
 
                           <div style={{
-
                             fontWeight: '600',
-
                             color: '#1e293b',
-
                             fontSize: '14px'
 
                           }}>
@@ -9010,11 +7252,8 @@ function PlaceOrder() {
                           </div>
 
                           <div style={{
-
                             fontSize: '12px',
-
                             color: '#64748b',
-
                             marginTop: '2px'
 
                           }}>
@@ -9228,8 +7467,6 @@ function PlaceOrder() {
                     )}
                   </div>
 
-
-
                 {/* Customer */}
                 <div style={{
                   position: 'relative',
@@ -9343,8 +7580,6 @@ function PlaceOrder() {
                       placeholder={customerLoading ? 'Loading...' : customerError ? customerError : ''}
                     />
 
-
-
                     {/* Search Icon or Dropdown Arrow */}
                     {!selectedCustomer && (
                       <span
@@ -9364,8 +7599,6 @@ function PlaceOrder() {
                         {showCustomerDropdown ? 'expand_less' : 'search'}
                       </span>
                     )}
-
-
 
                     {/* Clear Button for Customer */}
                     {selectedCustomer && (
@@ -9418,43 +7651,25 @@ function PlaceOrder() {
                       </button>
                     )}
 
-
-
-
-
-
                     {customerLoading && (
 
                       <div style={{
-
                         position: 'absolute',
-
                         right: 60,
-
                         top: '50%',
-
                         transform: 'translateY(-50%)',
-
                         width: 16,
-
                         height: 16,
-
                         border: '2px solid #e5e7eb',
-
                         borderTop: '2px solid #3b82f6',
-
                         borderRadius: '50%',
-
                         animation: 'spin 1s linear infinite'
 
                       }} />
 
                     )}
 
-
-
                     {/* Custom Customer Dropdown */}
-
                     {showCustomerDropdown && (
 
                       <div
@@ -9464,83 +7679,51 @@ function PlaceOrder() {
                         onMouseDown={(e) => {
 
                           console.log('🖱️ Dropdown container mousedown');
-
                           // Don't prevent default here - let items handle it
-
                         }}
 
                         onClick={(e) => {
 
                           console.log('🖱️ Dropdown container clicked');
-
                           // Don't stop propagation - let items handle it
-
                         }}
 
                         style={{
-
                           position: 'absolute',
-
                           top: 'calc(100% + 8px)',
-
                           left: 0,
-
                           right: 0,
-
                           backgroundColor: 'white',
-
                           border: '2px solid #3b82f6',
-
                           borderRadius: '8px',
-
                           maxHeight: '300px',
-
                           overflowY: 'auto',
-
                           zIndex: 9999,
-
                           boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
-
                           marginTop: '0',
-
                           minHeight: '50px'
-
                         }}
 
                       >
 
-
-
                         {/* Loading indicator */}
-
                         {customerSearchTerm.trim() && filteredCustomers.length === 0 && (
 
                           <div style={{
-
                             padding: '16px',
-
                             textAlign: 'center',
-
                             color: '#64748b',
-
                             fontSize: '14px'
 
                           }}>
 
                             <div style={{
-
                               width: '20px',
-
                               height: '20px',
-
                               border: '2px solid #e2e8f0',
-
                               borderTop: '2px solid #3b82f6',
-
                               borderRadius: '50%',
-
                               animation: 'spin 1s linear infinite',
-
                               margin: '0 auto 8px auto'
 
                             }} />
@@ -9551,14 +7734,7 @@ function PlaceOrder() {
 
                         )}
 
-
-
-
-
-
-
                         {/* Results */}
-
                         {filteredCustomers.map((customer, index) => (
 
                           <div
@@ -9568,93 +7744,61 @@ function PlaceOrder() {
                             onMouseDown={(e) => {
 
                               console.log('🖱️ Customer item mousedown:', customer.NAME);
-
                               console.log('🖱️ Event target:', e.target);
-
                               console.log('🖱️ Event currentTarget:', e.currentTarget);
-
                               e.preventDefault(); // Prevent blur from firing
 
                               console.log('✅ preventDefault called on mousedown');
-
                             }}
 
                             onClick={(e) => {
 
                               console.log('🖱️ Customer item clicked:', customer.NAME);
-
                               console.log('🖱️ Click event target:', e.target);
-
                               console.log('🖱️ Click event currentTarget:', e.currentTarget);
-
                               console.log('📊 Before selection - selectedCustomer:', selectedCustomer);
-
                               console.log('📊 Before selection - showCustomerDropdown:', showCustomerDropdown);
-
                               e.preventDefault();
-
                               e.stopPropagation();
-
                               // Clear auto-population state when user manually changes customer
-
                               if (isAutoPopulating || autoPopulatingRef.current) {
 
                                 console.log('🔄 User manually changed customer - clearing auto-population state');
-
                                 setIsAutoPopulating(false);
-
                                 autoPopulatingRef.current = false;
-
                               }
 
                               console.log('📝 Setting selected customer to:', customer.NAME);
-
                               setSelectedCustomer(customer.NAME);
-
                               setCustomerSearchTerm('');
-
                               setShowCustomerDropdown(false);
-
                               setFilteredCustomers([]);
-
                               console.log('✅ Customer selection completed:', customer.NAME);
-
                               console.log('📊 After selection - state should update on next render');
-
                             }}
 
                             style={{
-
                               padding: '12px 16px',
-
                               cursor: 'pointer',
-
                               borderBottom: index < filteredCustomers.length - 1 ? '1px solid #f1f5f9' : 'none',
-
                               transition: 'background-color 0.2s ease'
-
                             }}
 
                             onMouseEnter={(e) => {
 
                               e.target.style.backgroundColor = '#f8fafc';
-
                             }}
 
                             onMouseLeave={(e) => {
 
                               e.target.style.backgroundColor = 'white';
-
                             }}
 
                           >
 
                             <div style={{
-
                               fontWeight: '600',
-
                               color: '#1e293b',
-
                               fontSize: '14px'
 
                             }}>
@@ -9664,11 +7808,8 @@ function PlaceOrder() {
                             </div>
 
                             <div style={{
-
                               fontSize: '12px',
-
                               color: '#64748b',
-
                               marginTop: '2px'
 
                             }}>
@@ -9681,26 +7822,16 @@ function PlaceOrder() {
 
                         ))}
 
-
-
                         {/* Show more results indicator */}
-
                         {filteredCustomers.length === 50 && (
 
                           <div style={{
-
                             padding: '12px 16px',
-
                             textAlign: 'center',
-
                             color: '#64748b',
-
                             fontSize: '12px',
-
                             fontStyle: 'italic',
-
                             borderTop: '1px solid #f1f5f9',
-
                             backgroundColor: '#f8fafc'
 
                           }}>
@@ -9715,40 +7846,23 @@ function PlaceOrder() {
 
                     )}
 
-
-
                     {/* No Results Message */}
-
                     {showCustomerDropdown && customerSearchTerm.trim() && filteredCustomers.length === 0 && (
 
                       <div style={{
-
                         position: 'absolute',
-
                         top: '100%',
-
                         left: 0,
-
                         right: 0,
-
                         backgroundColor: 'white',
-
                         border: '2px solid #e2e8f0',
-
                         borderRadius: '8px',
-
                         padding: '16px',
-
                         textAlign: 'center',
-
                         color: '#64748b',
-
                         fontSize: '14px',
-
                         zIndex: 1000,
-
                         boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
-
                         marginTop: '4px'
 
                       }}>
@@ -9761,12 +7875,7 @@ function PlaceOrder() {
 
                   </div>
 
-
-
-
-
                   {/* Edit Customer Button */}
-
                   {selectedCustomer && (
 
                     <button
@@ -9776,31 +7885,18 @@ function PlaceOrder() {
                       onClick={() => setShowEditModal(true)}
 
                       style={{
-
                         position: 'absolute',
-
                         right: 36,
-
                         top: '50%',
-
                         transform: 'translateY(-50%)',
-
                         background: 'none',
-
                         border: 'none',
-
                         cursor: 'pointer',
-
                         padding: 0,
-
                         margin: 0,
-
                         fontSize: 16,
-
                         color: '#3b82f6',
-
                         zIndex: 2
-
                       }}
 
                       tabIndex={-1}
@@ -9822,25 +7918,16 @@ function PlaceOrder() {
               </div>
 
               {/* Credit Limit Information Line - Below the main row */}
-
               {(canShowCreditLimit || canControlCreditLimit) && selectedCustomer && (
 
                 <div style={{
-
                   display: 'flex',
-
                   flexDirection: isMobile ? 'column' : 'row',
-
                   alignItems: isMobile ? 'flex-start' : 'center',
-
                   justifyContent: 'flex-start',
-
                   gap: isMobile ? '14px' : '20px',
-
                   padding: isMobile ? '10px 0' : '8px 0',
-
                   fontSize: isMobile ? '13px' : '14px',
-
                   fontWeight: '500'
 
                 }}>
@@ -9857,8 +7944,6 @@ function PlaceOrder() {
 
                   </div>
 
-
-
                   {creditLimitLoading ? (
 
                     <span style={{ color: '#6b7280', fontSize: isMobile ? '12px' : '13px' }}>Loading...</span>
@@ -9872,11 +7957,8 @@ function PlaceOrder() {
                         <span style={{ color: '#6b7280', fontSize: '13px' }}>Closing Balance:</span>
 
                         <span style={{
-
                           fontWeight: '600',
-
                           color: creditLimitData.creditLimitInfo.CLOSINGBALANCE < 0 ? '#dc2626' : '#059669',
-
                           fontSize: '13px'
 
                         }}>
@@ -9889,18 +7971,13 @@ function PlaceOrder() {
 
                       </div>
 
-
-
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
 
                         <span style={{ color: '#6b7280', fontSize: '13px' }}>Credit Limit:</span>
 
                         <span style={{
-
                           fontWeight: '600',
-
                           color: creditLimitData.creditLimitInfo.CREDITLIMIT < 0 ? '#dc2626' : '#059669',
-
                           fontSize: '13px'
 
                         }}>
@@ -9913,28 +7990,17 @@ function PlaceOrder() {
 
                       </div>
 
-
-
                       <div
 
                         style={{
-
                           display: 'flex',
-
                           alignItems: 'center',
-
                           gap: '6px',
-
                           cursor: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? 'pointer' : 'default',
-
                           padding: '4px 8px',
-
                           borderRadius: '4px',
-
                           background: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '#fef2f2' : '#f0fdf4',
-
                           border: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '1px solid #fecaca' : '1px solid #bbf7d0'
-
                         }}
 
                         onClick={() => {
@@ -9942,7 +8008,6 @@ function PlaceOrder() {
                           if (creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0) {
 
                             setShowOverdueBills(!showOverdueBills);
-
                           }
 
                         }}
@@ -9952,11 +8017,8 @@ function PlaceOrder() {
                         <span style={{ color: '#6b7280', fontSize: '13px' }}>Overdue:</span>
 
                         <span style={{
-
                           fontWeight: '600',
-
                           color: creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 ? '#dc2626' : '#059669',
-
                           fontSize: '13px'
 
                         }}>
@@ -9981,7 +8043,6 @@ function PlaceOrder() {
 
               </div>
               {/* End of Customer Details Section */}
-
               {/* Order Items Section - Table Container */}
               <div style={{
                 width: '100%',
@@ -10000,37 +8061,19 @@ function PlaceOrder() {
                 }}>
 
                   {/* End of Customer Details Section */}
-
-
-
-
-
                   {/* Order Items Section */}
-
                     <div style={{
-
                       display: 'flex',
-
                       flexDirection: isMobile ? 'column' : 'row',
-
                       flexWrap: isMobile ? 'nowrap' : 'wrap',
-
                       gap: '16px',
-
                       rowGap: '16px',
-
                       alignItems: isMobile ? 'stretch' : 'flex-start',
-
                       position: 'relative',
-
                       padding: isMobile ? '20px' : '24px',
-
                       background: '#f9fafb',
-
                       borderRadius: '8px',
-
                       border: '1px solid #e2e8f0',
-
                       width: '100%',
                       maxWidth: '100%',
                       boxSizing: 'border-box',
@@ -10039,7 +8082,6 @@ function PlaceOrder() {
                     }}>
 
                       {/* Item Name */}
-
                       <div style={{
                         position: 'relative',
                         flex: isMobile ? '1 1 100%' : '1 1 300px',
@@ -10073,23 +8115,17 @@ function PlaceOrder() {
                             onChange={(e) => {
 
                               setItemSearchTerm(e.target.value);
-
                               setSelectedItem('');
-
                               setCustomConversion(null);
                               setCustomAddlQty(null);
                               setCompoundBaseQty(null);
                               setCompoundAddlQty(null);
                               setShowItemDropdown(true);
-
                               // Clear filtered results when clearing search
-
                               if (!e.target.value.trim()) {
 
                                 // Always show all items when no search term (like customer dropdown)
-
                                 setFilteredItems(stockItems);
-
                               }
 
                             }}
@@ -10097,23 +8133,16 @@ function PlaceOrder() {
                             onFocus={() => {
 
                               setItemFocused(true);
-
                               setShowItemDropdown(true);
-
                               // Always show all items when focused (like customer dropdown)
-
                               setFilteredItems(stockItems);
-
                             }}
 
                             onBlur={() => {
 
                               setItemFocused(false);
-
                               // Delay hiding dropdown to allow click events
-
                               setTimeout(() => setShowItemDropdown(false), 200);
-
                             }}
 
                             onKeyDown={(e) => {
@@ -10121,9 +8150,7 @@ function PlaceOrder() {
                               if (e.key === 'Escape') {
 
                                 setShowItemDropdown(false);
-
                                 e.target.blur();
-
                               }
 
                             }}
@@ -10131,43 +8158,26 @@ function PlaceOrder() {
                             disabled={!selectedCustomer}
 
                             style={{
-
                               width: '100%',
-
                               padding: isMobile ? '12px 16px' : '14px 16px',
-
                               paddingRight: selectedItem ? (isMobile ? '45px' : '50px') : (isMobile ? '40px' : '40px'),
-
                               border: 'none',
-
                               borderRadius: '8px',
-
                               fontSize: isMobile ? '14px' : '15px',
-
                               color: selectedCustomer ? '#111827' : '#9ca3af',
-
                               outline: 'none',
-
                               background: selectedCustomer ? 'transparent' : '#f9fafb',
-
                               cursor: selectedCustomer ? 'text' : 'not-allowed',
-
                               height: isMobile ? '44px' : '48px',
-
                               boxSizing: 'border-box',
-
                               fontWeight: '400'
-
                             }}
 
                             placeholder="Search and add items..."
 
                           />
 
-
-
                           {/* Search Icon or Dropdown Arrow */}
-
                           {!selectedItem && (
 
                             <span
@@ -10175,23 +8185,14 @@ function PlaceOrder() {
                               className="material-icons"
 
                               style={{
-
                                 position: 'absolute',
-
                                 right: isMobile ? '14px' : '16px',
-
                                 top: '50%',
-
                                 transform: 'translateY(-50%)',
-
                                 color: showItemDropdown ? '#3b82f6' : '#9ca3af',
-
                                 fontSize: isMobile ? '18px' : '20px',
-
                                 pointerEvents: 'none',
-
                                 transition: 'color 0.2s ease'
-
                               }}
 
                             >
@@ -10202,14 +8203,7 @@ function PlaceOrder() {
 
                           )}
 
-
-
-
-
-
-
                           {/* Clear Button for Item */}
-
                           {selectedItem && (
 
                             <button
@@ -10219,53 +8213,32 @@ function PlaceOrder() {
                               onClick={() => {
 
                                 setSelectedItem('');
-
                                 setCustomConversion(null);
                                 setCustomAddlQty(null);
                                 setCompoundBaseQty(null);
                                 setCompoundAddlQty(null);
                                 setItemSearchTerm('');
-
                                 setShowItemDropdown(false);
-
                                 // Always show all items when reopening (like customer dropdown)
-
                                 setFilteredItems(stockItems);
-
                               }}
 
                               style={{
-
                                 position: 'absolute',
-
                                 right: '8px',
-
                                 top: '50%',
-
                                 transform: 'translateY(-50%)',
-
                                 background: 'none',
-
                                 border: 'none',
-
                                 cursor: 'pointer',
-
                                 padding: '4px',
-
                                 borderRadius: '50%',
-
                                 color: '#64748b',
-
                                 fontSize: '18px',
-
                                 display: 'flex',
-
                                 alignItems: 'center',
-
                                 justifyContent: 'center',
-
                                 transition: 'color 0.2s ease'
-
                               }}
 
                               title="Clear item"
@@ -10278,30 +8251,17 @@ function PlaceOrder() {
 
                           )}
 
-
-
                           <label style={{
-
                             position: 'absolute',
-
                             left: isMobile ? '16px' : '16px',
-
                             top: '-8px',
-
                             fontSize: '12px',
-
                             fontWeight: '500',
-
                             color: itemFocused || selectedItem ? '#7c3aed' : '#6b7280',
-
                             backgroundColor: 'white',
-
                             padding: '0 6px',
-
                             transition: 'all 0.2s ease',
-
                             pointerEvents: 'none',
-
                             zIndex: 1
 
                           }}>
@@ -10310,10 +8270,7 @@ function PlaceOrder() {
 
                           </label>
 
-
-
                           {/* Custom Dropdown */}
-
                           {showItemDropdown && (
 
                             <div
@@ -10323,72 +8280,44 @@ function PlaceOrder() {
                               className="dropdown-animation"
 
                               style={{
-
                                 position: 'fixed',
-
                                 top: 'auto',
-
                                 left: 'auto',
-
                                 backgroundColor: 'white',
-
                                 border: '2px solid #3b82f6',
-
                                 borderRadius: '8px',
-
                                 maxHeight: isMobile ? '300px' : '400px',
-
                                 overflowY: 'auto',
-
                                 overflowX: 'hidden',
-
                                 zIndex: 10000,
-
                                 boxShadow: '0 10px 25px rgba(59, 130, 246, 0.2)',
-
                                 marginTop: '0',
-
                                 minHeight: '50px',
                                 width: '100%',
                                 maxWidth: '100%',
                                 boxSizing: 'border-box'
-
                               }}
 
                             >
 
-
-
                               {/* Loading indicator */}
-
                               {itemSearchTerm.trim() && filteredItems.length === 0 && (
 
                                 <div style={{
-
                                   padding: '16px',
-
                                   textAlign: 'center',
-
                                   color: '#64748b',
-
                                   fontSize: '14px'
 
                                 }}>
 
                                   <div style={{
-
                                     width: '20px',
-
                                     height: '20px',
-
                                     border: '2px solid #e2e8f0',
-
                                     borderTop: '2px solid #3b82f6',
-
                                     borderRadius: '50%',
-
                                     animation: 'spin 1s linear infinite',
-
                                     margin: '0 auto 8px auto'
 
                                   }} />
@@ -10399,10 +8328,7 @@ function PlaceOrder() {
 
                               )}
 
-
-
                               {/* Results */}
-
                               {filteredItems.map((item, index) => (
 
                                 <div
@@ -10412,47 +8338,33 @@ function PlaceOrder() {
                                   onClick={() => {
 
                                     setSelectedItem(item.NAME);
-
                                     setItemSearchTerm('');
-
                                     setShowItemDropdown(false);
-
                                     setFilteredItems([]);
-
                                   }}
 
                                   style={{
-
                                     padding: '12px 16px',
-
                                     cursor: 'pointer',
-
                                     borderBottom: index < filteredItems.length - 1 ? '1px solid #f1f5f9' : 'none',
-
                                     transition: 'background-color 0.2s ease'
-
                                   }}
 
                                   onMouseEnter={(e) => {
 
                                     e.target.style.backgroundColor = '#f8fafc';
-
                                   }}
 
                                   onMouseLeave={(e) => {
 
                                     e.target.style.backgroundColor = 'white';
-
                                   }}
 
                                 >
 
                                   <div style={{
-
                                     fontWeight: '600',
-
                                     color: '#1e293b',
-
                                     fontSize: '14px'
 
                                   }}>
@@ -10462,11 +8374,8 @@ function PlaceOrder() {
                                   </div>
 
                                   <div style={{
-
                                     fontSize: '12px',
-
                                     color: '#64748b',
-
                                     marginTop: '2px'
 
                                   }}>
@@ -10480,17 +8389,11 @@ function PlaceOrder() {
                                         Stock: {(() => {
 
                                           const stockValue = item.CLOSINGSTOCK || 0;
-
                                           // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
-
                                           if (canShowClosingStockYesNo) {
-
                                             return stockValue > 0 ? 'Yes' : 'No';
-
                                           }
-
                                           return stockValue;
-
                                         })()} |
 
                                       </>
@@ -10505,26 +8408,16 @@ function PlaceOrder() {
 
                               ))}
 
-
-
                               {/* Show more results indicator */}
-
                               {filteredItems.length === 100 && (
 
                                 <div style={{
-
                                   padding: '12px 16px',
-
                                   textAlign: 'center',
-
                                   color: '#64748b',
-
                                   fontSize: '12px',
-
                                   fontStyle: 'italic',
-
                                   borderTop: '1px solid #f1f5f9',
-
                                   backgroundColor: '#f8fafc'
 
                                 }}>
@@ -10539,40 +8432,23 @@ function PlaceOrder() {
 
                           )}
 
-
-
                           {/* No Results Message */}
-
                           {showItemDropdown && itemSearchTerm.trim() && filteredItems.length === 0 && (
 
                             <div style={{
-
                               position: 'absolute',
-
                               top: '100%',
-
                               left: 0,
-
                               right: 0,
-
                               backgroundColor: 'white',
-
                               border: '2px solid #e2e8f0',
-
                               borderRadius: '8px',
-
                               padding: '16px',
-
                               textAlign: 'center',
-
                               color: '#64748b',
-
                               fontSize: '14px',
-
                               zIndex: 1000,
-
                               boxShadow: '0 10px 25px rgba(0, 0, 0, 0.15)',
-
                               marginTop: '4px'
 
                             }}>
@@ -10586,10 +8462,6 @@ function PlaceOrder() {
                         </div>
 
                       </div>
-
-
-
-
 
                       {/* Simplified Quantity Input (Tally-style) */}
                       {selectedItemUnitConfig && (
@@ -10607,15 +8479,11 @@ function PlaceOrder() {
                           boxSizing: 'border-box'
                         }}>
                           <div style={{
-
                             position: 'relative',
-
                             background: 'white',
-
                             borderRadius: '8px',
                             border: quantityFocused ? '2px solid #3b82f6' : '1px solid #e2e8f0',
                             transition: 'all 0.2s ease',
-
                             boxShadow: quantityFocused ? '0 4px 12px rgba(59, 130, 246, 0.15)' : '0 1px 2px rgba(0, 0, 0, 0.08)',
                             flex: '1 1 auto',
                             minWidth: 0
@@ -10641,20 +8509,16 @@ function PlaceOrder() {
                               onBlur={(e) => {
                                 // Final validation on blur - always round/format based on unit's decimal places
                                 const validated = validateQuantityInput(e.target.value, selectedItemUnitConfig, units, true);
-
                                 // Preserve customAddlQty and compoundAddlQty before conversion (in case it gets cleared during parsing)
                                 const preservedCustomAddlQty = customAddlQty;
                                 const preservedCustomConversion = customConversion;
                                 const preservedCompoundAddlQty = compoundAddlQty;
-
                                 // Parse the original input first to check if it's a custom conversion or component unit input
                                 // Don't use validated here because validateQuantityInput might have converted it
                                 const originalParsedQty = parseQuantityInput(quantityInput, selectedItemUnitConfig, units);
-
                                 // Always convert to BASEUNITS format, even for custom conversions
                                 if (validated && selectedItemUnitConfig) {
                                   const parsedQty = parseQuantityInput(validated, selectedItemUnitConfig, units);
-
                                   // If the original input was a custom conversion, preserve the customAddlQty
                                   if (originalParsedQty.isCustomConversion && originalParsedQty.customAddlQty !== undefined) {
                                     // The customAddlQty is set by parseQuantityInput, but we need to ensure it's preserved
@@ -10737,9 +8601,7 @@ function PlaceOrder() {
                                   const qtyForCalculation = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
                                     ? originalParsedQty
                                     : parsedQty;
-
                                   const primaryQty = convertToPrimaryQty(qtyForCalculation, selectedItemUnitConfig, customConversion || preservedCustomConversion, units);
-
                                   // For display, use the base quantity (qty) if it's a custom conversion with totalQty
                                   // This ensures "1 box 5 pkt 3 nos" shows as "1 box" not "2 box"
                                   // Also use originalParsedQty if it has compound structure to preserve the structure
@@ -10778,13 +8640,11 @@ function PlaceOrder() {
                                   // Format the quantity in BASEUNITS
                                   // If BASEUNITS is compound (like "LTR of 1000 ML"), format as "mainQty-subQty BASEUNIT" (e.g., "2-500.000 LTR")
                                   let baseUnitDisplay;
-
                                   // Check if originalParsedQty has preserved compound structure (e.g., from "9 pkt 2 nos 3 box")
                                   // Use originalParsedQty instead of parsedQty because validated string might have lost the structure
                                   const qtyToUse = (originalParsedQty && originalParsedQty.isCompound && originalParsedQty.qty !== undefined && originalParsedQty.subQty !== undefined)
                                     ? originalParsedQty
                                     : parsedQty;
-
                                   if (qtyToUse && qtyToUse.isCompound && qtyToUse.qty !== undefined && qtyToUse.subQty !== undefined) {
                                     // Use the preserved compound structure for display
                                     const baseUnitObj = units.find(u => u.NAME === selectedItemUnitConfig.BASEUNITS);
@@ -10803,7 +8663,6 @@ function PlaceOrder() {
                                       const formattedSubQty = subDecimalPlaces === 0
                                         ? Math.round(qtyToUse.subQty).toString()
                                         : parseFloat(qtyToUse.subQty).toFixed(subDecimalPlaces);
-
                                       // Use the base component unit (e.g., "pkt") instead of the full compound unit name
                                       const displayUnit = baseUnitObj.BASEUNITS || selectedItemUnitConfig.BASEUNITS;
                                       baseUnitDisplay = `${Math.round(qtyToUse.qty)}-${formattedSubQty} ${displayUnit}`;
@@ -10846,7 +8705,6 @@ function PlaceOrder() {
                                   setQuantityInput(validated || '');
                                 }
 
-
                                 setQuantityFocused(false);
                               }}
 
@@ -10854,17 +8712,13 @@ function PlaceOrder() {
 
                               disabled={!selectedItem}
                               style={{
-
                                 width: '100%',
-
                                 padding: isMobile ? '12px 16px' : '14px 16px',
                                 border: 'none',
-
                                 borderRadius: '8px',
                                 fontSize: isMobile ? '14px' : '15px',
                                 color: selectedItem ? '#1e293b' : '#9ca3af',
                                 outline: 'none',
-
                                 background: selectedItem ? 'transparent' : '#f1f5f9',
                                 textAlign: 'left',
                                 cursor: selectedItem ? 'text' : 'not-allowed',
@@ -10877,21 +8731,14 @@ function PlaceOrder() {
                             />
 
                             <label style={{
-
                               position: 'absolute',
-
                               left: isMobile ? '18px' : '20px',
-
                               top: '-10px',
                               fontSize: isMobile ? '11px' : '12px',
                               fontWeight: '600',
-
                               color: quantityFocused || quantityInput ? '#3b82f6' : '#64748b',
-
                               backgroundColor: 'white',
-
                               padding: '0 8px',
-
                               transition: 'all 0.2s ease',
                               pointerEvents: 'none',
                               zIndex: 1
@@ -10930,7 +8777,6 @@ function PlaceOrder() {
                                   const qtyToDisplay = customAddlQty !== null && customAddlQty !== undefined
                                     ? customAddlQty
                                     : (compoundAddlQty !== null && compoundAddlQty !== undefined ? compoundAddlQty : null);
-
                                   // Debug log to trace the issue
                                   if (qtyToDisplay !== null && qtyToDisplay !== undefined) {
                                     console.log('💰 Displaying alternative quantity:', {
@@ -10948,7 +8794,6 @@ function PlaceOrder() {
                                       ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
                                       : null;
                                     const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
                                     console.log('💰 Checking compound additional unit for display:', {
                                       qtyToDisplay,
                                       addlUnitObj: addlUnitObj ? { NAME: addlUnitObj.NAME, ISSIMPLEUNIT: addlUnitObj.ISSIMPLEUNIT } : null,
@@ -10961,7 +8806,6 @@ function PlaceOrder() {
                                       const addlConversion = parseFloat(addlUnitObj.CONVERSION) || 1;
                                       const mainQty = Math.floor(qtyToDisplay);
                                       const subQty = (qtyToDisplay - mainQty) * addlConversion;
-
                                       // Get decimal places for sub unit
                                       let subDecimalPlaces = 0;
                                       if (addlUnitObj.ADDITIONALUNITS) {
@@ -10976,10 +8820,8 @@ function PlaceOrder() {
                                       const formattedSubQty = subDecimalPlaces === 0
                                         ? Math.round(subQty).toString()
                                         : subQty.toFixed(subDecimalPlaces);
-
                                       // Use the base component unit (e.g., "pkt") instead of the full compound unit name
                                       const displayUnit = addlUnitObj.BASEUNITS || selectedItemUnitConfig.ADDITIONALUNITS;
-
                                       const formattedDisplay = `(${mainQty}-${formattedSubQty} ${displayUnit})`;
                                       console.log('💰 Formatted compound additional quantity:', {
                                         qtyToDisplay,
@@ -11028,9 +8870,7 @@ function PlaceOrder() {
                           {/* Helper text showing available units */}
                           {selectedItemUnitConfig && quantityFocused && (
                             <div style={{
-
                               position: 'absolute',
-
                               top: '100%',
                               left: 0,
                               right: 0,
@@ -11039,7 +8879,6 @@ function PlaceOrder() {
                               backgroundColor: '#f8fafc',
                               borderRadius: '8px',
                               fontSize: '12px',
-
                               color: '#64748b',
                               border: '1px solid #e2e8f0',
                               zIndex: 1000
@@ -11053,26 +8892,17 @@ function PlaceOrder() {
 
                       )}
 
-
-
                       {/* Fallback - Old Quantity Input (when no item selected) */}
-
                       {!selectedItemUnitConfig && (
 
                         <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 120px', minWidth: isMobile ? '100%' : '100px' }}>
 
                           <div style={{
-
                             position: 'relative',
-
                             background: 'white',
-
                             borderRadius: '8px',
-
                             border: '1px solid #e2e8f0',
-
                             transition: 'all 0.2s ease',
-
                             boxShadow: isMobile ? '0 1px 2px rgba(0, 0, 0, 0.08)' : '0 1px 2px rgba(0, 0, 0, 0.08)'
 
                           }}>
@@ -11094,33 +8924,19 @@ function PlaceOrder() {
                               min="1"
 
                               style={{
-
                                 width: '100%',
-
                                 padding: isMobile ? '12px 16px' : '14px 16px',
-
                                 border: 'none',
-
                                 borderRadius: '8px',
-
                                 fontSize: isMobile ? '14px' : '15px',
-
                                 color: selectedItem ? '#111827' : '#9ca3af',
-
                                 outline: 'none',
-
                                 background: selectedItem ? 'transparent' : '#f9fafb',
-
                                 textAlign: 'left',
-
                                 cursor: selectedItem ? 'text' : 'not-allowed',
-
                                 height: isMobile ? '44px' : '48px',
-
                                 boxSizing: 'border-box',
-
                                 fontWeight: '400'
-
                               }}
 
                               placeholder="Qty"
@@ -11128,25 +8944,15 @@ function PlaceOrder() {
                             />
 
                             <label style={{
-
                               position: 'absolute',
-
                               left: isMobile ? '16px' : '16px',
-
                               top: quantityFocused || itemQuantity > 0 ? '-8px' : '14px',
-
                               fontSize: quantityFocused || itemQuantity > 0 ? '12px' : (isMobile ? '14px' : '15px'),
-
                               fontWeight: '500',
-
                               color: quantityFocused || itemQuantity > 0 ? '#7c3aed' : '#6b7280',
-
                               backgroundColor: 'white',
-
                               padding: '0 6px',
-
                               transition: 'all 0.2s ease',
-
                               pointerEvents: 'none'
 
                             }}>
@@ -11161,24 +8967,16 @@ function PlaceOrder() {
 
                       )}
 
-
-
                       {/* Available Stock - Only show if user has show_clsstck_Column permission */}
-
                       {canShowClosingStock && (
 
                         <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 100px', minWidth: isMobile ? '100%' : '80px', maxWidth: isMobile ? '100%' : '120px', boxSizing: 'border-box' }}>
 
                           <div style={{
-
                             position: 'relative',
-
                             background: '#f8fafc',
-
                             borderRadius: '8px',
-
                             border: '1px solid #e2e8f0',
-
                             boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
 
                           }}>
@@ -11192,63 +8990,37 @@ function PlaceOrder() {
                                 if (selectedItem && stockItems.length > 0) {
 
                                   const selectedStockItem = stockItems.find(item => item.NAME === selectedItem);
-
                                   if (selectedStockItem) {
 
                                     const stockValue = selectedStockItem.CLOSINGSTOCK || 0;
-
                                     // If user has show_clsstck_yesno permission, show Yes/No instead of actual value
-
                                     if (canShowClosingStockYesNo) {
-
                                       return stockValue > 0 ? 'Yes' : 'No';
-
                                     }
-
                                     return stockValue;
-
                                   }
-
                                 }
 
                                 return '';
-
                               })()}
 
                               style={{
-
                                 width: '100%',
-
                                 padding: isMobile ? '12px 16px' : '14px 16px',
-
                                 border: 'none',
-
                                 borderRadius: '8px',
-
                                 fontSize: isMobile ? '14px' : '15px',
-
                                 color: '#374151',
-
                                 outline: 'none',
-
                                 background: 'transparent',
-
                                 textAlign: 'center',
-
                                 fontWeight: '500',
-
                                 cursor: canShowStockBreakdown ? 'pointer' : 'default',
-
                                 height: isMobile ? '44px' : '48px',
-
                                 boxSizing: 'border-box',
-
                                 textDecoration: canShowStockBreakdown ? 'underline' : 'none',
-
                                 textDecorationColor: canShowStockBreakdown ? '#7c3aed' : 'transparent',
-
                                 textUnderlineOffset: '2px'
-
                               }}
 
                               placeholder=""
@@ -11260,25 +9032,15 @@ function PlaceOrder() {
                             />
 
                             <label style={{
-
                               position: 'absolute',
-
                               left: isMobile ? '16px' : '16px',
-
                               top: '-8px',
-
                               fontSize: '12px',
-
                               fontWeight: '500',
-
                               color: '#6b7280',
-
                               backgroundColor: '#f9fafb',
-
                               padding: '0 6px',
-
                               pointerEvents: 'none',
-
                               zIndex: 1
 
                             }}>
@@ -11293,23 +9055,16 @@ function PlaceOrder() {
 
                       )}
 
-
-
                       {/* Rate with UOM Selector */}
                       {canShowRateAmtColumn && (
 
                         <>
                           <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 100px', minWidth: isMobile ? '100%' : '80px', maxWidth: isMobile ? '100%' : '120px', boxSizing: 'border-box' }}>
                             <div style={{
-
                               position: 'relative',
-
                               background: canEditRate ? 'white' : '#f9fafb',
-
                               borderRadius: '8px',
-
                               border: '1px solid #d1d5db',
-
                               boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
 
                             }}>
@@ -11325,33 +9080,19 @@ function PlaceOrder() {
                                 readOnly={!canEditRate}
 
                                 style={{
-
                                   width: '100%',
-
                                   padding: isMobile ? '12px 16px' : '14px 16px',
-
                                   border: 'none',
-
                                   borderRadius: '8px',
-
                                   fontSize: isMobile ? '14px' : '15px',
-
                                   color: canEditRate ? '#111827' : '#6b7280',
-
                                   outline: 'none',
-
                                   background: 'transparent',
-
                                   textAlign: 'center',
-
                                   fontWeight: '500',
-
                                   cursor: canEditRate ? 'text' : 'not-allowed',
-
                                   height: isMobile ? '44px' : '48px',
-
                                   boxSizing: 'border-box'
-
                                 }}
 
                                 placeholder="Rate"
@@ -11359,25 +9100,15 @@ function PlaceOrder() {
                               />
 
                               <label style={{
-
                                 position: 'absolute',
-
                                 left: isMobile ? '16px' : '16px',
-
                                 top: '-8px',
-
                                 fontSize: '12px',
-
                                 fontWeight: '500',
-
                                 color: '#6b7280',
-
                                 backgroundColor: canEditRate ? 'white' : '#f9fafb',
-
                                 padding: '0 6px',
-
                                 pointerEvents: 'none',
-
                                 zIndex: 1
 
                               }}>
@@ -11435,7 +9166,6 @@ function PlaceOrder() {
                                         ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
                                         : null;
                                       const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
                                       if (hasCompoundAddlUnit && addlUnitObj) {
                                         // Show component units for compound additional unit
                                         if (rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
@@ -11641,7 +9371,6 @@ function PlaceOrder() {
                                           ? units.find(u => u.NAME === selectedItemUnitConfig.ADDITIONALUNITS)
                                           : null;
                                         const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
                                         if (hasCompoundAddlUnit && addlUnitObj) {
                                           // ADDITIONALUNITS is compound - show component options
                                           return (
@@ -11763,24 +9492,16 @@ function PlaceOrder() {
                         </>
                       )}
 
-
-
                       {/* Discount */}
-
                       {canShowRateAmtColumn && canShowDiscColumn && (
 
                         <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 80px', minWidth: isMobile ? '100%' : '70px', maxWidth: isMobile ? '100%' : '100px' }}>
 
                           <div style={{
-
                             position: 'relative',
-
                             background: canEditDiscount ? 'white' : '#f9fafb',
-
                             borderRadius: '8px',
-
                             border: '1px solid #e2e8f0',
-
                             boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
 
                           }}>
@@ -11796,33 +9517,19 @@ function PlaceOrder() {
                               readOnly={!canEditDiscount}
 
                               style={{
-
                                 width: '100%',
-
                                 padding: isMobile ? '12px 16px' : '14px 16px',
-
                                 border: 'none',
-
                                 borderRadius: '8px',
-
                                 fontSize: isMobile ? '14px' : '15px',
-
                                 color: canEditDiscount ? '#111827' : '#6b7280',
-
                                 outline: 'none',
-
                                 background: 'transparent',
-
                                 textAlign: 'center',
-
                                 fontWeight: '500',
-
                                 cursor: canEditDiscount ? 'text' : 'not-allowed',
-
                                 height: isMobile ? '44px' : '48px',
-
                                 boxSizing: 'border-box'
-
                               }}
 
                               placeholder="Disc %"
@@ -11830,25 +9537,15 @@ function PlaceOrder() {
                             />
 
                             <label style={{
-
                               position: 'absolute',
-
                               left: isMobile ? '16px' : '16px',
-
                               top: '-8px',
-
                               fontSize: '12px',
-
                               fontWeight: '500',
-
                               color: '#6b7280',
-
                               backgroundColor: canEditDiscount ? 'white' : '#f9fafb',
-
                               padding: '0 6px',
-
                               pointerEvents: 'none',
-
                               zIndex: 1
 
                             }}>
@@ -11863,24 +9560,16 @@ function PlaceOrder() {
 
                       )}
 
-
-
                       {/* GST */}
-
                       {canShowRateAmtColumn && (
 
                         <div style={{ position: 'relative', width: isMobile ? '100%' : 'auto', flex: isMobile ? '1 1 100%' : '0 0 80px', minWidth: isMobile ? '100%' : '70px', maxWidth: isMobile ? '100%' : '100px' }}>
 
                           <div style={{
-
                             position: 'relative',
-
                             background: '#f8fafc',
-
                             borderRadius: '8px',
-
                             border: '1px solid #e2e8f0',
-
                             boxShadow: isMobile ? '0 1px 3px rgba(0, 0, 0, 0.08)' : '0 1px 3px rgba(0, 0, 0, 0.1)'
 
                           }}>
@@ -11892,31 +9581,18 @@ function PlaceOrder() {
                               value={itemGstPercent}
 
                               style={{
-
                                 width: '100%',
-
                                 padding: isMobile ? '12px 16px' : '14px 16px',
-
                                 border: 'none',
-
                                 borderRadius: '8px',
-
                                 fontSize: isMobile ? '14px' : '15px',
-
                                 color: '#374151',
-
                                 outline: 'none',
-
                                 background: 'transparent',
-
                                 textAlign: 'center',
-
                                 fontWeight: '500',
-
                                 height: isMobile ? '44px' : '48px',
-
                                 boxSizing: 'border-box'
-
                               }}
 
                               placeholder="GST %"
@@ -11926,25 +9602,15 @@ function PlaceOrder() {
                             />
 
                             <label style={{
-
                               position: 'absolute',
-
                               left: isMobile ? '16px' : '16px',
-
                               top: '-8px',
-
                               fontSize: '12px',
-
                               fontWeight: '500',
-
                               color: '#6b7280',
-
                               backgroundColor: '#f9fafb',
-
                               padding: '0 6px',
-
                               pointerEvents: 'none',
-
                               zIndex: 1
 
                             }}>
@@ -11959,36 +9625,21 @@ function PlaceOrder() {
 
                       )}
 
-
-
                       {/* Amount Display */}
-
                       {canShowRateAmtColumn && (
 
                         <div style={{
-
                           padding: isMobile ? '14px 20px' : '16px 20px',
-
                           background: 'linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%)',
-
                           borderRadius: '8px',
-
                           border: '1px solid #0ea5e9',
-
                           fontSize: isMobile ? '15px' : '16px',
-
                           fontWeight: '700',
-
                           color: '#0369a1',
-
                           textAlign: 'center',
-
                           width: isMobile ? '100%' : 'auto',
-
                           minWidth: isMobile ? '100%' : '110px',
-
                           boxSizing: 'border-box',
-
                           boxShadow: isMobile ? '0 2px 6px rgba(14, 165, 233, 0.25)' : '0 2px 4px rgba(14, 165, 233, 0.2)'
 
                         }}>
@@ -11999,10 +9650,7 @@ function PlaceOrder() {
 
                       )}
 
-
-
                       {/* Add Button */}
-
                       <button
 
                         type="button"
@@ -12012,45 +9660,25 @@ function PlaceOrder() {
                         disabled={!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)}
 
                         style={{
-
                           background: editingItemId ? 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-
                           color: 'white',
-
                           border: 'none',
-
                           borderRadius: '8px',
-
                           padding: isMobile ? '12px 20px' : '12px 24px',
-
                           height: isMobile ? '44px' : '48px',
-
                           cursor: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)) ? 'not-allowed' : 'pointer',
-
                           fontSize: isMobile ? '14px' : '15px',
-
                           fontWeight: '600',
-
                           transition: 'all 0.2s ease',
-
                           opacity: (!selectedItem || itemQuantity <= 0 || !stockItemNames.has(selectedItem)) ? 0.5 : 1,
-
                           boxShadow: '0 2px 4px rgba(16, 185, 129, 0.2)',
-
                           display: 'flex',
-
                           alignItems: 'center',
-
                           gap: '8px',
-
                           minWidth: isMobile ? '100%' : '120px',
-
                           width: isMobile ? '100%' : 'auto',
-
                           justifyContent: 'center',
-
                           boxSizing: 'border-box'
-
                         }}
 
                       >
@@ -12067,48 +9695,30 @@ function PlaceOrder() {
 
                     </div>
 
-
-
                     {/* Description Field - Below the entire item line */}
-
                     {selectedItem && (
 
                       <div style={{
-
                         marginTop: '16px',
-
                         display: 'flex',
-
                         alignItems: 'center',
-
                         gap: '12px'
 
                       }}>
 
                         {/* Toggle Switch - Only show if user doesn't have show_itemdesc permission */}
-
                         {!canShowItemDesc && (
 
                           <div style={{
-
                             display: 'flex',
-
                             alignItems: 'center',
-
                             gap: '8px',
-
                             padding: '8px 12px',
-
                             background: '#f8fafc',
-
                             borderRadius: '8px',
-
                             border: '1px solid #e2e8f0',
-
                             cursor: 'pointer',
-
                             transition: 'all 0.2s ease'
-
                           }}
 
                             onClick={() => setShowDescription(!showDescription)}
@@ -12116,49 +9726,32 @@ function PlaceOrder() {
                             onMouseEnter={(e) => {
 
                               e.currentTarget.style.background = '#f1f5f9';
-
                             }}
 
                             onMouseLeave={(e) => {
 
                               e.currentTarget.style.background = '#f8fafc';
-
                             }}>
 
                             <div style={{
-
                               width: '20px',
-
                               height: '12px',
-
                               background: showDescription ? '#3b82f6' : '#cbd5e1',
-
                               borderRadius: '6px',
-
                               position: 'relative',
-
                               transition: 'all 0.2s ease'
 
                             }}>
 
                               <div style={{
-
                                 width: '10px',
-
                                 height: '10px',
-
                                 background: 'white',
-
                                 borderRadius: '50%',
-
                                 position: 'absolute',
-
                                 top: '1px',
-
                                 left: showDescription ? '9px' : '1px',
-
                                 transition: 'all 0.2s ease',
-
                                 boxShadow: '0 1px 3px rgba(0, 0, 0, 0.2)'
 
                               }} />
@@ -12166,13 +9759,9 @@ function PlaceOrder() {
                             </div>
 
                             <span style={{
-
                               fontSize: '14px',
-
                               fontWeight: '500',
-
                               color: '#374151',
-
                               userSelect: 'none'
 
                             }}>
@@ -12185,16 +9774,11 @@ function PlaceOrder() {
 
                         )}
 
-
-
                         {/* Description Field - Show always if permission exists, or when toggle is on */}
-
                         {(canShowItemDesc || showDescription) && (
 
                           <div style={{
-
                             width: isMobile ? '100%' : '34%',
-
                             maxWidth: isMobile ? '100%' : '600px',
                             boxSizing: 'border-box',
                             minWidth: isMobile ? '0' : 'auto'
@@ -12202,17 +9786,11 @@ function PlaceOrder() {
                           }}>
 
                             <div style={{
-
                               position: 'relative',
-
                               background: 'white',
-
                               borderRadius: isMobile ? '10px' : '12px',
-
                               border: '2px solid #e2e8f0',
-
                               transition: 'all 0.2s ease',
-
                               boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)',
                               width: '100%',
                               maxWidth: '100%',
@@ -12231,31 +9809,19 @@ function PlaceOrder() {
                                 onBlur={() => setDescriptionFocused(false)}
 
                                 style={{
-
                                   width: '100%',
-
                                   padding: isMobile ? '14px 18px' : '16px 20px',
-
                                   border: 'none',
-
                                   borderRadius: isMobile ? '10px' : '12px',
-
                                   fontSize: isMobile ? '14px' : '15px',
-
                                   color: '#1e293b',
-
                                   outline: 'none',
-
                                   background: 'transparent',
-
                                   resize: 'vertical',
-
                                   minHeight: isMobile ? '80px' : '60px',
-
                                   fontFamily: 'inherit',
                                   boxSizing: 'border-box',
                                   maxWidth: '100%'
-
                                 }}
 
                                 placeholder="Enter item description (optional)"
@@ -12263,25 +9829,15 @@ function PlaceOrder() {
                               />
 
                               <label style={{
-
                                 position: 'absolute',
-
                                 left: isMobile ? '18px' : '20px',
-
                                 top: descriptionFocused || itemDescription ? '-10px' : (isMobile ? '14px' : '16px'),
-
                                 fontSize: descriptionFocused || itemDescription ? '12px' : (isMobile ? '14px' : '15px'),
-
                                 fontWeight: '600',
-
                                 color: descriptionFocused || itemDescription ? '#3b82f6' : '#6b7280',
-
                                 backgroundColor: 'white',
-
                                 padding: '0 8px',
-
                                 transition: 'all 0.2s ease',
-
                                 pointerEvents: 'none'
 
                               }}>
@@ -12305,11 +9861,9 @@ function PlaceOrder() {
             {/* End of Order Items Section Header */}
             </div>
             {/* End of Order Form Container */}
-
           </form>
 
           {/* Order Items Table */}
-
           {orderItems.length === 0 && (
             <div style={{
               border: '2px dashed #e5e7eb',
@@ -12375,27 +9929,16 @@ function PlaceOrder() {
                 {/* Table Header - Hidden on mobile, shown on desktop */}
                 {!isMobile && (
                   <div style={{
-
                     display: 'grid',
-
                     gridTemplateColumns: getGridTemplateColumns(),
-
                     gap: '12px',
-
                     padding: '10px 8px 10px 16px',
-
                     backgroundColor: '#f8fafc',
-
                     borderBottom: '2px solid #e2e8f0',
-
                     fontWeight: '700',
-
                     color: '#475569',
-
                     fontSize: '14px',
-
                     letterSpacing: '0.025em',
-
                     minWidth: 0,
                     width: '100%',
                     boxSizing: 'border-box'
@@ -12444,12 +9987,10 @@ function PlaceOrder() {
                 )}
 
                 {/* Table Rows (Desktop) / Card Layout (Mobile) */}
-
                 {orderItems.map((item, index) => {
                   // Get stock value for display
                   const selectedStockItem = stockItems.find(stockItem => stockItem.NAME === item.name);
                   const stockValue = selectedStockItem ? (canShowClosingStockYesNo ? (selectedStockItem.CLOSINGSTOCK || 0) > 0 ? 'Yes' : 'No' : selectedStockItem.CLOSINGSTOCK || 0) : '';
-
                   // Get rate UOM display
                   const getRateUOMDisplay = () => {
                     if (!item.unitConfig || !item.rateUOM) return '';
@@ -12457,7 +9998,6 @@ function PlaceOrder() {
                       ? units.find(u => u.NAME === item.unitConfig.BASEUNITS)
                       : null;
                     const hasCompoundBaseUnit = baseUnitObj && baseUnitObj.ISSIMPLEUNIT === 'No';
-
                     if (hasCompoundBaseUnit && baseUnitObj) {
                       if (item.rateUOM === 'component-main') return baseUnitObj.BASEUNITS;
                       if (item.rateUOM === 'component-sub') return baseUnitObj.ADDITIONALUNITS;
@@ -12467,7 +10007,6 @@ function PlaceOrder() {
                       ? units.find(u => u.NAME === item.unitConfig.ADDITIONALUNITS)
                       : null;
                     const hasCompoundAddlUnit = addlUnitObj && addlUnitObj.ISSIMPLEUNIT === 'No';
-
                     if (hasCompoundAddlUnit && addlUnitObj) {
                       if (item.rateUOM === 'additional-component-main') return addlUnitObj.BASEUNITS;
                       if (item.rateUOM === 'additional-component-sub') return addlUnitObj.ADDITIONALUNITS;
@@ -12672,59 +10211,39 @@ function PlaceOrder() {
                   // Desktop Grid Table Layout
                   return (
                     <div key={item.id} style={{
-
                       display: 'grid',
-
                       gridTemplateColumns: getGridTemplateColumns(),
-
                       gap: '12px',
-
                       padding: '12px 8px 12px 16px',
-
                       borderBottom: '1px solid #f1f5f9',
-
                       alignItems: 'center',
-
                       fontSize: '14px',
-
                       color: '#1e293b',
-
                       transition: 'background-color 0.2s ease',
-
                       minWidth: 0,
                       width: '100%',
                       boxSizing: 'border-box'
-
                     }}
 
                       onMouseEnter={(e) => {
 
                         e.currentTarget.style.backgroundColor = '#f8fafc';
-
                       }}
 
                       onMouseLeave={(e) => {
 
                         e.currentTarget.style.backgroundColor = 'transparent';
-
                       }}
 
                     >
 
                       <div style={{
-
                         fontWeight: '600',
-
                         color: '#1e293b',
-
                         fontSize: '15px',
-
                         overflow: 'hidden',
-
                         wordBreak: 'break-word',
-
                         lineHeight: '1.2',
-
                         minWidth: 0
 
                       }}>
@@ -12734,17 +10253,11 @@ function PlaceOrder() {
                         {item.description && (
 
                           <div style={{
-
                             fontSize: '12px',
-
                             color: '#64748b',
-
                             fontWeight: '400',
-
                             marginTop: '4px',
-
                             fontStyle: 'italic',
-
                             lineHeight: '1.3'
 
                           }}>
@@ -12758,19 +10271,12 @@ function PlaceOrder() {
                       </div>
 
                       <div style={{
-
                         textAlign: 'center',
-
                         fontWeight: '600',
-
                         color: '#059669',
-
                         display: 'flex',
-
                         flexDirection: 'column',
-
                         alignItems: 'center',
-
                         gap: '2px',
                         minWidth: 0
 
@@ -12797,11 +10303,8 @@ function PlaceOrder() {
                       {canShowClosingStock && (
 
                         <div style={{
-
                           textAlign: 'center',
-
                           fontWeight: '600',
-
                           color: '#7c3aed',
                           minWidth: 0
 
@@ -12816,11 +10319,8 @@ function PlaceOrder() {
                       {canShowRateAmtColumn && (
 
                         <div style={{
-
                           textAlign: 'right',
-
                           fontWeight: '600',
-
                           color: '#dc2626',
                           minWidth: 0
 
@@ -12835,15 +10335,10 @@ function PlaceOrder() {
                       {canShowRateAmtColumn && (
 
                         <div style={{
-
                           textAlign: 'center',
-
                           fontWeight: '500',
-
                           color: '#64748b',
-
                           fontSize: '13px',
-
                           position: 'relative',
                           minWidth: 0
 
@@ -12858,11 +10353,8 @@ function PlaceOrder() {
                       {canShowRateAmtColumn && canShowDiscColumn && (
 
                         <div style={{
-
                           textAlign: 'center',
-
                           fontWeight: '600',
-
                           color: '#0ea5e9',
                           minWidth: 0
 
@@ -12877,11 +10369,8 @@ function PlaceOrder() {
                       {canShowRateAmtColumn && (
 
                         <div style={{
-
                           textAlign: 'center',
-
                           fontWeight: '600',
-
                           color: '#ea580c',
                           minWidth: 0
 
@@ -12896,13 +10385,9 @@ function PlaceOrder() {
                       {canShowRateAmtColumn && (
 
                         <div style={{
-
                           textAlign: 'right',
-
                           fontWeight: '700',
-
                           color: '#059669',
-
                           fontSize: '15px',
                           minWidth: 0
 
@@ -12995,11 +10480,9 @@ function PlaceOrder() {
                 })}
 
                 {/* Totals Row */}
-
                 {(() => {
 
                   const totals = calculateTotals();
-
                   // Mobile Card Style Totals
                   if (isMobile) {
                     return (
@@ -13048,25 +10531,15 @@ function PlaceOrder() {
                   // Desktop Grid Totals
                   return (
                     <div style={{
-
                       display: 'grid',
-
                       gridTemplateColumns: getGridTemplateColumns(),
-
                       gap: '12px',
-
                       padding: '12px 8px 12px 16px',
-
                       background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 100%)',
-
                       color: 'white',
-
                       fontWeight: '700',
-
                       fontSize: '12px',
-
                       borderTop: '2px solid #3b82f6',
-
                       borderRadius: '0',
                       minWidth: 0,
                       width: '100%',
@@ -13122,7 +10595,6 @@ function PlaceOrder() {
                     </div>
 
                   );
-
                 })()}
 
               </div>
@@ -13133,7 +10605,6 @@ function PlaceOrder() {
 
         </div>
         {/* End of Left Content Area */}
-
         {/* Right Sidebar */}
         <div style={{
           flex: isMobile || isTablet || isSmallDesktop ? '1 1 100%' : isMedium ? '0 0 360px' : '0 0 380px',
@@ -13178,7 +10649,6 @@ function PlaceOrder() {
             {(() => {
               const totals = calculateTotals();
               const subtotal = totals.totalAmount;
-
               // Get current company and customer for state comparison
               const currentCompany = filteredCompanies.find(c => c.guid === company);
               const selectedCustomerObj = customerOptions.find(c => c.NAME === selectedCustomer);
@@ -13187,7 +10657,6 @@ function PlaceOrder() {
               // Customer state from customer options (STATENAME field, uppercase)
               const customerState = selectedCustomerObj?.STATENAME || editableState || '';
               const isSameState = companyState && customerState && companyState.toLowerCase().trim() === customerState.toLowerCase().trim();
-
               // Helper function to determine GSTDUTYHEAD from ledger name
               const getGSTDUTYHEAD = (ledgerName) => {
                 const nameUpper = (ledgerName || '').toUpperCase();
@@ -13201,7 +10670,6 @@ function PlaceOrder() {
               const shouldCalculateLedger = (ledger) => {
                 const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
                 if (!gstDutyHead) return false;
-
                 if (isSameState) {
                   // Same state: Calculate CGST and SGST/UTGST
                   return gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST';
@@ -13215,39 +10683,32 @@ function PlaceOrder() {
               const gstLedgers = selectedClassLedgers.filter(
                 ledger => ledger.METHODTYPE === 'GST' && shouldCalculateLedger(ledger)
               );
-
               const gstAmounts = {};
               gstLedgers.forEach(ledger => {
                 const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
                 const rateOfTaxCalc = parseFloat(ledger.RATEOFTAXCALCULATION || '0');
                 let totalGST = 0;
-
                 orderItems.forEach(item => {
                   const itemGstPercent = parseFloat(item.gstPercent || 0);
-
                   if (itemGstPercent > 0) {
                     // Item amount is already calculated as: rate * quantity * (1 - discount%)
                     // This is the taxable amount (after discount, before GST)
                     const itemTaxableAmount = parseFloat(item.amount || 0);
-
                     if (rateOfTaxCalc === 0) {
                       // RATEOFTAXCALCULATION = 0: Take all item tax
                       let effectiveGstRate = itemGstPercent;
-
                       // For CGST/SGST, split the rate (18% -> 9% each)
                       // For IGST, use full rate (18% -> 18%)
                       if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
                         effectiveGstRate = itemGstPercent / 2;
                       }
                       // For IGST, use full rate (no division)
-
                       const itemGST = (itemTaxableAmount * effectiveGstRate) / 100;
                       totalGST += itemGST;
                     } else {
                       // RATEOFTAXCALCULATION != 0: Only items with matching rate
                       // RATEOFTAXCALCULATION stores the split rate (e.g., 9 for CGST/SGST, 18 for IGST)
                       const matchingRate = rateOfTaxCalc;
-
                       // Check if item's GST rate matches
                       // For CGST/SGST, compare split rate (item 18% should match ledger 9%)
                       // For IGST, compare full rate (item 18% should match ledger 18%)
@@ -13324,7 +10785,6 @@ function PlaceOrder() {
               // Note: GST and rounding are explicitly excluded, and "On Current SubTotal" ledgers are calculated sequentially
               let cumulativeOnCurrentSubTotal = 0;
               const recalculatedOnCurrentSubTotalAmounts = {};
-
               onCurrentSubTotalLedgers.forEach(ledger => {
                 const classRate = parseFloat(ledger.CLASSRATE || '0');
                 // Base includes: subtotal + user-defined + flat rate + based on quantity + on total sales + previous "On Current SubTotal" amounts
@@ -13340,16 +10800,13 @@ function PlaceOrder() {
               // Logic: Calculate GST if APPROPRIATEFOR = "GST" and EXCISEALLOCTYPE = "Based on Value" (regardless of GSTAPPLICABLE)
               // OR if GSTAPPLICABLE = "Yes" and APPROPRIATEFOR is empty
               const gstOnOtherLedgers = {};
-
               // Helper function to calculate average GST rate from items
               const calculateAverageGSTRate = () => {
                 let totalTaxableAmount = 0;
                 let weightedGstRate = 0;
-
                 orderItems.forEach(item => {
                   const itemGstPercent = parseFloat(item.gstPercent || 0);
                   const itemAmount = parseFloat(item.amount || 0);
-
                   if (itemGstPercent > 0 && itemAmount > 0) {
                     totalTaxableAmount += itemAmount;
                     weightedGstRate += itemAmount * itemGstPercent;
@@ -13372,7 +10829,6 @@ function PlaceOrder() {
                 }
 
                 let ledgerValue = 0;
-
                 // Get the ledger value based on METHODTYPE
                 if (ledger.METHODTYPE === 'As User Defined Value') {
                   ledgerValue = parseFloat(ledgerValues[ledger.NAME] || 0);
@@ -13388,34 +10844,28 @@ function PlaceOrder() {
 
                 if (ledgerValue !== 0) {
                   let gstAmount = 0;
-
                   // Check if APPROPRIATEFOR = "GST" and EXCISEALLOCTYPE = "Based on Value"
                   // This should calculate GST even if GSTAPPLICABLE = "No"
                   if (ledger.APPROPRIATEFOR === 'GST' && ledger.EXCISEALLOCTYPE === 'Based on Value') {
                     // Allocate discount proportionally to items based on their values
                     // Then calculate GST on each item's discount portion using that item's GST rate
                     const totalItemValue = orderItems.reduce((sum, item) => sum + (parseFloat(item.amount || 0)), 0);
-
                     if (totalItemValue > 0) {
                       // Calculate GST for each GST ledger (CGST, SGST, IGST)
                       gstLedgers.forEach(gstLedger => {
                         const gstDutyHead = getGSTDUTYHEAD(gstLedger.NAME);
                         if (!gstDutyHead) return;
-
                         let ledgerGstAmount = 0;
-
                         // Allocate discount to each item proportionally
                         orderItems.forEach(item => {
                           const itemAmount = parseFloat(item.amount || 0);
                           const itemGstPercent = parseFloat(item.gstPercent || 0);
-
                           if (itemAmount > 0 && itemGstPercent > 0) {
                             // Calculate this item's portion of the discount
                             const itemDiscountPortion = (ledgerValue * itemAmount) / totalItemValue;
 
                             // Calculate GST on this item's discount portion
                             let effectiveGstRate = itemGstPercent;
-
                             // For CGST/SGST, split the rate (12% -> 6% each, 5% -> 2.5% each)
                             // For IGST, use full rate
                             if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
@@ -13456,16 +10906,13 @@ function PlaceOrder() {
 
               // Calculate totalGST after adding GST on discount (which was added to gstAmounts)
               let totalGST = Object.values(gstAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
-
               const totalGstOnOtherLedgers = Object.values(gstOnOtherLedgers).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
 
               // Calculate amount before rounding (subtotal + user-defined ledgers + flat rate + based on quantity + on total sales + on current subtotal + GST + GST on other ledgers)
               const amountBeforeRounding = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + finalOnCurrentSubTotal + totalGST + totalGstOnOtherLedgers;
-
               // Helper function to calculate rounding based on ROUNDTYPE and ROUNDLIMIT
               const calculateRounding = (amount, roundType, roundLimit) => {
                 const limit = parseFloat(roundLimit) || 1;
-
                 if (roundType === 'Normal Rounding') {
                   // Round to nearest limit (e.g., if limit is 1, round to nearest rupee)
                   return Math.round(amount / limit) * limit - amount;
@@ -13483,10 +10930,8 @@ function PlaceOrder() {
               const roundingLedgers = selectedClassLedgers.filter(
                 ledger => ledger.METHODTYPE === 'As Total Amount Rounding'
               );
-
               let cumulativeRounding = 0;
               const roundingAmounts = {};
-
               // Process rounding ledgers in order (they might be cumulative)
               roundingLedgers.forEach(ledger => {
                 const amountToRound = amountBeforeRounding + cumulativeRounding;
@@ -13501,7 +10946,6 @@ function PlaceOrder() {
 
               // Calculate total rounding
               const totalRounding = cumulativeRounding;
-
               // Final total = subtotal + user-defined ledgers + rounding
               const total = amountBeforeRounding + totalRounding;
 
@@ -13529,25 +10973,18 @@ function PlaceOrder() {
                     const isOnCurrentSubTotal = ledger.METHODTYPE === 'On Current SubTotal';
                     const ledgerValue = ledgerValues[ledger.NAME] || '';
                     const ledgerAmount = parseFloat(ledgerValue) || 0;
-
                     // Get rounding amount if it's a rounding ledger
                     const roundingAmount = isRounding ? (roundingAmounts[ledger.NAME] || 0) : 0;
-
                     // Get GST amount if it's a GST ledger
                     const gstAmount = isGST ? (gstAmounts[ledger.NAME] || 0) : 0;
-
                     // Get flat rate amount if it's a flat rate ledger
                     const flatRateAmount = isFlatRate ? (flatRateAmounts[ledger.NAME] || 0) : 0;
-
                     // Get based on quantity amount if it's a based on quantity ledger
                     const basedOnQuantityAmount = isBasedOnQuantity ? (basedOnQuantityAmounts[ledger.NAME] || 0) : 0;
-
                     // Get on total sales amount if it's an on total sales ledger
                     const onTotalSalesAmount = isOnTotalSales ? (onTotalSalesAmounts[ledger.NAME] || 0) : 0;
-
                     // Get on current subtotal amount if it's an on current subtotal ledger
                     const onCurrentSubTotalAmount = isOnCurrentSubTotal ? (recalculatedOnCurrentSubTotalAmounts[ledger.NAME] || 0) : 0;
-
                     // Get GST on this ledger if applicable (for non-GST, non-rounding ledgers)
                     const gstOnThisLedger = (!isGST && !isRounding && ledger.GSTAPPLICABLE === 'Yes') ? (gstOnOtherLedgers[ledger.NAME] || 0) : 0;
 
@@ -13871,13 +11308,29 @@ function PlaceOrder() {
           </div>
         </div>
         {/* End of Right Sidebar */}
+        {/* Gmail Viewer - Right Side */}
+        {showGmailViewer && (
+          <div style={{
+            flex: isMobile || isTablet || isSmallDesktop ? '1 1 100%' : '0 1 42%',
+            minWidth: isMobile || isTablet || isSmallDesktop ? 'auto' : '400px',
+            maxWidth: isMobile || isTablet || isSmallDesktop ? '100%' : '45%',
+            width: isMobile || isTablet || isSmallDesktop ? '100%' : 'auto',
+            display: 'flex',
+            flexDirection: 'column',
+            boxSizing: 'border-box',
+            overflowX: 'hidden',
+            overflowY: 'auto',
+            alignSelf: 'stretch',
+            height: isMobile || isTablet || isSmallDesktop ? 'auto' : '100%',
+            maxHeight: isMobile || isTablet || isSmallDesktop ? 'none' : 'calc(100vh - 200px)'
+          }}>
+            <GmailJsonViewer />
+          </div>
+        )}
       </div>
       {/* End of receivables-content */}
-
       {/* Edit Customer Modal */}
-
       {
-
         showEditModal && (
 
           <div style={modalOverlayStyle} onClick={handleCloseModal}>
@@ -13904,8 +11357,6 @@ function PlaceOrder() {
 
               </div>
 
-
-
               <div style={formGroupStyle}>
 
                 <label style={labelStyle}>Customer Name</label>
@@ -13924,8 +11375,6 @@ function PlaceOrder() {
 
               </div>
 
-
-
               <div style={formGroupStyle}>
 
                 <label style={labelStyle}>Address</label>
@@ -13937,19 +11386,14 @@ function PlaceOrder() {
                   onChange={(e) => {
 
                     const newValue = e.target.value;
-
                     setTempCustomerData(prev => ({ ...prev, address: newValue }));
-
                     setEditableAddress(newValue);
-
                   }}
 
                   style={{
 
                     ...textareaStyle,
-
                     lineHeight: '1.2'
-
                   }}
 
                   placeholder="Enter address"
@@ -13957,8 +11401,6 @@ function PlaceOrder() {
                 />
 
               </div>
-
-
 
               <div style={formGroupStyle}>
 
@@ -13973,11 +11415,8 @@ function PlaceOrder() {
                   onChange={(e) => {
 
                     const newValue = e.target.value;
-
                     setTempCustomerData(prev => ({ ...prev, pincode: newValue }));
-
                     setEditablePincode(newValue);
-
                   }}
 
                   style={inputStyle}
@@ -13987,8 +11426,6 @@ function PlaceOrder() {
                 />
 
               </div>
-
-
 
               <div style={formGroupStyle}>
 
@@ -14003,11 +11440,8 @@ function PlaceOrder() {
                   onChange={(e) => {
 
                     const newValue = e.target.value;
-
                     setTempCustomerData(prev => ({ ...prev, state: newValue }));
-
                     setEditableState(newValue);
-
                   }}
 
                   style={inputStyle}
@@ -14017,8 +11451,6 @@ function PlaceOrder() {
                 />
 
               </div>
-
-
 
               <div style={formGroupStyle}>
 
@@ -14033,11 +11465,8 @@ function PlaceOrder() {
                   onChange={(e) => {
 
                     const newValue = e.target.value;
-
                     setTempCustomerData(prev => ({ ...prev, country: newValue }));
-
                     setEditableCountry(newValue);
-
                   }}
 
                   style={inputStyle}
@@ -14047,8 +11476,6 @@ function PlaceOrder() {
                 />
 
               </div>
-
-
 
               <div style={formGroupStyle}>
 
@@ -14063,11 +11490,8 @@ function PlaceOrder() {
                   onChange={(e) => {
 
                     const newValue = e.target.value;
-
                     setTempCustomerData(prev => ({ ...prev, gstno: newValue }));
-
                     setEditableGstNo(newValue);
-
                   }}
 
                   style={inputStyle}
@@ -14077,8 +11501,6 @@ function PlaceOrder() {
                 />
 
               </div>
-
-
 
               <div style={formGroupStyle}>
 
@@ -14099,8 +11521,6 @@ function PlaceOrder() {
                 />
 
               </div>
-
-
 
               {canShowPriceLevel && (
 
@@ -14124,8 +11544,6 @@ function PlaceOrder() {
 
               )}
 
-
-
               <div style={formGroupStyle}>
 
                 <label style={labelStyle}>Buyer Order Ref</label>
@@ -14145,8 +11563,6 @@ function PlaceOrder() {
                 />
 
               </div>
-
-
 
               {canShowPayTerms && (
 
@@ -14176,8 +11592,6 @@ function PlaceOrder() {
 
               )}
 
-
-
               {canShowDelvTerms && (
 
                 <div style={formGroupStyle}>
@@ -14206,8 +11620,6 @@ function PlaceOrder() {
 
               )}
 
-
-
               <div style={formGroupStyle}>
 
                 <label style={labelStyle}>Narration</label>
@@ -14226,24 +11638,15 @@ function PlaceOrder() {
 
               </div>
 
-
-
-
-
             </div>
 
           </div>
 
         )
-
       }
 
-
-
       {/* Overdue Bills Modal */}
-
       {
-
         showOverdueBills && creditLimitData && creditLimitData.overdueBills && creditLimitData.overdueBills.length > 0 && (
 
           <div style={modalOverlayStyle} onClick={() => setShowOverdueBills(false)}>
@@ -14251,11 +11654,8 @@ function PlaceOrder() {
             <div style={{
 
               ...modalStyle,
-
               maxWidth: '800px',
-
               maxHeight: '80vh',
-
               overflow: 'hidden'
 
             }} onClick={(e) => e.stopPropagation()}>
@@ -14280,40 +11680,26 @@ function PlaceOrder() {
 
               </div>
 
-
-
               <div style={{
-
                 padding: '20px',
-
                 maxHeight: '60vh',
-
                 overflowY: 'auto'
 
               }}>
 
                 <div style={{
-
                   background: '#fef2f2',
-
                   border: '1px solid #fecaca',
-
                   borderRadius: '8px',
-
                   padding: '16px',
-
                   marginBottom: '20px'
 
                 }}>
 
                   <div style={{
-
                     display: 'flex',
-
                     alignItems: 'center',
-
                     gap: '8px',
-
                     marginBottom: '8px'
 
                   }}>
@@ -14340,24 +11726,16 @@ function PlaceOrder() {
 
                 </div>
 
-
-
                 <div style={{
-
                   overflowX: 'auto',
-
                   border: '1px solid #e5e7eb',
-
                   borderRadius: '8px'
 
                 }}>
 
                   <table style={{
-
                     width: '100%',
-
                     borderCollapse: 'collapse',
-
                     fontSize: '14px'
 
                   }}>
@@ -14365,25 +11743,17 @@ function PlaceOrder() {
                     <thead>
 
                       <tr style={{
-
                         background: '#f8fafc',
-
                         borderBottom: '2px solid #e5e7eb'
 
                       }}>
 
                         <th style={{
-
                           padding: '12px 16px',
-
                           textAlign: 'left',
-
                           fontWeight: '600',
-
                           color: '#374151',
-
                           borderRight: '1px solid #e5e7eb',
-
                           width: '200px'
 
                         }}>
@@ -14393,17 +11763,11 @@ function PlaceOrder() {
                         </th>
 
                         <th style={{
-
                           padding: '12px 16px',
-
                           textAlign: 'right',
-
                           fontWeight: '600',
-
                           color: '#374151',
-
                           borderRight: '1px solid #e5e7eb',
-
                           width: '120px'
 
                         }}>
@@ -14413,17 +11777,11 @@ function PlaceOrder() {
                         </th>
 
                         <th style={{
-
                           padding: '12px 16px',
-
                           textAlign: 'right',
-
                           fontWeight: '600',
-
                           color: '#374151',
-
                           borderRight: '1px solid #e5e7eb',
-
                           width: '150px'
 
                         }}>
@@ -14433,17 +11791,11 @@ function PlaceOrder() {
                         </th>
 
                         <th style={{
-
                           padding: '12px 16px',
-
                           textAlign: 'right',
-
                           fontWeight: '600',
-
                           color: '#374151',
-
                           borderRight: '1px solid #e5e7eb',
-
                           width: '150px'
 
                         }}>
@@ -14453,17 +11805,11 @@ function PlaceOrder() {
                         </th>
 
                         <th style={{
-
                           padding: '12px 16px',
-
                           textAlign: 'right',
-
                           fontWeight: '600',
-
                           color: '#374151',
-
                           borderRight: '1px solid #e5e7eb',
-
                           width: '120px'
 
                         }}>
@@ -14473,13 +11819,9 @@ function PlaceOrder() {
                         </th>
 
                         <th style={{
-
                           padding: '12px 16px',
-
                           textAlign: 'center',
-
                           fontWeight: '600',
-
                           color: '#374151'
 
                         }}>
@@ -14497,27 +11839,20 @@ function PlaceOrder() {
                       {creditLimitData.overdueBills.map((bill, index) => (
 
                         <tr key={index} style={{
-
                           borderBottom: '1px solid #f3f4f6',
 
                           '&:hover': {
 
                             background: '#f9fafb'
-
                           }
 
                         }}>
 
                           <td style={{
-
                             padding: '12px 16px',
-
                             fontWeight: '600',
-
                             color: '#1f2937',
-
                             borderRight: '1px solid #e5e7eb',
-
                             width: '200px'
 
                           }}>
@@ -14527,15 +11862,10 @@ function PlaceOrder() {
                           </td>
 
                           <td style={{
-
                             padding: '12px 16px',
-
                             textAlign: 'right',
-
                             color: '#6b7280',
-
                             borderRight: '1px solid #e5e7eb',
-
                             width: '120px'
 
                           }}>
@@ -14545,17 +11875,11 @@ function PlaceOrder() {
                           </td>
 
                           <td style={{
-
                             padding: '12px 16px',
-
                             textAlign: 'right',
-
                             fontWeight: '600',
-
                             color: bill.OPENINGBALANCE < 0 ? '#dc2626' : '#059669',
-
                             borderRight: '1px solid #e5e7eb',
-
                             width: '150px'
 
                           }}>
@@ -14567,17 +11891,11 @@ function PlaceOrder() {
                           </td>
 
                           <td style={{
-
                             padding: '12px 16px',
-
                             textAlign: 'right',
-
                             fontWeight: '600',
-
                             color: bill.CLOSINGBALANCE < 0 ? '#dc2626' : '#059669',
-
                             borderRight: '1px solid #e5e7eb',
-
                             width: '150px'
 
                           }}>
@@ -14589,15 +11907,10 @@ function PlaceOrder() {
                           </td>
 
                           <td style={{
-
                             padding: '12px 16px',
-
                             textAlign: 'right',
-
                             color: '#6b7280',
-
                             borderRight: '1px solid #e5e7eb',
-
                             width: '120px'
 
                           }}>
@@ -14607,13 +11920,9 @@ function PlaceOrder() {
                           </td>
 
                           <td style={{
-
                             padding: '12px 16px',
-
                             textAlign: 'center',
-
                             fontWeight: '600',
-
                             color: '#dc2626'
 
                           }}>
@@ -14632,30 +11941,19 @@ function PlaceOrder() {
 
                 </div>
 
-
-
                 <div style={{
-
                   marginTop: '20px',
-
                   padding: '16px',
-
                   background: '#f0f9ff',
-
                   border: '1px solid #bae6fd',
-
                   borderRadius: '8px'
 
                 }}>
 
                   <div style={{
-
                     display: 'flex',
-
                     alignItems: 'center',
-
                     gap: '8px',
-
                     marginBottom: '8px'
 
                   }}>
@@ -14675,11 +11973,8 @@ function PlaceOrder() {
                   </div>
 
                   <div style={{
-
                     fontSize: '18px',
-
                     fontWeight: '700',
-
                     color: '#dc2626'
 
                   }}>
@@ -14697,15 +11992,10 @@ function PlaceOrder() {
           </div>
 
         )
-
       }
 
-
-
       {/* Custom Confirmation Modal */}
-
       {
-
         showConfirmModal && (
 
           <div style={modalOverlayStyle}>
@@ -14713,43 +12003,28 @@ function PlaceOrder() {
             <div style={{
 
               ...modalStyle,
-
               maxWidth: '400px',
-
               textAlign: 'center'
 
             }}>
 
               <div style={{
-
                 display: 'flex',
-
                 alignItems: 'center',
-
                 justifyContent: 'center',
-
                 marginBottom: '20px',
-
                 gap: '12px'
 
               }}>
 
                 <div style={{
-
                   width: '48px',
-
                   height: '48px',
-
                   borderRadius: '50%',
-
                   background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
-
                   display: 'flex',
-
                   alignItems: 'center',
-
                   justifyContent: 'center',
-
                   fontSize: '24px'
 
                 }}>
@@ -14759,13 +12034,9 @@ function PlaceOrder() {
                 </div>
 
                 <h3 style={{
-
                   margin: 0,
-
                   color: '#1f2937',
-
                   fontSize: '18px',
-
                   fontWeight: '600'
 
                 }}>
@@ -14776,16 +12047,10 @@ function PlaceOrder() {
 
               </div>
 
-
-
               <p style={{
-
                 margin: '0 0 24px 0',
-
                 color: '#374151',
-
                 fontSize: '14px',
-
                 lineHeight: '1.5'
 
               }}>
@@ -14794,14 +12059,9 @@ function PlaceOrder() {
 
               </p>
 
-
-
               <div style={{
-
                 display: 'flex',
-
                 gap: '12px',
-
                 justifyContent: 'center'
 
               }}>
@@ -14813,33 +12073,21 @@ function PlaceOrder() {
                     if (confirmAction) {
 
                       confirmAction();
-
                     }
 
                     setShowConfirmModal(false);
-
                   }}
 
                   style={{
-
                     background: 'linear-gradient(135deg, #dc2626 0%, #b91c1c 100%)',
-
                     color: '#fff',
-
                     border: 'none',
-
                     borderRadius: '8px',
-
                     padding: '10px 20px',
-
                     cursor: 'pointer',
-
                     fontSize: '14px',
-
                     fontWeight: '600',
-
                     minWidth: '80px'
-
                   }}
 
                 >
@@ -14853,25 +12101,15 @@ function PlaceOrder() {
                   onClick={() => setShowConfirmModal(false)}
 
                   style={{
-
                     background: 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
-
                     color: '#fff',
-
                     border: 'none',
-
                     borderRadius: '8px',
-
                     padding: '10px 20px',
-
                     cursor: 'pointer',
-
                     fontSize: '14px',
-
                     fontWeight: '600',
-
                     minWidth: '80px'
-
                   }}
 
                 >
@@ -14887,15 +12125,10 @@ function PlaceOrder() {
           </div>
 
         )
-
       }
 
-
-
       {/* Order Result Modal */}
-
       {
-
         showOrderResultModal && (
 
           <div style={modalOverlayStyle}>
@@ -14903,49 +12136,33 @@ function PlaceOrder() {
             <div style={{
 
               ...modalStyle,
-
               maxWidth: '500px',
-
               textAlign: 'center'
 
             }}>
 
               <div style={{
-
                 display: 'flex',
-
                 alignItems: 'center',
-
                 justifyContent: 'center',
-
                 marginBottom: '20px',
-
                 gap: '12px'
 
               }}>
 
                 <div style={{
-
                   width: '48px',
-
                   height: '48px',
-
                   borderRadius: '50%',
-
                   background: orderResult.success
 
                     ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
 
                     : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-
                   display: 'flex',
-
                   alignItems: 'center',
-
                   justifyContent: 'center',
-
                   fontSize: '24px',
-
                   color: 'white'
 
                 }}>
@@ -14955,13 +12172,9 @@ function PlaceOrder() {
                 </div>
 
                 <h3 style={{
-
                   margin: 0,
-
                   color: '#1f2937',
-
                   fontSize: '18px',
-
                   fontWeight: '600'
 
                 }}>
@@ -14972,18 +12185,11 @@ function PlaceOrder() {
 
               </div>
 
-
-
               <p style={{
-
                 margin: '0 0 20px 0',
-
                 color: '#374151',
-
                 fontSize: '16px',
-
                 lineHeight: '1.5',
-
                 fontWeight: '500'
 
               }}>
@@ -14992,34 +12198,22 @@ function PlaceOrder() {
 
               </p>
 
-
-
               {/* Tally Response Details for Failed Orders */}
-
               {!orderResult.success && orderResult.tallyResponse && (
 
                 <div style={{
-
                   background: '#f3f4f6',
-
                   borderRadius: '8px',
-
                   padding: '16px',
-
                   margin: '0 0 20px 0',
-
                   textAlign: 'left'
 
                 }}>
 
                   <h4 style={{
-
                     margin: '0 0 12px 0',
-
                     color: '#374151',
-
                     fontSize: '14px',
-
                     fontWeight: '600'
 
                   }}>
@@ -15029,11 +12223,8 @@ function PlaceOrder() {
                   </h4>
 
                   <div style={{
-
                     fontSize: '13px',
-
                     color: '#6b7280',
-
                     lineHeight: '1.4'
 
                   }}>
@@ -15056,16 +12247,10 @@ function PlaceOrder() {
 
               )}
 
-
-
               <div style={{
-
                 display: 'flex',
-
                 justifyContent: 'center',
-
                 gap: '12px',
-
                 flexWrap: 'wrap'
 
               }}>
@@ -15079,31 +12264,20 @@ function PlaceOrder() {
                     disabled={isDownloadingPDF}
 
                     style={{
-
                       background: isDownloadingPDF
 
                         ? 'linear-gradient(135deg, #9ca3af 0%, #6b7280 100%)'
 
                         : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-
                       color: '#fff',
-
                       border: 'none',
-
                       borderRadius: '8px',
-
                       padding: '12px 24px',
-
                       cursor: isDownloadingPDF ? 'not-allowed' : 'pointer',
-
                       fontSize: '14px',
-
                       fontWeight: '600',
-
                       minWidth: '120px',
-
                       opacity: isDownloadingPDF ? 0.7 : 1
-
                     }}
 
                   >
@@ -15119,29 +12293,19 @@ function PlaceOrder() {
                   onClick={() => setShowOrderResultModal(false)}
 
                   style={{
-
                     background: orderResult.success
 
                       ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
 
                       : 'linear-gradient(135deg, #6b7280 0%, #4b5563 100%)',
-
                     color: '#fff',
-
                     border: 'none',
-
                     borderRadius: '8px',
-
                     padding: '12px 24px',
-
                     cursor: 'pointer',
-
                     fontSize: '14px',
-
                     fontWeight: '600',
-
                     minWidth: '100px'
-
                   }}
 
                 >
@@ -15157,87 +12321,53 @@ function PlaceOrder() {
           </div>
 
         )
-
       }
 
-
-
       {/* Stock Breakdown Modal */}
-
       {
-
         showStockModal && (
 
           <div style={{
-
             position: 'fixed',
-
             top: 0,
-
             left: 0,
-
             right: 0,
-
             bottom: 0,
-
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
-
             display: 'flex',
-
             alignItems: 'center',
-
             justifyContent: 'center',
-
             zIndex: 10000
 
           }}>
 
             <div style={{
-
               backgroundColor: 'white',
-
               borderRadius: '12px',
-
               padding: '24px',
-
               maxWidth: '600px',
-
               width: '90%',
-
               maxHeight: '80vh',
-
               overflow: 'auto',
-
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)'
 
             }}>
 
               {/* Header */}
-
               <div style={{
-
                 display: 'flex',
-
                 justifyContent: 'space-between',
-
                 alignItems: 'center',
-
                 marginBottom: '20px',
-
                 paddingBottom: '16px',
-
                 borderBottom: '1px solid #e5e7eb'
 
               }}>
 
                 <h3 style={{
-
                   margin: 0,
-
                   fontSize: '18px',
-
                   fontWeight: '600',
-
                   color: '#1f2937'
 
                 }}>
@@ -15245,21 +12375,14 @@ function PlaceOrder() {
                   {(() => {
 
                     if (canShowGodownBrkup && canShowMulticoBrkup) {
-
                       return showGodownStock ? 'Godown-wise' : 'Company-wise';
-
                     } else if (canShowGodownBrkup) {
-
                       return 'Godown-wise';
-
                     } else if (canShowMulticoBrkup) {
 
                       return 'Company-wise';
-
                     }
-
                     return 'Stock Breakdown';
-
                   })()} Stock Breakdown - {selectedItem}
 
                 </h3>
@@ -15269,19 +12392,12 @@ function PlaceOrder() {
                   onClick={() => setShowStockModal(false)}
 
                   style={{
-
                     background: 'none',
-
                     border: 'none',
-
                     fontSize: '24px',
-
                     cursor: 'pointer',
-
                     color: '#6b7280',
-
                     padding: '4px'
-
                   }}
 
                 >
@@ -15292,32 +12408,21 @@ function PlaceOrder() {
 
               </div>
 
-
-
               {/* Toggle Switch - Only show if both permissions are enabled */}
-
               {canShowGodownBrkup && canShowMulticoBrkup && (
 
                 <div style={{
-
                   display: 'flex',
-
                   alignItems: 'center',
-
                   justifyContent: 'center',
-
                   marginBottom: '20px',
-
                   gap: '12px'
 
                 }}>
 
                   <span style={{
-
                     fontSize: '14px',
-
                     fontWeight: '500',
-
                     color: showGodownStock ? '#1f2937' : '#6b7280'
 
                   }}>
@@ -15331,45 +12436,27 @@ function PlaceOrder() {
                     onClick={() => setShowGodownStock(!showGodownStock)}
 
                     style={{
-
                       width: '50px',
-
                       height: '24px',
-
                       borderRadius: '12px',
-
                       border: 'none',
-
                       background: showGodownStock ? '#3b82f6' : '#d1d5db',
-
                       position: 'relative',
-
                       cursor: 'pointer',
-
                       transition: 'all 0.2s ease'
-
                     }}
 
                   >
 
                     <div style={{
-
                       width: '20px',
-
                       height: '20px',
-
                       borderRadius: '50%',
-
                       background: 'white',
-
                       position: 'absolute',
-
                       top: '2px',
-
                       left: showGodownStock ? '28px' : '2px',
-
                       transition: 'all 0.2s ease',
-
                       boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)'
 
                     }} />
@@ -15377,11 +12464,8 @@ function PlaceOrder() {
                   </button>
 
                   <span style={{
-
                     fontSize: '14px',
-
                     fontWeight: '500',
-
                     color: !showGodownStock ? '#1f2937' : '#6b7280'
 
                   }}>
@@ -15394,22 +12478,14 @@ function PlaceOrder() {
 
               )}
 
-
-
               {/* Content */}
-
               {stockBreakdownLoading ? (
 
                 <div style={{
-
                   display: 'flex',
-
                   justifyContent: 'center',
-
                   alignItems: 'center',
-
                   padding: '40px',
-
                   color: '#6b7280'
 
                 }}>
@@ -15421,15 +12497,10 @@ function PlaceOrder() {
               ) : stockBreakdownError ? (
 
                 <div style={{
-
                   display: 'flex',
-
                   justifyContent: 'center',
-
                   alignItems: 'center',
-
                   padding: '40px',
-
                   color: '#ef4444'
 
                 }}>
@@ -15443,225 +12514,123 @@ function PlaceOrder() {
                 <div>
 
                   {/* Summary */}
-
                   <div style={{
-
                     backgroundColor: '#f8fafc',
-
                     padding: '16px',
-
                     borderRadius: '8px',
-
                     marginBottom: '20px'
 
                   }}>
 
                     <div style={{
-
                       display: 'flex',
-
                       justifyContent: 'center',
-
                       alignItems: 'center'
 
                     }}>
-
+                      
                       <span style={{
-
                         fontSize: '14px',
-
                         fontWeight: '500',
-
                         color: '#374151'
 
                       }}>
 
                         {(() => {
-
                           if (canShowGodownBrkup && canShowMulticoBrkup) {
-
                             return showGodownStock ? 'Total Godowns' : 'Total Companies';
-
                           } else if (canShowGodownBrkup) {
-
                             return 'Total Godowns';
-
                           } else if (canShowMulticoBrkup) {
-
                             return 'Total Companies';
-
                           }
-
                           return 'Total Items';
-
                         })()}: {stockBreakdownData.totalGodowns || stockBreakdownData.totalCompanies || 0}
-
                       </span>
-
                     </div>
-
                   </div>
 
-
-
                   {/* Stock List */}
-
                   <div style={{
-
                     maxHeight: '300px',
-
                     overflowY: 'auto',
-
                     border: '1px solid #e5e7eb',
-
                     borderRadius: '8px'
-
                   }}>
 
                     {(stockBreakdownData.godownStocks || stockBreakdownData.companyStocks || []).map((item, index) => {
 
                       // Check if this is the current company (for company-wise view)
-
                       const isCurrentCompany = !showGodownStock && company && item.GUID === company;
-
-
-
                       // Determine stock display value
-
                       const stockValue = item.CLOSINGSTOCK || 0;
-
                       const displayValue = canShowClosingStockYesNo ? (stockValue > 0 ? 'Yes' : 'No') : stockValue;
-
-
-
                       return (
-
                         <div
-
                           key={index}
-
                           style={{
-
                             display: 'flex',
-
                             justifyContent: 'space-between',
-
                             alignItems: 'center',
-
                             padding: '12px 16px',
-
                             borderBottom: index < (stockBreakdownData.godownStocks || stockBreakdownData.companyStocks || []).length - 1 ? '1px solid #f3f4f6' : 'none',
-
                             backgroundColor: index % 2 === 0 ? 'white' : '#f9fafb'
-
-                          }}
-
-                        >
+                          }}>
 
                           <span style={{
-
                             fontSize: '14px',
-
                             fontWeight: '500',
-
                             color: isCurrentCompany ? '#6b7280' : '#1f2937',
-
                             fontStyle: isCurrentCompany ? 'italic' : 'normal'
-
                           }}>
-
                             {item.NAME}
-
                           </span>
 
                           <span style={{
-
                             fontSize: '14px',
-
                             fontWeight: '600',
-
                             color: stockValue > 0 ? '#059669' : '#6b7280'
-
                           }}>
-
                             {displayValue}
-
                           </span>
-
                         </div>
-
                       );
-
                     })}
-
                   </div>
-
                 </div>
-
               ) : null}
 
-
-
               {/* Footer */}
-
               <div style={{
-
                 display: 'flex',
-
                 justifyContent: 'flex-end',
-
                 marginTop: '20px',
-
                 paddingTop: '16px',
-
                 borderTop: '1px solid #e5e7eb'
-
               }}>
 
                 <button
-
                   onClick={() => setShowStockModal(false)}
-
                   style={{
-
                     padding: '8px 16px',
-
                     backgroundColor: '#6b7280',
-
                     color: 'white',
-
                     border: 'none',
-
                     borderRadius: '6px',
-
                     cursor: 'pointer',
-
                     fontSize: '14px',
-
                     fontWeight: '500'
-
                   }}
-
                 >
-
                   Close
-
                 </button>
-
               </div>
-
             </div>
-
           </div>
-
         )
-
       }
-
     </div >
-
   );
-
 }
 
 export default PlaceOrder;

@@ -26,10 +26,9 @@ function SubscriptionManagement() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [subData, plansData, countData, paymentsData] = await Promise.allSettled([
+      const [subData, plansData, paymentsData] = await Promise.allSettled([
         checkSubscriptionStatus(),
         apiGet('/api/subscription/plans'),
-        apiGet('/api/subscription/user-count'),
         apiGet('/api/subscription/payments')
       ]);
 
@@ -44,9 +43,8 @@ function SubscriptionManagement() {
       }
       setPlans(finalPlans);
       
-      // Handle user count
-      const userCountData = countData.status === 'fulfilled' ? countData.value : null;
-      setUserCount(userCountData);
+      // Handle user count - API endpoint removed, set to null
+      setUserCount(null);
       
       // Handle payments
       const payments = paymentsData.status === 'fulfilled' ? (paymentsData.value?.payments || []) : [];

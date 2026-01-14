@@ -1,0 +1,184 @@
+.plan-card {
+  position: relative;
+  background: #fff;
+  border: 2px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.plan-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  border-color: #007bff;
+}
+
+.plan-card-selected {
+  border-color: #007bff;
+  background: #f0f8ff;
+  box-shadow: 0 4px 16px rgba(0, 123, 255, 0.2);
+}
+
+.plan-card-current {
+  border-color: #28a745;
+  background: #f0fff4;
+}
+
+.plan-card-badge {
+  position: absolute;
+  top: -12px;
+  right: 20px;
+  background: #28a745;
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.plan-card-popular {
+  position: absolute;
+  top: -12px;
+  left: 20px;
+  background: #ffc107;
+  color: #333;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.plan-card-header {
+  margin-bottom: 20px;
+}
+
+.plan-card-name {
+  margin: 0 0 8px 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #333;
+}
+
+.plan-card-description {
+  margin: 0;
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+}
+
+.plan-card-pricing {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e9ecef;
+}
+
+.plan-card-price {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.plan-card-currency {
+  font-size: 20px;
+  font-weight: 600;
+  color: #333;
+}
+
+.plan-card-amount {
+  font-size: 36px;
+  font-weight: 700;
+  color: #333;
+}
+
+.plan-card-period {
+  font-size: 16px;
+  color: #666;
+  margin-left: 4px;
+}
+
+.plan-card-savings {
+  font-size: 14px;
+  color: #28a745;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.plan-card-monthly-equivalent {
+  font-size: 12px;
+  color: #999;
+}
+
+.plan-card-details {
+  margin-bottom: 20px;
+}
+
+.plan-card-detail-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.plan-card-detail-item:last-child {
+  border-bottom: none;
+}
+
+.plan-card-detail-label {
+  font-size: 14px;
+  color: #666;
+}
+
+.plan-card-detail-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.plan-card-actions {
+  margin-top: 20px;
+}
+
+.plan-card-button {
+  width: 100%;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.plan-card-button-select {
+  background: #007bff;
+  color: #fff;
+}
+
+.plan-card-button-select:hover {
+  background: #0056b3;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
+}
+
+.plan-card-button-current {
+  background: #6c757d;
+  color: #fff;
+  cursor: not-allowed;
+}
+
+.plan-card-selected .plan-card-button-select {
+  background: #28a745;
+}
+
+.plan-card-selected .plan-card-button-select:hover {
+  background: #218838;
+}
+

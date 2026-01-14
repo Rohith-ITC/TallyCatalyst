@@ -1,0 +1,127 @@
+.usage-card {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.usage-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.usage-card-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #333;
+}
+
+.usage-card-stats {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.usage-current {
+  font-size: 24px;
+  font-weight: 700;
+  color: #333;
+}
+
+.usage-separator {
+  font-size: 20px;
+  color: #999;
+}
+
+.usage-limit {
+  font-size: 20px;
+  color: #666;
+}
+
+.usage-progress-container {
+  margin-bottom: 12px;
+}
+
+.usage-progress-bar {
+  width: 100%;
+  height: 8px;
+  background-color: #e9ecef;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.usage-progress-fill {
+  height: 100%;
+  transition: width 0.3s ease, background-color 0.3s ease;
+  border-radius: 4px;
+}
+
+.usage-progress-text {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #666;
+}
+
+.usage-remaining {
+  font-weight: 500;
+}
+
+.usage-percentage {
+  font-weight: 600;
+}
+
+.usage-details {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e9ecef;
+}
+
+.usage-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.usage-detail-label {
+  font-size: 12px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.usage-detail-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: #333;
+}
+
+.usage-warning {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background-color: #fff3cd;
+  color: #856404;
+  border-radius: 4px;
+  font-size: 13px;
+  border-left: 3px solid #ffc107;
+}
+
+.usage-critical {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background-color: #f8d7da;
+  color: #721c24;
+  border-radius: 4px;
+  font-size: 13px;
+  border-left: 3px solid #dc3545;
+}
+

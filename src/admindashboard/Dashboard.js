@@ -13,7 +13,24 @@ import ShareAccess from '../TallyDashboard/ShareAccess';
 import SubscriptionManagement from './SubscriptionManagement';
 import SubscriptionBadge from './components/SubscriptionBadge';
 import TrialReminderModal from './components/TrialReminderModal';
+import BankDetailsManagementPage from './BankDetailsManagementPage';
 import { AdminMobileMenu, useIsMobile } from './MobileViewConfig';
+// Import subscription module components
+import {
+  SubscriptionPlansPage,
+  CurrentSubscriptionPage,
+  PurchaseSubscriptionPage,
+  UpgradeDowngradePage,
+  BillingHistoryPage,
+  UsageDashboardPage,
+  PaymentValidationPage,
+  DiscountManagementPage,
+  SlabManagementPage,
+  PartnerManagementPage,
+  EmployeeManagementPage,
+  EmployeeDashboardPage,
+  PartnerDashboardPage
+} from '../subscription';
 
 // Ensure Material Icons are properly loaded and styled
 const materialIconsStyle = `
@@ -48,8 +65,55 @@ function AdminDashboard() {
   const name = sessionStorage.getItem('name');
   const email = sessionStorage.getItem('email');
   const token = sessionStorage.getItem('token');
+  // Normalize userType on initial load
+  const getNormalizedUserType = () => {
+    return (sessionStorage.getItem('user_type') || 'customer').trim().toLowerCase();
+  };
+  
+  const [userType, setUserType] = useState(getNormalizedUserType());
   const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState(searchParams.get('view') || 'dashboard');
+  
+  // Update userType from sessionStorage on mount and when it changes
+  useEffect(() => {
+    const storedUserType = getNormalizedUserType();
+    setUserType(storedUserType);
+    console.log('AdminDashboard - user_type from sessionStorage:', storedUserType);
+    console.log('AdminDashboard - canAccessAdminSubscription check:', storedUserType === 'superadmin');
+    console.log('AdminDashboard - userType state:', userType);
+  }, []);
+  
+  // Role-based access control helper functions
+  const canAccessUserSubscription = () => {
+    // User subscription pages accessible to superadmin and customer
+    const normalizedType = (userType || '').trim().toLowerCase();
+    return normalizedType === 'superadmin' || normalizedType === 'customer';
+  };
+  
+  const canAccessAdminSubscription = () => {
+    // Admin subscription pages only accessible to superadmin
+    const normalizedType = (userType || '').trim().toLowerCase();
+    const hasAccess = normalizedType === 'superadmin';
+    console.log('canAccessAdminSubscription called:', { 
+      userType, 
+      normalizedType, 
+      hasAccess,
+      sessionStorageValue: sessionStorage.getItem('user_type')
+    });
+    return hasAccess;
+  };
+  
+  const canAccessEmployeePortal = () => {
+    // Employee portal accessible to superadmin and employee
+    const normalizedType = (userType || '').trim().toLowerCase();
+    return normalizedType === 'superadmin' || normalizedType === 'employee';
+  };
+  
+  const canAccessPartnerPortal = () => {
+    // Partner portal accessible to superadmin and partner
+    const normalizedType = (userType || '').trim().toLowerCase();
+    return normalizedType === 'superadmin' || normalizedType === 'partner';
+  };
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 900);
   const profileRef = useRef();
   const navigate = useNavigate();
@@ -64,6 +128,12 @@ function AdminDashboard() {
   const controlPanelButtonRef = useRef(null);
   const controlPanelDropdownRef = useRef(null);
   const [profileDropdownPosition, setProfileDropdownPosition] = useState({ top: 0, left: 0 });
+  const [subscriptionDropdownOpen, setSubscriptionDropdownOpen] = useState(false);
+  const [subscriptionDropdownPosition, setSubscriptionDropdownPosition] = useState({ top: 0, left: 0 });
+  const subscriptionButtonRef = useRef(null);
+  const [subscriptionAdminDropdownOpen, setSubscriptionAdminDropdownOpen] = useState(false);
+  const [subscriptionAdminDropdownPosition, setSubscriptionAdminDropdownPosition] = useState({ top: 0, left: 0 });
+  const subscriptionAdminButtonRef = useRef(null);
   let sidebarTooltipTimeout = null;
   
   // Mobile menu state
@@ -959,6 +1029,646 @@ function AdminDashboard() {
               </div>
             )}
           </div>
+
+          {/* Subscription Menu with Dropdown - Only show for superadmin and admin */}
+          {canAccessUserSubscription() && (
+            <div style={{ position: 'relative' }} ref={subscriptionButtonRef}>
+              <a
+                ref={subscriptionButtonRef}
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setSubscriptionDropdownOpen(!subscriptionDropdownOpen);
+                }}
+                style={{
+                  color: (subscriptionDropdownOpen || ['subscription_plans', 'current_subscription', 'purchase_subscription', 'upgrade_downgrade', 'billing_history', 'usage_dashboard'].includes(view)) ? '#ff9800' : '#fff',
+                  background: (subscriptionDropdownOpen || ['subscription_plans', 'current_subscription', 'purchase_subscription', 'upgrade_downgrade', 'billing_history', 'usage_dashboard'].includes(view)) ? 'rgba(255,152,0,0.08)' : 'transparent',
+                  textDecoration: 'none',
+                  padding: '10px 18px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  borderRadius: '8px',
+                  fontWeight: (subscriptionDropdownOpen || ['subscription_plans', 'current_subscription', 'purchase_subscription', 'upgrade_downgrade', 'billing_history', 'usage_dashboard'].includes(view)) ? 700 : 500,
+                  margin: '0 8px',
+                  border: (subscriptionDropdownOpen || ['subscription_plans', 'current_subscription', 'purchase_subscription', 'upgrade_downgrade', 'billing_history', 'usage_dashboard'].includes(view)) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                  cursor: 'pointer',
+                  justifyContent: sidebarOpen ? 'flex-start' : 'center',
+                  position: 'relative',
+                }}
+                title="Subscription"
+                onMouseEnter={e => {
+                  if (sidebarOpen) {
+                    setSubscriptionDropdownOpen(true);
+                    if (subscriptionButtonRef.current) {
+                      const rect = subscriptionButtonRef.current.getBoundingClientRect();
+                      setSubscriptionDropdownPosition({
+                        top: rect.top,
+                        left: rect.left + rect.width,
+                        width: rect.width
+                      });
+                    }
+                  }
+                  if (!sidebarOpen) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setSidebarTooltip({ show: true, text: 'Subscription', top: rect.top + window.scrollY });
+                    if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                    sidebarTooltipTimeout = setTimeout(() => {
+                      setSidebarTooltip({ show: false, text: '', top: 0 });
+                    }, 1500);
+                  }
+                }}
+                onMouseLeave={() => {
+                  if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                  setSidebarTooltip({ show: false, text: '', top: 0 });
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: 22 }}>subscriptions</span>
+                {sidebarOpen && (
+                  <>
+                    <span className="sidebar-link-label">Subscription</span>
+                    <span className="material-icons" style={{ 
+                      fontSize: 18, 
+                      marginLeft: 'auto',
+                      color: (subscriptionDropdownOpen || ['subscription_plans', 'current_subscription', 'purchase_subscription', 'upgrade_downgrade', 'billing_history', 'usage_dashboard'].includes(view)) ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
+                      transition: 'transform 0.2s',
+                      transform: subscriptionDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    }}>arrow_drop_down</span>
+                  </>
+                )}
+              </a>
+            
+            {/* Subscription Dropdown Menu */}
+            {sidebarOpen && subscriptionDropdownOpen && canAccessUserSubscription() && (
+              <div style={{
+                position: 'fixed',
+                top: `${subscriptionDropdownPosition.top}px`,
+                left: `${subscriptionDropdownPosition.left + 8}px`,
+                backgroundColor: '#1e3a8a',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '12px',
+                padding: '8px 0',
+                minWidth: '220px',
+                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
+                zIndex: 10000,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+              }}
+              onMouseEnter={() => {
+                setSubscriptionDropdownOpen(true);
+                if (subscriptionButtonRef.current) {
+                  const rect = subscriptionButtonRef.current.getBoundingClientRect();
+                  setSubscriptionDropdownPosition({
+                    top: rect.top,
+                    left: rect.left + rect.width,
+                    width: rect.width
+                  });
+                }
+              }}
+              onMouseLeave={() => setSubscriptionDropdownOpen(false)}
+              >
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('subscription_plans');
+                    setSubscriptionDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'subscription_plans' ? '#ff9800' : '#fff',
+                    background: view === 'subscription_plans' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'subscription_plans' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>card_membership</span>
+                  <span>Subscription Plans</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('current_subscription');
+                    setSubscriptionDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'current_subscription' ? '#ff9800' : '#fff',
+                    background: view === 'current_subscription' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'current_subscription' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>account_circle</span>
+                  <span>My Subscription</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('purchase_subscription');
+                    setSubscriptionDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'purchase_subscription' ? '#ff9800' : '#fff',
+                    background: view === 'purchase_subscription' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'purchase_subscription' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>shopping_cart</span>
+                  <span>Purchase Subscription</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('upgrade_downgrade');
+                    setSubscriptionDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'upgrade_downgrade' ? '#ff9800' : '#fff',
+                    background: view === 'upgrade_downgrade' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'upgrade_downgrade' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>trending_up</span>
+                  <span>Upgrade/Downgrade</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('billing_history');
+                    setSubscriptionDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'billing_history' ? '#ff9800' : '#fff',
+                    background: view === 'billing_history' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'billing_history' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>receipt</span>
+                  <span>Billing History</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('usage_dashboard');
+                    setSubscriptionDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'usage_dashboard' ? '#ff9800' : '#fff',
+                    background: view === 'usage_dashboard' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'usage_dashboard' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>dashboard</span>
+                  <span>Usage Dashboard</span>
+                </button>
+              </div>
+            )}
+            </div>
+          )}
+
+          {/* Subscription Admin Menu with Dropdown - Only show for superadmin */}
+          {(() => {
+            const hasAccess = canAccessAdminSubscription();
+            if (!hasAccess) {
+              console.log('Subscription Admin menu NOT rendered. userType:', userType, 'sessionStorage:', sessionStorage.getItem('user_type'));
+            } else {
+              console.log('Subscription Admin menu WILL be rendered. userType:', userType);
+            }
+            return hasAccess;
+          })() && (
+            <div style={{ position: 'relative' }} ref={subscriptionAdminButtonRef}>
+              <a
+                ref={subscriptionAdminButtonRef}
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setSubscriptionAdminDropdownOpen(!subscriptionAdminDropdownOpen);
+                }}
+                style={{
+                  color: (subscriptionAdminDropdownOpen || ['payment_validation', 'discount_management', 'slab_management', 'partner_management', 'employee_management', 'bank_details'].includes(view)) ? '#ff9800' : '#fff',
+                  background: (subscriptionAdminDropdownOpen || ['payment_validation', 'discount_management', 'slab_management', 'partner_management', 'employee_management', 'bank_details'].includes(view)) ? 'rgba(255,152,0,0.08)' : 'transparent',
+                  textDecoration: 'none',
+                  padding: '10px 18px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  borderRadius: '8px',
+                  fontWeight: (subscriptionAdminDropdownOpen || ['payment_validation', 'discount_management', 'slab_management', 'partner_management', 'employee_management', 'bank_details'].includes(view)) ? 700 : 500,
+                  margin: '0 8px',
+                  border: (subscriptionAdminDropdownOpen || ['payment_validation', 'discount_management', 'slab_management', 'partner_management', 'employee_management', 'bank_details'].includes(view)) ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                  cursor: 'pointer',
+                  justifyContent: sidebarOpen ? 'flex-start' : 'center',
+                  position: 'relative',
+                }}
+                title="Subscription Admin"
+                onMouseEnter={e => {
+                  if (sidebarOpen) {
+                    setSubscriptionAdminDropdownOpen(true);
+                    if (subscriptionAdminButtonRef.current) {
+                      const rect = subscriptionAdminButtonRef.current.getBoundingClientRect();
+                      setSubscriptionAdminDropdownPosition({
+                        top: rect.top,
+                        left: rect.left + rect.width,
+                        width: rect.width
+                      });
+                    }
+                  }
+                  if (!sidebarOpen) {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setSidebarTooltip({ show: true, text: 'Subscription Admin', top: rect.top + window.scrollY });
+                    if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                    sidebarTooltipTimeout = setTimeout(() => {
+                      setSidebarTooltip({ show: false, text: '', top: 0 });
+                    }, 1500);
+                  }
+                }}
+                onMouseLeave={() => {
+                  if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                  setSidebarTooltip({ show: false, text: '', top: 0 });
+                }}
+              >
+                <span className="material-icons" style={{ fontSize: 22 }}>admin_panel_settings</span>
+                {sidebarOpen && (
+                  <>
+                    <span className="sidebar-link-label">Subscription Admin</span>
+                    <span className="material-icons" style={{ 
+                      fontSize: 18, 
+                      marginLeft: 'auto',
+                      color: (subscriptionAdminDropdownOpen || ['payment_validation', 'discount_management', 'slab_management', 'partner_management', 'employee_management', 'bank_details'].includes(view)) ? '#ff9800' : 'rgba(255, 255, 255, 0.7)',
+                      transition: 'transform 0.2s',
+                      transform: subscriptionAdminDropdownOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    }}>arrow_drop_down</span>
+                  </>
+                )}
+              </a>
+              
+              {/* Subscription Admin Dropdown Menu */}
+              {sidebarOpen && subscriptionAdminDropdownOpen && (
+              <div style={{
+                position: 'fixed',
+                top: `${subscriptionAdminDropdownPosition.top}px`,
+                left: `${subscriptionAdminDropdownPosition.left + 8}px`,
+                backgroundColor: '#1e3a8a',
+                border: '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '12px',
+                padding: '8px 0',
+                minWidth: '220px',
+                boxShadow: '0 10px 25px rgba(0, 0, 0, 0.3)',
+                zIndex: 10000,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+              }}
+              onMouseEnter={() => {
+                setSubscriptionAdminDropdownOpen(true);
+                if (subscriptionAdminButtonRef.current) {
+                  const rect = subscriptionAdminButtonRef.current.getBoundingClientRect();
+                  setSubscriptionAdminDropdownPosition({
+                    top: rect.top,
+                    left: rect.left + rect.width,
+                    width: rect.width
+                  });
+                }
+              }}
+              onMouseLeave={() => setSubscriptionAdminDropdownOpen(false)}
+              >
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('payment_validation');
+                    setSubscriptionAdminDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'payment_validation' ? '#ff9800' : '#fff',
+                    background: view === 'payment_validation' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'payment_validation' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>verified</span>
+                  <span>Payment Validation</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('discount_management');
+                    setSubscriptionAdminDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'discount_management' ? '#ff9800' : '#fff',
+                    background: view === 'discount_management' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'discount_management' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>local_offer</span>
+                  <span>Discount Management</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('slab_management');
+                    setSubscriptionAdminDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'slab_management' ? '#ff9800' : '#fff',
+                    background: view === 'slab_management' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'slab_management' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>layers</span>
+                  <span>Slab Management</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('partner_management');
+                    setSubscriptionAdminDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'partner_management' ? '#ff9800' : '#fff',
+                    background: view === 'partner_management' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'partner_management' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>handshake</span>
+                  <span>Partner Management</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('employee_management');
+                    setSubscriptionAdminDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'employee_management' ? '#ff9800' : '#fff',
+                    background: view === 'employee_management' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'employee_management' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>work</span>
+                  <span>Employee Management</span>
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleViewChange('bank_details');
+                    setSubscriptionAdminDropdownOpen(false);
+                  }}
+                  style={{
+                    color: view === 'bank_details' ? '#ff9800' : '#fff',
+                    background: view === 'bank_details' ? 'rgba(255, 152, 0, 0.15)' : 'transparent',
+                    padding: '12px 18px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    borderRadius: '8px',
+                    fontWeight: view === 'bank_details' ? 700 : 500,
+                    margin: '0 8px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    justifyContent: 'flex-start',
+                    fontSize: '14px',
+                    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                    textAlign: 'left',
+                  }}
+                >
+                  <span className="material-icons" style={{ fontSize: 20, flexShrink: 0 }}>account_balance</span>
+                  <span>Bank Details</span>
+                </button>
+              </div>
+            )}
+          </div>
+          )}
+
+          {/* Employee Portal Menu Item - Only show for superadmin and employee */}
+          {canAccessEmployeePortal() && (
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                handleViewChange('employee_portal');
+              }}
+              style={{
+                color: view === 'employee_portal' ? '#ff9800' : '#fff',
+                background: view === 'employee_portal' ? 'rgba(255,152,0,0.08)' : 'transparent',
+                textDecoration: 'none',
+                padding: '10px 18px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                borderRadius: '8px',
+                fontWeight: view === 'employee_portal' ? 700 : 500,
+                margin: '0 8px',
+                border: view === 'employee_portal' ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                cursor: 'pointer',
+                justifyContent: sidebarOpen ? 'flex-start' : 'center',
+                position: 'relative',
+              }}
+              title="Employee Portal"
+              onMouseEnter={e => {
+                if (!sidebarOpen) {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setSidebarTooltip({ show: true, text: 'Employee Portal', top: rect.top + window.scrollY });
+                  if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                  sidebarTooltipTimeout = setTimeout(() => {
+                    setSidebarTooltip({ show: false, text: '', top: 0 });
+                  }, 1500);
+                }
+              }}
+              onMouseLeave={() => {
+                if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                setSidebarTooltip({ show: false, text: '', top: 0 });
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: 22 }}>work</span>
+              {sidebarOpen && <span className="sidebar-link-label">Employee Portal</span>}
+            </a>
+          )}
+
+          {/* Partner Portal Menu Item - Only show for superadmin and partner */}
+          {canAccessPartnerPortal() && (
+            <a
+              href="#"
+              onClick={(e) => {
+                e.preventDefault();
+                handleViewChange('partner_portal');
+              }}
+              style={{
+                color: view === 'partner_portal' ? '#ff9800' : '#fff',
+                background: view === 'partner_portal' ? 'rgba(255,152,0,0.08)' : 'transparent',
+                textDecoration: 'none',
+                padding: '10px 18px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                borderRadius: '8px',
+                fontWeight: view === 'partner_portal' ? 700 : 500,
+                margin: '0 8px',
+                border: view === 'partner_portal' ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid transparent',
+                cursor: 'pointer',
+                justifyContent: sidebarOpen ? 'flex-start' : 'center',
+                position: 'relative',
+              }}
+              title="Partner Portal"
+              onMouseEnter={e => {
+                if (!sidebarOpen) {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  setSidebarTooltip({ show: true, text: 'Partner Portal', top: rect.top + window.scrollY });
+                  if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                  sidebarTooltipTimeout = setTimeout(() => {
+                    setSidebarTooltip({ show: false, text: '', top: 0 });
+                  }, 1500);
+                }
+              }}
+              onMouseLeave={() => {
+                if (sidebarTooltipTimeout) clearTimeout(sidebarTooltipTimeout);
+                setSidebarTooltip({ show: false, text: '', top: 0 });
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: 22 }}>handshake</span>
+              {sidebarOpen && <span className="sidebar-link-label">Partner Portal</span>}
+            </a>
+          )}
         </nav>
 
         {/* Subscription Badge Section */}
@@ -1700,6 +2410,39 @@ function AdminDashboard() {
           <ShareAccess />
         ) : view === 'subscription' ? (
           <SubscriptionManagement />
+        ) : view === 'subscription_plans' && canAccessUserSubscription() ? (
+          <SubscriptionPlansPage />
+        ) : view === 'current_subscription' && canAccessUserSubscription() ? (
+          <CurrentSubscriptionPage />
+        ) : view === 'purchase_subscription' && canAccessUserSubscription() ? (
+          <PurchaseSubscriptionPage />
+        ) : view === 'upgrade_downgrade' && canAccessUserSubscription() ? (
+          <UpgradeDowngradePage />
+        ) : view === 'billing_history' && canAccessUserSubscription() ? (
+          <BillingHistoryPage />
+        ) : view === 'usage_dashboard' && canAccessUserSubscription() ? (
+          <UsageDashboardPage />
+        ) : view === 'payment_validation' && canAccessAdminSubscription() ? (
+          <PaymentValidationPage />
+        ) : view === 'discount_management' && canAccessAdminSubscription() ? (
+          <DiscountManagementPage />
+        ) : view === 'slab_management' && canAccessAdminSubscription() ? (
+          <SlabManagementPage />
+        ) : view === 'partner_management' && canAccessAdminSubscription() ? (
+          <PartnerManagementPage />
+        ) : view === 'employee_management' && canAccessAdminSubscription() ? (
+          <EmployeeManagementPage />
+        ) : view === 'bank_details' && canAccessAdminSubscription() ? (
+          <BankDetailsManagementPage />
+        ) : view === 'employee_portal' && canAccessEmployeePortal() ? (
+          <EmployeeDashboardPage />
+        ) : view === 'partner_portal' && canAccessPartnerPortal() ? (
+          <PartnerDashboardPage />
+        ) : (['subscription_plans', 'current_subscription', 'purchase_subscription', 'upgrade_downgrade', 'billing_history', 'usage_dashboard', 'payment_validation', 'discount_management', 'slab_management', 'partner_management', 'employee_management', 'bank_details', 'employee_portal', 'partner_portal'].includes(view)) ? (
+          <div style={{ padding: '40px', textAlign: 'center' }}>
+            <h2 style={{ color: '#dc3545', marginBottom: '16px' }}>Access Denied</h2>
+            <p style={{ color: '#666' }}>You don't have permission to access this page.</p>
+          </div>
         ) : null}
       </main>
 

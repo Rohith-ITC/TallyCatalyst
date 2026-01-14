@@ -603,13 +603,9 @@ function CreateAccess() {
   useEffect(() => {
     const fetchSubscriptionInfo = async () => {
       try {
-        const [subResult, countResult] = await Promise.allSettled([
-          checkSubscriptionStatus(),
-          apiGet('/api/subscription/user-count')
-        ]);
-        
-        const subData = subResult.status === 'fulfilled' ? subResult.value : null;
-        const countData = countResult.status === 'fulfilled' ? countResult.value : null;
+        const subData = await checkSubscriptionStatus();
+        // API endpoint /api/subscription/user-count does not exist in backend
+        const countData = null;
         
         // Set subscription info (checkSubscriptionStatus returns the subscription object directly)
         if (subData) {
@@ -964,12 +960,10 @@ function CreateAccess() {
           
           // Refresh subscription info to update user count badge
           try {
-            const [subData, countData] = await Promise.all([
-              checkSubscriptionStatus(),
-              apiGet('/api/subscription/user-count')
-            ]);
+            const subData = await checkSubscriptionStatus();
             setSubscriptionInfo(subData);
-            setUserCountInfo(countData);
+            // API endpoint /api/subscription/user-count does not exist in backend
+            setUserCountInfo(null);
           } catch (error) {
             console.error('Error refreshing subscription info:', error);
           }
@@ -8576,12 +8570,10 @@ function CreateAccess() {
         onSuccess={async () => {
           // Refresh subscription info
           try {
-            const [subData, countData] = await Promise.all([
-              checkSubscriptionStatus(),
-              apiGet('/api/subscription/user-count')
-            ]);
+            const subData = await checkSubscriptionStatus();
             setSubscriptionInfo(subData);
-            setUserCountInfo(countData);
+            // API endpoint /api/subscription/user-count does not exist in backend
+            setUserCountInfo(null);
           } catch (error) {
             console.error('Error refreshing subscription info:', error);
           }

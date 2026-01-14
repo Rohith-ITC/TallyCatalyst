@@ -75,14 +75,11 @@ export const API_CONFIG = {
     TALLY_LEDGER_CHECK: '/api/tally/ledger-check',
 
     // Subscription endpoints
-    SUBSCRIPTION_STATUS: '/api/subscription/status',
     SUBSCRIPTION_PLANS: '/api/subscription/plans',
-    SUBSCRIPTION_USER_COUNT: '/api/subscription/user-count',
     SUBSCRIPTION_CREATE_ORDER: '/api/subscription/create-order',
     SUBSCRIPTION_VERIFY_PAYMENT: '/api/subscription/verify-payment',
     SUBSCRIPTION_UPDATE: '/api/subscription/update',
     SUBSCRIPTION_PAYMENTS: '/api/subscription/payments',
-    SUBSCRIPTION_TRIAL_STATUS: '/api/subscription/trial-status',
     SUBSCRIPTION_DISMISS_REMINDER: '/api/subscription/dismiss-reminder',
     
     // Custom Card endpoints
@@ -94,6 +91,16 @@ export const API_CONFIG = {
     // Dashboard default period endpoints
     DASHBOARD_DEFAULT_PERIOD_SAVE: '/api/dashboard/default-period',
     DASHBOARD_DEFAULT_PERIOD_GET: '/api/dashboard/default-period',
+    
+    // Gupshup/WhatsApp endpoints
+    GUPSHUP_FETCH_MESSAGES: '/api/gupshup/messages',
+    GUPSHUP_SEND_MESSAGE: '/api/gupshup/send',
+    GUPSHUP_TEST_CONNECTION: '/api/gupshup/test',
+    
+    // Meta WhatsApp Business API endpoints
+    META_WHATSAPP_FETCH_MESSAGES: '/api/meta-whatsapp/messages',
+    META_WHATSAPP_SEND_MESSAGE: '/api/meta-whatsapp/send',
+    META_WHATSAPP_TEST_CONNECTION: '/api/meta-whatsapp/test',
   }
 };
 
@@ -190,5 +197,47 @@ if (isDevelopment) {
     }
   } else {
     console.log('✅ Google Drive is fully configured! Upload buttons should be enabled.');
+  }
+}
+
+// Meta WhatsApp Configuration
+// All credentials must be set via environment variables
+export const META_WHATSAPP_CONFIG = {
+  APP_ID: (process.env.REACT_APP_META_APP_ID || '').trim(),
+  API_VERSION: (process.env.REACT_APP_META_API_VERSION || 'v18.0').trim()
+};
+
+// Check if Meta WhatsApp credentials are available
+export const isMetaWhatsAppConfigured = () => {
+  const hasAppId = !!META_WHATSAPP_CONFIG.APP_ID && META_WHATSAPP_CONFIG.APP_ID.length > 0;
+
+  return {
+    configured: hasAppId,
+    hasAppId,
+    missing: hasAppId ? [] : ['REACT_APP_META_APP_ID']
+  };
+};
+
+// Log Meta WhatsApp configuration status in development
+if (isDevelopment) {
+  const metaConfigStatus = isMetaWhatsAppConfigured();
+  const rawAppId = process.env.REACT_APP_META_APP_ID;
+
+  console.log('🔍 Meta WhatsApp Configuration Status:', {
+    configured: metaConfigStatus.configured,
+    hasAppId: metaConfigStatus.hasAppId,
+    appId: metaConfigStatus.hasAppId ? `${META_WHATSAPP_CONFIG.APP_ID.substring(0, 20)}...` : 'MISSING',
+    apiVersion: META_WHATSAPP_CONFIG.API_VERSION,
+    rawEnvAppId: rawAppId ? `${rawAppId.substring(0, 20)}...` : 'NOT IN ENV'
+  });
+
+  if (!metaConfigStatus.configured) {
+    console.warn('⚠️ Meta WhatsApp is not fully configured. Facebook login features will be disabled.');
+    console.warn('   💡 Make sure:');
+    console.warn('      1. REACT_APP_META_APP_ID is in your .env file in the project root');
+    console.warn('      2. REACT_APP_META_API_VERSION is set (default: v18.0)');
+    console.warn('      3. You have RESTARTED the dev server after adding it');
+  } else {
+    console.log('✅ Meta WhatsApp is configured! Facebook login should work.');
   }
 } 

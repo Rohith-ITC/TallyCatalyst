@@ -4,54 +4,22 @@ import { apiGet, apiPost } from './apiUtils';
 /**
  * Get current subscription status
  * @returns {Promise<Object>} Subscription status object
+ * Note: API endpoint removed - returns null as backend doesn't support this endpoint
  */
 export const checkSubscriptionStatus = async () => {
-  try {
-    const data = await apiGet('/api/subscription/status');
-    return data?.subscription || null;
-  } catch (error) {
-    console.error('Error fetching subscription status:', error);
-    return null;
-  }
+  // API endpoint /api/subscription/status does not exist in backend
+  return null;
 };
 
 /**
  * Check if user can create more users
  * @returns {Promise<Object>} Object with canCreate and details
+ * Note: API endpoints removed - returns allow creation as backend doesn't support these endpoints
  */
 export const checkUserLimit = async () => {
-  try {
-    const [subscription, userCount] = await Promise.all([
-      apiGet('/api/subscription/status'),
-      apiGet('/api/subscription/user-count')
-    ]);
-
-    if (!subscription?.subscription || !userCount) {
-      return { canCreate: true, reason: 'Unable to verify subscription' };
-    }
-
-    const { total_user_limit } = subscription.subscription;
-    const { count } = userCount;
-
-    if (count >= total_user_limit) {
-      return {
-        canCreate: false,
-        reason: 'User limit reached',
-        currentUsers: count,
-        maxUsers: total_user_limit
-      };
-    }
-
-    return {
-      canCreate: true,
-      currentUsers: count,
-      maxUsers: total_user_limit
-    };
-  } catch (error) {
-    console.error('Error checking user limit:', error);
-    // Graceful degradation - allow creation if check fails
-    return { canCreate: true, reason: 'Check failed, allowing creation' };
-  }
+  // API endpoints /api/subscription/status and /api/subscription/user-count do not exist in backend
+  // Graceful degradation - allow creation if check fails
+  return { canCreate: true, reason: 'API endpoints not available, allowing creation' };
 };
 
 /**
@@ -123,15 +91,11 @@ export const calculateTotalAmount = (plan, billingCycle, addOnUsers = 0) => {
 /**
  * Get trial status from API
  * @returns {Promise<Object>} Trial status object
+ * Note: API endpoint removed - returns null as backend doesn't support this endpoint
  */
 export const getTrialStatus = async () => {
-  try {
-    const data = await apiGet('/api/subscription/trial-status');
-    return data || null;
-  } catch (error) {
-    console.error('Error fetching trial status:', error);
-    return null;
-  }
+  // API endpoint /api/subscription/trial-status does not exist in backend
+  return null;
 };
 
 /**

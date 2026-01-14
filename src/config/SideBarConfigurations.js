@@ -262,6 +262,14 @@ export const MODULE_SEQUENCE = [
       icon              : 'email',
       alwaysVisible     : true,
       permissions       : {}
+    },
+    {
+      key               : 'whatsapp',
+      id                : 'whatsapp',
+      label             : 'WhatsApp',
+      icon              : 'chat',
+      alwaysVisible     : true,
+      permissions       : {}
     }
     
   ];
