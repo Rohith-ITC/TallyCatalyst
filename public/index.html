@@ -231,33 +231,44 @@
         if (!localStorage.getItem(STORAGE_KEY)) {
           localStorage.setItem(STORAGE_KEY, APP_VERSION);
         }
-        return;
-      }
-      
-      // Run checks on page load (non-blocking)
-      // Use requestIdleCallback if available for better performance
-      if (window.requestIdleCallback) {
-        requestIdleCallback(checkVersion, { timeout: 2000 });
-        requestIdleCallback(() => setTimeout(checkMaterialIcons, 1000), { timeout: 3000 });
+        // Skip version check and material icons check if reloads are disabled
       } else {
-        // Fallback for browsers without requestIdleCallback
-        setTimeout(checkVersion, 0);
-        setTimeout(checkMaterialIcons, 1000);
+        // Run checks on page load (non-blocking)
+        // Use requestIdleCallback if available for better performance
+        if (window.requestIdleCallback) {
+          requestIdleCallback(checkVersion, { timeout: 2000 });
+          requestIdleCallback(() => setTimeout(checkMaterialIcons, 1000), { timeout: 3000 });
+        } else {
+          // Fallback for browsers without requestIdleCallback
+          setTimeout(checkVersion, 0);
+          setTimeout(checkMaterialIcons, 1000);
+        }
       }
     </script>
     
     <!-- Facebook SDK for JavaScript -->
     <script>
       window.fbAsyncInit = function() {
-        FB.init({
-          appId      : '%REACT_APP_META_APP_ID%',
-          cookie     : true,
-          xfbml      : true,
-          version    : '%REACT_APP_META_API_VERSION%'
-        });
+        // Get app ID and version, with fallbacks
+        const appId = '%REACT_APP_META_APP_ID%';
+        const apiVersion = '%REACT_APP_META_API_VERSION%';
+        
+        // Only initialize if appId is provided and not a placeholder
+        if (appId && appId !== '%REACT_APP_META_APP_ID%' && appId.trim() !== '') {
+          // Use default version if placeholder wasn't replaced
+          const version = (apiVersion && apiVersion !== '%REACT_APP_META_API_VERSION%') 
+            ? apiVersion 
+            : 'v18.0';
           
-        FB.AppEvents.logPageView();   
-          
+          FB.init({
+            appId      : appId,
+            cookie     : true,
+            xfbml      : true,
+            version    : version
+          });
+            
+          FB.AppEvents.logPageView();
+        }
       };
 
       (function(d, s, id){

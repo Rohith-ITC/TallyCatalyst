@@ -221,6 +221,29 @@ const CustomReports = () => {
     
     // Handle nested field paths
     if (fieldName.includes('.')) {
+      // If we have expanded array entry and field belongs to that array, get from array entry
+      if (item.__arrayEntry && item.__arrayFieldName) {
+        const pathParts = fieldName.split('.');
+        const fieldArrayName = pathParts[0].toLowerCase();
+        
+        // If this field belongs to the expanded array
+        if (item.__arrayFieldName === fieldArrayName) {
+          const remainingPath = pathParts.slice(1).join('.');
+          let value = getNestedFieldValue(item.__arrayEntry, remainingPath);
+          
+          // Also try direct access
+          if (!value || value === null || value === undefined) {
+            const fieldNameDirect = remainingPath.split('.')[0];
+            value = item.__arrayEntry[fieldNameDirect] || 
+                    item.__arrayEntry[fieldNameDirect.toLowerCase()] ||
+                    item.__arrayEntry[fieldNameDirect.toUpperCase()];
+          }
+          
+          if (value !== null && value !== undefined) return value;
+        }
+      }
+      
+      // Try from item first
       const value = getNestedFieldValue(item, fieldName);
       if (value !== null && value !== undefined) return value;
       
@@ -353,10 +376,102 @@ const CustomReports = () => {
         ? 'number' : undefined
     }));
     
-    // Filter and process data
-    let filteredData = [...salesData];
+    // Check if we need to expand data (either for fields or filters)
+    const nestedArrayFields = report.fields.filter(field => field.includes('.'));
+    const nestedArrayFilters = report.filters ? report.filters.filter(f => f.field && f.field.includes('.')) : [];
+    let needsExpansion = false;
+    let arrayFieldName = null;
     
-    // Apply filters
+    // Check if any selected field or filter is a nested array field
+    const allNestedFields = [...nestedArrayFields, ...nestedArrayFilters.map(f => f.field)];
+    
+    if (allNestedFields.length > 0) {
+      // Find the first nested array field to use for expansion
+      const firstNestedField = allNestedFields[0];
+      const pathParts = firstNestedField.split('.');
+      const fieldName = pathParts[0].toLowerCase();
+      
+      const knownArrayFields = ['ledgerentries', 'allledgerentries', 'allinventoryentries', 
+                                'inventoryentries', 'billallocations', 'batchallocation', 
+                                'accountingallocation', 'address'];
+      
+      if (knownArrayFields.includes(fieldName)) {
+        needsExpansion = true;
+        arrayFieldName = fieldName;
+      }
+    }
+    
+    // Expand data BEFORE filtering if we have nested array fields/filters
+    let dataToProcess = [...salesData];
+    if (needsExpansion && arrayFieldName) {
+      const newExpandedData = [];
+      
+      // Group sales by voucher (masterid) to avoid duplicate expansion
+      const salesByVoucher = new Map();
+      salesData.forEach(sale => {
+        const masterid = sale.masterid || sale.mstid || 'unknown';
+        if (!salesByVoucher.has(masterid)) {
+          salesByVoucher.set(masterid, []);
+        }
+        salesByVoucher.get(masterid).push(sale);
+      });
+      
+      // Expand each voucher's sales
+      salesByVoucher.forEach((sales, masterid) => {
+        // Get the original voucher
+        let voucher = null;
+        if (masterid !== 'unknown' && window.__voucherLookupMap) {
+          voucher = window.__voucherLookupMap.get(String(masterid));
+        }
+        
+        // If no voucher, use first sale as reference
+        if (!voucher && sales.length > 0) {
+          voucher = sales[0];
+        }
+        
+        if (!voucher) {
+          // No voucher found, keep original sales
+          newExpandedData.push(...sales);
+          return;
+        }
+        
+        // Get the array from voucher (try different case variations)
+        const arrayKey = Object.keys(voucher).find(k => k.toLowerCase() === arrayFieldName);
+        const arrayValue = arrayKey ? voucher[arrayKey] : [];
+        
+        if (Array.isArray(arrayValue) && arrayValue.length > 0) {
+          // Create one expanded record per array entry
+          arrayValue.forEach((arrayEntry) => {
+            // For each sale record under this voucher, create expanded version
+            sales.forEach(sale => {
+              const expandedRecord = {
+                ...sale,
+                __arrayEntry: arrayEntry,
+                __arrayFieldName: arrayFieldName
+              };
+              newExpandedData.push(expandedRecord);
+            });
+          });
+        } else {
+          // No array entries or empty array, keep original sales
+          newExpandedData.push(...sales);
+        }
+      });
+      
+      dataToProcess = newExpandedData;
+      
+      console.log('📊 Expanded data for custom report (before filtering):', {
+        originalCount: salesData.length,
+        expandedCount: dataToProcess.length,
+        arrayFieldName: arrayFieldName,
+        expansionFactor: dataToProcess.length > 0 ? (dataToProcess.length / salesData.length).toFixed(2) : '0'
+      });
+    }
+    
+    // Filter and process data
+    let filteredData = [...dataToProcess];
+    
+    // Apply filters (now works on expanded data)
     if (report.filters && report.filters.length > 0) {
       report.filters.forEach(filter => {
         filteredData = filteredData.filter(item => {
@@ -367,11 +482,37 @@ const CustomReports = () => {
       });
     }
     
-    // Build rows with only selected fields
+    // Build rows with only selected fields (use filteredData which is already expanded if needed)
     const rows = filteredData.map(item => {
       const row = {};
       report.fields.forEach(fieldValue => {
-        row[fieldValue] = getFieldValue(item, fieldValue);
+        // If field is nested array field and we have expanded array entry, get from array entry
+        if (fieldValue.includes('.') && item.__arrayEntry) {
+          const pathParts = fieldValue.split('.');
+          const fieldArrayName = pathParts[0].toLowerCase();
+          
+          // If this field belongs to the expanded array
+          if (item.__arrayFieldName === fieldArrayName) {
+            const remainingPath = pathParts.slice(1).join('.');
+            let fieldValueFromEntry = getNestedFieldValue(item.__arrayEntry, remainingPath);
+            
+            // Also try direct access
+            if (!fieldValueFromEntry || fieldValueFromEntry === null || fieldValueFromEntry === undefined) {
+              const fieldName = remainingPath.split('.')[0];
+              fieldValueFromEntry = item.__arrayEntry[fieldName] || 
+                                     item.__arrayEntry[fieldName.toLowerCase()] ||
+                                     item.__arrayEntry[fieldName.toUpperCase()];
+            }
+            
+            row[fieldValue] = fieldValueFromEntry;
+          } else {
+            // Different array field, get from voucher
+            row[fieldValue] = getFieldValue(item, fieldValue);
+          }
+        } else {
+          // Regular field access
+          row[fieldValue] = getFieldValue(item, fieldValue);
+        }
       });
       return row;
     });
@@ -494,34 +635,62 @@ const CustomReports = () => {
   };
 
   return (
-    <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
+    <div style={{ 
+      padding: '20px', 
+      maxWidth: '1200px', 
+      margin: '0 auto',
+      background: '#f8fafc',
+      minHeight: '100vh'
+    }}>
       <div style={{
         background: 'white',
-        borderRadius: '12px',
-        padding: '24px',
-        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)'
+        borderRadius: '16px',
+        padding: '32px',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)'
       }}>
         <div style={{
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: '24px'
+          marginBottom: '32px',
+          flexWrap: 'wrap',
+          gap: '16px'
         }}>
-          <h2 style={{
-            fontSize: '24px',
-            fontWeight: '700',
-            color: '#1e293b',
-            margin: 0,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}>
-            <span className="material-icons" style={{ fontSize: '28px', color: '#3b82f6' }}>summarize</span>
-            Custom Reports
-          </h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div style={{
+              width: '48px',
+              height: '48px',
+              borderRadius: '12px',
+              background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 8px rgba(59, 130, 246, 0.3)'
+            }}>
+              <span className="material-icons" style={{ fontSize: '28px', color: 'white' }}>summarize</span>
+            </div>
+            <div>
+              <h2 style={{
+                fontSize: '28px',
+                fontWeight: '700',
+                color: '#1e293b',
+                margin: 0,
+                lineHeight: '1.2'
+              }}>
+                Custom Reports
+              </h2>
+              <p style={{
+                fontSize: '14px',
+                color: '#64748b',
+                margin: '4px 0 0 0'
+              }}>
+                {reports.length} {reports.length === 1 ? 'report' : 'reports'} available
+              </p>
+            </div>
+          </div>
           
           {reports.length > 0 && (
-            <div style={{ position: 'relative', width: '300px' }}>
+            <div style={{ position: 'relative', width: '100%', maxWidth: '400px' }}>
               <input
                 type="text"
                 value={reportSearch}
@@ -529,20 +698,33 @@ const CustomReports = () => {
                 placeholder="Search reports..."
                 style={{
                   width: '100%',
-                  padding: '10px 40px 10px 14px',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
+                  padding: '12px 16px 12px 44px',
+                  border: '2px solid #e2e8f0',
+                  borderRadius: '10px',
                   fontSize: '14px',
-                  outline: 'none'
+                  outline: 'none',
+                  transition: 'all 0.2s ease',
+                  background: '#f8fafc'
+                }}
+                onFocus={(e) => {
+                  e.currentTarget.style.borderColor = '#3b82f6';
+                  e.currentTarget.style.background = 'white';
+                  e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                }}
+                onBlur={(e) => {
+                  e.currentTarget.style.borderColor = '#e2e8f0';
+                  e.currentTarget.style.background = '#f8fafc';
+                  e.currentTarget.style.boxShadow = 'none';
                 }}
               />
               <span className="material-icons" style={{
                 position: 'absolute',
-                right: '12px',
+                left: '14px',
                 top: '50%',
                 transform: 'translateY(-50%)',
                 color: '#94a3b8',
-                pointerEvents: 'none'
+                pointerEvents: 'none',
+                fontSize: '20px'
               }}>search</span>
             </div>
           )}
@@ -551,35 +733,67 @@ const CustomReports = () => {
         {reports.length === 0 ? (
           <div style={{
             textAlign: 'center',
-            padding: '60px 20px',
+            padding: '80px 20px',
             color: '#64748b'
           }}>
-            <span className="material-icons" style={{ fontSize: '64px', color: '#cbd5e1', marginBottom: '16px', display: 'block' }}>
-              summarize
-            </span>
-            <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#475569', marginBottom: '8px' }}>
+            <div style={{
+              width: '120px',
+              height: '120px',
+              borderRadius: '50%',
+              background: 'linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 24px'
+            }}>
+              <span className="material-icons" style={{ fontSize: '64px', color: '#cbd5e1' }}>
+                summarize
+              </span>
+            </div>
+            <h3 style={{ 
+              fontSize: '22px', 
+              fontWeight: '600', 
+              color: '#1e293b', 
+              marginBottom: '8px' 
+            }}>
               No Custom Reports
             </h3>
-            <p style={{ fontSize: '14px', color: '#94a3b8' }}>
-              Create your first custom report from the Sales Dashboard
+            <p style={{ fontSize: '15px', color: '#64748b', maxWidth: '400px', margin: '0 auto' }}>
+              Create your first custom report from the Sales Dashboard to view and analyze your data
             </p>
           </div>
         ) : filteredReports.length === 0 ? (
           <div style={{
             textAlign: 'center',
-            padding: '40px 20px',
+            padding: '60px 20px',
             color: '#64748b'
           }}>
-            <span className="material-icons" style={{ fontSize: '48px', color: '#cbd5e1', marginBottom: '12px', display: 'block' }}>
-              search_off
-            </span>
-            <p style={{ fontSize: '14px' }}>No reports found matching your search</p>
+            <div style={{
+              width: '80px',
+              height: '80px',
+              borderRadius: '50%',
+              background: '#f1f5f9',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 20px'
+            }}>
+              <span className="material-icons" style={{ fontSize: '40px', color: '#cbd5e1' }}>
+                search_off
+              </span>
+            </div>
+            <h3 style={{ fontSize: '18px', fontWeight: '600', color: '#1e293b', marginBottom: '8px' }}>
+              No reports found
+            </h3>
+            <p style={{ fontSize: '14px', color: '#64748b' }}>
+              Try adjusting your search terms
+            </p>
           </div>
         ) : (
           <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '12px'
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
+            gap: '20px'
           }}>
             {filteredReports.map((report) => (
               <div
@@ -587,88 +801,154 @@ const CustomReports = () => {
                 onClick={() => handleOpenReport(report)}
                 style={{
                   background: 'white',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '8px',
-                  padding: '16px 20px',
+                  border: '2px solid #e2e8f0',
+                  borderRadius: '16px',
+                  padding: '24px',
                   cursor: 'pointer',
-                  transition: 'all 0.2s ease',
+                  transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '10px',
+                  gap: '16px',
                   position: 'relative',
-                  boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)'
+                  boxShadow: '0 2px 4px rgba(0, 0, 0, 0.04)',
+                  overflow: 'hidden'
                 }}
                 onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#f8fafc';
-                  e.currentTarget.style.borderColor = '#cbd5e1';
-                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.08)';
+                  e.currentTarget.style.background = 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)';
+                  e.currentTarget.style.borderColor = '#3b82f6';
+                  e.currentTarget.style.boxShadow = '0 8px 24px rgba(59, 130, 246, 0.15)';
+                  e.currentTarget.style.transform = 'translateY(-4px)';
                 }}
                 onMouseLeave={(e) => {
                   e.currentTarget.style.background = 'white';
                   e.currentTarget.style.borderColor = '#e2e8f0';
-                  e.currentTarget.style.boxShadow = '0 1px 2px rgba(0, 0, 0, 0.05)';
+                  e.currentTarget.style.boxShadow = '0 2px 4px rgba(0, 0, 0, 0.04)';
+                  e.currentTarget.style.transform = 'translateY(0)';
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <span className="material-icons" style={{ fontSize: '24px', color: '#3b82f6' }}>description</span>
-                  <h3 style={{
-                    fontSize: '16px',
-                    fontWeight: '600',
-                    color: '#1e293b',
-                    margin: 0,
-                    flex: 1
+                {/* Decorative accent line */}
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: '4px',
+                  background: 'linear-gradient(90deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%)'
+                }} />
+                
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0
                   }}>
-                    {report.title}
-                  </h3>
+                    <span className="material-icons" style={{ fontSize: '28px', color: '#2563eb' }}>description</span>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 style={{
+                      fontSize: '18px',
+                      fontWeight: '600',
+                      color: '#1e293b',
+                      margin: 0,
+                      marginBottom: '8px',
+                      lineHeight: '1.3',
+                      wordBreak: 'break-word'
+                    }}>
+                      {report.title}
+                    </h3>
+                    <div style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: '12px',
+                      alignItems: 'center'
+                    }}>
+                      <div style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '4px 10px',
+                        background: '#f1f5f9',
+                        borderRadius: '6px',
+                        fontSize: '13px',
+                        color: '#475569'
+                      }}>
+                        <span className="material-icons" style={{ fontSize: '16px', color: '#64748b' }}>table_chart</span>
+                        <strong>{report.fields.length}</strong> fields
+                      </div>
+                      {report.filters && report.filters.length > 0 && (
+                        <div style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '6px',
+                          padding: '4px 10px',
+                          background: '#fef3c7',
+                          borderRadius: '6px',
+                          fontSize: '13px',
+                          color: '#92400e'
+                        }}>
+                          <span className="material-icons" style={{ fontSize: '16px', color: '#f59e0b' }}>filter_list</span>
+                          <strong>{report.filters.length}</strong> filter{report.filters.length !== 1 ? 's' : ''}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                   <button
                     onClick={(e) => handleDeleteReport(report.id, e)}
                     style={{
                       background: 'transparent',
                       border: 'none',
                       cursor: 'pointer',
-                      padding: '6px',
-                      borderRadius: '4px',
+                      padding: '8px',
+                      borderRadius: '8px',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       color: '#ef4444',
                       transition: 'all 0.2s ease',
-                      flexShrink: 0
+                      flexShrink: 0,
+                      width: '36px',
+                      height: '36px'
                     }}
                     onMouseEnter={(e) => {
                       e.stopPropagation();
-                      e.currentTarget.style.background = '#fef2f2';
+                      e.currentTarget.style.background = '#fee2e2';
+                      e.currentTarget.style.transform = 'scale(1.1)';
                     }}
                     onMouseLeave={(e) => {
                       e.stopPropagation();
                       e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.transform = 'scale(1)';
                     }}
                     title="Delete report"
                   >
-                    <span className="material-icons" style={{ fontSize: '20px' }}>delete</span>
+                    <span className="material-icons" style={{ fontSize: '22px' }}>delete_outline</span>
                   </button>
                 </div>
+                
                 <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  paddingTop: '12px',
+                  borderTop: '1px solid #f1f5f9',
                   fontSize: '13px',
-                  color: '#64748b',
-                  marginLeft: '36px'
+                  color: '#64748b'
                 }}>
-                  <strong>{report.fields.length}</strong> fields
-                  {report.filters && report.filters.length > 0 && (
-                    <span style={{ marginLeft: '12px' }}>
-                      • <strong>{report.filters.length}</strong> filter{report.filters.length !== 1 ? 's' : ''}
-                    </span>
-                  )}
-                </div>
-                <div style={{
-                  fontSize: '12px',
-                  color: '#94a3b8',
-                  marginTop: '8px',
-                  paddingTop: '8px',
-                  borderTop: '1px solid #e2e8f0',
-                  marginLeft: '36px'
-                }}>
-                  Created: {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                  <span className="material-icons" style={{ fontSize: '16px', color: '#94a3b8' }}>schedule</span>
+                  <span>
+                    Created: <strong style={{ color: '#475569' }}>
+                      {new Date(report.createdAt).toLocaleDateString('en-GB', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric'
+                      })}
+                    </strong>
+                  </span>
                 </div>
               </div>
             ))}
@@ -685,7 +965,8 @@ const CustomReports = () => {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'rgba(0, 0, 0, 0.5)',
+            background: 'rgba(15, 23, 42, 0.6)',
+            backdropFilter: 'blur(4px)',
             zIndex: 15000,
             display: 'flex',
             alignItems: 'center',
@@ -701,8 +982,8 @@ const CustomReports = () => {
           <div
             style={{
               background: 'white',
-              borderRadius: '16px',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1)',
+              borderRadius: '20px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
               width: '95%',
               maxWidth: '1400px',
               maxHeight: '90vh',
@@ -714,51 +995,172 @@ const CustomReports = () => {
           >
             {/* Modal Header */}
             <div style={{
-              padding: '20px 24px',
-              borderBottom: '1px solid #e2e8f0',
+              padding: '24px 28px',
+              borderBottom: '2px solid #e2e8f0',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              flexShrink: 0
+              flexShrink: 0,
+              background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'
             }}>
-              <h2 style={{
-                fontSize: '20px',
-                fontWeight: '700',
-                color: '#1e293b',
-                margin: 0
-              }}>
-                {selectedReport.title}
-              </h2>
-              <button
-                onClick={() => setShowReportModal(false)}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '4px',
-                  borderRadius: '4px',
-                  color: '#64748b'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#f1f5f9';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: '24px' }}>close</span>
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '10px',
+                  background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 8px rgba(59, 130, 246, 0.3)'
+                }}>
+                  <span className="material-icons" style={{ fontSize: '24px', color: 'white' }}>description</span>
+                </div>
+                <div>
+                  <h2 style={{
+                    fontSize: '22px',
+                    fontWeight: '700',
+                    color: '#1e293b',
+                    margin: 0,
+                    lineHeight: '1.2'
+                  }}>
+                    {selectedReport.title}
+                  </h2>
+                  {selectedReport.filters && selectedReport.filters.length > 0 && (
+                    <div style={{
+                      fontSize: '13px',
+                      color: '#64748b',
+                      marginTop: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}>
+                      <span className="material-icons" style={{ fontSize: '16px' }}>filter_list</span>
+                      {selectedReport.filters.length} active filter{selectedReport.filters.length !== 1 ? 's' : ''}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button
+                  onClick={() => {
+                    // Export to CSV
+                    const csvContent = [
+                      reportData.columns.map(col => col.label).join(','),
+                      ...filteredReportRows.map(row =>
+                        reportData.columns.map(col => {
+                          const value = row[col.key] ?? '';
+                          // Escape quotes and wrap in quotes if contains comma
+                          const stringValue = String(value);
+                          if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+                            return `"${stringValue.replace(/"/g, '""')}"`;
+                          }
+                          return stringValue;
+                        }).join(',')
+                      )
+                    ].join('\n');
+                    
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement('a');
+                    const url = URL.createObjectURL(blob);
+                    link.setAttribute('href', url);
+                    link.setAttribute('download', `${selectedReport.title.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().split('T')[0]}.csv`);
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                  }}
+                  style={{
+                    background: 'white',
+                    border: '2px solid #e2e8f0',
+                    borderRadius: '8px',
+                    padding: '8px 16px',
+                    cursor: 'pointer',
+                    color: '#475569',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f8fafc';
+                    e.currentTarget.style.borderColor = '#3b82f6';
+                    e.currentTarget.style.color = '#3b82f6';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'white';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                    e.currentTarget.style.color = '#475569';
+                  }}
+                  title="Download Excel"
+                >
+                  <span className="material-icons" style={{ fontSize: '18px' }}>download</span>
+                  Download Excel
+                </button>
+                <button
+                  onClick={() => setShowReportModal(false)}
+                  style={{
+                    background: 'transparent',
+                    border: '2px solid #e2e8f0',
+                    cursor: 'pointer',
+                    padding: '8px',
+                    borderRadius: '8px',
+                    color: '#64748b',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '36px',
+                    height: '36px',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#fee2e2';
+                    e.currentTarget.style.borderColor = '#ef4444';
+                    e.currentTarget.style.color = '#ef4444';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.borderColor = '#e2e8f0';
+                    e.currentTarget.style.color = '#64748b';
+                  }}
+                  title="Close"
+                >
+                  <span className="material-icons" style={{ fontSize: '22px' }}>close</span>
+                </button>
+              </div>
             </div>
 
             {/* Modal Content */}
             <div style={{
               flex: 1,
               overflow: 'auto',
-              padding: '20px 24px'
+              padding: '20px 24px',
+              display: 'flex',
+              flexDirection: 'column'
             }}>
               {/* Search and Filters */}
-              <div style={{ marginBottom: '16px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-                <div style={{ position: 'relative', flex: 1, maxWidth: '400px' }}>
+              <div style={{ 
+                marginBottom: '20px', 
+                display: 'flex', 
+                gap: '16px', 
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                position: 'sticky',
+                top: 0,
+                background: 'white',
+                zIndex: 10,
+                paddingTop: '0px',
+                paddingBottom: '20px',
+                borderBottom: '2px solid #f1f5f9'
+              }}>
+                <div style={{ 
+                  position: 'relative', 
+                  flex: 1, 
+                  minWidth: '280px',
+                  maxWidth: '450px'
+                }}>
                   <input
                     type="text"
                     value={reportSearch}
@@ -766,55 +1168,107 @@ const CustomReports = () => {
                       setReportSearch(e.target.value);
                       setReportPage(1);
                     }}
-                    placeholder="Search data..."
+                    placeholder="Search across all columns..."
                     style={{
                       width: '100%',
-                      padding: '10px 40px 10px 14px',
-                      border: '1px solid #e2e8f0',
-                      borderRadius: '8px',
+                      padding: '12px 16px 12px 44px',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '10px',
                       fontSize: '14px',
-                      outline: 'none'
+                      outline: 'none',
+                      background: '#f8fafc',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor = '#3b82f6';
+                      e.currentTarget.style.background = 'white';
+                      e.currentTarget.style.boxShadow = '0 0 0 3px rgba(59, 130, 246, 0.1)';
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor = '#e2e8f0';
+                      e.currentTarget.style.background = '#f8fafc';
+                      e.currentTarget.style.boxShadow = 'none';
                     }}
                   />
                   <span className="material-icons" style={{
                     position: 'absolute',
-                    right: '12px',
+                    left: '14px',
                     top: '50%',
                     transform: 'translateY(-50%)',
                     color: '#94a3b8',
-                    pointerEvents: 'none'
+                    pointerEvents: 'none',
+                    fontSize: '20px'
                   }}>search</span>
-                </div>
-                <div style={{ fontSize: '14px', color: '#64748b' }}>
-                  {totalRows} row{totalRows !== 1 ? 's' : ''}
+                  {reportSearch && (
+                    <button
+                      onClick={() => {
+                        setReportSearch('');
+                        setReportPage(1);
+                      }}
+                      style={{
+                        position: 'absolute',
+                        right: '10px',
+                        top: '50%',
+                        transform: 'translateY(-50%)',
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '4px',
+                        borderRadius: '4px',
+                        color: '#94a3b8',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = '#f1f5f9';
+                        e.currentTarget.style.color = '#64748b';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = '#94a3b8';
+                      }}
+                      title="Clear search"
+                    >
+                      <span className="material-icons" style={{ fontSize: '18px' }}>close</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
               {/* Table */}
               <div style={{
                 overflowX: 'auto',
-                border: '1px solid #e2e8f0',
-                borderRadius: '8px'
+                border: '2px solid #e2e8f0',
+                borderRadius: '12px',
+                background: 'white',
+                boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)'
               }}>
                 <table style={{
                   width: '100%',
                   borderCollapse: 'collapse',
-                  fontSize: '13px'
+                  fontSize: '14px'
                 }}>
                   <thead>
-                    <tr style={{ background: '#f8fafc' }}>
+                    <tr style={{ background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)' }}>
                       {reportData.columns.map((column) => (
                         <th
                           key={column.key}
                           style={{
-                            padding: '12px 16px',
+                            padding: '14px 18px',
                             textAlign: 'left',
                             fontWeight: '600',
                             color: '#1e293b',
                             borderBottom: '2px solid #e2e8f0',
                             whiteSpace: 'nowrap',
                             cursor: 'pointer',
-                            userSelect: 'none'
+                            userSelect: 'none',
+                            transition: 'all 0.2s ease',
+                            position: 'sticky',
+                            top: '0px',
+                            background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                            zIndex: 4
                           }}
                           onClick={() => {
                             if (reportSortBy === column.key) {
@@ -824,13 +1278,31 @@ const CustomReports = () => {
                               setReportSortOrder('asc');
                             }
                           }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = '#e2e8f0';
+                            e.currentTarget.style.color = '#3b82f6';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)';
+                            e.currentTarget.style.color = '#1e293b';
+                          }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            {column.label}
-                            {reportSortBy === column.key && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span>{column.label}</span>
+                            {reportSortBy === column.key ? (
                               <span className="material-icons" style={{
-                                fontSize: '16px',
-                                transform: reportSortOrder === 'desc' ? 'rotate(180deg)' : 'none'
+                                fontSize: '18px',
+                                color: '#3b82f6',
+                                transform: reportSortOrder === 'desc' ? 'rotate(180deg)' : 'none',
+                                transition: 'transform 0.2s ease'
+                              }}>
+                                arrow_upward
+                              </span>
+                            ) : (
+                              <span className="material-icons" style={{
+                                fontSize: '18px',
+                                color: '#cbd5e1',
+                                opacity: 0
                               }}>
                                 arrow_upward
                               </span>
@@ -846,12 +1318,43 @@ const CustomReports = () => {
                         <td
                           colSpan={reportData.columns.length}
                           style={{
-                            padding: '40px',
+                            padding: '60px 40px',
                             textAlign: 'center',
-                            color: '#94a3b8'
+                            color: '#64748b'
                           }}
                         >
-                          No data available
+                          <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '12px'
+                          }}>
+                            <span className="material-icons" style={{ 
+                              fontSize: '48px', 
+                              color: '#cbd5e1' 
+                            }}>
+                              {reportSearch ? 'search_off' : 'inbox'}
+                            </span>
+                            <div>
+                              <p style={{ 
+                                fontSize: '16px', 
+                                fontWeight: '500', 
+                                color: '#475569',
+                                margin: '0 0 4px 0'
+                              }}>
+                                {reportSearch ? 'No matching results' : 'No data available'}
+                              </p>
+                              {reportSearch && (
+                                <p style={{ 
+                                  fontSize: '14px', 
+                                  color: '#94a3b8',
+                                  margin: 0
+                                }}>
+                                  Try adjusting your search terms
+                                </p>
+                              )}
+                            </div>
+                          </div>
                         </td>
                       </tr>
                     ) : (
@@ -860,21 +1363,26 @@ const CustomReports = () => {
                           key={rowIndex}
                           style={{
                             borderBottom: '1px solid #f1f5f9',
-                            transition: 'background 0.15s'
+                            transition: 'all 0.15s ease',
+                            background: rowIndex % 2 === 0 ? 'white' : '#fafbfc'
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.background = '#f8fafc';
+                            e.currentTarget.style.background = '#eff6ff';
+                            e.currentTarget.style.boxShadow = 'inset 4px 0 0 0 #3b82f6';
                           }}
                           onMouseLeave={(e) => {
-                            e.currentTarget.style.background = 'white';
+                            e.currentTarget.style.background = rowIndex % 2 === 0 ? 'white' : '#fafbfc';
+                            e.currentTarget.style.boxShadow = 'none';
                           }}
                         >
                           {reportData.columns.map((column) => (
                             <td
                               key={column.key}
                               style={{
-                                padding: '12px 16px',
-                                color: '#1e293b'
+                                padding: '14px 18px',
+                                color: '#1e293b',
+                                fontSize: '14px',
+                                lineHeight: '1.5'
                               }}
                             >
                               {formatCellValue(row[column.key], column)}
@@ -893,12 +1401,25 @@ const CustomReports = () => {
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  marginTop: '16px',
-                  paddingTop: '16px',
-                  borderTop: '1px solid #e2e8f0'
+                  marginTop: '24px',
+                  paddingTop: '20px',
+                  borderTop: '2px solid #e2e8f0',
+                  flexWrap: 'wrap',
+                  gap: '12px'
                 }}>
-                  <div style={{ fontSize: '13px', color: '#64748b' }}>
-                    Showing {reportStart} to {reportEnd} of {totalRows} rows
+                  <div style={{ 
+                    fontSize: '14px', 
+                    color: '#475569',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}>
+                    <span className="material-icons" style={{ fontSize: '18px', color: '#94a3b8' }}>info</span>
+                    <span>
+                      Showing <strong style={{ color: '#1e293b' }}>{reportStart.toLocaleString()}</strong> to{' '}
+                      <strong style={{ color: '#1e293b' }}>{reportEnd.toLocaleString()}</strong> of{' '}
+                      <strong style={{ color: '#1e293b' }}>{totalRows.toLocaleString()}</strong> rows
+                    </span>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <button
@@ -909,53 +1430,87 @@ const CustomReports = () => {
                       }}
                       disabled={reportPage === 1}
                       style={{
-                        padding: '6px 12px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '6px',
+                        padding: '8px 14px',
+                        border: '2px solid #e2e8f0',
+                        borderRadius: '8px',
                         background: reportPage === 1 ? '#f8fafc' : 'white',
-                        color: reportPage === 1 ? '#cbd5e1' : '#64748b',
+                        color: reportPage === 1 ? '#cbd5e1' : '#475569',
                         cursor: reportPage === 1 ? 'not-allowed' : 'pointer',
-                        fontSize: '13px'
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s ease'
                       }}
-                    >
-                      Previous
-                    </button>
-                    <input
-                      type="number"
-                      value={reportPageInput}
-                      onChange={(e) => setReportPageInput(e.target.value)}
-                      onBlur={() => {
-                        const page = parseInt(reportPageInput, 10);
-                        if (!isNaN(page) && page >= 1 && page <= Math.ceil(totalRows / reportPageSize)) {
-                          setReportPage(page);
-                        } else {
-                          setReportPageInput(String(reportPage));
+                      onMouseEnter={(e) => {
+                        if (reportPage !== 1) {
+                          e.currentTarget.style.borderColor = '#3b82f6';
+                          e.currentTarget.style.color = '#3b82f6';
+                          e.currentTarget.style.background = '#eff6ff';
                         }
                       }}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
+                      onMouseLeave={(e) => {
+                        if (reportPage !== 1) {
+                          e.currentTarget.style.borderColor = '#e2e8f0';
+                          e.currentTarget.style.color = '#475569';
+                          e.currentTarget.style.background = 'white';
+                        }
+                      }}
+                    >
+                      <span className="material-icons" style={{ fontSize: '18px' }}>chevron_left</span>
+                      Previous
+                    </button>
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '0 12px',
+                      background: '#f8fafc',
+                      borderRadius: '8px',
+                      border: '2px solid #e2e8f0'
+                    }}>
+                      <span style={{ fontSize: '13px', color: '#64748b' }}>Page</span>
+                      <input
+                        type="number"
+                        value={reportPageInput}
+                        onChange={(e) => setReportPageInput(e.target.value)}
+                        onBlur={() => {
                           const page = parseInt(reportPageInput, 10);
                           if (!isNaN(page) && page >= 1 && page <= Math.ceil(totalRows / reportPageSize)) {
                             setReportPage(page);
                           } else {
                             setReportPageInput(String(reportPage));
                           }
-                        }
-                      }}
-                      style={{
-                        width: '60px',
-                        padding: '6px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '6px',
-                        textAlign: 'center',
-                        fontSize: '13px'
-                      }}
-                      min="1"
-                      max={Math.ceil(totalRows / reportPageSize)}
-                    />
-                    <span style={{ fontSize: '13px', color: '#64748b' }}>
-                      of {Math.ceil(totalRows / reportPageSize)}
-                    </span>
+                        }}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') {
+                            const page = parseInt(reportPageInput, 10);
+                            if (!isNaN(page) && page >= 1 && page <= Math.ceil(totalRows / reportPageSize)) {
+                              setReportPage(page);
+                            } else {
+                              setReportPageInput(String(reportPage));
+                            }
+                          }
+                        }}
+                        style={{
+                          width: '50px',
+                          padding: '4px 8px',
+                          border: 'none',
+                          background: 'transparent',
+                          textAlign: 'center',
+                          fontSize: '14px',
+                          fontWeight: '600',
+                          color: '#1e293b',
+                          outline: 'none'
+                        }}
+                        min="1"
+                        max={Math.ceil(totalRows / reportPageSize)}
+                      />
+                      <span style={{ fontSize: '13px', color: '#64748b' }}>
+                        of {Math.ceil(totalRows / reportPageSize)}
+                      </span>
+                    </div>
                     <button
                       onClick={() => {
                         const maxPage = Math.ceil(totalRows / reportPageSize);
@@ -965,16 +1520,36 @@ const CustomReports = () => {
                       }}
                       disabled={reportPage >= Math.ceil(totalRows / reportPageSize)}
                       style={{
-                        padding: '6px 12px',
-                        border: '1px solid #e2e8f0',
-                        borderRadius: '6px',
+                        padding: '8px 14px',
+                        border: '2px solid #e2e8f0',
+                        borderRadius: '8px',
                         background: reportPage >= Math.ceil(totalRows / reportPageSize) ? '#f8fafc' : 'white',
-                        color: reportPage >= Math.ceil(totalRows / reportPageSize) ? '#cbd5e1' : '#64748b',
+                        color: reportPage >= Math.ceil(totalRows / reportPageSize) ? '#cbd5e1' : '#475569',
                         cursor: reportPage >= Math.ceil(totalRows / reportPageSize) ? 'not-allowed' : 'pointer',
-                        fontSize: '13px'
+                        fontSize: '14px',
+                        fontWeight: '500',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        transition: 'all 0.2s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (reportPage < Math.ceil(totalRows / reportPageSize)) {
+                          e.currentTarget.style.borderColor = '#3b82f6';
+                          e.currentTarget.style.color = '#3b82f6';
+                          e.currentTarget.style.background = '#eff6ff';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (reportPage < Math.ceil(totalRows / reportPageSize)) {
+                          e.currentTarget.style.borderColor = '#e2e8f0';
+                          e.currentTarget.style.color = '#475569';
+                          e.currentTarget.style.background = 'white';
+                        }
                       }}
                     >
                       Next
+                      <span className="material-icons" style={{ fontSize: '18px' }}>chevron_right</span>
                     </button>
                   </div>
                 </div>
