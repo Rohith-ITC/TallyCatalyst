@@ -248,25 +248,40 @@
     
     <!-- Facebook SDK for JavaScript -->
     <script>
-      window.fbAsyncInit = function() {
-        FB.init({
-          appId      : '%REACT_APP_META_APP_ID%',
-          cookie     : true,
-          xfbml      : true,
-          version    : '%REACT_APP_META_API_VERSION%'
-        });
-          
-        FB.AppEvents.logPageView();   
-          
-      };
+      // Set default values for Facebook SDK configuration
+      // These will be overridden by environment variables if available
+      var FB_APP_ID = '%REACT_APP_META_APP_ID%';
+      var FB_API_VERSION = '%REACT_APP_META_API_VERSION%' || 'v18.0';
+      
+      // Validate and set default version if placeholder is not replaced
+      if (!FB_API_VERSION || FB_API_VERSION === '%REACT_APP_META_API_VERSION%' || FB_API_VERSION.includes('%')) {
+        FB_API_VERSION = 'v18.0';
+      }
+      
+      // Only initialize Facebook SDK if appId is provided and not a placeholder
+      if (FB_APP_ID && FB_APP_ID !== '%REACT_APP_META_APP_ID%' && !FB_APP_ID.includes('%')) {
+        window.fbAsyncInit = function() {
+          FB.init({
+            appId      : FB_APP_ID,
+            cookie     : true,
+            xfbml      : true,
+            version    : FB_API_VERSION
+          });
+            
+          FB.AppEvents.logPageView();   
+        };
 
-      (function(d, s, id){
-         var js, fjs = d.getElementsByTagName(s)[0];
-         if (d.getElementById(id)) {return;}
-         js = d.createElement(s); js.id = id;
-         js.src = "https://connect.facebook.net/en_US/sdk.js";
-         fjs.parentNode.insertBefore(js, fjs);
-       }(document, 'script', 'facebook-jssdk'));
+        (function(d, s, id){
+           var js, fjs = d.getElementsByTagName(s)[0];
+           if (d.getElementById(id)) {return;}
+           js = d.createElement(s); js.id = id;
+           js.src = "https://connect.facebook.net/en_US/sdk.js";
+           fjs.parentNode.insertBefore(js, fjs);
+         }(document, 'script', 'facebook-jssdk'));
+      } else {
+        // Facebook SDK not initialized - appId not configured
+        console.log('Facebook SDK not initialized: REACT_APP_META_APP_ID not set');
+      }
     </script>
   </body>
 </html>

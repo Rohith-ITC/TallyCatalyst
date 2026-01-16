@@ -10603,24 +10603,16 @@ function PlaceOrder() {
 
           )}
 
-        </div>
-        {/* End of Left Content Area */}
-        {/* Right Sidebar */}
-        <div style={{
-          flex: isMobile || isTablet || isSmallDesktop ? '1 1 100%' : isMedium ? '0 0 360px' : '0 0 380px',
-          width: isMobile || isTablet || isSmallDesktop ? '100%' : isMedium ? '360px' : '380px',
-          maxWidth: '100%',
-          position: isMobile || isTablet || isSmallDesktop ? 'relative' : 'sticky',
-          top: isMobile || isTablet || isSmallDesktop ? 'auto' : '0',
-          alignSelf: 'stretch',
-          height: isMobile || isTablet || isSmallDesktop ? 'auto' : '100%',
-          overflowY: isMobile || isTablet || isSmallDesktop ? 'visible' : 'auto',
-          padding: isMobile ? '0 0 16px 0' : isTablet ? '0 0 20px 0' : isSmallDesktop ? '0 0 20px 0' : '0 0 24px 0',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: isMobile ? '16px' : '20px',
-          boxSizing: 'border-box'
-        }}>
+          {/* Transaction Summary and Information - Shown below form when Gmail viewer is open */}
+          {showGmailViewer && !isMobile && !isTablet && !isSmallDesktop && (
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: isMobile ? '16px' : '20px',
+              boxSizing: 'border-box',
+              width: '100%',
+              maxWidth: '100%'
+            }}>
           {/* Transaction Summary */}
           <div style={{
             background: '#fff',
@@ -11306,7 +11298,714 @@ function PlaceOrder() {
               </div>
             </div>
           </div>
+            </div>
+          )}
+
         </div>
+        {/* End of Left Content Area */}
+        {/* Right Sidebar - Hidden when Gmail viewer is open */}
+        {!showGmailViewer && (
+        <div style={{
+            flex: isMobile || isTablet || isSmallDesktop ? '1 1 100%' : isMedium ? '0 0 360px' : '0 0 380px',
+            width: isMobile || isTablet || isSmallDesktop ? '100%' : isMedium ? '360px' : '380px',
+            maxWidth: '100%',
+            position: isMobile || isTablet || isSmallDesktop ? 'relative' : 'sticky',
+            top: isMobile || isTablet || isSmallDesktop ? 'auto' : '0',
+            alignSelf: 'stretch',
+            height: isMobile || isTablet || isSmallDesktop ? 'auto' : '100%',
+            overflowY: isMobile || isTablet || isSmallDesktop ? 'visible' : 'auto',
+            padding: isMobile ? '0 0 16px 0' : isTablet ? '0 0 20px 0' : isSmallDesktop ? '0 0 20px 0' : '0 0 24px 0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: isMobile ? '16px' : '20px',
+            boxSizing: 'border-box'
+          }}>
+          {/* Transaction Summary - In Right Sidebar when Gmail viewer is closed */}
+          <div style={{
+            background: '#fff',
+            borderRadius: '0.75rem',
+            border: '1px solid #e2e8f0',
+            padding: isMobile ? '16px' : isTablet ? '20px' : isSmallDesktop ? '20px' : '24px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+            transition: 'all 0.2s ease',
+            maxWidth: '100%',
+            boxSizing: 'border-box'
+          }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
+            }}>
+            <h3 style={{
+              margin: '0 0 16px 0',
+              fontSize: isMobile ? '16px' : '18px',
+              fontWeight: '600',
+              color: '#1f2937'
+            }}>
+              Transaction Summary
+            </h3>
+            {(() => {
+              const totals = calculateTotals();
+              const subtotal = totals.totalAmount;
+              // Get current company and customer for state comparison
+              const currentCompany = filteredCompanies.find(c => c.guid === company);
+              const selectedCustomerObj = customerOptions.find(c => c.NAME === selectedCustomer);
+              // Company state from user-connections API response (statename field, lowercase)
+              const companyState = currentCompany?.statename || currentCompany?.STATENAME || currentCompany?.state || '';
+              // Customer state from customer options (STATENAME field, uppercase)
+              const customerState = selectedCustomerObj?.STATENAME || editableState || '';
+              const isSameState = companyState && customerState && companyState.toLowerCase().trim() === customerState.toLowerCase().trim();
+              // Helper function to determine GSTDUTYHEAD from ledger name
+              const getGSTDUTYHEAD = (ledgerName) => {
+                const nameUpper = (ledgerName || '').toUpperCase();
+                if (nameUpper.includes('CGST')) return 'CGST';
+                if (nameUpper.includes('SGST') || nameUpper.includes('UTGST')) return 'SGST/UTGST';
+                if (nameUpper.includes('IGST')) return 'IGST';
+                return null;
+              };
+
+              // Helper function to check if ledger should be calculated based on state
+              const shouldCalculateLedger = (ledger) => {
+                const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
+                if (!gstDutyHead) return false;
+                if (isSameState) {
+                  // Same state: Calculate CGST and SGST/UTGST
+                  return gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST';
+                } else {
+                  // Different states: Calculate IGST
+                  return gstDutyHead === 'IGST';
+                }
+              };
+
+              // Calculate GST for each GST ledger
+              const gstLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'GST' && shouldCalculateLedger(ledger)
+              );
+              const gstAmounts = {};
+              gstLedgers.forEach(ledger => {
+                const gstDutyHead = getGSTDUTYHEAD(ledger.NAME);
+                const rateOfTaxCalc = parseFloat(ledger.RATEOFTAXCALCULATION || '0');
+                let totalGST = 0;
+                orderItems.forEach(item => {
+                  const itemGstPercent = parseFloat(item.gstPercent || 0);
+                  if (itemGstPercent > 0) {
+                    // Item amount is already calculated as: rate * quantity * (1 - discount%)
+                    // This is the taxable amount (after discount, before GST)
+                    const itemTaxableAmount = parseFloat(item.amount || 0);
+                    if (rateOfTaxCalc === 0) {
+                      // RATEOFTAXCALCULATION = 0: Take all item tax
+                      let effectiveGstRate = itemGstPercent;
+                      // For CGST/SGST, split the rate (18% -> 9% each)
+                      // For IGST, use full rate (18% -> 18%)
+                      if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+                        effectiveGstRate = itemGstPercent / 2;
+                      }
+                      // For IGST, use full rate (no division)
+                      const itemGST = (itemTaxableAmount * effectiveGstRate) / 100;
+                      totalGST += itemGST;
+                    } else {
+                      // RATEOFTAXCALCULATION != 0: Only items with matching rate
+                      // RATEOFTAXCALCULATION stores the split rate (e.g., 9 for CGST/SGST, 18 for IGST)
+                      const matchingRate = rateOfTaxCalc;
+                      // Check if item's GST rate matches
+                      // For CGST/SGST, compare split rate (item 18% should match ledger 9%)
+                      // For IGST, compare full rate (item 18% should match ledger 18%)
+                      if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+                        // For CGST/SGST, ledger rate is split, so compare with item rate / 2
+                        if (Math.abs((itemGstPercent / 2) - matchingRate) < 0.01) {
+                          const itemGST = (itemTaxableAmount * matchingRate) / 100;
+                          totalGST += itemGST;
+                        }
+                      } else {
+                        // For IGST, compare full rates
+                        if (Math.abs(itemGstPercent - matchingRate) < 0.01) {
+                          const itemGST = (itemTaxableAmount * matchingRate) / 100;
+                          totalGST += itemGST;
+                        }
+                      }
+                    }
+                  }
+                });
+
+                gstAmounts[ledger.NAME] = totalGST;
+              });
+
+              // Calculate total ledger values (only user-defined ones that have values)
+              const totalLedgerValues = Object.values(ledgerValues).reduce((sum, value) => {
+                return sum + (parseFloat(value) || 0);
+              }, 0);
+
+              // Calculate flat rate ledger amounts (METHODTYPE = "As Flat Rate")
+              const flatRateLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'As Flat Rate'
+              );
+              const flatRateAmounts = {};
+              flatRateLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                flatRateAmounts[ledger.NAME] = classRate;
+              });
+              const totalFlatRate = Object.values(flatRateAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate "Based on Quantity" ledger amounts (METHODTYPE = "Based on Quantity")
+              // Value = Total qty * CLASSRATE
+              const basedOnQuantityLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'Based on Quantity'
+              );
+              const basedOnQuantityAmounts = {};
+              const totalQuantity = orderItems.reduce((sum, item) => sum + (parseFloat(item.quantity || 0)), 0);
+              basedOnQuantityLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                basedOnQuantityAmounts[ledger.NAME] = totalQuantity * classRate;
+              });
+              const totalBasedOnQuantity = Object.values(basedOnQuantityAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate "On Total Sales" ledger amounts (METHODTYPE = "On Total Sales")
+              // Value = total item value (subtotal) * CLASSRATE/100
+              const onTotalSalesLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'On Total Sales'
+              );
+              const onTotalSalesAmounts = {};
+              onTotalSalesLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                onTotalSalesAmounts[ledger.NAME] = (subtotal * classRate) / 100;
+              });
+              const totalOnTotalSales = Object.values(onTotalSalesAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate "On Current SubTotal" ledger amounts (METHODTYPE = "On Current SubTotal")
+              // Value = (total item value + additional ledger value excluding certain types) * CLASSRATE
+              // Exclude: "As Total Amount Rounding", "GST", and "On Current SubTotal"
+              const onCurrentSubTotalLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'On Current SubTotal'
+              );
+
+              // Calculate base amount for "On Current SubTotal" excluding: "As Total Amount Rounding", "GST", and "On Current SubTotal"
+              // Include: subtotal + user-defined + flat rate + based on quantity + on total sales
+              // Note: GST and rounding are explicitly excluded, and "On Current SubTotal" ledgers are calculated sequentially
+              let cumulativeOnCurrentSubTotal = 0;
+              const recalculatedOnCurrentSubTotalAmounts = {};
+              onCurrentSubTotalLedgers.forEach(ledger => {
+                const classRate = parseFloat(ledger.CLASSRATE || '0');
+                // Base includes: subtotal + user-defined + flat rate + based on quantity + on total sales + previous "On Current SubTotal" amounts
+                // Excludes: GST, rounding, and other "On Current SubTotal" ledgers (handled sequentially)
+                const currentBase = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + cumulativeOnCurrentSubTotal;
+                const amount = (currentBase * classRate) / 100;
+                recalculatedOnCurrentSubTotalAmounts[ledger.NAME] = amount;
+                cumulativeOnCurrentSubTotal += amount;
+              });
+              const finalOnCurrentSubTotal = cumulativeOnCurrentSubTotal;
+
+              // Calculate GST on other ledgers (excluding GST and rounding ledgers)
+              // Logic: Calculate GST if APPROPRIATEFOR = "GST" and EXCISEALLOCTYPE = "Based on Value" (regardless of GSTAPPLICABLE)
+              // OR if GSTAPPLICABLE = "Yes" and APPROPRIATEFOR is empty
+              const gstOnOtherLedgers = {};
+              // Helper function to calculate average GST rate from items
+              const calculateAverageGSTRate = () => {
+                let totalTaxableAmount = 0;
+                let weightedGstRate = 0;
+                orderItems.forEach(item => {
+                  const itemGstPercent = parseFloat(item.gstPercent || 0);
+                  const itemAmount = parseFloat(item.amount || 0);
+                  if (itemGstPercent > 0 && itemAmount > 0) {
+                    totalTaxableAmount += itemAmount;
+                    weightedGstRate += itemAmount * itemGstPercent;
+                  }
+                });
+
+                if (totalTaxableAmount > 0) {
+                  return weightedGstRate / totalTaxableAmount;
+                }
+                return 0;
+              };
+
+              const avgGstRate = calculateAverageGSTRate();
+
+              // Calculate GST for each non-GST, non-rounding ledger
+              selectedClassLedgers.forEach(ledger => {
+                // Skip GST and rounding ledgers
+                if (ledger.METHODTYPE === 'GST' || ledger.METHODTYPE === 'As Total Amount Rounding') {
+                  return;
+                }
+
+                let ledgerValue = 0;
+                // Get the ledger value based on METHODTYPE
+                if (ledger.METHODTYPE === 'As User Defined Value') {
+                  ledgerValue = parseFloat(ledgerValues[ledger.NAME] || 0);
+                } else if (ledger.METHODTYPE === 'As Flat Rate') {
+                  ledgerValue = parseFloat(ledger.CLASSRATE || '0');
+                } else if (ledger.METHODTYPE === 'Based on Quantity') {
+                  ledgerValue = basedOnQuantityAmounts[ledger.NAME] || 0;
+                } else if (ledger.METHODTYPE === 'On Total Sales') {
+                  ledgerValue = onTotalSalesAmounts[ledger.NAME] || 0;
+                } else if (ledger.METHODTYPE === 'On Current SubTotal') {
+                  ledgerValue = recalculatedOnCurrentSubTotalAmounts[ledger.NAME] || 0;
+                }
+
+                if (ledgerValue !== 0) {
+                  let gstAmount = 0;
+                  // Check if APPROPRIATEFOR = "GST" and EXCISEALLOCTYPE = "Based on Value"
+                  // This should calculate GST even if GSTAPPLICABLE = "No"
+                  if (ledger.APPROPRIATEFOR === 'GST' && ledger.EXCISEALLOCTYPE === 'Based on Value') {
+                    // Allocate discount proportionally to items based on their values
+                    // Then calculate GST on each item's discount portion using that item's GST rate
+                    const totalItemValue = orderItems.reduce((sum, item) => sum + (parseFloat(item.amount || 0)), 0);
+                    if (totalItemValue > 0) {
+                      // Calculate GST for each GST ledger (CGST, SGST, IGST)
+                      gstLedgers.forEach(gstLedger => {
+                        const gstDutyHead = getGSTDUTYHEAD(gstLedger.NAME);
+                        if (!gstDutyHead) return;
+                        let ledgerGstAmount = 0;
+                        // Allocate discount to each item proportionally
+                        orderItems.forEach(item => {
+                          const itemAmount = parseFloat(item.amount || 0);
+                          const itemGstPercent = parseFloat(item.gstPercent || 0);
+                          if (itemAmount > 0 && itemGstPercent > 0) {
+                            // Calculate this item's portion of the discount
+                            const itemDiscountPortion = (ledgerValue * itemAmount) / totalItemValue;
+
+                            // Calculate GST on this item's discount portion
+                            let effectiveGstRate = itemGstPercent;
+                            // For CGST/SGST, split the rate (12% -> 6% each, 5% -> 2.5% each)
+                            // For IGST, use full rate
+                            if (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST') {
+                              effectiveGstRate = itemGstPercent / 2;
+                            }
+
+                            // Only add if this GST ledger matches the state requirement
+                            if ((isSameState && (gstDutyHead === 'CGST' || gstDutyHead === 'SGST/UTGST')) ||
+                              (!isSameState && gstDutyHead === 'IGST')) {
+                              const itemGstOnDiscount = (itemDiscountPortion * effectiveGstRate) / 100;
+                              ledgerGstAmount += itemGstOnDiscount;
+                            }
+                          }
+                        });
+
+                        // Add GST on discount to the GST ledger amount (allow negative values for discounts)
+                        if (ledgerGstAmount !== 0) {
+                          // Add to gstAmounts so it's included in the displayed GST amounts
+                          if (!gstAmounts[gstLedger.NAME]) {
+                            gstAmounts[gstLedger.NAME] = 0;
+                          }
+                          gstAmounts[gstLedger.NAME] += ledgerGstAmount;
+                        }
+                      });
+                    }
+                  } else if (ledger.GSTAPPLICABLE === 'Yes' && (ledger.APPROPRIATEFOR === '' || !ledger.APPROPRIATEFOR)) {
+                    // GST = ledger value * GSTRATE/100
+                    // Only calculate if GSTRATE is provided (not empty)
+                    const gstRate = ledger.GSTRATE ? parseFloat(ledger.GSTRATE) : 0;
+                    if (gstRate > 0) {
+                      const gstAmount = (ledgerValue * gstRate) / 100;
+                      gstOnOtherLedgers[ledger.NAME] = gstAmount;
+                    }
+                    // If GSTRATE is empty, no GST calculation required
+                  }
+                }
+              });
+
+              // Calculate totalGST after adding GST on discount (which was added to gstAmounts)
+              let totalGST = Object.values(gstAmounts).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+              const totalGstOnOtherLedgers = Object.values(gstOnOtherLedgers).reduce((sum, value) => sum + (parseFloat(value) || 0), 0);
+
+              // Calculate amount before rounding (subtotal + user-defined ledgers + flat rate + based on quantity + on total sales + on current subtotal + GST + GST on other ledgers)
+              const amountBeforeRounding = subtotal + totalLedgerValues + totalFlatRate + totalBasedOnQuantity + totalOnTotalSales + finalOnCurrentSubTotal + totalGST + totalGstOnOtherLedgers;
+              // Helper function to calculate rounding based on ROUNDTYPE and ROUNDLIMIT
+              const calculateRounding = (amount, roundType, roundLimit) => {
+                const limit = parseFloat(roundLimit) || 1;
+                if (roundType === 'Normal Rounding') {
+                  // Round to nearest limit (e.g., if limit is 1, round to nearest rupee)
+                  return Math.round(amount / limit) * limit - amount;
+                } else if (roundType === 'Upward Rounding') {
+                  // Round up to next limit
+                  return Math.ceil(amount / limit) * limit - amount;
+                } else if (roundType === 'Downward Rounding') {
+                  // Round down to previous limit
+                  return Math.floor(amount / limit) * limit - amount;
+                }
+                return 0;
+              };
+
+              // Calculate rounding amounts for each rounding ledger
+              const roundingLedgers = selectedClassLedgers.filter(
+                ledger => ledger.METHODTYPE === 'As Total Amount Rounding'
+              );
+              let cumulativeRounding = 0;
+              const roundingAmounts = {};
+              // Process rounding ledgers in order (they might be cumulative)
+              roundingLedgers.forEach(ledger => {
+                const amountToRound = amountBeforeRounding + cumulativeRounding;
+                const roundingAmount = calculateRounding(
+                  amountToRound,
+                  ledger.ROUNDTYPE || 'Normal Rounding',
+                  ledger.ROUNDLIMIT || '1'
+                );
+                roundingAmounts[ledger.NAME] = roundingAmount;
+                cumulativeRounding += roundingAmount;
+              });
+
+              // Calculate total rounding
+              const totalRounding = cumulativeRounding;
+              // Final total = subtotal + user-defined ledgers + rounding
+              const total = amountBeforeRounding + totalRounding;
+
+              return (
+                <>
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    marginBottom: '12px',
+                    fontSize: '14px',
+                    color: '#374151'
+                  }}>
+                    <span>Subtotal:</span>
+                    <span>₹{subtotal.toFixed(2)}</span>
+                  </div>
+
+                  {/* Ledger entries - show all, but only user-defined ones are editable */}
+                  {selectedClassLedgers.map((ledger, index) => {
+                    const isUserDefined = ledger.METHODTYPE === 'As User Defined Value';
+                    const isRounding = ledger.METHODTYPE === 'As Total Amount Rounding';
+                    const isGST = ledger.METHODTYPE === 'GST';
+                    const isFlatRate = ledger.METHODTYPE === 'As Flat Rate';
+                    const isBasedOnQuantity = ledger.METHODTYPE === 'Based on Quantity';
+                    const isOnTotalSales = ledger.METHODTYPE === 'On Total Sales';
+                    const isOnCurrentSubTotal = ledger.METHODTYPE === 'On Current SubTotal';
+                    const ledgerValue = ledgerValues[ledger.NAME] || '';
+                    const ledgerAmount = parseFloat(ledgerValue) || 0;
+                    // Get rounding amount if it's a rounding ledger
+                    const roundingAmount = isRounding ? (roundingAmounts[ledger.NAME] || 0) : 0;
+                    // Get GST amount if it's a GST ledger
+                    const gstAmount = isGST ? (gstAmounts[ledger.NAME] || 0) : 0;
+                    // Get flat rate amount if it's a flat rate ledger
+                    const flatRateAmount = isFlatRate ? (flatRateAmounts[ledger.NAME] || 0) : 0;
+                    // Get based on quantity amount if it's a based on quantity ledger
+                    const basedOnQuantityAmount = isBasedOnQuantity ? (basedOnQuantityAmounts[ledger.NAME] || 0) : 0;
+                    // Get on total sales amount if it's an on total sales ledger
+                    const onTotalSalesAmount = isOnTotalSales ? (onTotalSalesAmounts[ledger.NAME] || 0) : 0;
+                    // Get on current subtotal amount if it's an on current subtotal ledger
+                    const onCurrentSubTotalAmount = isOnCurrentSubTotal ? (recalculatedOnCurrentSubTotalAmounts[ledger.NAME] || 0) : 0;
+                    // Get GST on this ledger if applicable (for non-GST, non-rounding ledgers)
+                    const gstOnThisLedger = (!isGST && !isRounding && ledger.GSTAPPLICABLE === 'Yes') ? (gstOnOtherLedgers[ledger.NAME] || 0) : 0;
+
+                    return (
+                      <div key={`${ledger.NAME}-${index}`} style={{
+                        marginBottom: '12px'
+                      }}>
+                        {isUserDefined ? (
+                          <>
+                            <div style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              gap: '8px'
+                            }}>
+                              <span style={{
+                                fontSize: '14px',
+                                color: '#374151',
+                                flex: '1 1 auto',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}>
+                                {ledger.NAME}:
+                              </span>
+                              <div style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                flexShrink: 0
+                              }}>
+                                <span style={{ fontSize: '14px', color: '#374151' }}>₹</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={ledgerValue}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    setLedgerValues(prev => ({
+                                      ...prev,
+                                      [ledger.NAME]: value
+                                    }));
+                                  }}
+                                  onBlur={(e) => {
+                                    // Ensure value is a valid number
+                                    const numValue = parseFloat(e.target.value) || 0;
+                                    setLedgerValues(prev => ({
+                                      ...prev,
+                                      [ledger.NAME]: numValue === 0 ? '' : numValue.toString()
+                                    }));
+                                  }}
+                                  placeholder="0.00"
+                                  style={{
+                                    width: '80px',
+                                    padding: '6px 8px',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '6px',
+                                    fontSize: '14px',
+                                    textAlign: 'right',
+                                    color: '#374151'
+                                  }}
+                                />
+                              </div>
+                            </div>
+                            {gstOnThisLedger > 0 && (
+                              <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                fontSize: '12px',
+                                color: '#6b7280',
+                                marginTop: '4px',
+                                paddingLeft: '12px'
+                              }}>
+                                <span>GST on {ledger.NAME}:</span>
+                                <span>₹{gstOnThisLedger.toFixed(2)}</span>
+                              </div>
+                            )}
+                          </>
+                        ) : isRounding ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{roundingAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isGST ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{gstAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isFlatRate ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{flatRateAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isBasedOnQuantity ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{basedOnQuantityAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isOnTotalSales ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{onTotalSalesAmount.toFixed(2)}</span>
+                          </div>
+                        ) : isOnCurrentSubTotal ? (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹{onCurrentSubTotalAmount.toFixed(2)}</span>
+                          </div>
+                        ) : (
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: '14px',
+                            color: '#374151'
+                          }}>
+                            <span>{ledger.NAME}:</span>
+                            <span>₹0.00</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    paddingTop: '16px',
+                    borderTop: '1px solid #e5e7eb',
+                    marginBottom: '20px'
+                  }}>
+                    <span style={{
+                      fontSize: '18px',
+                      fontWeight: '600',
+                      color: '#1f2937'
+                    }}>
+                      Total:
+                    </span>
+                    <span style={{
+                      fontSize: '24px',
+                      fontWeight: '700',
+                      color: '#7c3aed'
+                    }}>
+                      ₹{total.toFixed(2)}
+                    </span>
+                  </div>
+                </>
+              );
+            })()}
+
+            {/* Action Buttons */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              marginBottom: '16px'
+            }}>
+              <button
+                type="submit"
+                form="order-form"
+                onClick={(e) => {
+                  e.preventDefault();
+                  const form = document.querySelector('form');
+                  if (form) {
+                    form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                  }
+                }}
+                disabled={!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder}
+                style={{
+                  background: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder)
+                    ? '#d1d5db'
+                    : 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px 24px',
+                  height: '48px',
+                  cursor: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'not-allowed' : 'pointer',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  transition: 'all 0.2s ease',
+                  opacity: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 0.6 : 1,
+                  boxShadow: (!company || !selectedCustomer || orderItems.length === 0 || !customerOptions.some(customer => customer.NAME === selectedCustomer) || isSubmittingOrder) ? 'none' : '0 2px 4px rgba(124, 58, 237, 0.2)',
+                  boxSizing: 'border-box'
+                }}
+              >
+                {isSubmittingOrder ? (
+                  <>
+                    <div style={{
+                      width: '18px',
+                      height: '18px',
+                      border: '2px solid #ffffff',
+                      borderTop: '2px solid transparent',
+                      borderRadius: '50%',
+                      animation: 'spin 1s linear infinite'
+                    }} />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <span className="material-icons" style={{ fontSize: '18px' }}>shopping_cart</span>
+                    Place Order
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+          {/* Transaction Information - In Right Sidebar when Gmail viewer is closed */}
+          <div style={{
+            background: '#fff',
+            borderRadius: '0.75rem',
+            border: '1px solid #e2e8f0',
+            padding: isMobile ? '16px' : isTablet ? '20px' : isSmallDesktop ? '20px' : '24px',
+            boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+            transition: 'all 0.2s ease',
+            maxWidth: '100%',
+            boxSizing: 'border-box'
+          }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.boxShadow = '0 4px 6px rgba(0, 0, 0, 0.1)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.08)';
+            }}>
+            <h3 style={{
+              margin: '0 0 16px 0',
+              fontSize: isMobile ? '16px' : '18px',
+              fontWeight: '600',
+              color: '#1f2937'
+            }}>
+              Transaction Information
+            </h3>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px'
+            }}>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '14px'
+              }}>
+                <span style={{ color: '#6b7280' }}>Order Date:</span>
+                <span style={{ color: '#1f2937', fontWeight: '500' }}>
+                  {new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })}
+                </span>
+              </div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '14px'
+              }}>
+                <span style={{ color: '#6b7280' }}>Order Type:</span>
+                <span style={{
+                  color: '#fff',
+                  backgroundColor: '#7c3aed',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  fontSize: '12px',
+                  fontWeight: '600'
+                }}>
+                  {selectedVoucherType || 'Sales Order'}
+                </span>
+              </div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '14px'
+              }}>
+                <span style={{ color: '#6b7280' }}>Items Count:</span>
+                <span style={{ color: '#1f2937', fontWeight: '500' }}>{orderItems.length}</span>
+              </div>
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                fontSize: '14px'
+              }}>
+                <span style={{ color: '#6b7280' }}>Total Quantity:</span>
+                <span style={{ color: '#1f2937', fontWeight: '500' }}>
+                  {(() => {
+                    const totals = calculateTotals();
+                    return totals.canShowQuantityTotal ? totals.totalQuantity : 0;
+                  })()}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+        )}
         {/* End of Right Sidebar */}
         {/* Gmail Viewer - Right Side */}
         {showGmailViewer && (
