@@ -7,6 +7,7 @@ import TreeMap from './components/TreeMap';
 import LineChart from './components/LineChart';
 import MultiAxisChart from './components/MultiAxisChart';
 import GeoMapChart from './components/GeoMapChart';
+import TreeViewModal from './components/TreeViewModal';
 import TableChart from './components/TableChart';
 import ChatBot from './components/ChatBot';
 import ChartCard from './components/ChartCard';
@@ -20,7 +21,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { Tooltip } from '@mui/material';
+import { Tooltip, Menu, MenuItem, IconButton } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
@@ -187,6 +188,30 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [editingCardId, setEditingCardId] = useState(null);
   const [customCardChartTypes, setCustomCardChartTypes] = useState({});
   const customCardsSectionRef = useRef(null);
+  // Menu state for standard card options (keyed by card name)
+  const [cardMenuAnchors, setCardMenuAnchors] = useState({});
+  
+  // Card period selection modal state
+  const [cardPeriodModal, setCardPeriodModal] = useState({ 
+    open: false, 
+    cardName: null, 
+    cardId: null 
+  });
+  const [cardPeriodType, setCardPeriodType] = useState(null); // For card-specific period selection
+  const [cardTempFromDate, setCardTempFromDate] = useState('');
+  const [cardTempToDate, setCardTempToDate] = useState('');
+  const [cardTempFromDateDisplay, setCardTempFromDateDisplay] = useState('');
+  const [cardTempToDateDisplay, setCardTempToDateDisplay] = useState('');
+  const [cardShowFromDatePicker, setCardShowFromDatePicker] = useState(false);
+  const [cardShowToDatePicker, setCardShowToDatePicker] = useState(false);
+  const cardFromDatePickerRef = useRef(null);
+  const cardToDatePickerRef = useRef(null);
+  const cardFromDateButtonRef = useRef(null);
+  const cardToDateButtonRef = useRef(null);
+  const [cardSetAsDefault, setCardSetAsDefault] = useState(false);
+  
+  // Per-card period settings (stored in localStorage)
+  const [cardPeriodSettings, setCardPeriodSettings] = useState({});
 
   // Custom reports state
   const [showCustomReportModal, setShowCustomReportModal] = useState(false);
@@ -933,6 +958,38 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         }
         
         await loadCustomCards();
+        
+        // Load card period settings from localStorage
+        const companyInfo = getCompanyInfo();
+        if (companyInfo && companyInfo.guid) {
+          const cardSettings = {};
+          // Get all localStorage keys that match card period pattern
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(`cardPeriod_`) && key.includes(companyInfo.guid)) {
+              try {
+                const value = localStorage.getItem(key);
+                if (value) {
+                  const periodData = JSON.parse(value);
+                  // Extract card name from key: cardPeriod_{cardName}_{guid}_{tallyloc_id}
+                  const parts = key.split('_');
+                  // Find where the card name ends (before the guid)
+                  const guidIndex = parts.findIndex(p => p === companyInfo.guid);
+                  if (guidIndex > 1) {
+                    const cardName = parts.slice(1, guidIndex).join('_');
+                    cardSettings[cardName] = periodData;
+                  }
+                }
+              } catch (e) {
+                console.warn('Failed to parse card period setting:', key, e);
+              }
+            }
+          }
+          if (Object.keys(cardSettings).length > 0) {
+            console.log('📅 Loaded card period settings:', cardSettings);
+            setCardPeriodSettings(cardSettings);
+          }
+        }
       } catch (error) {
         console.error('❌ Error in loadCards useEffect:', error);
       }
@@ -3510,6 +3567,214 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     setSelectedPeriodType(null);
   };
 
+  // Card period selection handlers
+  const handleCardPeriodSelection = (periodType) => {
+    setCardPeriodType(periodType);
+    
+    if (periodType === 'custom') {
+      // Keep existing dates for custom period
+      setCardTempFromDate(fromDate);
+      setCardTempToDate(toDate);
+      setCardTempFromDateDisplay(formatDateForInput(fromDate));
+      setCardTempToDateDisplay(formatDateForInput(toDate));
+    } else {
+      let periodDates;
+      switch (periodType) {
+        case 'financial-year':
+          periodDates = getFinancialYearStartToDate();
+          break;
+        case 'quarter':
+          periodDates = getQuarterStartToDate();
+          break;
+        case 'month':
+          periodDates = getMonthStartToDate();
+          break;
+        case 'today':
+          periodDates = getToday();
+          break;
+        case 'yesterday':
+          periodDates = getYesterday();
+          break;
+        case 'week':
+          periodDates = getWeekStartToDate();
+          break;
+        default:
+          return;
+      }
+      
+      setCardTempFromDate(periodDates.start);
+      setCardTempToDate(periodDates.end);
+      setCardTempFromDateDisplay(formatDateForInput(periodDates.start));
+      setCardTempToDateDisplay(formatDateForInput(periodDates.end));
+    }
+  };
+
+  const handleCardFromDateChange = (date) => {
+    if (date && !isNaN(date.getTime())) {
+      const dateStr = dateToString(date);
+      setCardTempFromDate(dateStr);
+      setCardTempFromDateDisplay(formatDateForInput(dateStr));
+      setCardShowFromDatePicker(false);
+    }
+  };
+
+  const handleCardToDateChange = (date) => {
+    if (date && !isNaN(date.getTime())) {
+      const dateStr = dateToString(date);
+      setCardTempToDate(dateStr);
+      setCardTempToDateDisplay(formatDateForInput(dateStr));
+      setCardShowToDatePicker(false);
+    }
+  };
+
+  const handleCardApplyDates = () => {
+    let parsedFromDate, parsedToDate;
+    
+    // If a period type is selected (not custom), use the calculated dates
+    if (cardPeriodType && cardPeriodType !== 'custom') {
+      let periodDates;
+      switch (cardPeriodType) {
+        case 'financial-year':
+          periodDates = getFinancialYearStartToDate();
+          break;
+        case 'quarter':
+          periodDates = getQuarterStartToDate();
+          break;
+        case 'month':
+          periodDates = getMonthStartToDate();
+          break;
+        case 'today':
+          periodDates = getToday();
+          break;
+        case 'yesterday':
+          periodDates = getYesterday();
+          break;
+        case 'week':
+          periodDates = getWeekStartToDate();
+          break;
+        default:
+          parsedFromDate = parseDateFromNewFormat(cardTempFromDateDisplay) || cardTempFromDate;
+          parsedToDate = parseDateFromNewFormat(cardTempToDateDisplay) || cardTempToDate;
+      }
+      
+      if (periodDates) {
+        parsedFromDate = periodDates.start;
+        parsedToDate = periodDates.end;
+      }
+    } else {
+      // Parse the display format back to YYYY-MM-DD for custom period
+      parsedFromDate = parseDateFromNewFormat(cardTempFromDateDisplay) || cardTempFromDate;
+      parsedToDate = parseDateFromNewFormat(cardTempToDateDisplay) || cardTempToDate;
+    }
+    
+    // Validate that dates are in YYYY-MM-DD format
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(parsedFromDate)) {
+      alert('Invalid From Date format. Please use format like "1-Apr-25" or "15-Jan-24"');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(parsedToDate)) {
+      alert('Invalid To Date format. Please use format like "1-Apr-25" or "15-Jan-24"');
+      return;
+    }
+    
+    // Save card period settings if checkbox is checked
+    if (cardSetAsDefault && cardPeriodModal.cardName) {
+      try {
+        const companyInfo = getCompanyInfo();
+        if (companyInfo && companyInfo.guid) {
+          const storageKey = `cardPeriod_${cardPeriodModal.cardName}_${companyInfo.guid}_${companyInfo.tallyloc_id || ''}`;
+          const cardPeriodData = {
+            periodType: cardPeriodType || 'custom',
+            fromDate: parsedFromDate,
+            toDate: parsedToDate
+          };
+          
+          localStorage.setItem(storageKey, JSON.stringify(cardPeriodData));
+          setCardPeriodSettings(prev => ({ ...prev, [cardPeriodModal.cardName]: cardPeriodData }));
+          console.log('✅ Card period saved to localStorage successfully');
+        }
+      } catch (error) {
+        console.error('❌ Failed to save card period to localStorage:', error);
+        alert('Failed to save card period. Please try again.');
+      }
+    }
+    
+    // Update card period settings in state (even if not saved as default)
+    if (cardPeriodModal.cardName) {
+      const cardPeriodData = {
+        periodType: cardPeriodType || 'custom',
+        fromDate: parsedFromDate,
+        toDate: parsedToDate
+      };
+      console.log('🔄 Updating card period settings state:', {
+        cardName: cardPeriodModal.cardName,
+        cardPeriodData: cardPeriodData,
+        previousState: cardPeriodSettings
+      });
+      setCardPeriodSettings(prev => {
+        const newState = { ...prev, [cardPeriodModal.cardName]: cardPeriodData };
+        console.log('✅ New cardPeriodSettings state:', newState);
+        return newState;
+      });
+    }
+    
+    setCardPeriodModal({ open: false, cardName: null, cardId: null });
+    setCardSetAsDefault(false);
+    setCardPeriodType(null);
+    // Note: We don't reload the entire dashboard, just update the card's period setting
+    // The card will use this period when filtering its data
+  };
+
+  const handleCardCancelDates = () => {
+    setCardPeriodModal({ open: false, cardName: null, cardId: null });
+    setCardPeriodType(null);
+  };
+
+  // Helper function to get the appropriate data source for a card (with period filtering)
+  const getCardDataSource = useCallback((cardName) => {
+    const cardPeriodData = cardPeriodSettings[cardName];
+    
+    // If card has a custom period, filter the full dataset
+    if (cardPeriodData) {
+      const { fromDate, toDate } = cardPeriodData;
+      
+      if (fromDate && toDate) {
+        const baseDataSource = allCachedSales.length > 0 ? allCachedSales : sales;
+        return baseDataSource.filter(sale => {
+          const saleDate = sale.cp_date || sale.date;
+          if (!saleDate) return false;
+          
+          // Normalize sale date to YYYY-MM-DD
+          let normalizedSaleDate = saleDate;
+          const parsed = parseDateFromNewFormat(saleDate) || parseDateFromAPI(saleDate);
+          if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+            normalizedSaleDate = parsed;
+          } else if (typeof saleDate === 'string' && saleDate.length === 8 && /^\d+$/.test(saleDate)) {
+            normalizedSaleDate = `${saleDate.substring(0, 4)}-${saleDate.substring(4, 6)}-${saleDate.substring(6, 8)}`;
+          } else if (typeof saleDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+            normalizedSaleDate = saleDate;
+          } else {
+            const dateObj = new Date(saleDate);
+            if (!isNaN(dateObj.getTime())) {
+              const year = dateObj.getFullYear();
+              const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+              const day = String(dateObj.getDate()).padStart(2, '0');
+              normalizedSaleDate = `${year}-${month}-${day}`;
+            } else {
+              return false;
+            }
+          }
+          
+          // Check if sale date is within the card's period range
+          return normalizedSaleDate >= fromDate && normalizedSaleDate <= toDate;
+        });
+      }
+    }
+    
+    // Default: use dashboard-filtered sales
+    return filteredSales;
+  }, [cardPeriodSettings, allCachedSales, sales, filteredSales]);
+
   // Helper function to get field value with case-insensitive fallback (defined early for use in metrics)
   const getFieldValue = useCallback((item, fieldName) => {
     if (!item || !fieldName) return null;
@@ -4075,8 +4340,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Category chart data
   const categoryChartData = useMemo(() => {
+    const dataSource = getCardDataSource('Sales by Stock Group');
     const grouped = groupByCaseInsensitive(
-      filteredSales,
+      dataSource,
       (sale) => sale.category,
       (sale) => sale.amount || 0
     );
@@ -4119,8 +4385,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Ledger Group chart data
   const ledgerGroupChartData = useMemo(() => {
+    const dataSource = getCardDataSource('Sales by Ledger Group');
     const grouped = groupByCaseInsensitive(
-      filteredSales,
+      dataSource,
       (sale) => sale.ledgerGroup,
       (sale) => sale.amount || 0
     );
@@ -4159,12 +4426,13 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         color: colors[index % colors.length],
       }))
       .sort((a, b) => b.value - a.value);
-  }, [filteredSales]);
+  }, [getCardDataSource]);
 
   // Region chart data
   const regionChartData = useMemo(() => {
+    const dataSource = getCardDataSource('Sales by State');
     const grouped = groupByCaseInsensitive(
-      filteredSales,
+      dataSource,
       (sale) => sale.region,
       (sale) => sale.amount || 0
     );
@@ -4193,7 +4461,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         color: regionColors[index % regionColors.length],
       }))
       .sort((a, b) => b.value - a.value);
-  }, [filteredSales]);
+  }, [getCardDataSource]);
 
   // Pincode chart data for selected region (drill-down from state map)
   // This should show all pincodes in the region, regardless of selectedPincode filter
@@ -4237,8 +4505,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Country chart data - uses existing sales data, NO API calls
   // Country data is extracted from the initial loadSales() response
   const countryChartData = useMemo(() => {
+    const dataSource = getCardDataSource('Sales by Country');
     const grouped = groupByCaseInsensitive(
-      filteredSales,
+      dataSource,
       (sale) => sale.country || 'Unknown',
       (sale) => sale.amount || 0
     );
@@ -4267,7 +4536,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         color: countryColors[index % countryColors.length],
       }))
       .sort((a, b) => b.value - a.value);
-  }, [filteredSales]);
+  }, [getCardDataSource]);
 
   // State chart data for selected country (drill-down from country map)
   // Currently supports India - can be extended for other countries with state data
@@ -4317,18 +4586,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Salesperson totals data
   const salespersonTotals = useMemo(() => {
-    if (!filteredSales || filteredSales.length === 0) {
+    const dataSource = getCardDataSource('Salesperson Totals');
+    if (!dataSource || dataSource.length === 0) {
       return [];
     }
 
-    let filteredBySalesperson = filteredSales;
+    let filteredBySalesperson = dataSource;
 
     // Filter by enabled salespersons
     // If size === 0 and initialization hasn't happened yet, show all (for initial load)
     // If size === 0 after initialization, none are selected (show nothing)
     // If size > 0, only show selected salespersons
     if (enabledSalespersons.size > 0) {
-      filteredBySalesperson = filteredSales.filter((sale) => {
+      filteredBySalesperson = dataSource.filter((sale) => {
         const salespersonName = sale.salesperson || 'Unassigned';
         return enabledSalespersons.has(salespersonName);
       });
@@ -4356,17 +4626,17 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     
     // Debug logging
     console.log('🔍 Salesperson Totals Debug:', {
-      filteredSalesCount: filteredSales.length,
+      dataSourceCount: dataSource.length,
       filteredBySalespersonCount: filteredBySalesperson.length,
       enabledSalespersonsSize: enabledSalespersons.size,
       initialized: salespersonsInitializedRef.current,
       resultCount: result.length,
       sampleResult: result[0],
-      allSalespersons: Array.from(new Set(filteredSales.map(s => s.salesperson || 'Unassigned')))
+      allSalespersons: Array.from(new Set(dataSource.map(s => s.salesperson || 'Unassigned')))
     });
 
     return result;
-  }, [filteredSales, enabledSalespersons, sales.length]);
+  }, [getCardDataSource, enabledSalespersons, sales.length]);
 
   // Initialize enabledSalespersons with all salespersons when sales are first loaded
   useEffect(() => {
@@ -4394,8 +4664,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Top customers data
   const topCustomersData = useMemo(() => {
+    const dataSource = getCardDataSource('Top Customers Chart');
     const grouped = groupByCaseInsensitive(
-      filteredSales,
+      dataSource,
       (sale) => sale.customer,
       (sale) => sale.amount || 0
     );
@@ -4425,13 +4696,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, topCustomersN > 0 ? topCustomersN : undefined);
-  }, [filteredSales, topCustomersN]);
+  }, [getCardDataSource, topCustomersN]);
 
   // Top items by revenue data
   const topItemsByRevenueData = useMemo(() => {
+    const dataSource = getCardDataSource('Top Items by Revenue Chart');
     const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, revenue: number, quantity: number }>
     
-    filteredSales.forEach(sale => {
+    dataSource.forEach(sale => {
       const item = sale.item;
       if (!item) return;
       
@@ -4476,13 +4748,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, topItemsByRevenueN > 0 ? topItemsByRevenueN : undefined);
-  }, [filteredSales, topItemsByRevenueN]);
+  }, [getCardDataSource, topItemsByRevenueN]);
 
   // Top items by quantity data
   const topItemsByQuantityData = useMemo(() => {
+    const dataSource = getCardDataSource('Top Items by Quantity Chart');
     const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, revenue: number, quantity: number }>
     
-    filteredSales.forEach(sale => {
+    dataSource.forEach(sale => {
       const item = sale.item;
       if (!item) return;
       
@@ -4527,11 +4800,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, topItemsByQuantityN > 0 ? topItemsByQuantityN : undefined);
-  }, [filteredSales, topItemsByQuantityN]);
+  }, [getCardDataSource, topItemsByQuantityN]);
 
   // Period chart data (monthly) - based on cp_date from API
   const periodChartData = useMemo(() => {
-    const periodData = filteredSales.reduce((acc, sale) => {
+    const dataSource = getCardDataSource('Sales by Period');
+    const periodData = dataSource.reduce((acc, sale) => {
       // Use cp_date if available, otherwise fall back to date
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
@@ -4589,11 +4863,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
     // Sort by financial year order (April to March)
     return sortMonthsByFinancialYear(mappedData, fyStartMonth, fyStartDay);
-  }, [filteredSales]);
+  }, [getCardDataSource]);
 
   // Month-wise Revenue vs Profit chart data
   const revenueVsProfitChartData = useMemo(() => {
-    const periodData = filteredSales.reduce((acc, sale) => {
+    const dataSource = getCardDataSource('Revenue vs Profit');
+    const periodData = dataSource.reduce((acc, sale) => {
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -4637,13 +4912,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     const sortedEntries = sortMonthsByFinancialYear(mappedData, fyStartMonth, fyStartDay);
 
     return sortedEntries;
-  }, [filteredSales]);
+  }, [getCardDataSource]);
 
   // Top 10 profitable items chart data
   const topProfitableItemsData = useMemo(() => {
+    const dataSource = getCardDataSource('Top Profitable Items');
     const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, profit: number, revenue: number }>
     
-    filteredSales.forEach(sale => {
+    dataSource.forEach(sale => {
       const item = sale.item;
       if (!item) return;
       
@@ -4688,13 +4964,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 10);
-  }, [filteredSales]);
+  }, [getCardDataSource]);
 
   // Top 10 loss items chart data (items with negative profit)
   const topLossItemsData = useMemo(() => {
+    const dataSource = getCardDataSource('Top Loss Items');
     const grouped = new Map(); // Map<lowercaseKey, { originalKey: string, profit: number, revenue: number }>
     
-    filteredSales.forEach(sale => {
+    dataSource.forEach(sale => {
       const item = sale.item;
       if (!item) return;
       
@@ -4744,11 +5021,12 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         ...item,
         color: lossColors[index % lossColors.length],
       }));
-  }, [filteredSales]);
+  }, [getCardDataSource]);
 
   // Month-wise profit chart data
   const monthWiseProfitChartData = useMemo(() => {
-    const periodData = filteredSales.reduce((acc, sale) => {
+    const dataSource = getCardDataSource('Month-wise Profit');
+    const periodData = dataSource.reduce((acc, sale) => {
       const saleDate = sale.cp_date || sale.date;
       const date = new Date(saleDate);
       const yearMonth = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -4804,7 +5082,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
     // Sort by financial year order (April to March)
     return sortMonthsByFinancialYear(mappedData, fyStartMonth, fyStartDay);
-  }, [filteredSales]);
+  }, [getCardDataSource]);
 
   // Helper function to check if the current date range represents "today"
   const isTodayPeriod = () => {
@@ -9675,6 +9953,331 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     event.currentTarget.style.color = '#1e40af';
   };
 
+  // Helper function to render chart type menu for standard cards
+  const renderChartTypeMenu = (cardName, chartType, setChartType, options = ['bar', 'pie', 'treemap', 'line', 'table'], cardId = null) => {
+    const menuAnchor = cardMenuAnchors[cardName];
+    const optionsMap = {
+      'bar': 'Bar',
+      'pie': 'Pie',
+      'treemap': 'Tree Map',
+      'line': 'Line',
+      'table': 'Table',
+      'geoMap': 'Geographic Map'
+    };
+
+    const handleFullscreen = () => {
+      setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
+      openFullscreenCard('chart', cardName, cardId);
+    };
+
+    const handleChangePeriod = () => {
+      setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
+      // Get current card period settings if any
+      const companyInfo = getCompanyInfo();
+      const storageKey = `cardPeriod_${cardName}_${companyInfo?.guid || ''}_${companyInfo?.tallyloc_id || ''}`;
+      const savedPeriod = localStorage.getItem(storageKey);
+      
+      if (savedPeriod) {
+        try {
+          const periodData = JSON.parse(savedPeriod);
+          setCardTempFromDate(periodData.fromDate || fromDate);
+          setCardTempToDate(periodData.toDate || toDate);
+          setCardTempFromDateDisplay(formatDateForInput(periodData.fromDate || fromDate));
+          setCardTempToDateDisplay(formatDateForInput(periodData.toDate || toDate));
+          setCardPeriodType(periodData.periodType || null);
+        } catch (e) {
+          setCardTempFromDate(fromDate);
+          setCardTempToDate(toDate);
+          setCardTempFromDateDisplay(formatDateForInput(fromDate));
+          setCardTempToDateDisplay(formatDateForInput(toDate));
+          setCardPeriodType(null);
+        }
+      } else {
+        setCardTempFromDate(fromDate);
+        setCardTempToDate(toDate);
+        setCardTempFromDateDisplay(formatDateForInput(fromDate));
+        setCardTempToDateDisplay(formatDateForInput(toDate));
+        setCardPeriodType(null);
+      }
+      setCardSetAsDefault(false);
+      setCardPeriodModal({ open: true, cardName, cardId });
+    };
+
+    return (
+      <>
+        <IconButton
+          onClick={(e) => setCardMenuAnchors(prev => ({ ...prev, [cardName]: e.currentTarget }))}
+          size="small"
+          style={{
+            padding: '4px',
+            color: '#64748b'
+          }}
+          title="Options"
+        >
+          <span className="material-icons" style={{ fontSize: '20px' }}>more_vert</span>
+        </IconButton>
+        <Menu
+          anchorEl={menuAnchor}
+          open={Boolean(menuAnchor)}
+          onClose={() => setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }))}
+          anchorOrigin={{
+            vertical: 'bottom',
+            horizontal: 'right',
+          }}
+          transformOrigin={{
+            vertical: 'top',
+            horizontal: 'right',
+          }}
+        >
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              handleFullscreen();
+            }}
+            style={{ padding: '8px 16px', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>fullscreen</span>
+              <span style={{ fontSize: '14px', color: '#374151' }}>Fullscreen</span>
+            </div>
+          </MenuItem>
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              handleChangePeriod();
+            }}
+            style={{ padding: '8px 16px', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>calendar_month</span>
+              <span style={{ fontSize: '14px', color: '#374151' }}>Change Period</span>
+            </div>
+          </MenuItem>
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
+            }}
+            style={{ cursor: 'default', padding: '8px 16px' }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px' }}>
+              <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>
+                Chart Type
+              </label>
+              <select
+                value={chartType}
+                onChange={(e) => {
+                  setChartType(e.target.value);
+                  setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
+                }}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  padding: '6px 12px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  background: 'white',
+                  color: '#374151',
+                  width: '100%',
+                  cursor: 'pointer'
+                }}
+              >
+                {options.map(opt => (
+                  <option key={opt} value={opt}>{optionsMap[opt] || opt}</option>
+                ))}
+              </select>
+            </div>
+          </MenuItem>
+        </Menu>
+      </>
+    );
+  };
+
+  // Helper function to render chart type menu with Top N input for cards that need it
+  const renderTopNChartTypeMenu = (cardName, chartType, setChartType, topNInput, setTopNInput, setTopN, options = ['bar', 'pie', 'treemap', 'line', 'table'], minValue = 1, cardId = null) => {
+    const menuAnchor = cardMenuAnchors[cardName];
+    const optionsMap = {
+      'bar': 'Bar',
+      'pie': 'Pie',
+      'treemap': 'Tree Map',
+      'line': 'Line',
+      'table': 'Table',
+      'geoMap': 'Geographic Map'
+    };
+
+    const handleFullscreen = () => {
+      setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
+      openFullscreenCard('chart', cardName, cardId);
+    };
+
+    const handleChangePeriod = () => {
+      setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
+      // Get current card period settings if any
+      const companyInfo = getCompanyInfo();
+      const storageKey = `cardPeriod_${cardName}_${companyInfo?.guid || ''}_${companyInfo?.tallyloc_id || ''}`;
+      const savedPeriod = localStorage.getItem(storageKey);
+      
+      if (savedPeriod) {
+        try {
+          const periodData = JSON.parse(savedPeriod);
+          setCardTempFromDate(periodData.fromDate || fromDate);
+          setCardTempToDate(periodData.toDate || toDate);
+          setCardTempFromDateDisplay(formatDateForInput(periodData.fromDate || fromDate));
+          setCardTempToDateDisplay(formatDateForInput(periodData.toDate || toDate));
+          setCardPeriodType(periodData.periodType || null);
+        } catch (e) {
+          setCardTempFromDate(fromDate);
+          setCardTempToDate(toDate);
+          setCardTempFromDateDisplay(formatDateForInput(fromDate));
+          setCardTempToDateDisplay(formatDateForInput(toDate));
+          setCardPeriodType(null);
+        }
+      } else {
+        setCardTempFromDate(fromDate);
+        setCardTempToDate(toDate);
+        setCardTempFromDateDisplay(formatDateForInput(fromDate));
+        setCardTempToDateDisplay(formatDateForInput(toDate));
+        setCardPeriodType(null);
+      }
+      setCardSetAsDefault(false);
+      setCardPeriodModal({ open: true, cardName, cardId });
+    };
+
+    return (
+      <>
+        <IconButton
+          onClick={(e) => setCardMenuAnchors(prev => ({ ...prev, [cardName]: e.currentTarget }))}
+          size="small"
+          style={{
+            padding: '4px',
+            color: '#64748b'
+          }}
+          title="Options"
+        >
+          <span className="material-icons" style={{ fontSize: '20px' }}>more_vert</span>
+        </IconButton>
+        <Menu
+          anchorEl={menuAnchor}
+          open={Boolean(menuAnchor)}
+          onClose={() => setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }))}
+          anchorOrigin={{
+            vertical: 'bottom',
+            horizontal: 'right',
+          }}
+          transformOrigin={{
+            vertical: 'top',
+            horizontal: 'right',
+          }}
+        >
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              handleFullscreen();
+            }}
+            style={{ padding: '8px 16px', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>fullscreen</span>
+              <span style={{ fontSize: '14px', color: '#374151' }}>Fullscreen</span>
+            </div>
+          </MenuItem>
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              handleChangePeriod();
+            }}
+            style={{ padding: '8px 16px', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>calendar_month</span>
+              <span style={{ fontSize: '14px', color: '#374151' }}>Change Period</span>
+            </div>
+          </MenuItem>
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+            style={{ cursor: 'default', padding: '8px 16px' }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', minWidth: '180px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>
+                  Top N
+                </label>
+                <input
+                  type="number"
+                  value={topNInput}
+                  onChange={(e) => {
+                    const inputValue = e.target.value;
+                    setTopNInput(inputValue);
+                    if (inputValue === '') return;
+                    const value = parseInt(inputValue, 10);
+                    if (!isNaN(value) && value >= minValue) {
+                      setTopN(value);
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const value = parseInt(e.target.value, 10);
+                    if (isNaN(value) || value < minValue) {
+                      setTopN(10);
+                      setTopNInput('10');
+                    } else {
+                      setTopN(value);
+                      setTopNInput(String(value));
+                    }
+                  }}
+                  min={minValue}
+                  placeholder="N"
+                  style={{
+                    width: '100%',
+                    padding: '6px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    background: 'white',
+                    color: '#374151',
+                    textAlign: 'center'
+                  }}
+                  title="Enter number of top items to display"
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>
+                  Chart Type
+                </label>
+                <select
+                  value={chartType}
+                  onChange={(e) => {
+                    setChartType(e.target.value);
+                    setCardMenuAnchors(prev => ({ ...prev, [cardName]: null }));
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    padding: '6px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    background: 'white',
+                    color: '#374151',
+                    width: '100%',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {options.map(opt => (
+                    <option key={opt} value={opt}>{optionsMap[opt] || opt}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </MenuItem>
+        </Menu>
+      </>
+    );
+  };
+
   // NOTE: This function ONLY uses existing sales data - NO API calls are made
   // All chart data and raw data comes from the initial loadSales() call
   // IMPORTANT: All chart data sources (categoryChartData, ledgerGroupChartData, etc.) are computed from filteredSales,
@@ -13349,24 +13952,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </h3>
                 {renderCardFilterBadges('ledgerGroup')}
                 </div>
-                <select
-                  value={ledgerGroupChartType}
-                  onChange={(e) => setLedgerGroupChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                  <option value="table">Table</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {renderChartTypeMenu('Sales by Ledger Group', ledgerGroupChartType, setLedgerGroupChartType)}
+                </div>
               </div>
                   }
                   onBarClick={(ledgerGroup) => {
@@ -13421,24 +14009,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('ledgerGroup')}
                       </div>
-                      <select
-                        value={ledgerGroupChartType}
-                        onChange={(e) => setLedgerGroupChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Ledger Group', ledgerGroupChartType, setLedgerGroupChartType)}
+                      </div>
                     </div>
                   }
                     onSliceClick={(ledgerGroup) => {
@@ -13492,24 +14065,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('ledgerGroup')}
                       </div>
-                      <select
-                        value={ledgerGroupChartType}
-                        onChange={(e) => setLedgerGroupChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Ledger Group', ledgerGroupChartType, setLedgerGroupChartType)}
+                      </div>
                     </div>
                   }
                     onBoxClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
@@ -13562,24 +14120,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('ledgerGroup')}
                       </div>
-                      <select
-                        value={ledgerGroupChartType}
-                        onChange={(e) => setLedgerGroupChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Ledger Group', ledgerGroupChartType, setLedgerGroupChartType)}
+                      </div>
                     </div>
                   }
                     onPointClick={(ledgerGroup) => setSelectedLedgerGroup(ledgerGroup)}
@@ -13631,24 +14174,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           </h3>
                           {renderCardFilterBadges('ledgerGroup')}
                         </div>
-                        <select
-                          value={ledgerGroupChartType}
-                          onChange={(e) => setLedgerGroupChartType(e.target.value)}
-                          style={{
-                            padding: '6px 12px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            background: 'white',
-                            color: '#374151'
-                          }}
-                        >
-                          <option value="bar">Bar</option>
-                          <option value="pie">Pie</option>
-                          <option value="treemap">Tree Map</option>
-                          <option value="line">Line</option>
-                          <option value="table">Table</option>
-                        </select>
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          {renderChartTypeMenu('Sales by Ledger Group', ledgerGroupChartType, setLedgerGroupChartType)}
+                        </div>
                       </div>
                     }
                     onRowClick={(ledgerGroup) => {
@@ -13996,24 +14524,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </h3>
                   {renderCardFilterBadges('region')}
                 </div>
-                <select
-                  value={regionChartType}
-                  onChange={(e) => setRegionChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                  <option value="geoMap">Geographic Map</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {renderChartTypeMenu('Sales by State', regionChartType, setRegionChartType, ['bar', 'pie', 'treemap', 'line', 'geoMap'])}
+                </div>
               </div>
                   }
                   onBarClick={(region) => setSelectedRegion(region)}
@@ -14069,24 +14582,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('region')}
                       </div>
-                      <select
-                        value={regionChartType}
-                        onChange={(e) => setRegionChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="geoMap">Geographic Map</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by State', regionChartType, setRegionChartType, ['bar', 'pie', 'treemap', 'line', 'geoMap'])}
+                      </div>
                     </div>
                   }
                     onSliceClick={(region) => setSelectedRegion(region)}
@@ -14141,24 +14639,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('region')}
                       </div>
-                      <select
-                        value={regionChartType}
-                        onChange={(e) => setRegionChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="geoMap">Geographic Map</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by State', regionChartType, setRegionChartType, ['bar', 'pie', 'treemap', 'line', 'geoMap'])}
+                      </div>
                     </div>
                   }
                     onBoxClick={(region) => setSelectedRegion(region)}
@@ -14215,24 +14698,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('region')}
                       </div>
-                      <select
-                        value={regionChartType}
-                        onChange={(e) => setRegionChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="geoMap">Geographic Map</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by State', regionChartType, setRegionChartType, ['bar', 'pie', 'treemap', 'line', 'geoMap'])}
+                      </div>
                     </div>
                   }
                     onPointClick={(region) => setSelectedRegion(region)}
@@ -14492,24 +14960,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </h3>
                   {renderCardFilterBadges('country')}
                 </div>
-                <select
-                  value={countryChartType}
-                  onChange={(e) => setCountryChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                  <option value="geoMap">Geographic Map</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {renderChartTypeMenu('Sales by Country', countryChartType, setCountryChartType, ['bar', 'pie', 'treemap', 'line', 'geoMap'])}
+                </div>
               </div>
                   }
                   onBarClick={(country) => setSelectedCountry(country)}
@@ -14569,24 +15022,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('country')}
                       </div>
-                      <select
-                        value={countryChartType}
-                        onChange={(e) => setCountryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="geoMap">Geographic Map</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Country', countryChartType, setCountryChartType, ['bar', 'pie', 'treemap', 'line', 'geoMap'])}
+                      </div>
                     </div>
                   }
                     onSliceClick={(country) => setSelectedCountry(country)}
@@ -14645,24 +15083,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('country')}
                       </div>
-                      <select
-                        value={countryChartType}
-                        onChange={(e) => setCountryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="geoMap">Geographic Map</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Country', countryChartType, setCountryChartType, ['bar', 'pie', 'treemap', 'line', 'geoMap'])}
+                      </div>
                     </div>
                   }
                     onBoxClick={(country) => setSelectedCountry(country)}
@@ -14723,24 +15146,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('country')}
                       </div>
-                      <select
-                        value={countryChartType}
-                        onChange={(e) => setCountryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="geoMap">Geographic Map</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Country', countryChartType, setCountryChartType, ['bar', 'pie', 'treemap', 'line', 'geoMap'])}
+                      </div>
                     </div>
                   }
                     onPointClick={(country) => setSelectedCountry(country)}
@@ -15038,24 +15446,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </h3>
                   {renderCardFilterBadges('period')}
                 </div>
-                <select
-                  value={periodChartType}
-                  onChange={(e) => setPeriodChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                  <option value="table">Table</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {renderChartTypeMenu('Sales by Period', periodChartType, setPeriodChartType)}
+                </div>
               </div>
                   }
                    onBarClick={(periodLabel) => {
@@ -15122,24 +15515,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           Period Chart
                         </h3>
                       </div>
-                      <select
-                        value={periodChartType}
-                        onChange={(e) => setPeriodChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Period', periodChartType, setPeriodChartType)}
+                      </div>
                     </div>
                   }
                    onSliceClick={(periodLabel) => {
@@ -15205,24 +15583,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           Period Chart
                         </h3>
                       </div>
-                      <select
-                        value={periodChartType}
-                        onChange={(e) => setPeriodChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Period', periodChartType, setPeriodChartType)}
+                      </div>
                     </div>
                   }
                    onBoxClick={(periodLabel) => {
@@ -15290,24 +15653,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           Period Chart
                         </h3>
                       </div>
-                      <select
-                        value={periodChartType}
-                        onChange={(e) => setPeriodChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Period', periodChartType, setPeriodChartType)}
+                      </div>
                     </div>
                   }
                    onPointClick={(periodLabel) => {
@@ -15375,24 +15723,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('period')}
                       </div>
-                      <select
-                        value={periodChartType}
-                        onChange={(e) => setPeriodChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Period', periodChartType, setPeriodChartType)}
+                      </div>
                     </div>
                   }
                   onRowClick={(periodLabel) => {
@@ -15466,61 +15799,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </h3>
                   {renderCardFilterBadges('topCustomers')}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input
-                    type="number"
-                    value={topCustomersNInput}
-                    onChange={(e) => {
-                      const inputValue = e.target.value;
-                      setTopCustomersNInput(inputValue);
-                      if (inputValue === '') return;
-                      const value = parseInt(inputValue, 10);
-                      if (!isNaN(value) && value >= 0) {
-                        setTopCustomersN(value);
-                      }
-                    }}
-                    onBlur={(e) => {
-                      const value = parseInt(e.target.value, 10);
-                      if (isNaN(value) || value < 0) {
-                        setTopCustomersN(10);
-                        setTopCustomersNInput('10');
-                      } else {
-                        setTopCustomersN(value);
-                        setTopCustomersNInput(String(value));
-                      }
-                    }}
-                    min="0"
-                    placeholder="N"
-                    style={{
-                      width: '60px',
-                      padding: '6px 8px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      background: 'white',
-                      color: '#374151',
-                      textAlign: 'center'
-                    }}
-                    title="Enter number of top items to display"
-                  />
-                <select
-                  value={topCustomersChartType}
-                  onChange={(e) => setTopCustomersChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                  <option value="table">Table</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {renderTopNChartTypeMenu('Top Customers Chart', topCustomersChartType, setTopCustomersChartType, topCustomersNInput, setTopCustomersNInput, setTopCustomersN, ['bar', 'pie', 'treemap', 'line', 'table'], 0)}
                 </div>
               </div>
                   }
@@ -15577,61 +15857,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('topCustomers')}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          value={topCustomersNInput}
-                          onChange={(e) => {
-                            const inputValue = e.target.value;
-                            setTopCustomersNInput(inputValue);
-                            if (inputValue === '') return;
-                            const value = parseInt(inputValue, 10);
-                            if (value > 0) {
-                              setTopCustomersN(value);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const value = parseInt(e.target.value, 10);
-                            if (isNaN(value) || value < 1) {
-                              setTopCustomersN(10);
-                              setTopCustomersNInput('10');
-                            } else {
-                              setTopCustomersN(value);
-                              setTopCustomersNInput(String(value));
-                            }
-                          }}
-                          min="1"
-                          placeholder="N"
-                          style={{
-                            width: '60px',
-                            padding: '6px 8px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            background: 'white',
-                            color: '#374151',
-                            textAlign: 'center'
-                          }}
-                          title="Enter number of top items to display"
-                        />
-                      <select
-                        value={topCustomersChartType}
-                        onChange={(e) => setTopCustomersChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderTopNChartTypeMenu('Top Customers Chart', topCustomersChartType, setTopCustomersChartType, topCustomersNInput, setTopCustomersNInput, setTopCustomersN, ['bar', 'pie', 'treemap', 'line', 'table'], 1)}
                       </div>
                     </div>
                   }
@@ -15724,24 +15951,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           }}
                           title="Enter number of top items to display"
                         />
-                      <select
-                        value={topCustomersChartType}
-                        onChange={(e) => setTopCustomersChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                        {renderTopNChartTypeMenu('Top Customers Chart', topCustomersChartType, setTopCustomersChartType, topCustomersNInput, setTopCustomersNInput, setTopCustomersN, ['bar', 'pie', 'treemap', 'line', 'table'], 1)}
                       </div>
                     </div>
                   }
@@ -15836,24 +16046,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           }}
                           title="Enter number of top items to display"
                         />
-                      <select
-                        value={topCustomersChartType}
-                        onChange={(e) => setTopCustomersChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                        {renderTopNChartTypeMenu('Top Customers Chart', topCustomersChartType, setTopCustomersChartType, topCustomersNInput, setTopCustomersNInput, setTopCustomersN, ['bar', 'pie', 'treemap', 'line', 'table'], 1)}
                       </div>
                     </div>
                   }
@@ -15943,24 +16136,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           }}
                           min="1"
                         />
-                        <select
-                          value={topCustomersChartType}
-                          onChange={(e) => setTopCustomersChartType(e.target.value)}
-                          style={{
-                            padding: '6px 12px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            background: 'white',
-                            color: '#374151'
-                          }}
-                        >
-                          <option value="bar">Bar</option>
-                          <option value="pie">Pie</option>
-                          <option value="treemap">Tree Map</option>
-                          <option value="line">Line</option>
-                          <option value="table">Table</option>
-                        </select>
+                        {renderChartTypeMenu('Top Customers Chart', topCustomersChartType, setTopCustomersChartType)}
                       </div>
                     </div>
                   }
@@ -16022,61 +16198,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </h3>
                   {renderCardFilterBadges('topItems')}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input
-                    type="number"
-                    value={topItemsByRevenueNInput}
-                    onChange={(e) => {
-                      const inputValue = e.target.value;
-                      setTopItemsByRevenueNInput(inputValue);
-                      if (inputValue === '') return;
-                      const value = parseInt(inputValue, 10);
-                      if (!isNaN(value) && value >= 0) {
-                        setTopItemsByRevenueN(value);
-                      }
-                    }}
-                    onBlur={(e) => {
-                      const value = parseInt(e.target.value, 10);
-                      if (isNaN(value) || value < 0) {
-                        setTopItemsByRevenueN(10);
-                        setTopItemsByRevenueNInput('10');
-                      } else {
-                        setTopItemsByRevenueN(value);
-                        setTopItemsByRevenueNInput(String(value));
-                      }
-                    }}
-                    min="0"
-                    placeholder="N"
-                    style={{
-                      width: '60px',
-                      padding: '6px 8px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      background: 'white',
-                      color: '#374151',
-                      textAlign: 'center'
-                    }}
-                    title="Enter number of top items to display"
-                  />
-                <select
-                  value={topItemsByRevenueChartType}
-                  onChange={(e) => setTopItemsByRevenueChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                  <option value="table">Table</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {renderTopNChartTypeMenu('Top Items by Revenue Chart', topItemsByRevenueChartType, setTopItemsByRevenueChartType, topItemsByRevenueNInput, setTopItemsByRevenueNInput, setTopItemsByRevenueN, ['bar', 'pie', 'treemap', 'line', 'table'], 0)}
                 </div>
               </div>
                   }
@@ -16133,61 +16256,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('topItems')}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          value={topItemsByRevenueNInput}
-                          onChange={(e) => {
-                            const inputValue = e.target.value;
-                            setTopItemsByRevenueNInput(inputValue);
-                            if (inputValue === '') return;
-                            const value = parseInt(inputValue, 10);
-                            if (value > 0) {
-                              setTopItemsByRevenueN(value);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const value = parseInt(e.target.value, 10);
-                            if (isNaN(value) || value < 1) {
-                              setTopItemsByRevenueN(10);
-                              setTopItemsByRevenueNInput('10');
-                            } else {
-                              setTopItemsByRevenueN(value);
-                              setTopItemsByRevenueNInput(String(value));
-                            }
-                          }}
-                          min="1"
-                          placeholder="N"
-                          style={{
-                            width: '60px',
-                            padding: '6px 8px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            background: 'white',
-                            color: '#374151',
-                            textAlign: 'center'
-                          }}
-                          title="Enter number of top items to display"
-                        />
-                      <select
-                        value={topItemsByRevenueChartType}
-                        onChange={(e) => setTopItemsByRevenueChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderTopNChartTypeMenu('Top Items by Revenue Chart', topItemsByRevenueChartType, setTopItemsByRevenueChartType, topItemsByRevenueNInput, setTopItemsByRevenueNInput, setTopItemsByRevenueN, ['bar', 'pie', 'treemap', 'line', 'table'], 1)}
                       </div>
                     </div>
                   }
@@ -16243,61 +16313,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('topItems')}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          value={topItemsByRevenueNInput}
-                          onChange={(e) => {
-                            const inputValue = e.target.value;
-                            setTopItemsByRevenueNInput(inputValue);
-                            if (inputValue === '') return;
-                            const value = parseInt(inputValue, 10);
-                            if (value > 0) {
-                              setTopItemsByRevenueN(value);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const value = parseInt(e.target.value, 10);
-                            if (isNaN(value) || value < 1) {
-                              setTopItemsByRevenueN(10);
-                              setTopItemsByRevenueNInput('10');
-                            } else {
-                              setTopItemsByRevenueN(value);
-                              setTopItemsByRevenueNInput(String(value));
-                            }
-                          }}
-                          min="1"
-                          placeholder="N"
-                          style={{
-                            width: '60px',
-                            padding: '6px 8px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            background: 'white',
-                            color: '#374151',
-                            textAlign: 'center'
-                          }}
-                          title="Enter number of top items to display"
-                        />
-                      <select
-                        value={topItemsByRevenueChartType}
-                        onChange={(e) => setTopItemsByRevenueChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderTopNChartTypeMenu('Top Items by Revenue Chart', topItemsByRevenueChartType, setTopItemsByRevenueChartType, topItemsByRevenueNInput, setTopItemsByRevenueNInput, setTopItemsByRevenueN, ['bar', 'pie', 'treemap', 'line', 'table'], 1)}
                       </div>
                     </div>
                   }
@@ -16355,61 +16372,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('topItems')}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          value={topItemsByRevenueNInput}
-                          onChange={(e) => {
-                            const inputValue = e.target.value;
-                            setTopItemsByRevenueNInput(inputValue);
-                            if (inputValue === '') return;
-                            const value = parseInt(inputValue, 10);
-                            if (value > 0) {
-                              setTopItemsByRevenueN(value);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const value = parseInt(e.target.value, 10);
-                            if (isNaN(value) || value < 1) {
-                              setTopItemsByRevenueN(10);
-                              setTopItemsByRevenueNInput('10');
-                            } else {
-                              setTopItemsByRevenueN(value);
-                              setTopItemsByRevenueNInput(String(value));
-                            }
-                          }}
-                          min="1"
-                          placeholder="N"
-                          style={{
-                            width: '60px',
-                            padding: '6px 8px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            background: 'white',
-                            color: '#374151',
-                            textAlign: 'center'
-                          }}
-                          title="Enter number of top items to display"
-                        />
-                      <select
-                        value={topItemsByRevenueChartType}
-                        onChange={(e) => setTopItemsByRevenueChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderTopNChartTypeMenu('Top Items by Revenue Chart', topItemsByRevenueChartType, setTopItemsByRevenueChartType, topItemsByRevenueNInput, setTopItemsByRevenueNInput, setTopItemsByRevenueN, ['bar', 'pie', 'treemap', 'line', 'table'], 1)}
                       </div>
                     </div>
                   }
@@ -16580,61 +16544,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 </h3>
                   {renderCardFilterBadges('topItems')}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <input
-                    type="number"
-                    value={topItemsByQuantityNInput}
-                    onChange={(e) => {
-                      const inputValue = e.target.value;
-                      setTopItemsByQuantityNInput(inputValue);
-                      if (inputValue === '') return;
-                      const value = parseInt(inputValue, 10);
-                      if (!isNaN(value) && value >= 0) {
-                        setTopItemsByQuantityN(value);
-                      }
-                    }}
-                    onBlur={(e) => {
-                      const value = parseInt(e.target.value, 10);
-                      if (isNaN(value) || value < 0) {
-                        setTopItemsByQuantityN(10);
-                        setTopItemsByQuantityNInput('10');
-                      } else {
-                        setTopItemsByQuantityN(value);
-                        setTopItemsByQuantityNInput(String(value));
-                      }
-                    }}
-                    min="0"
-                    placeholder="N"
-                    style={{
-                      width: '60px',
-                      padding: '6px 8px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      background: 'white',
-                      color: '#374151',
-                      textAlign: 'center'
-                    }}
-                    title="Enter number of top items to display"
-                  />
-                <select
-                  value={topItemsByQuantityChartType}
-                  onChange={(e) => setTopItemsByQuantityChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                  <option value="table">Table</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {renderTopNChartTypeMenu('Top Items by Quantity Chart', topItemsByQuantityChartType, setTopItemsByQuantityChartType, topItemsByQuantityNInput, setTopItemsByQuantityNInput, setTopItemsByQuantityN, ['bar', 'pie', 'treemap', 'line', 'table'], 0)}
                 </div>
               </div>
                   }
@@ -16692,61 +16603,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('topItems')}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          value={topItemsByQuantityNInput}
-                          onChange={(e) => {
-                            const inputValue = e.target.value;
-                            setTopItemsByQuantityNInput(inputValue);
-                            if (inputValue === '') return;
-                            const value = parseInt(inputValue, 10);
-                            if (value > 0) {
-                              setTopItemsByQuantityN(value);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const value = parseInt(e.target.value, 10);
-                            if (isNaN(value) || value < 1) {
-                              setTopItemsByQuantityN(10);
-                              setTopItemsByQuantityNInput('10');
-                            } else {
-                              setTopItemsByQuantityN(value);
-                              setTopItemsByQuantityNInput(String(value));
-                            }
-                          }}
-                          min="1"
-                          placeholder="N"
-                          style={{
-                            width: '60px',
-                            padding: '6px 8px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            background: 'white',
-                            color: '#374151',
-                            textAlign: 'center'
-                          }}
-                          title="Enter number of top items to display"
-                        />
-                      <select
-                        value={topItemsByQuantityChartType}
-                        onChange={(e) => setTopItemsByQuantityChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderTopNChartTypeMenu('Top Items by Quantity Chart', topItemsByQuantityChartType, setTopItemsByQuantityChartType, topItemsByQuantityNInput, setTopItemsByQuantityNInput, setTopItemsByQuantityN, ['bar', 'pie', 'treemap', 'line', 'table'], 1)}
                       </div>
                     </div>
                   }
@@ -16803,61 +16661,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('topItems')}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          value={topItemsByQuantityNInput}
-                          onChange={(e) => {
-                            const inputValue = e.target.value;
-                            setTopItemsByQuantityNInput(inputValue);
-                            if (inputValue === '') return;
-                            const value = parseInt(inputValue, 10);
-                            if (value > 0) {
-                              setTopItemsByQuantityN(value);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const value = parseInt(e.target.value, 10);
-                            if (isNaN(value) || value < 1) {
-                              setTopItemsByQuantityN(10);
-                              setTopItemsByQuantityNInput('10');
-                            } else {
-                              setTopItemsByQuantityN(value);
-                              setTopItemsByQuantityNInput(String(value));
-                            }
-                          }}
-                          min="1"
-                          placeholder="N"
-                          style={{
-                            width: '60px',
-                            padding: '6px 8px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            background: 'white',
-                            color: '#374151',
-                            textAlign: 'center'
-                          }}
-                          title="Enter number of top items to display"
-                        />
-                      <select
-                        value={topItemsByQuantityChartType}
-                        onChange={(e) => setTopItemsByQuantityChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderTopNChartTypeMenu('Top Items by Quantity Chart', topItemsByQuantityChartType, setTopItemsByQuantityChartType, topItemsByQuantityNInput, setTopItemsByQuantityNInput, setTopItemsByQuantityN, ['bar', 'pie', 'treemap', 'line', 'table'], 1)}
                       </div>
                     </div>
                   }
@@ -16916,61 +16721,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('topItems')}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <input
-                          type="number"
-                          value={topItemsByQuantityNInput}
-                          onChange={(e) => {
-                            const inputValue = e.target.value;
-                            setTopItemsByQuantityNInput(inputValue);
-                            if (inputValue === '') return;
-                            const value = parseInt(inputValue, 10);
-                            if (value > 0) {
-                              setTopItemsByQuantityN(value);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const value = parseInt(e.target.value, 10);
-                            if (isNaN(value) || value < 1) {
-                              setTopItemsByQuantityN(10);
-                              setTopItemsByQuantityNInput('10');
-                            } else {
-                              setTopItemsByQuantityN(value);
-                              setTopItemsByQuantityNInput(String(value));
-                            }
-                          }}
-                          min="1"
-                          placeholder="N"
-                          style={{
-                            width: '60px',
-                            padding: '6px 8px',
-                            border: '1px solid #d1d5db',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            background: 'white',
-                            color: '#374151',
-                            textAlign: 'center'
-                          }}
-                          title="Enter number of top items to display"
-                        />
-                      <select
-                        value={topItemsByQuantityChartType}
-                        onChange={(e) => setTopItemsByQuantityChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderTopNChartTypeMenu('Top Items by Quantity Chart', topItemsByQuantityChartType, setTopItemsByQuantityChartType, topItemsByQuantityNInput, setTopItemsByQuantityNInput, setTopItemsByQuantityN, ['bar', 'pie', 'treemap', 'line', 'table'], 1)}
                       </div>
                     </div>
                   }
@@ -17155,24 +16907,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       Revenue vs Profit (Monthly)
                     </h3>
                     {renderCardFilterBadges('period')}
-          </div>
-                  <select
-                    value={revenueVsProfitChartType}
-                    onChange={(e) => setRevenueVsProfitChartType(e.target.value)}
-                    style={{
-                      padding: '6px 12px',
-                      border: '1px solid #d1d5db',
-                      borderRadius: '6px',
-                      fontSize: '12px',
-                      background: 'white',
-                      color: '#374151'
-                    }}
-                  >
-                    <option value="line">Line</option>
-                    <option value="bar">Bar</option>
-                    <option value="table">Table</option>
-                  </select>
-        </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center' }}>
+                    {renderChartTypeMenu('Revenue vs Profit', revenueVsProfitChartType, setRevenueVsProfitChartType, ['line', 'bar', 'table'])}
+                  </div>
+                </div>
                     <div style={{ flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex', alignItems: 'stretch', justifyContent: 'stretch', padding: '8px' }}>
                     <svg viewBox="0 0 600 280" preserveAspectRatio="none" style={{ width: '100%', height: '100%', minHeight: 0, maxHeight: '100%' }}>
                       {/* Grid lines */}
@@ -17333,22 +17072,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                         </h3>
                         {renderCardFilterBadges('period')}
                       </div>
-                      <select
-                        value={revenueVsProfitChartType}
-                        onChange={(e) => setRevenueVsProfitChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="line">Line</option>
-                        <option value="bar">Bar</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Revenue vs Profit', revenueVsProfitChartType, setRevenueVsProfitChartType, ['line', 'bar', 'table'])}
+                      </div>
         </div>
                     <div style={{ 
                       flex: 1, 
@@ -17709,23 +17435,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            </h3>
                            {renderCardFilterBadges('period')}
                          </div>
-                         <select
-                           value={monthWiseProfitChartType}
-                           onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
-                           style={{
-                             padding: '6px 12px',
-                             border: '1px solid #d1d5db',
-                             borderRadius: '6px',
-                             fontSize: '12px',
-                             background: 'white',
-                             color: '#374151'
-                           }}
-                         >
-                           <option value="bar">Bar</option>
-                           <option value="pie">Pie</option>
-                           <option value="treemap">Tree Map</option>
-                           <option value="line">Line</option>
-                         </select>
+                         <div style={{ display: 'flex', alignItems: 'center' }}>
+                           {renderChartTypeMenu('Month-wise Profit', monthWiseProfitChartType, setMonthWiseProfitChartType, ['bar', 'pie', 'treemap', 'line'])}
+                         </div>
                        </div>
                      }
                      onSliceClick={(periodLabel) => {
@@ -17878,23 +17590,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                            </h3>
                            {renderCardFilterBadges('period')}
                          </div>
-                         <select
-                           value={monthWiseProfitChartType}
-                           onChange={(e) => setMonthWiseProfitChartType(e.target.value)}
-                           style={{
-                             padding: '6px 12px',
-                             border: '1px solid #d1d5db',
-                             borderRadius: '6px',
-                             fontSize: '12px',
-                             background: 'white',
-                             color: '#374151'
-                           }}
-                         >
-                           <option value="bar">Bar</option>
-                           <option value="pie">Pie</option>
-                           <option value="treemap">Tree Map</option>
-                           <option value="line">Line</option>
-                         </select>
+                         <div style={{ display: 'flex', alignItems: 'center' }}>
+                           {renderChartTypeMenu('Month-wise Profit', monthWiseProfitChartType, setMonthWiseProfitChartType, ['bar', 'pie', 'treemap', 'line'])}
+                         </div>
                        </div>
                      }
                      onPointClick={(periodLabel) => {
@@ -18053,24 +17751,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   </h3>
                   {renderCardFilterBadges('topItems')}
                 </div>
-                <select
-                  value={topProfitableItemsChartType}
-                  onChange={(e) => setTopProfitableItemsChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                  <option value="table">Table</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {renderChartTypeMenu('Top Profitable Items', topProfitableItemsChartType, setTopProfitableItemsChartType)}
+                </div>
               </div>
                   }
                   valuePrefix="₹"
@@ -18426,24 +18109,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   </h3>
                   {renderCardFilterBadges('topItems')}
                 </div>
-                <select
-                  value={topLossItemsChartType}
-                  onChange={(e) => setTopLossItemsChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                  <option value="table">Table</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {renderChartTypeMenu('Top Loss Items', topLossItemsChartType, setTopLossItemsChartType)}
+                </div>
               </div>
                   }
                   valuePrefix="₹"
@@ -18768,29 +18436,14 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   onMouseLeave={(e) => e.currentTarget.style.color = '#1e293b'}
                   title="Click to open in fullscreen"
                 >
-                    Sales by Stock Group
+                  Sales by Stock Group
                 </h3>
                   {renderCardFilterBadges('stockGroup')}
-        </div>
-                <select
-                  value={categoryChartType}
-                  onChange={(e) => setCategoryChartType(e.target.value)}
-                  style={{
-                    padding: '6px 12px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontSize: '12px',
-                    background: 'white',
-                    color: '#374151'
-                  }}
-                >
-                  <option value="bar">Bar</option>
-                  <option value="pie">Pie</option>
-                  <option value="treemap">Tree Map</option>
-                  <option value="line">Line</option>
-                  <option value="table">Table</option>
-                </select>
-      </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  {renderChartTypeMenu('Sales by Stock Group', categoryChartType, setCategoryChartType)}
+                </div>
+              </div>
                   }
                   onBarClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
                   onBackClick={() => setSelectedStockGroup('all')}
@@ -18840,24 +18493,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           Sales by Stock Group
                         </h3>
                       </div>
-                      <select
-                        value={categoryChartType}
-                        onChange={(e) => setCategoryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Stock Group', categoryChartType, setCategoryChartType)}
+                      </div>
                     </div>
                   }
                     onSliceClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
@@ -18907,24 +18545,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           Sales by Stock Group
                         </h3>
                       </div>
-                      <select
-                        value={categoryChartType}
-                        onChange={(e) => setCategoryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Stock Group', categoryChartType, setCategoryChartType)}
+                      </div>
                     </div>
                   }
                     onBoxClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
@@ -18976,24 +18599,9 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           Sales by Stock Group
                         </h3>
                       </div>
-                      <select
-                        value={categoryChartType}
-                        onChange={(e) => setCategoryChartType(e.target.value)}
-                        style={{
-                          padding: '6px 12px',
-                          border: '1px solid #d1d5db',
-                          borderRadius: '6px',
-                          fontSize: '12px',
-                          background: 'white',
-                          color: '#374151'
-                        }}
-                      >
-                        <option value="bar">Bar</option>
-                        <option value="pie">Pie</option>
-                        <option value="treemap">Tree Map</option>
-                        <option value="line">Line</option>
-                        <option value="table">Table</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderChartTypeMenu('Sales by Stock Group', categoryChartType, setCategoryChartType)}
+                      </div>
                     </div>
                   }
                     onPointClick={(stockGroup) => setSelectedStockGroup(stockGroup)}
@@ -19096,8 +18704,63 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                   <CustomCard
                     card={card}
                     salesData={(() => {
+                      // Apply card-specific period filter if set (using state to trigger re-renders)
+                      const cardPeriodData = cardPeriodSettings[card.title];
+                      
+                      let dataSource;
                       const useAllData = card.overrideDateFilter === true;
-                      const dataSource = useAllData ? (allCachedSales.length > 0 ? allCachedSales : sales) : filteredSales;
+                      // If card has its own period setting, use full data; otherwise use dashboard-filtered data
+                      const hasCustomPeriod = cardPeriodData && !card.overrideDateFilter;
+                      const baseDataSource = (useAllData || hasCustomPeriod) ? (allCachedSales.length > 0 ? allCachedSales : sales) : filteredSales;
+                      
+                      // If card has a saved period, filter the data
+                      if (cardPeriodData && !card.overrideDateFilter) {
+                        const { fromDate, toDate } = cardPeriodData;
+                        
+                        if (fromDate && toDate) {
+                          dataSource = baseDataSource.filter(sale => {
+                            const saleDate = sale.cp_date || sale.date;
+                            if (!saleDate) return false;
+                            
+                            // Normalize sale date to YYYY-MM-DD
+                            let normalizedSaleDate = saleDate;
+                            const parsed = parseDateFromNewFormat(saleDate) || parseDateFromAPI(saleDate);
+                            if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                              normalizedSaleDate = parsed;
+                            } else if (typeof saleDate === 'string' && saleDate.length === 8 && /^\d+$/.test(saleDate)) {
+                              normalizedSaleDate = `${saleDate.substring(0, 4)}-${saleDate.substring(4, 6)}-${saleDate.substring(6, 8)}`;
+                            } else if (typeof saleDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+                              normalizedSaleDate = saleDate;
+                            } else {
+                              const dateObj = new Date(saleDate);
+                              if (!isNaN(dateObj.getTime())) {
+                                const year = dateObj.getFullYear();
+                                const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+                                const day = String(dateObj.getDate()).padStart(2, '0');
+                                normalizedSaleDate = `${year}-${month}-${day}`;
+                              } else {
+                                return false;
+                              }
+                            }
+                            
+                            // Check if sale date is within the card's period range
+                            return normalizedSaleDate >= fromDate && normalizedSaleDate <= toDate;
+                          });
+                          
+                          console.log('📅 Card period filter applied:', {
+                            cardTitle: card.title,
+                            fromDate,
+                            toDate,
+                            originalCount: baseDataSource.length,
+                            filteredCount: dataSource.length
+                          });
+                        } else {
+                          dataSource = baseDataSource;
+                        }
+                      } else {
+                        dataSource = baseDataSource;
+                      }
+                      
                       if (cardIndex === 0) {
                         console.log('🔍 CustomCard data source check:', {
                           cardId: card.id,
@@ -19108,7 +18771,8 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                           allSalesCount: sales.length,
                           allCachedSalesCount: allCachedSales.length,
                           usingAllCached: useAllData && allCachedSales.length > 0,
-                          finalDataSourceCount: dataSource.length
+                          finalDataSourceCount: dataSource.length,
+                          hasCardPeriod: !!cardPeriodData
                         });
                       }
                       if (useAllData && cardIndex > 0) {
@@ -19116,6 +18780,37 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                       }
                       return dataSource;
                     })()}
+                    onOpenPeriodModal={(cardTitle, cardId) => {
+                      // Get current card period settings if any
+                      const companyInfo = getCompanyInfo();
+                      const storageKey = `cardPeriod_${cardTitle}_${companyInfo?.guid || ''}_${companyInfo?.tallyloc_id || ''}`;
+                      const savedPeriod = localStorage.getItem(storageKey);
+                      
+                      if (savedPeriod) {
+                        try {
+                          const periodData = JSON.parse(savedPeriod);
+                          setCardTempFromDate(periodData.fromDate || fromDate);
+                          setCardTempToDate(periodData.toDate || toDate);
+                          setCardTempFromDateDisplay(formatDateForInput(periodData.fromDate || fromDate));
+                          setCardTempToDateDisplay(formatDateForInput(periodData.toDate || toDate));
+                          setCardPeriodType(periodData.periodType || null);
+                        } catch (e) {
+                          setCardTempFromDate(fromDate);
+                          setCardTempToDate(toDate);
+                          setCardTempFromDateDisplay(formatDateForInput(fromDate));
+                          setCardTempToDateDisplay(formatDateForInput(toDate));
+                          setCardPeriodType(null);
+                        }
+                      } else {
+                        setCardTempFromDate(fromDate);
+                        setCardTempToDate(toDate);
+                        setCardTempFromDateDisplay(formatDateForInput(fromDate));
+                        setCardTempToDateDisplay(formatDateForInput(toDate));
+                        setCardPeriodType(null);
+                      }
+                      setCardSetAsDefault(false);
+                      setCardPeriodModal({ open: true, cardName: cardTitle, cardId });
+                    }}
                     generateCustomCardData={generateCustomCardData}
                     chartType={customCardChartTypes[card.id] || card.chartType || 'bar'}
                     onChartTypeChange={(newType) => setCustomCardChartTypes(prev => ({ ...prev, [card.id]: newType }))}
@@ -20510,6 +20205,556 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
             <button
               type="button"
               onClick={handleApplyDates}
+              style={{
+                padding: '10px 20px',
+                border: 'none',
+                borderRadius: '10px',
+                background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                color: 'white',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                boxShadow: '0 4px 6px rgba(124, 58, 237, 0.25)'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = 'linear-gradient(135deg, #6d28d9 0%, #5b21b6 100%)';
+                e.target.style.boxShadow = '0 6px 10px rgba(124, 58, 237, 0.35)';
+                e.target.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)';
+                e.target.style.boxShadow = '0 4px 6px rgba(124, 58, 237, 0.25)';
+                e.target.style.transform = 'translateY(0)';
+              }}
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Card Period Selection Modal */}
+    {cardPeriodModal.open && (
+      <div
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.5)',
+          zIndex: 17000,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px'
+        }}
+        onClick={(e) => {
+          // Don't close modal if clicking on calendar popover
+          const isCalendarClick = e.target.closest('.MuiPickersPopper-root') ||
+                                   e.target.closest('.MuiPickersCalendar-root') ||
+                                   e.target.closest('[role="dialog"]');
+          
+          if (e.target === e.currentTarget && !isCalendarClick) {
+            handleCardCancelDates();
+          }
+        }}
+      >
+        <div
+          style={{
+            background: 'white',
+            borderRadius: '16px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
+            padding: '24px',
+            maxWidth: '400px',
+            width: '100%'
+          }}
+        >
+          <div style={{ marginBottom: '20px' }}>
+            <h2 style={{
+              fontSize: '20px',
+              fontWeight: '700',
+              color: '#1e293b',
+              margin: '0 0 6px 0'
+            }}>
+              Select Period for {cardPeriodModal.cardName}
+            </h2>
+            <p style={{
+              fontSize: '13px',
+              color: '#64748b',
+              margin: 0
+            }}>
+              Choose a period or select custom dates for this card
+            </p>
+          </div>
+
+          {/* Period Selection Options */}
+          {!cardPeriodType && (
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, 1fr)',
+                gap: '10px',
+                marginBottom: '16px'
+              }}>
+                {[
+                  { type: 'financial-year', label: 'Financial Yr Start till Date', icon: 'account_balance' },
+                  { type: 'quarter', label: 'Qtr Start till Date', icon: 'view_module' },
+                  { type: 'month', label: 'Month Start till Date', icon: 'calendar_view_month' },
+                  { type: 'today', label: 'Today', icon: 'today' },
+                  { type: 'yesterday', label: 'Yesterday', icon: 'history' },
+                  { type: 'week', label: 'For the week', icon: 'date_range' },
+                  { type: 'custom', label: 'Custom period', icon: 'edit_calendar', colSpan: 2 }
+                ].map((period) => (
+                  <button
+                    key={period.type}
+                    type="button"
+                    onClick={() => handleCardPeriodSelection(period.type)}
+                    style={{
+                      gridColumn: period.colSpan === 2 ? 'span 2' : 'auto',
+                      padding: '12px 16px',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '10px',
+                      background: 'white',
+                      color: '#475569',
+                      fontSize: '13px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      justifyContent: 'center',
+                      textAlign: 'left'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = '#f8fafc';
+                      e.target.style.borderColor = '#7c3aed';
+                      e.target.style.color = '#7c3aed';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = 'white';
+                      e.target.style.borderColor = '#e2e8f0';
+                      e.target.style.color = '#475569';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '18px' }}>{period.icon}</span>
+                    <span>{period.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Show selected period dates preview when a period is selected (not custom) */}
+          {cardPeriodType && cardPeriodType !== 'custom' && (
+            <div style={{
+              marginBottom: '24px',
+              padding: '16px',
+              background: '#f8fafc',
+              borderRadius: '10px',
+              border: '2px solid #e2e8f0'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginBottom: '12px'
+              }}>
+                <span className="material-icons" style={{ fontSize: '18px', color: '#7c3aed' }}>info</span>
+                <span style={{
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#475569'
+                }}>
+                  Selected Period: {
+                    cardPeriodType === 'financial-year' ? 'Financial Yr Start till Date' :
+                    cardPeriodType === 'quarter' ? 'Qtr Start till Date' :
+                    cardPeriodType === 'month' ? 'Month Start till Date' :
+                    cardPeriodType === 'today' ? 'Today' :
+                    cardPeriodType === 'yesterday' ? 'Yesterday' :
+                    cardPeriodType === 'week' ? 'For the week' : ''
+                  }
+                </span>
+              </div>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+                fontSize: '12px',
+                color: '#64748b'
+              }}>
+                <div><strong>From:</strong> {cardTempFromDateDisplay || formatDateForInput(cardTempFromDate)}</div>
+                <div><strong>To:</strong> {cardTempToDateDisplay || formatDateForInput(cardTempToDate)}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setCardPeriodType(null);
+                  setCardTempFromDate(fromDate);
+                  setCardTempToDate(toDate);
+                  setCardTempFromDateDisplay(formatDateForInput(fromDate));
+                  setCardTempToDateDisplay(formatDateForInput(toDate));
+                }}
+                style={{
+                  marginTop: '12px',
+                  padding: '6px 12px',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  background: 'white',
+                  color: '#64748b',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.background = '#f1f5f9';
+                  e.target.style.borderColor = '#cbd5e1';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.background = 'white';
+                  e.target.style.borderColor = '#e2e8f0';
+                }}
+              >
+                Change Period
+              </button>
+            </div>
+          )}
+
+          {/* Custom Date Picker - Show only when Custom period is selected */}
+          {cardPeriodType === 'custom' && (
+            <>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#475569',
+                  marginBottom: '6px'
+                }}>
+                  From Date
+                </label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={cardTempFromDateDisplay}
+                    placeholder="1-Apr-25"
+                    onChange={(e) => {
+                      setCardTempFromDateDisplay(e.target.value);
+                      const parsed = parseDateFromNewFormat(e.target.value);
+                      if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                        setCardTempFromDate(parsed);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const value = e.target.value.trim();
+                      if (value) {
+                        const parsed = parseDateFromNewFormat(value);
+                        if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                          setCardTempFromDate(parsed);
+                          setCardTempFromDateDisplay(formatDateForInput(parsed));
+                        } else {
+                          e.target.style.borderColor = '#ef4444';
+                        }
+                      }
+                      e.target.style.boxShadow = 'none';
+                    }}
+                    style={{
+                      width: 'calc(100% - 44px)',
+                      maxWidth: '100%',
+                      padding: '8px 12px',
+                      paddingRight: '44px',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      color: '#1e293b',
+                      outline: 'none',
+                      transition: 'all 0.2s ease',
+                      fontWeight: '500',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#7c3aed';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
+                    }}
+                  />
+                  <button
+                    ref={cardFromDateButtonRef}
+                    type="button"
+                    onClick={() => setCardShowFromDatePicker(!cardShowFromDatePicker)}
+                    style={{
+                      position: 'absolute',
+                      right: '4px',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '6px',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#7c3aed',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#f3e8ff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                    title="Open calendar"
+                  >
+                    <span className="material-icons" style={{ fontSize: '20px' }}>calendar_month</span>
+                  </button>
+                  <div 
+                    ref={cardFromDatePickerRef}
+                    style={{ position: 'absolute', top: '100%', right: '4px', zIndex: 18000 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <LocalizationProvider dateAdapter={AdapterDateFns}>
+                      <DatePicker
+                        value={stringToDate(cardTempFromDate)}
+                        onChange={handleCardFromDateChange}
+                        minDate={booksFromDate ? stringToDate(booksFromDate) : undefined}
+                        open={cardShowFromDatePicker}
+                        onClose={() => setCardShowFromDatePicker(false)}
+                        closeOnSelect={false}
+                        slotProps={{
+                          textField: {
+                            size: 'small',
+                            sx: { 
+                              position: 'absolute',
+                              top: 0,
+                              right: 0,
+                              width: '1px',
+                              height: '1px',
+                              opacity: 0,
+                              pointerEvents: 'none'
+                            }
+                          },
+                          popper: {
+                            anchorEl: cardFromDateButtonRef.current,
+                            placement: 'bottom-end',
+                            style: { zIndex: 18000 },
+                            onClick: (e) => e.stopPropagation()
+                          },
+                          actionBar: {
+                            actions: ['clear', 'cancel', 'accept']
+                          }
+                        }}
+                      />
+                    </LocalizationProvider>
+                  </div>
+                </div>
+                {booksFromDate && (
+                  <p style={{
+                    fontSize: '11px',
+                    color: '#64748b',
+                    marginTop: '4px',
+                    marginBottom: 0
+                  }}>
+                    Earliest available date: {formatDateForInput(booksFromDate)}
+                  </p>
+                )}
+              </div>
+
+              <div style={{ marginBottom: '24px' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  color: '#475569',
+                  marginBottom: '6px'
+                }}>
+                  To Date
+                </label>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    value={cardTempToDateDisplay}
+                    placeholder="15-Jan-24"
+                    onChange={(e) => {
+                      setCardTempToDateDisplay(e.target.value);
+                      const parsed = parseDateFromNewFormat(e.target.value);
+                      if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                        setCardTempToDate(parsed);
+                      }
+                    }}
+                    onBlur={(e) => {
+                      const value = e.target.value.trim();
+                      if (value) {
+                        const parsed = parseDateFromNewFormat(value);
+                        if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                          setCardTempToDate(parsed);
+                          setCardTempToDateDisplay(formatDateForInput(parsed));
+                        } else {
+                          e.target.style.borderColor = '#ef4444';
+                        }
+                      }
+                      e.target.style.boxShadow = 'none';
+                    }}
+                    style={{
+                      width: 'calc(100% - 44px)',
+                      maxWidth: '100%',
+                      padding: '8px 12px',
+                      paddingRight: '44px',
+                      border: '2px solid #e2e8f0',
+                      borderRadius: '8px',
+                      fontSize: '13px',
+                      color: '#1e293b',
+                      outline: 'none',
+                      transition: 'all 0.2s ease',
+                      fontWeight: '500',
+                      boxSizing: 'border-box'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = '#7c3aed';
+                      e.target.style.boxShadow = '0 0 0 3px rgba(124, 58, 237, 0.1)';
+                    }}
+                  />
+                  <button
+                    ref={cardToDateButtonRef}
+                    type="button"
+                    onClick={() => setCardShowToDatePicker(!cardShowToDatePicker)}
+                    style={{
+                      position: 'absolute',
+                      right: '4px',
+                      background: 'transparent',
+                      border: 'none',
+                      cursor: 'pointer',
+                      padding: '6px',
+                      borderRadius: '6px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#7c3aed',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#f3e8ff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                    title="Open calendar"
+                  >
+                    <span className="material-icons" style={{ fontSize: '20px' }}>calendar_month</span>
+                  </button>
+                  <div 
+                    ref={cardToDatePickerRef}
+                    style={{ position: 'absolute', top: '100%', right: '4px', zIndex: 18000 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <LocalizationProvider dateAdapter={AdapterDateFns}>
+                      <DatePicker
+                        value={stringToDate(cardTempToDate)}
+                        onChange={handleCardToDateChange}
+                        minDate={cardTempFromDate ? stringToDate(cardTempFromDate) : (booksFromDate ? stringToDate(booksFromDate) : undefined)}
+                        open={cardShowToDatePicker}
+                        onClose={() => setCardShowToDatePicker(false)}
+                        closeOnSelect={false}
+                        slotProps={{
+                          textField: {
+                            size: 'small',
+                            sx: { 
+                              position: 'absolute',
+                              top: 0,
+                              right: 0,
+                              width: '1px',
+                              height: '1px',
+                              opacity: 0,
+                              pointerEvents: 'none'
+                            }
+                          },
+                          popper: {
+                            anchorEl: cardToDateButtonRef.current,
+                            placement: 'bottom-end',
+                            style: { zIndex: 18000 },
+                            onClick: (e) => e.stopPropagation()
+                          },
+                          actionBar: {
+                            actions: ['clear', 'cancel', 'accept']
+                          }
+                        }}
+                      />
+                    </LocalizationProvider>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Set as Default Checkbox */}
+          <div style={{
+            marginBottom: '20px',
+            padding: '12px',
+            background: '#f8fafc',
+            borderRadius: '8px',
+            border: '1px solid #e2e8f0'
+          }}>
+            <label style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              cursor: 'pointer',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#475569'
+            }}>
+              <input
+                type="checkbox"
+                checked={cardSetAsDefault}
+                onChange={(e) => setCardSetAsDefault(e.target.checked)}
+                style={{
+                  width: '18px',
+                  height: '18px',
+                  cursor: 'pointer',
+                  accentColor: '#7c3aed'
+                }}
+              />
+              <span>Set as default period for this card</span>
+              <span className="material-icons" style={{ fontSize: '16px', color: '#64748b', marginLeft: '4px' }} title="This period will be automatically used for this card">
+                info
+              </span>
+            </label>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            gap: '12px',
+            justifyContent: 'flex-end'
+          }}>
+            <button
+              type="button"
+              onClick={handleCardCancelDates}
+              style={{
+                padding: '10px 20px',
+                border: '2px solid #e2e8f0',
+                borderRadius: '10px',
+                background: 'white',
+                color: '#64748b',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.background = '#f8fafc';
+                e.target.style.borderColor = '#cbd5e1';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.background = 'white';
+                e.target.style.borderColor = '#e2e8f0';
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleCardApplyDates}
               style={{
                 padding: '10px 20px',
                 border: 'none',
@@ -23148,8 +23393,70 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     card={card}
                     isFullscreen={true}
                     salesData={(() => {
+                      // Apply card-specific period filter if set (using state to trigger re-renders)
+                      const cardPeriodData = cardPeriodSettings[card.title];
+                      
+                      console.log('🔍 Fullscreen card period settings state:', {
+                        cardTitle: card.title,
+                        cardPeriodSettings: cardPeriodSettings,
+                        cardPeriodData: cardPeriodData,
+                        hasCardPeriodData: !!cardPeriodData
+                      });
+                      
+                      let dataSource;
                       const useAllData = card.overrideDateFilter === true;
-                      const dataSource = useAllData ? (allCachedSales.length > 0 ? allCachedSales : sales) : filteredSales;
+                      // If card has its own period setting, use full data; otherwise use dashboard-filtered data
+                      const hasCustomPeriod = cardPeriodData && !card.overrideDateFilter;
+                      const baseDataSource = (useAllData || hasCustomPeriod) ? (allCachedSales.length > 0 ? allCachedSales : sales) : filteredSales;
+                      
+                      // If card has a saved period, filter the data
+                      if (cardPeriodData && !card.overrideDateFilter) {
+                        const { fromDate, toDate } = cardPeriodData;
+                        
+                        if (fromDate && toDate) {
+                          dataSource = baseDataSource.filter(sale => {
+                            const saleDate = sale.cp_date || sale.date;
+                            if (!saleDate) return false;
+                            
+                            // Normalize sale date to YYYY-MM-DD
+                            let normalizedSaleDate = saleDate;
+                            const parsed = parseDateFromNewFormat(saleDate) || parseDateFromAPI(saleDate);
+                            if (parsed && /^\d{4}-\d{2}-\d{2}$/.test(parsed)) {
+                              normalizedSaleDate = parsed;
+                            } else if (typeof saleDate === 'string' && saleDate.length === 8 && /^\d+$/.test(saleDate)) {
+                              normalizedSaleDate = `${saleDate.substring(0, 4)}-${saleDate.substring(4, 6)}-${saleDate.substring(6, 8)}`;
+                            } else if (typeof saleDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saleDate)) {
+                              normalizedSaleDate = saleDate;
+                            } else {
+                              const dateObj = new Date(saleDate);
+                              if (!isNaN(dateObj.getTime())) {
+                                const year = dateObj.getFullYear();
+                                const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+                                const day = String(dateObj.getDate()).padStart(2, '0');
+                                normalizedSaleDate = `${year}-${month}-${day}`;
+                              } else {
+                                return false;
+                              }
+                            }
+                            
+                            // Check if sale date is within the card's period range
+                            return normalizedSaleDate >= fromDate && normalizedSaleDate <= toDate;
+                          });
+                          
+                          console.log('📅 Card period filter applied to fullscreen:', {
+                            cardTitle: card.title,
+                            fromDate,
+                            toDate,
+                            originalCount: baseDataSource.length,
+                            filteredCount: dataSource.length
+                          });
+                        } else {
+                          dataSource = baseDataSource;
+                        }
+                      } else {
+                        dataSource = baseDataSource;
+                      }
+                      
                       if (useAllData) {
                         console.log('📅 Date override active for fullscreen card:', card.title, '- using', allCachedSales.length > 0 ? 'all cached sales' : 'all sales', '(', dataSource.length, 'records) instead of filtered (', filteredSales.length, 'records)');
                       }
@@ -23162,6 +23469,37 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                     onEdit={handleEditCustomCard}
                     openTransactionRawData={openTransactionRawData}
                     openFullscreenCard={openFullscreenCard}
+                    onOpenPeriodModal={(cardTitle, cardId) => {
+                      // Get current card period settings if any
+                      const companyInfo = getCompanyInfo();
+                      const storageKey = `cardPeriod_${cardTitle}_${companyInfo?.guid || ''}_${companyInfo?.tallyloc_id || ''}`;
+                      const savedPeriod = localStorage.getItem(storageKey);
+                      
+                      if (savedPeriod) {
+                        try {
+                          const periodData = JSON.parse(savedPeriod);
+                          setCardTempFromDate(periodData.fromDate || fromDate);
+                          setCardTempToDate(periodData.toDate || toDate);
+                          setCardTempFromDateDisplay(formatDateForInput(periodData.fromDate || fromDate));
+                          setCardTempToDateDisplay(formatDateForInput(periodData.toDate || toDate));
+                          setCardPeriodType(periodData.periodType || null);
+                        } catch (e) {
+                          setCardTempFromDate(fromDate);
+                          setCardTempToDate(toDate);
+                          setCardTempFromDateDisplay(formatDateForInput(fromDate));
+                          setCardTempToDateDisplay(formatDateForInput(toDate));
+                          setCardPeriodType(null);
+                        }
+                      } else {
+                        setCardTempFromDate(fromDate);
+                        setCardTempToDate(toDate);
+                        setCardTempFromDateDisplay(formatDateForInput(fromDate));
+                        setCardTempToDateDisplay(formatDateForInput(toDate));
+                        setCardPeriodType(null);
+                      }
+                      setCardSetAsDefault(false);
+                      setCardPeriodModal({ open: true, cardName: cardTitle, cardId });
+                    }}
                     setSelectedCustomer={setSelectedCustomer}
                     setSelectedItem={setSelectedItem}
                     setSelectedStockGroup={setSelectedStockGroup}
@@ -24114,20 +24452,38 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
       hierarchyGroups: Object.keys(extracted.grouped || {})
     });
     
-    // Get ALL unique keys from ALL records to ensure we capture every field (fallback for flattened data)
+    // Get ALL unique keys from ALL records to ensure we capture every field
+    // Use rawVoucherData (full period data) if available, otherwise fall back to salesData (current period)
     const allKeysSet = new Set();
-    // Check ALL records to get every possible field name
-    salesData.forEach(sale => {
-      Object.keys(sale).forEach(key => allKeysSet.add(key));
-    });
+    
+    // First, extract keys from rawVoucherData (all periods) if available
+    if (rawVoucherData && rawVoucherData.length > 0) {
+      rawVoucherData.forEach(voucher => {
+        Object.keys(voucher).forEach(key => allKeysSet.add(key));
+      });
+      console.log('📋 Extracted', allKeysSet.size, 'unique field keys from rawVoucherData (full period)');
+    }
+    
+    // Also extract keys from salesData (current period) to ensure we have all fields
+    // This acts as a fallback and also ensures we capture any fields that might be in the flattened format
+    if (salesData && Array.isArray(salesData)) {
+      salesData.forEach(sale => {
+        Object.keys(sale).forEach(key => allKeysSet.add(key));
+      });
+    }
+    
     const allKeys = Array.from(allKeysSet);
+    console.log('📋 Total unique field keys extracted:', allKeys.length, '(from', rawVoucherData.length > 0 ? 'rawVoucherData + salesData' : 'salesData only', ')');
 
     // Determine field types by checking all records
+    // Use rawVoucherData (full period) if available, otherwise use salesData
     const fieldTypes = {};
-    salesData.forEach(sale => {
+    const dataForTypeCheck = rawVoucherData.length > 0 ? rawVoucherData : salesData;
+    
+    dataForTypeCheck.forEach(record => {
       allKeys.forEach(key => {
         if (!fieldTypes[key]) {
-          const value = sale[key];
+          const value = record[key];
           if (value !== null && value !== undefined && value !== '') {
             if (typeof value === 'string') {
               // Check if it's a numeric string
@@ -27931,14 +28287,28 @@ const CustomReportModal = ({ salesData, onClose }) => {
       hierarchyGroups: Object.keys(extracted.grouped || {})
     });
     
-    // Get ALL unique keys from ALL records to ensure we capture every field (fallback for flattened data)
+    // Get ALL unique keys from ALL records to ensure we capture every field
+    // Use rawVoucherData (full period data) if available, otherwise fall back to salesData (current period)
     const allKeysSet = new Set();
+    
+    // First, extract keys from rawVoucherData (all periods) if available
+    if (rawVoucherData && rawVoucherData.length > 0) {
+      rawVoucherData.forEach(voucher => {
+        Object.keys(voucher).forEach(key => allKeysSet.add(key));
+      });
+      console.log('📋 Extracted', allKeysSet.size, 'unique field keys from rawVoucherData (full period) for Custom Report');
+    }
+    
+    // Also extract keys from salesData (current period) to ensure we have all fields
+    // This acts as a fallback and also ensures we capture any fields that might be in the flattened format
     if (salesData && Array.isArray(salesData)) {
       salesData.forEach(sale => {
         Object.keys(sale).forEach(key => allKeysSet.add(key));
       });
     }
+    
     const allKeys = Array.from(allKeysSet);
+    console.log('📋 Total unique field keys extracted for Custom Report:', allKeys.length, '(from', rawVoucherData.length > 0 ? 'rawVoucherData + salesData' : 'salesData only', ')');
 
     // Helper function to get user-friendly label for a field
     const fieldLabelMap = {
@@ -28035,8 +28405,10 @@ const CustomReportModal = ({ salesData, onClose }) => {
         }
         
         // Determine field type by checking sample records
+        // Use rawVoucherData (full period) if available, otherwise use salesData
         let fieldType = 'category';
-        const sampleRecord = salesData.find(s => s[key] !== null && s[key] !== undefined);
+        const dataForTypeCheck = rawVoucherData.length > 0 ? rawVoucherData : (salesData || []);
+        const sampleRecord = dataForTypeCheck.find(s => s && s[key] !== null && s[key] !== undefined);
         if (sampleRecord) {
           const value = sampleRecord[key];
           if (typeof value === 'number' || (!isNaN(parseFloat(value)) && isFinite(parseFloat(value)))) {
@@ -28956,6 +29328,7 @@ const CustomCard = React.memo(({
   onEdit,
   openTransactionRawData,
   openFullscreenCard,
+  onOpenPeriodModal,
   setSelectedCustomer,
   setSelectedItem,
   setSelectedStockGroup,
@@ -28997,6 +29370,10 @@ const CustomCard = React.memo(({
   // Loading state for company compare data
   const [companyCompareLoading, setCompanyCompareLoading] = useState(false);
   const [companyCompareCardData, setCompanyCompareCardData] = useState(null);
+  // Tree modal state
+  const [showTreeModal, setShowTreeModal] = useState(false);
+  // Menu state for options button
+  const [menuAnchor, setMenuAnchor] = useState(null);
   
   // Log when date override is enabled (salesData will be all sales instead of filtered)
   useMemo(() => {
@@ -29990,88 +30367,160 @@ const CustomCard = React.memo(({
           </div>
         )}
         {renderCardFilterBadges('custom', card.id)}
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        {chartType !== 'yearCompare' && chartType !== 'companyCompare' && (
-          <select
-            value={chartType}
-            onChange={(e) => onChartTypeChange(e.target.value)}
-            style={{
-              padding: '6px 12px',
-              border: '1px solid #d1d5db',
-              borderRadius: '6px',
-              fontSize: '12px',
-              background: 'white',
-              color: '#374151'
-            }}
-          >
-            <option value="bar">Bar</option>
-            <option value="pie">Pie</option>
-            <option value="treemap">Tree Map</option>
-            <option value="line">Line</option>
-            <option value="table">Table</option>
-            <option value="multiAxis">Multi Axis</option>
-            {supportsMapVisualization.isMapEligible && (
-              <option value="geoMap">Geographic Map</option>
-            )}
-          </select>
-        )}
-        {onEdit && (
+        {/* Tree Icon - Only show if stacked and has segments */}
+        {chartType === 'bar' && card.enableStacking && cardData && Array.isArray(cardData) && cardData.some(item => item.segments && Array.isArray(item.segments) && item.segments.length > 0) && (
           <button
-            type="button"
-            onClick={() => onEdit(card.id)}
+            onClick={() => setShowTreeModal(true)}
             style={{
-              background: '#dbeafe',
-              border: 'none',
-              borderRadius: '6px',
-              width: '32px',
-              height: '32px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              padding: '6px',
+              background: 'transparent',
+              border: '1px solid #e2e8f0',
+              borderRadius: '6px',
               cursor: 'pointer',
-              color: '#1e40af',
-              transition: 'all 0.2s',
-              flexShrink: 0
+              color: '#64748b',
+              transition: 'all 0.2s ease',
+              flexShrink: 0,
+              width: '32px',
+              height: '32px'
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = '#bfdbfe';
+              e.currentTarget.style.background = '#f1f5f9';
+              e.currentTarget.style.borderColor = '#cbd5e1';
+              e.currentTarget.style.color = '#3b82f6';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = '#dbeafe';
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.borderColor = '#e2e8f0';
+              e.currentTarget.style.color = '#64748b';
             }}
-            title="Edit custom card"
+            title="View as tree"
           >
-            <span className="material-icons" style={{ fontSize: '18px' }}>edit</span>
+            <span className="material-icons" style={{ fontSize: '18px' }}>account_tree</span>
           </button>
         )}
-        <button
-          type="button"
-          onClick={onDelete}
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <IconButton
+          onClick={(e) => setMenuAnchor(e.currentTarget)}
+          size="small"
           style={{
-            background: '#fee2e2',
-            border: 'none',
-            borderRadius: '6px',
-            width: '32px',
-            height: '32px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            color: '#dc2626',
-            transition: 'all 0.2s',
-            flexShrink: 0
+            padding: '4px',
+            color: '#64748b'
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = '#fecaca';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = '#fee2e2';
-          }}
-          title="Delete custom card"
+          title="Options"
         >
-          <span className="material-icons" style={{ fontSize: '18px' }}>delete</span>
-        </button>
+          <span className="material-icons" style={{ fontSize: '20px' }}>more_vert</span>
+        </IconButton>
+        <Menu
+          anchorEl={menuAnchor}
+          open={Boolean(menuAnchor)}
+          onClose={() => setMenuAnchor(null)}
+          anchorOrigin={{
+            vertical: 'bottom',
+            horizontal: 'right',
+          }}
+          transformOrigin={{
+            vertical: 'top',
+            horizontal: 'right',
+          }}
+        >
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuAnchor(null);
+              openFullscreenCard('custom', card.title, card.id);
+            }}
+            style={{ padding: '8px 16px', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>fullscreen</span>
+              <span style={{ fontSize: '14px', color: '#374151' }}>Fullscreen</span>
+            </div>
+          </MenuItem>
+          <MenuItem
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuAnchor(null);
+              if (onOpenPeriodModal) {
+                onOpenPeriodModal(card.title, card.id);
+              }
+            }}
+            style={{ padding: '8px 16px', cursor: 'pointer' }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span className="material-icons" style={{ fontSize: '18px', color: '#64748b' }}>calendar_month</span>
+              <span style={{ fontSize: '14px', color: '#374151' }}>Change Period</span>
+            </div>
+          </MenuItem>
+          {chartType !== 'yearCompare' && chartType !== 'companyCompare' && (
+            <MenuItem
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuAnchor(null);
+              }}
+              style={{ cursor: 'default', padding: '8px 16px' }}
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '150px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '600', color: '#64748b', marginBottom: '4px' }}>
+                  Chart Type
+                </label>
+                <select
+                  value={chartType}
+                  onChange={(e) => {
+                    onChartTypeChange(e.target.value);
+                    setMenuAnchor(null);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{
+                    padding: '6px 12px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    background: 'white',
+                    color: '#374151',
+                    width: '100%',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="bar">Bar</option>
+                  <option value="pie">Pie</option>
+                  <option value="treemap">Tree Map</option>
+                  <option value="line">Line</option>
+                  <option value="table">Table</option>
+                  <option value="multiAxis">Multi Axis</option>
+                  {supportsMapVisualization.isMapEligible && (
+                    <option value="geoMap">Geographic Map</option>
+                  )}
+                </select>
+              </div>
+            </MenuItem>
+          )}
+          {onEdit && (
+            <MenuItem
+              onClick={() => {
+                onEdit(card.id);
+                setMenuAnchor(null);
+              }}
+            >
+              <span className="material-icons" style={{ fontSize: '18px', marginRight: '8px', color: '#1e40af' }}>edit</span>
+              Edit Card
+            </MenuItem>
+          )}
+          <MenuItem
+            onClick={() => {
+              onDelete();
+              setMenuAnchor(null);
+            }}
+            style={{ color: '#dc2626' }}
+          >
+            <span className="material-icons" style={{ fontSize: '18px', marginRight: '8px' }}>delete</span>
+            Delete Card
+          </MenuItem>
+        </Menu>
       </div>
     </div>
   );
@@ -30963,6 +31412,18 @@ const CustomCard = React.memo(({
             </div>
           )}
         </div>
+      )}
+
+      {/* Tree Modal for Custom Cards */}
+      {chartType === 'bar' && card.enableStacking && cardData && Array.isArray(cardData) && cardData.some(item => item.segments && Array.isArray(item.segments) && item.segments.length > 0) && (
+        <TreeViewModal
+          isOpen={showTreeModal}
+          onClose={() => setShowTreeModal(false)}
+          data={cardData}
+          title={card.title}
+          valuePrefix={valuePrefix}
+          formatValue={formatChartValue}
+        />
       )}
     </ChartCard>
   );
