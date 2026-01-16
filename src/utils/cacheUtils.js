@@ -119,23 +119,14 @@ export const canExternalUserCache = (userEmail = null) => {
 
 /**
  * Get cache access permission for current user
- * @param {boolean} externalUserCacheEnabled - Whether external user cache is enabled (from async fetch)
- * @param {string} userEmail - Optional email of the user to check (defaults to current user's email)
+ * @param {boolean} externalUserCacheEnabled - Whether external user cache is enabled (from async fetch) - Deprecated, no longer used
+ * @param {string} userEmail - Optional email of the user to check (defaults to current user's email) - Deprecated, no longer used
  * @returns {boolean} True if user can access cache management
+ * @deprecated All users now have access to cache management
  */
 export const getCacheAccessPermission = (externalUserCacheEnabled = false, userEmail = null) => {
-  // Full access and internal users always have access
-  if (isFullAccessOrInternal()) {
-    return true;
-  }
-
-  // External users only have access if per-user setting allows it
-  if (isExternalUser()) {
-    return externalUserCacheEnabled;
-  }
-
-  // Default: no access
-  return false;
+  // All users now have access to cache management
+  return true;
 };
 
 /**

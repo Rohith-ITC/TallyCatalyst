@@ -1,16 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { getValidGoogleTokenFromConfigs } from '../utils/googleDriveUtils';
-import { fetchJsonFromGmail, searchEmailsBySubject, getEmailDetails } from '../utils/gmailUtils';
-import { getCompanyConfigValue } from '../utils/companyConfigUtils';
+import { searchEmailsBySubject, getEmailDetails } from '../utils/gmailUtils';
 
 function GmailJsonViewer() {
-  const [loading, setLoading] = useState(false);
-  const [jsonData, setJsonData] = useState(null);
-  const [error, setError] = useState(null);
-  const [lastFetchTime, setLastFetchTime] = useState(null);
-  const [subjectPattern, setSubjectPattern] = useState('Tally Export *');
-  
-  // New state for Gmail emails section
+  // State for Gmail emails section
   const [emailsLoading, setEmailsLoading] = useState(false);
   const [emails, setEmails] = useState([]);
   const [emailsError, setEmailsError] = useState(null);
@@ -34,68 +27,6 @@ function GmailJsonViewer() {
   const tallylocId = sessionStorage.getItem('tallyloc_id');
   const coGuid = sessionStorage.getItem('selectedCompanyGuid') || sessionStorage.getItem('guid');
   const userEmail = sessionStorage.getItem('email');
-
-  // Fetch subject pattern from company configs on mount
-  useEffect(() => {
-    const loadSubjectPattern = async () => {
-      if (tallylocId && coGuid) {
-        try {
-          const configuredPattern = await getCompanyConfigValue('gmail_json_subject_pattern', tallylocId, coGuid);
-          if (configuredPattern) {
-            setSubjectPattern(configuredPattern);
-          }
-        } catch (error) {
-          console.log('No custom subject pattern configured, using default:', error);
-        }
-      }
-    };
-    loadSubjectPattern();
-  }, [tallylocId, coGuid]);
-
-  // Fetch JSON from Gmail
-  const fetchJson = async () => {
-    if (!tallylocId || !coGuid) {
-      setError('Please select a company first.');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Get Gmail token from company configs
-      const token = await getValidGoogleTokenFromConfigs(tallylocId, coGuid, userEmail);
-      
-      if (!token) {
-        setError('Gmail is not configured for this company. Please configure your Google account in Tally Configurations.');
-        setLoading(false);
-        return;
-      }
-
-      // Fetch JSON from Gmail
-      const result = await fetchJsonFromGmail(subjectPattern, tallylocId, coGuid, userEmail);
-      
-      if (result.success) {
-        if (result.downloaded && result.data) {
-          setJsonData(result.data);
-          setLastFetchTime(new Date());
-          setError(null);
-        } else {
-          setError(result.message || 'No new emails with JSON attachments found.');
-          setJsonData(null);
-        }
-      } else {
-        setError(result.error || 'Failed to fetch JSON from Gmail.');
-        setJsonData(null);
-      }
-    } catch (err) {
-      console.error('Error fetching JSON from Gmail:', err);
-      setError(err.message || 'An unexpected error occurred while fetching JSON.');
-      setJsonData(null);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Helper function to get date range query for Gmail API
   const getDateRangeQuery = () => {
@@ -436,651 +367,265 @@ function GmailJsonViewer() {
   // Auto-fetch on mount
   useEffect(() => {
     if (tallylocId && coGuid) {
-      fetchJson();
       fetchGmailEmails();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tallylocId, coGuid]);
 
   return (
-    <div style={{
-      padding: '24px',
-      maxWidth: '100%',
-      minHeight: 'calc(100vh - 140px)',
-      background: '#fff',
-      borderRadius: '12px',
-      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
-    }}>
-      {/* Header */}
+    <div>
+      {/* Gmail Emails Section */}
       <div style={{
+        padding: '0',
+        background: 'transparent',
+        border: 'none',
+        borderRadius: '0',
         display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: '24px',
-        flexWrap: 'wrap',
-        gap: '16px'
+        flexDirection: 'column',
+        gap: '20px'
       }}>
-        <div>
-          <h2 style={{
-            margin: 0,
-            fontSize: '24px',
-            fontWeight: 700,
-            color: '#1e293b',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '12px'
-          }}>
-            <span className="material-icons" style={{ fontSize: '28px', color: '#3b82f6' }}>
-              email
-            </span>
-            Gmail JSON Viewer
-          </h2>
-          <p style={{
-            margin: '8px 0 0 0',
-            fontSize: '14px',
-            color: '#64748b'
-          }}>
-            Fetching emails matching: <strong>"{subjectPattern}"</strong>
-          </p>
-          {lastFetchTime && (
-            <p style={{
-              margin: '4px 0 0 0',
-              fontSize: '12px',
-              color: '#94a3b8'
-            }}>
-              Last fetched: {lastFetchTime.toLocaleString()}
-            </p>
-          )}
-        </div>
-        <button
-          onClick={fetchJson}
-          disabled={loading || !tallylocId || !coGuid}
-          style={{
-            padding: '10px 20px',
-            background: loading ? '#94a3b8' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
-            color: '#fff',
-            border: 'none',
-            borderRadius: '8px',
-            fontWeight: 600,
-            fontSize: '14px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            boxShadow: '0 2px 8px rgba(59, 130, 246, 0.25)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            transition: 'all 0.2s ease'
-          }}
-          onMouseEnter={(e) => {
-            if (!loading && tallylocId && coGuid) {
-              e.currentTarget.style.transform = 'translateY(-2px)';
-              e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.35)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = 'translateY(0)';
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(59, 130, 246, 0.25)';
-          }}
-        >
-          <span className="material-icons" style={{ fontSize: '18px' }}>
-            {loading ? 'hourglass_empty' : 'refresh'}
-          </span>
-          {loading ? 'Fetching...' : 'Refresh'}
-        </button>
-      </div>
-
-      {/* Error Message */}
-      {error && (
+        {/* Date Range Filter Section */}
         <div style={{
-          padding: '16px 20px',
-          background: '#fef2f2',
-          border: '1px solid #fecaca',
-          borderRadius: '8px',
-          marginBottom: '24px',
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: '12px'
+          marginBottom: '12px',
+          padding: '4px',
+          background: '#fff',
+          borderRadius: '6px',
+          border: '1px solid #e2e8f0'
         }}>
-          <span className="material-icons" style={{ fontSize: '20px', color: '#dc2626', flexShrink: 0 }}>
-            error
-          </span>
-          <div style={{ flex: 1 }}>
-            <p style={{
-              margin: 0,
-              fontSize: '14px',
-              color: '#991b1b',
-              fontWeight: 500
-            }}>
-              {error}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Loading State */}
-      {loading && (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '60px 20px',
-          color: '#64748b'
-        }}>
-          <span className="material-icons" style={{
-            fontSize: '48px',
-            marginBottom: '16px',
-            animation: 'spin 1s linear infinite'
-          }}>
-            hourglass_empty
-          </span>
-          <p style={{ margin: 0, fontSize: '16px', fontWeight: 500 }}>
-            Fetching JSON from Gmail...
-          </p>
-          <p style={{ margin: '8px 0 0 0', fontSize: '14px', color: '#94a3b8' }}>
-            This may take a few moments
-          </p>
-        </div>
-      )}
-
-      {/* JSON Display */}
-      {!loading && jsonData && (
-        <div style={{
-          background: '#f8fafc',
-          border: '1px solid #e2e8f0',
-          borderRadius: '8px',
-          padding: '20px',
-          maxHeight: 'calc(100vh - 320px)',
-          overflow: 'auto'
-        }}>
+          {/* Header with Title and Refresh Button */}
           <div style={{
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginBottom: '12px'
+            marginBottom: '6px',
+            flexWrap: 'wrap',
+            gap: '8px'
           }}>
-            <h3 style={{
-              margin: 0,
-              fontSize: '14px',
-              fontWeight: 600,
-              color: '#475569',
-              textTransform: 'uppercase',
-              letterSpacing: '0.5px'
-            }}>
-              JSON Content
-            </h3>
+            <div>
+              <h3 style={{
+                margin: 0,
+                fontSize: '16px',
+                fontWeight: 700,
+                color: '#1e293b',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px'
+              }}>
+                <span className="material-icons" style={{ fontSize: '18px', color: '#3b82f6' }}>
+                  {emailType === 'inbox' ? 'inbox' : 'send'}
+                </span>
+                Gmail {emailType === 'inbox' ? 'Inbox' : 'Sent'} (from Tally Config)
+              </h3>
+            </div>
             <button
-              onClick={() => {
-                navigator.clipboard.writeText(JSON.stringify(jsonData, null, 2));
-                alert('JSON copied to clipboard!');
-              }}
+              onClick={fetchGmailEmails}
+              disabled={emailsLoading || !tallylocId || !coGuid}
               style={{
                 padding: '6px 12px',
-                background: '#fff',
-                border: '1px solid #cbd5e1',
-                borderRadius: '6px',
-                fontSize: '12px',
-                fontWeight: 500,
-                color: '#475569',
-                cursor: 'pointer',
+                background: emailsLoading ? '#94a3b8' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '4px',
+                fontWeight: 600,
+                fontSize: '11px',
+                cursor: emailsLoading ? 'not-allowed' : 'pointer',
+                boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
                 transition: 'all 0.2s ease'
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = '#f1f5f9';
-                e.currentTarget.style.borderColor = '#94a3b8';
+                if (!emailsLoading && tallylocId && coGuid) {
+                  e.currentTarget.style.transform = 'translateY(-1px)';
+                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.35)';
+                }
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = '#fff';
-                e.currentTarget.style.borderColor = '#cbd5e1';
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 2px 8px rgba(16, 185, 129, 0.25)';
               }}
             >
-              <span className="material-icons" style={{ fontSize: '16px' }}>
-                content_copy
+              <span className="material-icons" style={{ fontSize: '14px' }}>
+                {emailsLoading ? 'hourglass_empty' : 'refresh'}
               </span>
-              Copy
+              {emailsLoading ? 'Loading...' : 'Refresh Emails'}
             </button>
           </div>
-          <pre style={{
-            margin: 0,
-            padding: '16px',
-            background: '#1e293b',
-            color: '#e2e8f0',
-            borderRadius: '6px',
-            fontSize: '13px',
-            fontFamily: '"Fira Code", "Consolas", "Monaco", monospace',
-            lineHeight: '1.6',
-            overflow: 'auto',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-all'
-          }}>
-            {JSON.stringify(jsonData, null, 2)}
-          </pre>
-        </div>
-      )}
 
-      {/* Empty State */}
-      {!loading && !error && !jsonData && (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '60px 20px',
-          color: '#94a3b8',
-          textAlign: 'center'
-        }}>
-          <span className="material-icons" style={{
-            fontSize: '64px',
-            marginBottom: '16px',
-            color: '#cbd5e1'
-          }}>
-            inbox
-          </span>
-          <p style={{ margin: 0, fontSize: '16px', fontWeight: 500, color: '#64748b' }}>
-            No JSON data available
-          </p>
-          <p style={{ margin: '8px 0 0 0', fontSize: '14px', maxWidth: '400px' }}>
-            Click the Refresh button to fetch the latest JSON file from your Gmail inbox
-          </p>
-        </div>
-      )}
-
-      {/* Gmail Emails Section */}
-      <div style={{
-        marginTop: '32px',
-        padding: '24px',
-        background: '#f8fafc',
-        border: '1px solid #e2e8f0',
-        borderRadius: '12px'
-      }}>
-        <div style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: '20px',
-          flexWrap: 'wrap',
-          gap: '16px'
-        }}>
-          <div>
-            <h3 style={{
-              margin: 0,
-              fontSize: '20px',
-              fontWeight: 700,
-              color: '#1e293b',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '10px'
-            }}>
-              <span className="material-icons" style={{ fontSize: '24px', color: '#3b82f6' }}>
-                {emailType === 'inbox' ? 'inbox' : 'send'}
-              </span>
-              Gmail {emailType === 'inbox' ? 'Inbox' : 'Sent'} (from Tally Config)
-            </h3>
-            <p style={{
-              margin: '6px 0 0 0',
-              fontSize: '13px',
-              color: '#64748b'
-            }}>
-              {emailType === 'inbox' ? 'Inbox' : 'Sent'} emails from the Google account configured in Tally Connections
-            </p>
-            {lastEmailsFetchTime && (
-              <p style={{
-                margin: '4px 0 0 0',
-                fontSize: '12px',
-                color: '#94a3b8'
-              }}>
-                Last fetched: {lastEmailsFetchTime.toLocaleString()}
-              </p>
-            )}
-          </div>
-          <button
-            onClick={fetchGmailEmails}
-            disabled={emailsLoading || !tallylocId || !coGuid}
-            style={{
-              padding: '10px 20px',
-              background: emailsLoading ? '#94a3b8' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              fontWeight: 600,
-              fontSize: '14px',
-              cursor: emailsLoading ? 'not-allowed' : 'pointer',
-              boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              transition: 'all 0.2s ease'
-            }}
-            onMouseEnter={(e) => {
-              if (!emailsLoading && tallylocId && coGuid) {
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(16, 185, 129, 0.35)';
-              }
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = '0 2px 8px rgba(16, 185, 129, 0.25)';
-            }}
-          >
-            <span className="material-icons" style={{ fontSize: '18px' }}>
-              {emailsLoading ? 'hourglass_empty' : 'refresh'}
-            </span>
-            {emailsLoading ? 'Loading...' : 'Refresh Emails'}
-          </button>
-        </div>
-
-        {/* Date Range Filter Section */}
-        <div style={{
-          marginBottom: '20px',
-          padding: '16px',
-          background: '#fff',
-          borderRadius: '8px',
-          border: '1px solid #e2e8f0'
-        }}>
+          {/* Compact Filter Controls Row */}
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '12px',
-            marginBottom: '16px',
+            gap: '8px',
             flexWrap: 'wrap'
           }}>
-            <span className="material-icons" style={{ fontSize: '20px', color: '#3b82f6' }}>
-              date_range
-            </span>
-            <h4 style={{
-              margin: 0,
-              fontSize: '15px',
-              fontWeight: 600,
-              color: '#1e293b'
-            }}>
-              Filter Emails
-            </h4>
-          </div>
-
-          {/* Email Type Filter (Inbox/Sent) */}
-          <div style={{
-            marginBottom: '20px',
-            padding: '12px',
-            background: '#f8fafc',
-            borderRadius: '8px',
-            border: '1px solid #e2e8f0'
-          }}>
-            <label style={{
-              display: 'block',
-              fontSize: '13px',
-              fontWeight: 500,
-              color: '#475569',
-              marginBottom: '10px'
-            }}>
-              Email Folder
-            </label>
+            {/* Range Type Selection */}
             <div style={{
               display: 'flex',
-              gap: '8px',
-              flexWrap: 'wrap'
-            }}>
-              <button
-                onClick={() => setEmailType('inbox')}
-                style={{
-                  padding: '8px 16px',
-                  background: emailType === 'inbox'
-                    ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
-                    : '#f1f5f9',
-                  color: emailType === 'inbox' ? '#fff' : '#475569',
-                  border: emailType === 'inbox' ? 'none' : '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  fontWeight: emailType === 'inbox' ? 600 : 500,
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-                onMouseEnter={(e) => {
-                  if (emailType !== 'inbox') {
-                    e.currentTarget.style.background = '#e2e8f0';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (emailType !== 'inbox') {
-                    e.currentTarget.style.background = '#f1f5f9';
-                  }
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: '16px' }}>
-                  inbox
-                </span>
-                Inbox
-              </button>
-              <button
-                onClick={() => setEmailType('sent')}
-                style={{
-                  padding: '8px 16px',
-                  background: emailType === 'sent'
-                    ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
-                    : '#f1f5f9',
-                  color: emailType === 'sent' ? '#fff' : '#475569',
-                  border: emailType === 'sent' ? 'none' : '1px solid #e2e8f0',
-                  borderRadius: '6px',
-                  fontWeight: emailType === 'sent' ? 600 : 500,
-                  fontSize: '13px',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
-                onMouseEnter={(e) => {
-                  if (emailType !== 'sent') {
-                    e.currentTarget.style.background = '#e2e8f0';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (emailType !== 'sent') {
-                    e.currentTarget.style.background = '#f1f5f9';
-                  }
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: '16px' }}>
-                  send
-                </span>
-                Sent
-              </button>
-            </div>
-          </div>
-
-          {/* Range Type Selection */}
-          <div style={{
-            display: 'flex',
-            gap: '12px',
-            marginBottom: '16px',
-            flexWrap: 'wrap'
-          }}>
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              cursor: 'pointer',
-              fontSize: '14px',
-              color: '#475569'
-            }}>
-              <input
-                type="radio"
-                name="dateRangeType"
-                value="preset"
-                checked={dateRangeType === 'preset'}
-                onChange={(e) => setDateRangeType(e.target.value)}
-                style={{ cursor: 'pointer' }}
-              />
-              Preset Range
-            </label>
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              cursor: 'pointer',
-              fontSize: '14px',
-              color: '#475569'
-            }}>
-              <input
-                type="radio"
-                name="dateRangeType"
-                value="custom"
-                checked={dateRangeType === 'custom'}
-                onChange={(e) => setDateRangeType(e.target.value)}
-                style={{ cursor: 'pointer' }}
-              />
-              Custom Range
-            </label>
-          </div>
-
-          {/* Preset Range Options */}
-          {dateRangeType === 'preset' && (
-            <div style={{
-              display: 'flex',
-              gap: '8px',
-              flexWrap: 'wrap'
-            }}>
-              {[
-                { value: 'all', label: 'All Emails' },
-                { value: '3days', label: 'Last 3 Days' },
-                { value: '1week', label: 'Last Week' },
-                { value: '1month', label: 'Last Month' }
-              ].map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() => setPresetRange(option.value)}
-                  style={{
-                    padding: '8px 16px',
-                    background: presetRange === option.value
-                      ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
-                      : '#f1f5f9',
-                    color: presetRange === option.value ? '#fff' : '#475569',
-                    border: presetRange === option.value ? 'none' : '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    fontWeight: presetRange === option.value ? 600 : 500,
-                    fontSize: '13px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    if (presetRange !== option.value) {
-                      e.currentTarget.style.background = '#e2e8f0';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (presetRange !== option.value) {
-                      e.currentTarget.style.background = '#f1f5f9';
-                    }
-                  }}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Custom Date Range */}
-          {dateRangeType === 'custom' && (
-            <div style={{
-              display: 'flex',
-              gap: '12px',
-              flexWrap: 'wrap',
+              gap: '6px',
               alignItems: 'center'
             }}>
-              <div style={{ flex: 1, minWidth: '200px' }}>
-                <label style={{
-                  display: 'block',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  color: '#475569',
-                  marginBottom: '6px'
-                }}>
-                  Start Date
-                </label>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                color: '#475569'
+              }}>
                 <input
-                  type="date"
-                  value={customStartDate}
-                  onChange={(e) => setCustomStartDate(e.target.value)}
-                  max={customEndDate || new Date().toISOString().split('T')[0]}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    fontSize: '14px',
-                    color: '#1e293b',
-                    background: '#fff',
-                    boxSizing: 'border-box'
-                  }}
+                  type="radio"
+                  name="dateRangeType"
+                  value="preset"
+                  checked={dateRangeType === 'preset'}
+                  onChange={(e) => setDateRangeType(e.target.value)}
+                  style={{ cursor: 'pointer', width: '12px', height: '12px' }}
                 />
-              </div>
-              <div style={{ flex: 1, minWidth: '200px' }}>
-                <label style={{
-                  display: 'block',
-                  fontSize: '13px',
-                  fontWeight: 500,
-                  color: '#475569',
-                  marginBottom: '6px'
-                }}>
-                  End Date (Optional)
-                </label>
+                Preset Range
+              </label>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                color: '#475569'
+              }}>
                 <input
-                  type="date"
-                  value={customEndDate}
-                  onChange={(e) => setCustomEndDate(e.target.value)}
-                  min={customStartDate}
-                  max={new Date().toISOString().split('T')[0]}
-                  style={{
-                    width: '100%',
-                    padding: '8px 12px',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: '6px',
-                    fontSize: '14px',
-                    color: '#1e293b',
-                    background: '#fff',
-                    boxSizing: 'border-box'
-                  }}
+                  type="radio"
+                  name="dateRangeType"
+                  value="custom"
+                  checked={dateRangeType === 'custom'}
+                  onChange={(e) => setDateRangeType(e.target.value)}
+                  style={{ cursor: 'pointer', width: '12px', height: '12px' }}
                 />
-              </div>
+                Custom Range
+              </label>
             </div>
-          )}
 
-          {/* Submit Button */}
-          <div style={{
-            marginTop: '20px',
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: '12px'
-          }}>
+            {/* Preset Range Options */}
+            {dateRangeType === 'preset' && (
+              <div style={{
+                display: 'flex',
+                gap: '4px',
+                alignItems: 'center'
+              }}>
+                {[
+                  { value: 'all', label: 'All Emails' },
+                  { value: '3days', label: 'Last 3 Days' },
+                  { value: '1week', label: 'Last Week' },
+                  { value: '1month', label: 'Last Month' }
+                ].map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => setPresetRange(option.value)}
+                    style={{
+                      padding: '4px 8px',
+                      background: presetRange === option.value
+                        ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
+                        : '#f1f5f9',
+                      color: presetRange === option.value ? '#fff' : '#475569',
+                      border: presetRange === option.value ? 'none' : '1px solid #e2e8f0',
+                      borderRadius: '4px',
+                      fontWeight: presetRange === option.value ? 600 : 500,
+                      fontSize: '10px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (presetRange !== option.value) {
+                        e.currentTarget.style.background = '#e2e8f0';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (presetRange !== option.value) {
+                        e.currentTarget.style.background = '#f1f5f9';
+                      }
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Custom Date Range */}
+            {dateRangeType === 'custom' && (
+              <div style={{
+                display: 'flex',
+                gap: '6px',
+                alignItems: 'center'
+              }}>
+                <div style={{ minWidth: '120px' }}>
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    max={customEndDate || new Date().toISOString().split('T')[0]}
+                    placeholder="Start Date"
+                    style={{
+                      width: '100%',
+                      padding: '4px 8px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      color: '#1e293b',
+                      background: '#fff',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+                <div style={{ minWidth: '120px' }}>
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    min={customStartDate}
+                    max={new Date().toISOString().split('T')[0]}
+                    placeholder="End Date"
+                    style={{
+                      width: '100%',
+                      padding: '4px 8px',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: '4px',
+                      fontSize: '11px',
+                      color: '#1e293b',
+                      background: '#fff',
+                      boxSizing: 'border-box'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Apply Filters Button */}
             <button
               onClick={fetchGmailEmails}
               disabled={emailsLoading || !tallylocId || !coGuid}
               style={{
-                padding: '10px 24px',
+                padding: '4px 10px',
                 background: (emailsLoading || !tallylocId || !coGuid)
                   ? '#94a3b8'
                   : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
                 color: '#fff',
                 border: 'none',
-                borderRadius: '8px',
+                borderRadius: '4px',
                 fontWeight: 600,
-                fontSize: '14px',
+                fontSize: '11px',
                 cursor: (emailsLoading || !tallylocId || !coGuid) ? 'not-allowed' : 'pointer',
                 boxShadow: (emailsLoading || !tallylocId || !coGuid)
                   ? 'none'
                   : '0 2px 8px rgba(59, 130, 246, 0.25)',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '8px',
-                transition: 'all 0.2s ease'
+                gap: '4px',
+                transition: 'all 0.2s ease',
+                marginLeft: 'auto'
               }}
               onMouseEnter={(e) => {
                 if (!emailsLoading && tallylocId && coGuid) {
-                  e.currentTarget.style.transform = 'translateY(-2px)';
+                  e.currentTarget.style.transform = 'translateY(-1px)';
                   e.currentTarget.style.boxShadow = '0 4px 12px rgba(59, 130, 246, 0.35)';
                 }
               }}
@@ -1091,7 +636,7 @@ function GmailJsonViewer() {
                   : '0 2px 8px rgba(59, 130, 246, 0.25)';
               }}
             >
-              <span className="material-icons" style={{ fontSize: '18px' }}>
+              <span className="material-icons" style={{ fontSize: '14px' }}>
                 {emailsLoading ? 'hourglass_empty' : 'search'}
               </span>
               {emailsLoading ? 'Loading...' : 'Apply Filters'}
@@ -1174,228 +719,68 @@ function GmailJsonViewer() {
           </div>
         )}
 
-        {/* Emails List */}
-        {!emailsLoading && emails.length > 0 && (
+        {/* Email Details - Replaces email list when selected */}
+        {selectedEmail ? (
           <div style={{
-            maxHeight: '500px',
-            overflowY: 'auto',
-            borderRadius: '8px',
-            border: '1px solid #e2e8f0',
-            background: '#fff'
-          }}>
-            {emails.map((email, index) => (
-              <div
-                key={email.id}
-                onClick={() => handleEmailClick(email)}
-                style={{
-                  padding: '16px',
-                  borderBottom: index < emails.length - 1 ? '1px solid #f1f5f9' : 'none',
-                  cursor: 'pointer',
-                  transition: 'background 0.2s ease',
-                  background: '#fff'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#f0f9ff';
-                  e.currentTarget.style.borderLeft = '3px solid #3b82f6';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = '#fff';
-                  e.currentTarget.style.borderLeft = 'none';
-                }}
-              >
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  gap: '12px',
-                  marginBottom: '8px'
-                }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      marginBottom: '6px'
-                    }}>
-                      <p style={{
-                        margin: 0,
-                        fontSize: '15px',
-                        fontWeight: 600,
-                        color: '#1e293b',
-                        wordBreak: 'break-word',
-                        flex: 1
-                      }}>
-                        {email.subject}
-                      </p>
-                      <span className="material-icons" style={{
-                        fontSize: '18px',
-                        color: '#3b82f6',
-                        flexShrink: 0,
-                        opacity: 0.7
-                      }}>
-                        open_in_new
-                      </span>
-                    </div>
-                    <p style={{
-                      margin: 0,
-                      fontSize: '13px',
-                      color: '#64748b',
-                      marginBottom: '4px',
-                      wordBreak: 'break-word'
-                    }}>
-                      <span className="material-icons" style={{ fontSize: '14px', verticalAlign: 'middle', marginRight: '4px' }}>
-                        person
-                      </span>
-                      {email.from}
-                    </p>
-                    {email.snippet && (
-                      <p style={{
-                        margin: '8px 0 0 0',
-                        fontSize: '13px',
-                        color: '#94a3b8',
-                        lineHeight: '1.5',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical'
-                      }}>
-                        {email.snippet}
-                      </p>
-                    )}
-                  </div>
-                  <div style={{
-                    fontSize: '12px',
-                    color: '#94a3b8',
-                    whiteSpace: 'nowrap',
-                    flexShrink: 0,
-                    marginLeft: '12px'
-                  }}>
-                    {email.date ? new Date(email.date).toLocaleDateString() : 'No date'}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Empty Emails State */}
-        {!emailsLoading && !emailsError && emails.length === 0 && (
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '40px 20px',
-            color: '#94a3b8',
-            textAlign: 'center',
             background: '#fff',
             borderRadius: '8px',
-            border: '1px solid #e2e8f0'
-          }}>
-            <span className="material-icons" style={{
-              fontSize: '48px',
-              marginBottom: '12px',
-              color: '#cbd5e1'
-            }}>
-              mail_outline
-            </span>
-            <p style={{ margin: 0, fontSize: '14px', fontWeight: 500, color: '#64748b' }}>
-              No emails found
-            </p>
-            <p style={{ margin: '6px 0 0 0', fontSize: '12px', maxWidth: '300px' }}>
-              Click "Refresh Emails" to load emails from your Gmail inbox
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* Email Detail Modal */}
-      {selectedEmail && (
-        <div
-          onClick={closeEmailModal}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0, 0, 0, 0.6)',
-            zIndex: 10000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            border: '1px solid #e2e8f0',
             padding: '20px',
-            overflow: 'auto'
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: '#fff',
-              borderRadius: '16px',
-              width: '100%',
-              maxWidth: '800px',
-              maxHeight: '90vh',
-              display: 'flex',
-              flexDirection: 'column',
-              boxShadow: '0 20px 50px rgba(0, 0, 0, 0.3)',
-              overflow: 'hidden'
-            }}
-          >
-            {/* Modal Header */}
+            maxHeight: '400px',
+            overflowY: 'auto'
+          }}>
+            {/* Email Header */}
             <div style={{
-              padding: '20px 24px',
-              borderBottom: '1px solid #e2e8f0',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              background: '#f8fafc'
+              marginBottom: '20px',
+              paddingBottom: '16px',
+              borderBottom: '1px solid #e2e8f0'
             }}>
-              <h3 style={{
-                margin: 0,
-                fontSize: '18px',
-                fontWeight: 700,
-                color: '#1e293b',
-                flex: 1
-              }}>
-                {selectedEmail.subject || 'No Subject'}
-              </h3>
-              <button
-                onClick={closeEmailModal}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '8px',
-                  borderRadius: '8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#64748b',
-                  transition: 'all 0.2s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = '#f1f5f9';
-                  e.currentTarget.style.color = '#1e293b';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = '#64748b';
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: '24px' }}>
-                  close
-                </span>
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1 }}>
+                <button
+                  onClick={closeEmailModal}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: '8px',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#64748b',
+                    transition: 'all 0.2s ease'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = '#f1f5f9';
+                    e.currentTarget.style.color = '#1e293b';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = '#64748b';
+                  }}
+                  title="Back to emails"
+                >
+                  <span className="material-icons" style={{ fontSize: '20px' }}>
+                    arrow_back
+                  </span>
+                </button>
+                <h3 style={{
+                  margin: 0,
+                  fontSize: '18px',
+                  fontWeight: 700,
+                  color: '#1e293b',
+                  flex: 1
+                }}>
+                  {selectedEmail.subject || 'No Subject'}
+                </h3>
+              </div>
             </div>
 
-            {/* Modal Content */}
-            <div style={{
-              padding: '24px',
-              overflowY: 'auto',
-              flex: 1
-            }}>
+            {/* Email Content */}
+            <div>
               {emailDetailsLoading && (
                 <div style={{
                   display: 'flex',
@@ -1569,8 +954,145 @@ function GmailJsonViewer() {
               )}
             </div>
           </div>
-        </div>
-      )}
+        ) : (
+          <>
+            {/* Emails List */}
+            {!emailsLoading && emails.length > 0 && (
+              <div style={{
+                maxHeight: '500px',
+                overflowY: 'auto',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0',
+                background: '#fff'
+              }}>
+                {emails.map((email, index) => (
+                  <div
+                    key={email.id}
+                    onClick={() => handleEmailClick(email)}
+                    style={{
+                      padding: '16px',
+                      borderBottom: index < emails.length - 1 ? '1px solid #f1f5f9' : 'none',
+                      cursor: 'pointer',
+                      transition: 'background 0.2s ease',
+                      background: '#fff'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#f0f9ff';
+                      e.currentTarget.style.borderLeft = '3px solid #3b82f6';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '#fff';
+                      e.currentTarget.style.borderLeft = 'none';
+                    }}
+                  >
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      gap: '12px',
+                      marginBottom: '8px'
+                    }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px',
+                          marginBottom: '6px'
+                        }}>
+                          <p style={{
+                            margin: 0,
+                            fontSize: '15px',
+                            fontWeight: 600,
+                            color: '#1e293b',
+                            wordBreak: 'break-word',
+                            flex: 1
+                          }}>
+                            {email.subject}
+                          </p>
+                          <span className="material-icons" style={{
+                            fontSize: '18px',
+                            color: '#3b82f6',
+                            flexShrink: 0,
+                            opacity: 0.7
+                          }}>
+                            open_in_new
+                          </span>
+                        </div>
+                        <p style={{
+                          margin: 0,
+                          fontSize: '13px',
+                          color: '#64748b',
+                          marginBottom: '4px',
+                          wordBreak: 'break-word'
+                        }}>
+                          <span className="material-icons" style={{ fontSize: '14px', verticalAlign: 'middle', marginRight: '4px' }}>
+                            person
+                          </span>
+                          {email.from}
+                        </p>
+                        {email.snippet && (
+                          <p style={{
+                            margin: '8px 0 0 0',
+                            fontSize: '13px',
+                            color: '#94a3b8',
+                            lineHeight: '1.5',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical'
+                          }}>
+                            {email.snippet}
+                          </p>
+                        )}
+                      </div>
+                      <div style={{
+                        fontSize: '12px',
+                        color: '#94a3b8',
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
+                        marginLeft: '12px'
+                      }}>
+                        {email.date ? new Date(email.date).toLocaleDateString() : 'No date'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Empty Emails State */}
+            {!emailsLoading && !emailsError && emails.length === 0 && (
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '40px 20px',
+                color: '#94a3b8',
+                textAlign: 'center',
+                background: '#fff',
+                borderRadius: '8px',
+                border: '1px solid #e2e8f0'
+              }}>
+                <span className="material-icons" style={{
+                  fontSize: '48px',
+                  marginBottom: '12px',
+                  color: '#cbd5e1'
+                }}>
+                  mail_outline
+                </span>
+                <p style={{ margin: 0, fontSize: '14px', fontWeight: 500, color: '#64748b' }}>
+                  No emails found
+                </p>
+                <p style={{ margin: '6px 0 0 0', fontSize: '12px', maxWidth: '300px' }}>
+                  Click "Refresh Emails" to load emails from your Gmail inbox
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
       {/* CSS for spin animation */}
       <style>{`
