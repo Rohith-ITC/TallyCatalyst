@@ -40,6 +40,12 @@ import { UdfEvaluator } from '../../utils/udfEvaluator';
 import { loadUdfConfig, getAvailableUdfFields } from '../../utils/udfConfigLoader';
 import UdfFieldSelector from './components/UdfFieldSelector';
 import { extractAllFieldsFromCache, getNestedFieldValue, getNestedFieldValues, HIERARCHY_MAP } from './utils/fieldExtractor';
+import { 
+  loadMultiCompanySalesData, 
+  getSelectedCompanies, 
+  setSelectedCompanies, 
+  getAllAvailableCompanies 
+} from '../../utils/multiCompanyCacheManager';
 
 const SalesDashboard = ({ onNavigationAttempt }) => {
   // Mobile detection
@@ -153,6 +159,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   const [salespersonFormula, setSalespersonFormula] = useState(''); // Formula from company configuration
   const requestTimestampRef = useRef(Date.now());
 
+  // Multi-company selection state
+  const [selectedCompanies, setSelectedCompaniesState] = useState(() => {
+    try {
+      const companies = getSelectedCompanies();
+      return companies;
+    } catch {
+      return [];
+    }
+  });
+  const [availableCompanies, setAvailableCompanies] = useState([]);
+  const [showMultiCompanySelector, setShowMultiCompanySelector] = useState(false);
+  const multiCompanySelectorRef = useRef(null);
+
   // Note: apiCache removed - using hybridCache (OPFS-only) instead
   const [shouldAutoLoad, setShouldAutoLoad] = useState(false);
   const loadSalesRef = useRef(null);
@@ -213,8 +232,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   // Per-card period settings (stored in localStorage)
   const [cardPeriodSettings, setCardPeriodSettings] = useState({});
 
-  // Custom reports state
-  const [showCustomReportModal, setShowCustomReportModal] = useState(false);
 
   // Calendar modal state
   const [showCalendarModal, setShowCalendarModal] = useState(false);
@@ -795,30 +812,19 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   // Helper functions
   const getCompanyInfo = () => {
-    // Get all companies from sessionStorage
-    const companies = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
-    console.log('📋 Available companies:', companies);
+    // Get selected companies (supports multi-company)
+    const companies = getSelectedCompanies();
     
-    // Get current company from sessionStorage
-    const selectedCompanyGuid = sessionStorage.getItem('selectedCompanyGuid') || '';
-    const selectedCompanyTallylocId = sessionStorage.getItem('selectedCompanyTallylocId') || '';
-    console.log('🎯 Selected company identifiers:', { selectedCompanyGuid, selectedCompanyTallylocId });
-    
-    // Find the current company object
-    // Match by both guid and tallyloc_id to handle companies with same guid but different tallyloc_id
-    const currentCompanyObj = companies.find(c =>
-      c.guid === selectedCompanyGuid &&
-      (selectedCompanyTallylocId ? String(c.tallyloc_id) === String(selectedCompanyTallylocId) : true)
-    );
-    console.log('🏢 Current company object:', currentCompanyObj);
-    
-    if (!currentCompanyObj) {
+    if (!companies || companies.length === 0) {
       const errorMsg = 'No company selected. Please select a company first.';
       console.error('❌', errorMsg);
       throw new Error(errorMsg);
     }
     
-    const { tallyloc_id, company, guid } = currentCompanyObj;
+    // For backward compatibility, return the first selected company
+    // (original behavior expected single company)
+    const firstCompany = companies[0];
+    const { tallyloc_id, company, guid } = firstCompany;
     
     const companyInfo = {
       tallyloc_id,
@@ -826,8 +832,23 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       guid
     };
     
-    console.log('✅ Company info for API:', companyInfo);
+    console.log('✅ Company info for API:', companyInfo, `(First of ${companies.length} selected)`);
     return companyInfo;
+  };
+
+  // Handle multi-company selection change
+  const handleMultiCompanyChange = (companyGuids) => {
+    const companies = availableCompanies.filter(c => 
+      companyGuids.includes(c.guid)
+    );
+    setSelectedCompanies(companies);
+    setSelectedCompaniesState(companies);
+    setShowMultiCompanySelector(false);
+    
+    // Reload data if dates are set
+    if (fromDate && toDate) {
+      loadSales(fromDate, toDate, { invalidateCache: false });
+    }
   };
 
   // Load custom cards from backend
@@ -1177,6 +1198,73 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     return { month: 3, day: 1 }; // April 1st
   };
 
+  // Helper function to get financial year quarter (1-4) based on financial year start month
+  const getFinancialYearQuarter = (date, fyStartMonth) => {
+    const month = date.getMonth(); // 0-indexed (0 = Jan, 11 = Dec)
+    
+    // Calculate the month's position within the financial year
+    // If month >= fyStartMonth, it's in the current calendar year's FY
+    // If month < fyStartMonth, it's in the next calendar year's FY
+    const fyMonthIndex = month >= fyStartMonth 
+      ? month - fyStartMonth  // Months from FY start (e.g., Apr=0, May=1, ..., Dec=8)
+      : month + (12 - fyStartMonth); // Months before FY start (e.g., Jan=9, Feb=10, Mar=11)
+    
+    return Math.floor(fyMonthIndex / 3) + 1; // Q1, Q2, Q3, or Q4
+  };
+
+  // Helper function to get quarter months array based on financial year start
+  // Returns array of 1-indexed months (1-12) for the given quarter
+  const getQuarterMonths = (quarter, fyStartMonth) => {
+    const months = [];
+    const startMonthIndex = (quarter - 1) * 3; // 0, 3, 6, or 9 (FY month index)
+    for (let i = 0; i < 3; i++) {
+      const fyMonthIndex = startMonthIndex + i;
+      const calendarMonth = fyMonthIndex < 12 
+        ? fyStartMonth + fyMonthIndex 
+        : fyStartMonth + fyMonthIndex - 12;
+      months.push(calendarMonth + 1); // Convert to 1-indexed for matching
+    }
+    return months;
+  };
+
+  // Helper function to get quarter start month (0-indexed) based on financial year start
+  const getQuarterStartMonth = (quarter, fyStartMonth) => {
+    const quarterIndex = quarter - 1; // 0, 1, 2, or 3
+    const fyMonthIndex = quarterIndex * 3; // 0, 3, 6, or 9
+    return fyMonthIndex < 12 
+      ? fyStartMonth + fyMonthIndex 
+      : fyStartMonth + fyMonthIndex - 12;
+  };
+
+  // Helper function to get current quarter start date based on financial year
+  const getCurrentQuarterStart = (date, fyStartMonth, fyStartDay) => {
+    const month = date.getMonth();
+    const quarter = getFinancialYearQuarter(date, fyStartMonth);
+    const quarterStartMonth = getQuarterStartMonth(quarter, fyStartMonth);
+    
+    // Determine which calendar year the quarter belongs to
+    // If quarter start month is before FY start month (e.g., Q4 Jan-Mar when FY starts in Apr),
+    // it means the quarter is in the next calendar year relative to when the FY started
+    let quarterYear = date.getFullYear();
+    if (quarterStartMonth < fyStartMonth) {
+      // Quarter spans across calendar year boundary (e.g., Q4: Jan-Mar when FY starts in Apr)
+      // If we're currently in a month >= FY start, we're in a new FY, so Q4 was in previous calendar year
+      // If we're currently in a month < FY start, we're still in previous FY, so Q4 is in current calendar year
+      if (month >= fyStartMonth) {
+        // We're in a new FY, so Q4 was in the previous calendar year
+        quarterYear = date.getFullYear() - 1;
+      } else {
+        // We're still in previous FY, so Q4 is in current calendar year
+        quarterYear = date.getFullYear();
+      }
+    } else {
+      // Quarter is entirely within one calendar year (Q1, Q2, Q3 when FY starts in Apr)
+      quarterYear = date.getFullYear();
+    }
+    
+    return new Date(quarterYear, quarterStartMonth, fyStartDay);
+  };
+
   // Convert calendar year to financial year range
   // Example: year 2024 with FY starting April -> April 1, 2024 to March 31, 2025
   const getFinancialYearRange = (calendarYear, fyStartMonth, fyStartDay) => {
@@ -1298,18 +1386,18 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 break;
               }
               case 'quarter': {
-                const currentMonth = today.getMonth();
-                let quarterStartMonth;
-                if (currentMonth >= 0 && currentMonth <= 2) {
-                  quarterStartMonth = 0; // January
-                } else if (currentMonth >= 3 && currentMonth <= 5) {
-                  quarterStartMonth = 3; // April
-                } else if (currentMonth >= 6 && currentMonth <= 8) {
-                  quarterStartMonth = 6; // July
-                } else {
-                  quarterStartMonth = 9; // October
+                let fyStartMonth = 3; // Default to April
+                let fyStartDay = 1;
+                
+                try {
+                  const fyStart = getFinancialYearStartMonthDay(companyInfo.guid, companyInfo.tallyloc_id);
+                  fyStartMonth = fyStart.month;
+                  fyStartDay = fyStart.day;
+                } catch (err) {
+                  // Use default
                 }
-                const quarterStart = new Date(today.getFullYear(), quarterStartMonth, 1);
+                
+                const quarterStart = getCurrentQuarterStart(today, fyStartMonth, fyStartDay);
                 periodDates = {
                   start: formatDate(quarterStart),
                   end: formatDate(today)
@@ -1538,7 +1626,27 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   }, [loading, loadingStartTime]);
 
   const fetchSalesData = async (startDate, endDate) => {
-    const companyInfo = getCompanyInfo();
+    // Get selected companies (supports both single and multiple companies)
+    const companies = getSelectedCompanies();
+    
+    if (!companies || companies.length === 0) {
+      console.warn('⚠️ No companies selected');
+      return { data: { vouchers: [] }, cacheTimestamp: null };
+    }
+
+    // If multiple companies selected, use multi-company loader
+    if (companies.length > 1) {
+      console.log(`📊 Loading data from ${companies.length} companies using multi-company loader`);
+      return await loadMultiCompanySalesData(
+        companies,
+        startDate,
+        endDate,
+        processVouchersWithUdf
+      );
+    }
+
+    // Single company mode (original behavior)
+    const companyInfo = companies[0];
     
     // First, check for complete cached data - if exists, use it and don't call API
     try {
@@ -1902,6 +2010,49 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
     prevFormulaRef.current = salespersonFormula;
   }, [salespersonFormula]);
 
+  // Load available companies on mount
+  useEffect(() => {
+    const companies = getAllAvailableCompanies();
+    setAvailableCompanies(companies);
+    
+    // Initialize selected companies
+    const selected = getSelectedCompanies();
+    setSelectedCompaniesState(selected);
+  }, []);
+
+  // Close multi-company selector when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (
+        multiCompanySelectorRef.current &&
+        !multiCompanySelectorRef.current.contains(event.target)
+      ) {
+        setShowMultiCompanySelector(false);
+      }
+    };
+
+    if (showMultiCompanySelector) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [showMultiCompanySelector]);
+
+  // Update selected companies when they change
+  useEffect(() => {
+    const handleCompanyChange = () => {
+      const selected = getSelectedCompanies();
+      setSelectedCompaniesState(selected);
+      
+      const companies = getAllAvailableCompanies();
+      setAvailableCompanies(companies);
+    };
+
+    window.addEventListener('companyChanged', handleCompanyChange);
+    return () => window.removeEventListener('companyChanged', handleCompanyChange);
+  }, []);
+
   // Set default date range on component mount
   useEffect(() => {
     initializeDashboard({ triggerFetch: false });
@@ -2049,16 +2200,11 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           const selectedQuarter = parseInt(quarterMatch[1]);
           const selectedYear = parseInt(quarterMatch[2]);
           
-          // Check if sale's month falls within the selected quarter
-          const quarterMonths = {
-            1: [1, 2, 3],   // Q1: Jan, Feb, Mar
-            2: [4, 5, 6],   // Q2: Apr, May, Jun
-            3: [7, 8, 9],   // Q3: Jul, Aug, Sep
-            4: [10, 11, 12] // Q4: Oct, Nov, Dec
-          };
+          // Get quarter months based on financial year start
+          const quarterMonths = getQuarterMonths(selectedQuarter, fyStartMonth);
           
           periodMatch = saleYear === selectedYear && 
-                       quarterMonths[selectedQuarter]?.includes(saleMonth);
+                       quarterMonths.includes(saleMonth);
         } else if (/^\d{4}$/.test(selectedPeriod)) {
           // Year-only format (YYYY) - now represents financial year
           // e.g., 2024 means financial year from Apr 1, 2024 to Mar 31, 2025
@@ -2744,15 +2890,46 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               // Mark as sales
               issales: true,
               
+              // Preserve source company info from multi-company merge
+              ...(voucher.sourceCompany ? {
+                sourceCompany: voucher.sourceCompany,
+                sourceCompanyGuid: voucher.sourceCompanyGuid,
+                sourceCompanyTallylocId: voucher.sourceCompanyTallylocId
+              } : {}),
+              
               // Include all other fields from voucher for custom card creation
+              // This ensures ALL fields from ALL companies are preserved
               ...Object.keys(voucher).reduce((acc, key) => {
-                // Only add fields that aren't already mapped above (support both old and new field names)
-                const mappedKeys = ['mstid', 'masterid', 'alterid', 'vchno', 'vouchernumber', 'date', 'party', 'partyledgername', 'partyid', 'partyledgernameid', 'state', 'country', 'amt', 'amount', 'vchtype', 'vouchertypename', 'reservedname', 'gstno', 'partygstin', 'pincode', 'reference', 'ledgers', 'ledgerentries', 'inventry', 'allinventoryentries', 'salesprsn', 'SalesPrsn', 'SALESPRSN', 'salesperson', 'SalesPerson', 'salespersonname', 'SalesPersonName', 'sales_person', 'SALES_PERSON', 'sales_person_name', 'SALES_PERSON_NAME', 'SALESPERSONNAME'];
-                if (!mappedKeys.includes(key) && !key.toLowerCase().includes('sales') && !key.toLowerCase().includes('person') && !key.toLowerCase().includes('prsn')) {
-                  acc[key] = voucher[key];
+                // Skip internal/metadata keys that are already processed
+                const skipKeys = ['mstid', 'masterid', 'alterid', 'vchno', 'vouchernumber', 'date', 'party', 'partyledgername', 'partyid', 'partyledgernameid', 'state', 'country', 'amt', 'amount', 'vchtype', 'vouchertypename', 'reservedname', 'gstno', 'partygstin', 'pincode', 'reference', 'ledgers', 'ledgerentries', 'inventry', 'allinventoryentries', 'salesprsn', 'SalesPrsn', 'SALESPRSN', 'salesperson', 'SalesPerson', 'salespersonname', 'SalesPersonName', 'sales_person', 'SALES_PERSON', 'sales_person_name', 'SALES_PERSON_NAME', 'SALESPERSONNAME', '_originalVoucherId', '_processingError'];
+                
+                // Skip keys that are already explicitly mapped above
+                const alreadyMapped = ['category', 'item', 'quantity', 'amount', 'profit', 'customer', 'date', 'cp_date', 'vchno', 'masterid', 'region', 'country', 'salesperson', 'ledgerGroup', 'cgst', 'sgst', 'roundoff', 'alterid', 'partyid', 'gstno', 'pincode', 'reference', 'vchtype', 'itemid', 'uom', 'grosscost', 'grosexpense', 'issales'];
+                
+                const shouldSkip = skipKeys.includes(key) || 
+                                 alreadyMapped.includes(key.toLowerCase()) ||
+                                 key.startsWith('_'); // Skip internal fields
+                
+                if (!shouldSkip) {
+                  // Preserve the value, handling null/undefined
+                  const value = voucher[key];
+                  if (value !== undefined) {
+                    acc[key] = value;
+                  }
                 }
                 return acc;
-              }, {})
+              }, {}),
+              
+              // Also preserve all normalized fields that might have been added by multiCompanyCacheManager
+              // This ensures cards can access fields regardless of naming convention
+              ...(voucher.cp_date && !voucher.cp_date_original ? { cp_date_original: voucher.cp_date } : {}),
+              ...(voucher.date && !voucher.date_original ? { date_original: voucher.date } : {}),
+              ...(voucher.amount && !voucher.amount_original ? { amount_original: voucher.amount } : {}),
+              ...(voucher.total && !voucher.total_original ? { total_original: voucher.total } : {}),
+              ...(voucher.customer && !voucher.customer_original ? { customer_original: voucher.customer } : {}),
+              ...(voucher.party && !voucher.party_original ? { party_original: voucher.party } : {}),
+              ...(voucher.item && !voucher.item_original ? { item_original: voucher.item } : {}),
+              ...(voucher.product && !voucher.product_original ? { product_original: voucher.product } : {})
             };
             
             transformedSales.push(saleRecord);
@@ -2813,16 +2990,50 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       salespersonsInitializedRef.current = false;
       
       // Update cache state if data was loaded from cache
+      // For multi-company, check if ANY selected company has cache
       if (!invalidateCache) {
         try {
-          const companyInfo = getCompanyInfo();
-          const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
-          if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
+          const companies = getSelectedCompanies();
+          let hasAnyCache = false;
+          
+          if (companies && companies.length > 0) {
+            for (const companyInfo of companies) {
+              try {
+                const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+                if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
+                  hasAnyCache = true;
+                  break; // Found at least one company with cache
+                }
+              } catch (err) {
+                // Continue checking other companies
+              }
+            }
+          } else {
+            // Fallback to single company check
+            const companyInfo = getCompanyInfo();
+            const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+            if (completeCache && completeCache.data && completeCache.data.vouchers && completeCache.data.vouchers.length > 0) {
+              hasAnyCache = true;
+            }
+          }
+          
+          if (hasAnyCache) {
             setHasCacheData(true);
             setIsInterrupted(false);
           }
         } catch (err) {
           console.warn('Unable to update cache state after loading:', err);
+        }
+      }
+      
+      // Log multi-company data summary
+      if (transformedSales.length > 0) {
+        const companiesInData = new Set(transformedSales
+          .filter(s => s.sourceCompany)
+          .map(s => s.sourceCompany)
+        );
+        if (companiesInData.size > 0) {
+          console.log(`📊 Multi-company data loaded: ${transformedSales.length} records from ${companiesInData.size} company/companies:`, Array.from(companiesInData));
         }
       }
 
@@ -2847,25 +3058,55 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
   };
 
   // Load all cached sales data (for date override cards)
+  // Updated to support multi-company data
   const loadAllCachedSales = useCallback(async () => {
     try {
-      const companyInfo = getCompanyInfo();
-      if (!companyInfo || !companyInfo.guid || !companyInfo.tallyloc_id) {
-        console.warn('⚠️ No company selected, skipping all cached sales load');
+      // Get selected companies (supports both single and multiple companies)
+      const companies = getSelectedCompanies();
+      if (!companies || companies.length === 0) {
+        console.warn('⚠️ No companies selected, skipping all cached sales load');
         return;
       }
 
-      console.log('📥 Loading all cached sales data for date override cards...');
-      const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+      console.log('📥 Loading all cached sales data for date override cards from', companies.length, 'company/companies...');
       
-      if (!completeCache || !completeCache.data || !completeCache.data.vouchers || completeCache.data.vouchers.length === 0) {
-        console.log('⚠️ No complete cache found, allCachedSales will be empty');
-        setAllCachedSales([]);
-        return;
-      }
+      // For multi-company, we need to load and merge all data
+      let allVouchers = [];
+      
+      if (companies.length > 1) {
+        // Use multi-company loader but without date filtering (get all data)
+        // We'll use a very wide date range to get all data
+        const today = new Date();
+        const farPast = new Date(2000, 0, 1);
+        const farFuture = new Date(today.getFullYear() + 10, 11, 31);
+        const startDate = farPast.toISOString().split('T')[0];
+        const endDate = farFuture.toISOString().split('T')[0];
+        
+        const mergedData = await loadMultiCompanySalesData(
+          companies,
+          startDate,
+          endDate,
+          processVouchersWithUdf
+        );
+        
+        if (mergedData && mergedData.data && mergedData.data.vouchers) {
+          allVouchers = mergedData.data.vouchers;
+          console.log(`✅ Loaded ${allVouchers.length} vouchers from ${companies.length} companies for date override cards`);
+        }
+      } else {
+        // Single company mode (original behavior)
+        const companyInfo = companies[0];
+        const completeCache = await hybridCache.getCompleteSalesData(companyInfo);
+        
+        if (!completeCache || !completeCache.data || !completeCache.data.vouchers || completeCache.data.vouchers.length === 0) {
+          console.log('⚠️ No complete cache found, allCachedSales will be empty');
+          setAllCachedSales([]);
+          return;
+        }
 
-      const allVouchers = completeCache.data.vouchers;
-      console.log('📦 Loaded', allVouchers.length, 'vouchers from complete cache');
+        allVouchers = completeCache.data.vouchers;
+        console.log('📦 Loaded', allVouchers.length, 'vouchers from complete cache');
+      }
 
       // Reuse the same transformation logic from loadSales
       const extractCountry = (voucher) => {
@@ -3055,13 +3296,46 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               grosscost: parseAmount(inventoryItem.grosscost) || 0,
               grossexpense: parseAmount(inventoryItem.grossexpense) || 0,
               issales: true,
+              
+              // Preserve source company info from multi-company merge
+              ...(voucher.sourceCompany ? {
+                sourceCompany: voucher.sourceCompany,
+                sourceCompanyGuid: voucher.sourceCompanyGuid,
+                sourceCompanyTallylocId: voucher.sourceCompanyTallylocId
+              } : {}),
+              
+              // Include all other fields from voucher for custom card creation
+              // This ensures ALL fields from ALL companies are preserved
               ...Object.keys(voucher).reduce((acc, key) => {
-                const mappedKeys = ['mstid', 'masterid', 'alterid', 'vchno', 'vouchernumber', 'date', 'party', 'partyledgername', 'partyid', 'partyledgernameid', 'state', 'country', 'amt', 'amount', 'vchtype', 'vouchertypename', 'reservedname', 'gstno', 'partygstin', 'pincode', 'reference', 'ledgers', 'ledgerentries', 'inventry', 'allinventoryentries', 'salesprsn', 'SalesPrsn', 'SALESPRSN', 'salesperson', 'SalesPerson', 'salespersonname', 'SalesPersonName', 'sales_person', 'SALES_PERSON', 'sales_person_name', 'SALES_PERSON_NAME', 'SALESPERSONNAME'];
-                if (!mappedKeys.includes(key) && !key.toLowerCase().includes('sales') && !key.toLowerCase().includes('person') && !key.toLowerCase().includes('prsn')) {
-                  acc[key] = voucher[key];
+                // Skip internal/metadata keys that are already processed
+                const skipKeys = ['mstid', 'masterid', 'alterid', 'vchno', 'vouchernumber', 'date', 'party', 'partyledgername', 'partyid', 'partyledgernameid', 'state', 'country', 'amt', 'amount', 'vchtype', 'vouchertypename', 'reservedname', 'gstno', 'partygstin', 'pincode', 'reference', 'ledgers', 'ledgerentries', 'inventry', 'allinventoryentries', 'salesprsn', 'SalesPrsn', 'SALESPRSN', 'salesperson', 'SalesPerson', 'salespersonname', 'SalesPersonName', 'sales_person', 'SALES_PERSON', 'sales_person_name', 'SALES_PERSON_NAME', 'SALESPERSONNAME', '_originalVoucherId', '_processingError'];
+                
+                // Skip keys that are already explicitly mapped above
+                const alreadyMapped = ['category', 'item', 'quantity', 'amount', 'profit', 'customer', 'date', 'cp_date', 'vchno', 'masterid', 'region', 'country', 'salesperson', 'ledgerGroup', 'cgst', 'sgst', 'roundoff', 'alterid', 'partyid', 'gstno', 'pincode', 'reference', 'vchtype', 'itemid', 'uom', 'grosscost', 'grosexpense', 'issales', 'sourceCompany', 'sourceCompanyGuid', 'sourceCompanyTallylocId'];
+                
+                const shouldSkip = skipKeys.includes(key) || 
+                                 alreadyMapped.includes(key.toLowerCase()) ||
+                                 key.startsWith('_'); // Skip internal fields
+                
+                if (!shouldSkip) {
+                  // Preserve the value, handling null/undefined
+                  const value = voucher[key];
+                  if (value !== undefined) {
+                    acc[key] = value;
+                  }
                 }
                 return acc;
-              }, {})
+              }, {}),
+              
+              // Also preserve all normalized fields that might have been added by multiCompanyCacheManager
+              ...(voucher.cp_date && !voucher.cp_date_original ? { cp_date_original: voucher.cp_date } : {}),
+              ...(voucher.date && !voucher.date_original ? { date_original: voucher.date } : {}),
+              ...(voucher.amount && !voucher.amount_original ? { amount_original: voucher.amount } : {}),
+              ...(voucher.total && !voucher.total_original ? { total_original: voucher.total } : {}),
+              ...(voucher.customer && !voucher.customer_original ? { customer_original: voucher.customer } : {}),
+              ...(voucher.party && !voucher.party_original ? { party_original: voucher.party } : {}),
+              ...(voucher.item && !voucher.item_original ? { item_original: voucher.item } : {}),
+              ...(voucher.product && !voucher.product_original ? { product_original: voucher.product } : {})
             };
 
             transformedSales.push(saleRecord);
@@ -3329,22 +3603,23 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
 
   const getQuarterStartToDate = () => {
     const today = new Date();
-    const currentMonth = today.getMonth(); // 0-indexed
-    const currentYear = today.getFullYear();
     
-    // Determine quarter start month
-    let quarterStartMonth;
-    if (currentMonth >= 0 && currentMonth <= 2) { // Q1: Jan-Mar
-      quarterStartMonth = 0; // January
-    } else if (currentMonth >= 3 && currentMonth <= 5) { // Q2: Apr-Jun
-      quarterStartMonth = 3; // April
-    } else if (currentMonth >= 6 && currentMonth <= 8) { // Q3: Jul-Sep
-      quarterStartMonth = 6; // July
-    } else { // Q4: Oct-Dec
-      quarterStartMonth = 9; // October
+    // Get financial year start from company's startingfrom field
+    let fyStartMonth = 3; // Default to April (0-indexed)
+    let fyStartDay = 1;
+    
+    try {
+      const companyInfo = getCompanyInfo();
+      const fyStart = getFinancialYearStartMonthDay(companyInfo.guid, companyInfo.tallyloc_id);
+      fyStartMonth = fyStart.month;
+      fyStartDay = fyStart.day;
+    } catch (err) {
+      // If company not selected, use default April 1st
+      console.warn('Unable to get company info for quarter calculation, using default April 1st:', err);
     }
     
-    const quarterStart = new Date(currentYear, quarterStartMonth, 1);
+    const quarterStart = getCurrentQuarterStart(today, fyStartMonth, fyStartDay);
+    
     return {
       start: dateToString(quarterStart),
       end: dateToString(today)
@@ -3804,8 +4079,15 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
           } else if (fieldName === 'year') {
             return String(date.getFullYear());
           } else if (fieldName === 'quarter') {
-            const month = date.getMonth();
-            const quarter = Math.floor(month / 3) + 1;
+            let fyStartMonth = 3; // Default to April
+            try {
+              const companyInfo = getCompanyInfo();
+              const fyStart = getFinancialYearStartMonthDay(companyInfo?.guid, companyInfo?.tallyloc_id);
+              fyStartMonth = fyStart.month;
+            } catch (err) {
+              // Use default if company not selected
+            }
+            const quarter = getFinancialYearQuarter(date, fyStartMonth);
             return `Q${quarter} ${date.getFullYear()}`;
           } else if (fieldName === 'week') {
             const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
@@ -4426,7 +4708,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         color: colors[index % colors.length],
       }))
       .sort((a, b) => b.value - a.value);
-  }, [getCardDataSource]);
+  }, [getCardDataSource, filteredSales]); // Add filteredSales to dependencies to ensure cross-filtering works
 
   // Region chart data
   const regionChartData = useMemo(() => {
@@ -6384,7 +6666,7 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
         categoryLabel = monthNames[date.getMonth()];
       } else if (category === 'quarter') {
-        const quarter = Math.floor(date.getMonth() / 3) + 1;
+        const quarter = getFinancialYearQuarter(date, fyStartMonth);
         categoryKey = `Q${quarter}`;
         categoryLabel = `Q${quarter}`;
       } else if (category === 'week') {
@@ -7507,8 +7789,16 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
         if (saleDate) {
           const date = new Date(saleDate);
           if (!isNaN(date.getTime())) {
-            const month = date.getMonth();
-            const quarter = Math.floor(month / 3) + 1;
+            // Get financial year start for grouping
+            let fyStartMonth = 3; // Default to April (0-indexed)
+            try {
+              const companyInfo = getCompanyInfo();
+              const fyStart = getFinancialYearStartMonthDay(companyInfo.guid, companyInfo.tallyloc_id);
+              fyStartMonth = fyStart.month;
+            } catch (err) {
+              // Use default if company not selected
+            }
+            const quarter = getFinancialYearQuarter(date, fyStartMonth);
             const year = date.getFullYear();
             // Use sortable format for groupKey (YYYY-Q) and display format for originalKey
             groupKey = `${year}-${quarter}`; // Sortable: "2024-1"
@@ -11742,47 +12032,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               justifyContent: 'flex-end',
               flex: '1'
             }}>
-              {/* Create Custom Report Button */}
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  console.log('🔒 Opening Custom Report Modal - using existing sales data only, no API calls should occur. Sales data count:', sales.length);
-                  setShowCustomReportModal(true);
-                }}
-                disabled={sales.length === 0}
-                style={{
-                  background: 'transparent',
-                  color: sales.length === 0 ? '#6b7280' : 'white',
-                  border: sales.length === 0 ? '1px solid rgba(107, 114, 128, 0.3)' : '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
-                  padding: '6px 12px',
-                  cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  transition: 'all 0.2s ease',
-                  whiteSpace: 'nowrap',
-                  opacity: sales.length === 0 ? 0.5 : 0.9
-                }}
-                onMouseEnter={(e) => {
-                  if (sales.length > 0) {
-                    e.currentTarget.style.opacity = '1';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.4)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (sales.length > 0) {
-                    e.currentTarget.style.opacity = '0.9';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                  }
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: '16px' }}>summarize</span>
-                <span>Create Custom Report</span>
-              </button>
 
               {/* Create Custom Card Button */}
               <button
@@ -11859,6 +12108,187 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromDate && toDate ? formatDateRangeForHeader(fromDate, toDate) : 'Date Range'}</span>
               </button>
+
+              {/* Multi-Company Selector Button */}
+              {availableCompanies.length > 1 && (
+                <div ref={multiCompanySelectorRef} style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowMultiCompanySelector(!showMultiCompanySelector);
+                    }}
+                    title={selectedCompanies.length > 1 ? `${selectedCompanies.length} companies selected` : 'Select companies'}
+                    style={{
+                      background: selectedCompanies.length > 1 ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                      border: selectedCompanies.length > 1 ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '8px',
+                      padding: '6px 12px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      color: 'white',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      transition: 'all 0.2s ease',
+                      whiteSpace: 'nowrap',
+                      opacity: 0.9
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.opacity = '1';
+                      e.target.style.borderColor = selectedCompanies.length > 1 ? 'rgba(59, 130, 246, 0.6)' : 'rgba(255, 255, 255, 0.4)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.opacity = '0.9';
+                      e.target.style.borderColor = selectedCompanies.length > 1 ? 'rgba(59, 130, 246, 0.4)' : 'rgba(255, 255, 255, 0.2)';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '16px' }}>business</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {selectedCompanies.length > 1 
+                        ? `${selectedCompanies.length} Companies`
+                        : selectedCompanies.length === 1 
+                          ? selectedCompanies[0].company?.substring(0, 15) || 'Company'
+                          : 'Select Companies'}
+                    </span>
+                    {selectedCompanies.length > 1 && (
+                      <span className="material-icons" style={{ fontSize: '14px', marginLeft: '4px' }}>check_circle</span>
+                    )}
+                  </button>
+
+                  {/* Multi-Company Selector Dropdown */}
+                  {showMultiCompanySelector && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        right: 0,
+                        marginTop: '8px',
+                        background: '#ffffff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                        zIndex: 2000,
+                        minWidth: '280px',
+                        maxWidth: '320px',
+                        maxHeight: '400px',
+                        overflowY: 'auto',
+                        padding: '8px'
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div style={{
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        color: '#1e293b',
+                        marginBottom: '8px',
+                        paddingBottom: '8px',
+                        borderBottom: '1px solid #e2e8f0'
+                      }}>
+                        Select Companies
+                      </div>
+                      {availableCompanies.map((company) => {
+                        const isSelected = selectedCompanies.some(c => 
+                          c.guid === company.guid && c.tallyloc_id === company.tallyloc_id
+                        );
+                        return (
+                          <div
+                            key={`${company.guid}_${company.tallyloc_id}`}
+                            onClick={() => {
+                              const newSelection = isSelected
+                                ? selectedCompanies.filter(c => 
+                                    !(c.guid === company.guid && c.tallyloc_id === company.tallyloc_id)
+                                  )
+                                : [...selectedCompanies, company];
+                              
+                              if (newSelection.length > 0) {
+                                handleMultiCompanyChange(newSelection.map(c => c.guid));
+                              }
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '10px 12px',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              transition: 'background 0.15s ease',
+                              background: isSelected ? '#eff6ff' : 'transparent',
+                              marginBottom: '4px'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) {
+                                e.currentTarget.style.background = '#f8fafc';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) {
+                                e.currentTarget.style.background = 'transparent';
+                              }
+                            }}
+                          >
+                            <div style={{
+                              width: '20px',
+                              height: '20px',
+                              border: isSelected ? 'none' : '2px solid #cbd5e1',
+                              borderRadius: '4px',
+                              background: isSelected ? '#3b82f6' : 'transparent',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              marginRight: '10px',
+                              flexShrink: 0
+                            }}>
+                              {isSelected && (
+                                <span className="material-icons" style={{ fontSize: '16px', color: 'white' }}>check</span>
+                              )}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{
+                                fontSize: '13px',
+                                fontWeight: isSelected ? '600' : '500',
+                                color: '#1e293b',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {company.company || company.companyName || 'Unnamed Company'}
+                              </div>
+                              {company.tallyloc_id && (
+                                <div style={{
+                                  fontSize: '11px',
+                                  color: '#64748b',
+                                  marginTop: '2px'
+                                }}>
+                                  ID: {company.tallyloc_id}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {selectedCompanies.length > 1 && (
+                        <div style={{
+                          marginTop: '8px',
+                          paddingTop: '8px',
+                          borderTop: '1px solid #e2e8f0'
+                        }}>
+                          <div style={{
+                            fontSize: '11px',
+                            color: '#64748b',
+                            padding: '6px 12px',
+                            background: '#f8fafc',
+                            borderRadius: '6px'
+                          }}>
+                            {selectedCompanies.length} company/companies selected
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Last Updated Text - Mobile */}
               <div style={{
@@ -12136,47 +12566,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
               justifyContent: 'flex-end',
               flexShrink: 0
             }}>
-              {/* Create Custom Report Button - Desktop */}
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  console.log('🔒 Opening Custom Report Modal - using existing sales data only, no API calls should occur. Sales data count:', sales.length);
-                  setShowCustomReportModal(true);
-                }}
-                disabled={sales.length === 0}
-                style={{
-                  background: 'transparent',
-                  color: sales.length === 0 ? '#6b7280' : 'white',
-                  border: sales.length === 0 ? '1px solid rgba(107, 114, 128, 0.3)' : '1px solid rgba(255, 255, 255, 0.2)',
-                  borderRadius: '8px',
-                  padding: '8px 14px',
-                  cursor: sales.length === 0 ? 'not-allowed' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                  fontSize: '13px',
-                  fontWeight: '500',
-                  transition: 'all 0.2s ease',
-                  whiteSpace: 'nowrap',
-                  opacity: sales.length === 0 ? 0.5 : 0.9
-                }}
-                onMouseEnter={(e) => {
-                  if (sales.length > 0) {
-                    e.currentTarget.style.opacity = '1';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.4)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (sales.length > 0) {
-                    e.currentTarget.style.opacity = '0.9';
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.2)';
-                  }
-                }}
-              >
-                <span className="material-icons" style={{ fontSize: '16px' }}>summarize</span>
-                <span>Create Custom Report</span>
-              </button>
 
               {/* Create Custom Card Button - Desktop */}
               <button
@@ -12253,6 +12642,187 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
                 <span className="material-icons" style={{ fontSize: '16px' }}>calendar_today</span>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{fromDate && toDate ? formatDateRangeForHeader(fromDate, toDate) : 'Date Range'}</span>
               </button>
+
+              {/* Multi-Company Selector Button - Desktop */}
+              {availableCompanies.length > 1 && (
+                <div ref={multiCompanySelectorRef} style={{ position: 'relative' }}>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowMultiCompanySelector(!showMultiCompanySelector);
+                    }}
+                    title={selectedCompanies.length > 1 ? `${selectedCompanies.length} companies selected` : 'Select companies'}
+                    style={{
+                      background: selectedCompanies.length > 1 ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
+                      border: selectedCompanies.length > 1 ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: '8px',
+                      padding: '8px 14px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      color: 'white',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      transition: 'all 0.2s ease',
+                      whiteSpace: 'nowrap',
+                      opacity: 0.9
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.opacity = '1';
+                      e.target.style.borderColor = selectedCompanies.length > 1 ? 'rgba(59, 130, 246, 0.6)' : 'rgba(255, 255, 255, 0.4)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.opacity = '0.9';
+                      e.target.style.borderColor = selectedCompanies.length > 1 ? 'rgba(59, 130, 246, 0.4)' : 'rgba(255, 255, 255, 0.2)';
+                    }}
+                  >
+                    <span className="material-icons" style={{ fontSize: '16px' }}>business</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {selectedCompanies.length > 1 
+                        ? `${selectedCompanies.length} Companies`
+                        : selectedCompanies.length === 1 
+                          ? selectedCompanies[0].company?.substring(0, 15) || 'Company'
+                          : 'Select Companies'}
+                    </span>
+                    {selectedCompanies.length > 1 && (
+                      <span className="material-icons" style={{ fontSize: '14px', marginLeft: '4px' }}>check_circle</span>
+                    )}
+                  </button>
+
+                  {/* Multi-Company Selector Dropdown - Desktop */}
+                  {showMultiCompanySelector && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: '100%',
+                        right: 0,
+                        marginTop: '8px',
+                        background: '#ffffff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: '8px',
+                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                        zIndex: 2000,
+                        minWidth: '280px',
+                        maxWidth: '320px',
+                        maxHeight: '400px',
+                        overflowY: 'auto',
+                        padding: '8px'
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div style={{
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        color: '#1e293b',
+                        marginBottom: '8px',
+                        paddingBottom: '8px',
+                        borderBottom: '1px solid #e2e8f0'
+                      }}>
+                        Select Companies
+                      </div>
+                      {availableCompanies.map((company) => {
+                        const isSelected = selectedCompanies.some(c => 
+                          c.guid === company.guid && c.tallyloc_id === company.tallyloc_id
+                        );
+                        return (
+                          <div
+                            key={`${company.guid}_${company.tallyloc_id}`}
+                            onClick={() => {
+                              const newSelection = isSelected
+                                ? selectedCompanies.filter(c => 
+                                    !(c.guid === company.guid && c.tallyloc_id === company.tallyloc_id)
+                                  )
+                                : [...selectedCompanies, company];
+                              
+                              if (newSelection.length > 0) {
+                                handleMultiCompanyChange(newSelection.map(c => c.guid));
+                              }
+                            }}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              padding: '10px 12px',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              transition: 'background 0.15s ease',
+                              background: isSelected ? '#eff6ff' : 'transparent',
+                              marginBottom: '4px'
+                            }}
+                            onMouseEnter={(e) => {
+                              if (!isSelected) {
+                                e.currentTarget.style.background = '#f8fafc';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              if (!isSelected) {
+                                e.currentTarget.style.background = 'transparent';
+                              }
+                            }}
+                          >
+                            <div style={{
+                              width: '20px',
+                              height: '20px',
+                              border: isSelected ? 'none' : '2px solid #cbd5e1',
+                              borderRadius: '4px',
+                              background: isSelected ? '#3b82f6' : 'transparent',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              marginRight: '10px',
+                              flexShrink: 0
+                            }}>
+                              {isSelected && (
+                                <span className="material-icons" style={{ fontSize: '16px', color: 'white' }}>check</span>
+                              )}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{
+                                fontSize: '13px',
+                                fontWeight: isSelected ? '600' : '500',
+                                color: '#1e293b',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                {company.company || company.companyName || 'Unnamed Company'}
+                              </div>
+                              {company.tallyloc_id && (
+                                <div style={{
+                                  fontSize: '11px',
+                                  color: '#64748b',
+                                  marginTop: '2px'
+                                }}>
+                                  ID: {company.tallyloc_id}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {selectedCompanies.length > 1 && (
+                        <div style={{
+                          marginTop: '8px',
+                          paddingTop: '8px',
+                          borderTop: '1px solid #e2e8f0'
+                        }}>
+                          <div style={{
+                            fontSize: '11px',
+                            color: '#64748b',
+                            padding: '6px 12px',
+                            background: '#f8fafc',
+                            borderRadius: '6px'
+                          }}>
+                            {selectedCompanies.length} company/companies selected
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Last Updated Text - Desktop */}
               <div style={{
@@ -19646,37 +20216,6 @@ const SalesDashboard = ({ onNavigationAttempt }) => {
       </div>
     )}
 
-    {/* Custom Report Modal */}
-    {showCustomReportModal && (
-      <div
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0, 0, 0, 0.5)',
-          zIndex: 16000,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          padding: '20px'
-        }}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) {
-            setShowCustomReportModal(false);
-          }
-        }}
-      >
-        <CustomReportModal
-          salesData={sales}
-          onClose={() => {
-            console.log('🔒 Custom Report Modal closed');
-            setShowCustomReportModal(false);
-          }}
-        />
-      </div>
-    )}
 
     {/* Calendar Modal */}
     {showCalendarModal && (
@@ -23910,8 +24449,36 @@ const CustomCardModal = ({ salesData, onClose, onCreate, editingCard }) => {
           } else if (fieldName === 'year') {
             return String(date.getFullYear());
           } else if (fieldName === 'quarter') {
+            let fyStartMonth = 3; // Default to April
+            try {
+              // Get company info from sessionStorage (similar to fetchStartingFromDate)
+              const startingfromDirect = sessionStorage.getItem('startingfrom');
+              if (startingfromDirect) {
+                const parsed = parseDateValue(startingfromDirect);
+                if (parsed && !isNaN(parsed.getTime())) {
+                  fyStartMonth = parsed.getMonth();
+                }
+              } else {
+                const connections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+                if (Array.isArray(connections) && connections.length > 0) {
+                  const company = connections[0]; // Use first company as default
+                  if (company && company.startingfrom) {
+                    const parsed = parseDateValue(company.startingfrom);
+                    if (parsed && !isNaN(parsed.getTime())) {
+                      fyStartMonth = parsed.getMonth();
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              // Use default if company not selected
+            }
+            // Calculate financial year quarter
             const month = date.getMonth();
-            const quarter = Math.floor(month / 3) + 1;
+            const fyMonthIndex = month >= fyStartMonth 
+              ? month - fyStartMonth
+              : month + (12 - fyStartMonth);
+            const quarter = Math.floor(fyMonthIndex / 3) + 1;
             return `Q${quarter} ${date.getFullYear()}`;
           } else if (fieldName === 'week') {
             const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
@@ -30027,8 +30594,36 @@ const CustomCard = React.memo(({
           } else if (fieldName === 'year') {
             return String(date.getFullYear());
           } else if (fieldName === 'quarter') {
+            let fyStartMonth = 3; // Default to April
+            try {
+              // Get company info from sessionStorage (similar to fetchStartingFromDate)
+              const startingfromDirect = sessionStorage.getItem('startingfrom');
+              if (startingfromDirect) {
+                const parsed = new Date(startingfromDirect);
+                if (!isNaN(parsed.getTime())) {
+                  fyStartMonth = parsed.getMonth();
+                }
+              } else {
+                const connections = JSON.parse(sessionStorage.getItem('allConnections') || '[]');
+                if (Array.isArray(connections) && connections.length > 0) {
+                  const company = connections[0]; // Use first company as default
+                  if (company && company.startingfrom) {
+                    const parsed = new Date(company.startingfrom);
+                    if (!isNaN(parsed.getTime())) {
+                      fyStartMonth = parsed.getMonth();
+                    }
+                  }
+                }
+              }
+            } catch (err) {
+              // Use default if company not selected
+            }
+            // Calculate financial year quarter
             const month = date.getMonth();
-            const quarter = Math.floor(month / 3) + 1;
+            const fyMonthIndex = month >= fyStartMonth 
+              ? month - fyStartMonth
+              : month + (12 - fyStartMonth);
+            const quarter = Math.floor(fyMonthIndex / 3) + 1;
             return `Q${quarter} ${date.getFullYear()}`;
           } else if (fieldName === 'week') {
             const firstDayOfYear = new Date(date.getFullYear(), 0, 1);
