@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, Fragment } from 'react';
+import TreeViewModal from './TreeViewModal';
 
 const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, showBackButton, rowAction, customHeader, stacked = false, formatValue }) => {
   const [isMobile, setIsMobile] = React.useState(window.innerWidth <= 768);
   const [hoveredSegment, setHoveredSegment] = useState(null);
+  const [showTreeModal, setShowTreeModal] = useState(false);
   
   React.useEffect(() => {
     const handleResize = () => {
@@ -125,9 +127,13 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
     ? Math.max(...data.map(d => d.segments?.reduce((sum, seg) => sum + seg.value, 0) || d.value || 0), 0)
     : Math.max(...data.map(d => d.value || 0), 0);
 
+  // Check if data has segments (stacked)
+  const hasStackedData = stacked && data && data.some(item => item.segments && Array.isArray(item.segments) && item.segments.length > 0);
+
   return (
-    <div style={{
-      background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+    <Fragment>
+      <div style={{
+        background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
       borderRadius: isMobile ? '12px' : '16px',
       padding: '0',
       border: '1px solid #e2e8f0',
@@ -165,19 +171,55 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
           marginBottom: '0',
           gap: isMobile ? '8px' : '12px'
         }}>
-          <h3 style={{
-            margin: 0,
-            fontSize: isMobile ? '16px' : '18px',
-            fontWeight: '700',
-            color: '#1e293b',
-            letterSpacing: '-0.025em',
-            flex: 1,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
-          }}>
-            {title}
-          </h3>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1 }}>
+            <h3 style={{
+              margin: 0,
+              fontSize: isMobile ? '16px' : '18px',
+              fontWeight: '700',
+              color: '#1e293b',
+              letterSpacing: '-0.025em',
+              flex: 1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}>
+              {title}
+            </h3>
+            {/* Tree Icon - Only show if stacked and has segments */}
+            {hasStackedData && (
+              <button
+                onClick={() => setShowTreeModal(true)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '6px',
+                  background: 'transparent',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  color: '#64748b',
+                  transition: 'all 0.2s ease',
+                  flexShrink: 0,
+                  width: '32px',
+                  height: '32px'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = '#f1f5f9';
+                  e.currentTarget.style.borderColor = '#cbd5e1';
+                  e.currentTarget.style.color = '#3b82f6';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.borderColor = '#e2e8f0';
+                  e.currentTarget.style.color = '#64748b';
+                }}
+                title="View as tree"
+              >
+                <span className="material-icons" style={{ fontSize: '18px' }}>account_tree</span>
+              </button>
+            )}
+          </div>
           {showBackButton && onBackClick && (
             <button
               onClick={onBackClick}
@@ -402,6 +444,19 @@ const BarChart = ({ data, title, valuePrefix = '₹', onBarClick, onBackClick, s
         </div>
       </div>
     </div>
+
+      {/* Tree Modal */}
+      {hasStackedData && (
+        <TreeViewModal
+          isOpen={showTreeModal}
+          onClose={() => setShowTreeModal(false)}
+          data={data}
+          title={title}
+          valuePrefix={valuePrefix}
+          formatValue={formatValue}
+        />
+      )}
+    </Fragment>
   );
 };
 

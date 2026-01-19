@@ -231,18 +231,18 @@
         if (!localStorage.getItem(STORAGE_KEY)) {
           localStorage.setItem(STORAGE_KEY, APP_VERSION);
         }
-        return;
-      }
-      
-      // Run checks on page load (non-blocking)
-      // Use requestIdleCallback if available for better performance
-      if (window.requestIdleCallback) {
-        requestIdleCallback(checkVersion, { timeout: 2000 });
-        requestIdleCallback(() => setTimeout(checkMaterialIcons, 1000), { timeout: 3000 });
+        // Skip version check and material icons check if reloads are disabled
       } else {
-        // Fallback for browsers without requestIdleCallback
-        setTimeout(checkVersion, 0);
-        setTimeout(checkMaterialIcons, 1000);
+        // Run checks on page load (non-blocking)
+        // Use requestIdleCallback if available for better performance
+        if (window.requestIdleCallback) {
+          requestIdleCallback(checkVersion, { timeout: 2000 });
+          requestIdleCallback(() => setTimeout(checkMaterialIcons, 1000), { timeout: 3000 });
+        } else {
+          // Fallback for browsers without requestIdleCallback
+          setTimeout(checkVersion, 0);
+          setTimeout(checkMaterialIcons, 1000);
+        }
       }
     </script>
     

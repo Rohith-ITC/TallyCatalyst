@@ -1,9 +1,13 @@
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ResponsiveLine } from '@nivo/line';
 
 const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick, showBackButton, rowAction, customHeader, formatValue, formatCompactValue }) => {
   // Mobile detection
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  const chartContainerRef = useRef(null);
+  const chartWrapperRef = useRef(null);
+  const [tooltipState, setTooltipState] = useState(null);
 
   useEffect(() => {
     const handleResize = () => {
@@ -222,19 +226,79 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
     }
   };
 
+  // Calculate tooltip position based on point and container bounds
+  const calculateTooltipPosition = (point) => {
+    if (!chartContainerRef.current || !chartWrapperRef.current) {
+      return null;
+    }
+
+    const containerRect = chartContainerRef.current.getBoundingClientRect();
+    const wrapperRect = chartWrapperRef.current.getBoundingClientRect();
+    const margin = isMobile ? { top: 15, right: 10, bottom: bottomMargin, left: leftMargin } : { top: 20, right: 25, bottom: bottomMargin, left: leftMargin };
+    
+    // Calculate the point's position relative to the chart container
+    // point.x and point.y are relative to the chart's inner area (after margins)
+    const chartInnerX = point.x + margin.left;
+    const chartInnerY = point.y + margin.top;
+    
+    // Get absolute position relative to viewport
+    const absoluteX = wrapperRect.left + chartInnerX;
+    const absoluteY = wrapperRect.top + chartInnerY;
+    
+    // Estimate tooltip dimensions
+    const tooltipWidth = isMobile ? 200 : 250;
+    const tooltipHeight = isMobile ? 60 : 80;
+    const offset = isMobile ? 20 : 25;
+    
+    // Calculate safe position
+    let tooltipX = absoluteX;
+    let tooltipY = absoluteY;
+    
+    // Horizontal positioning - center by default, adjust if near edges
+    const halfTooltipWidth = tooltipWidth / 2;
+    if (absoluteX + halfTooltipWidth > containerRect.right) {
+      // Too close to right edge, align to right
+      tooltipX = containerRect.right - tooltipWidth - 10;
+    } else if (absoluteX - halfTooltipWidth < containerRect.left) {
+      // Too close to left edge, align to left
+      tooltipX = containerRect.left + 10;
+    } else {
+      // Center on point
+      tooltipX = absoluteX - halfTooltipWidth;
+    }
+    
+    // Vertical positioning - show above by default, show below if near top
+    if (absoluteY - tooltipHeight - offset < containerRect.top) {
+      // Not enough space above, show below
+      tooltipY = absoluteY + offset;
+    } else {
+      // Show above
+      tooltipY = absoluteY - tooltipHeight - offset;
+    }
+    
+    return {
+      x: tooltipX,
+      y: tooltipY,
+      point: point
+    };
+  };
+
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100%',
-      overflow: 'hidden',
-      width: '100%',
-      maxWidth: '100%',
-      background: 'white',
-      borderRadius: '12px',
-      border: '1px solid #e2e8f0',
-      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
-    }}>
+    <div 
+      ref={chartContainerRef}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        overflow: 'hidden',
+        width: '100%',
+        maxWidth: '100%',
+        background: 'white',
+        borderRadius: '12px',
+        border: '1px solid #e2e8f0',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.1)'
+      }}
+    >
         {customHeader ? (
           <div>
             {customHeader}
@@ -291,16 +355,22 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
         minHeight: 0,
         background: 'radial-gradient(circle at top, rgba(59, 130, 246, 0.03) 0%, transparent 50%)'
       }}>
-        <div style={{
-          height: isMobile ? '280px' : 'min(400px, calc(100% - 40px))',
-          minHeight: isMobile ? '280px' : '320px',
-          maxHeight: isMobile ? '350px' : '500px',
-          width: '100%',
-          maxWidth: '100%',
-          padding: '0',
-          overflow: 'hidden',
-          flexShrink: 0
-        }}>
+        <div 
+          ref={chartWrapperRef}
+          onMouseLeave={() => {
+            setTooltipState(null);
+          }}
+          style={{
+            height: isMobile ? '280px' : 'min(400px, calc(100% - 40px))',
+            minHeight: isMobile ? '280px' : '320px',
+            maxHeight: isMobile ? '350px' : '500px',
+            width: '100%',
+            maxWidth: '100%',
+            padding: '0',
+            overflow: 'hidden',
+            flexShrink: 0
+          }}
+        >
           <ResponsiveLine
             data={nivoData}
             margin={isMobile ? { top: 15, right: 10, bottom: bottomMargin, left: leftMargin } : { top: 20, right: 25, bottom: bottomMargin, left: leftMargin }}
@@ -383,56 +453,13 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
             }}
             onClick={handleClick}
             tooltip={({ point }) => {
-              // Get the chart's inner dimensions (excluding margins)
-              const margin = isMobile ? { top: 15, right: 10, bottom: bottomMargin, left: leftMargin } : { top: 20, right: 25, bottom: bottomMargin, left: leftMargin };
-              const chartHeight = isMobile ? 280 : 400; // Approximate chart height
-              const chartInnerHeight = chartHeight - margin.top - margin.bottom;
-              
-              // point.y is the y coordinate in pixels from the top of the chart's inner area
-              // In Nivo, y=0 is at the top, so smaller y values are at the top
-              // Calculate if point is in top half (y < chartInnerHeight / 2)
-              const isTopHalf = point.y < (chartInnerHeight / 2);
-              
-              // Offset for tooltip positioning - larger offset to ensure clear separation
-              // For top half: show below the point (positive translateY moves down)
-              // For bottom half: show above the point (negative translateY moves up)
-              const offset = isMobile ? 20 : 25;
-              const transformY = isTopHalf ? offset : -offset;
-              
-              return (
-                <div style={{
-                  transform: `translate(-50%, ${transformY}px)`,
-                  background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
-                  padding: isMobile ? '8px 12px' : '12px 16px',
-                  borderRadius: isMobile ? '8px' : '12px',
-                  border: '2px solid #e2e8f0',
-                  boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
-                  fontSize: isMobile ? '11px' : '13px',
-                  minWidth: isMobile ? '140px' : '180px',
-                  maxWidth: isMobile ? '200px' : 'none',
-                  pointerEvents: 'none'
-                }}>
-                  <div style={{
-                    fontWeight: '700',
-                    marginBottom: isMobile ? '4px' : '8px',
-                    color: '#1e293b',
-                    fontSize: isMobile ? '12px' : '14px',
-                    letterSpacing: '-0.025em',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {point.data.x}
-                  </div>
-                  <div style={{
-                    color: '#475569',
-                    fontSize: isMobile ? '13px' : '15px',
-                    fontWeight: '600'
-                  }}>
-                    {formatValue ? formatValue(point.data.y, valuePrefix) : `${valuePrefix}${point.data.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-                  </div>
-                </div>
-              );
+              // Calculate tooltip position and store in state
+              const tooltipPos = calculateTooltipPosition(point);
+              if (tooltipPos) {
+                setTooltipState(tooltipPos);
+              }
+              // Return null to prevent default tooltip rendering
+              return null;
             }}
             theme={{
               tooltip: {
@@ -571,6 +598,49 @@ const LineChart = ({ data, title, valuePrefix = '₹', onPointClick, onBackClick
           </div>
         )}
       </div>
+      
+      {/* Portal tooltip - renders outside chart container to avoid clipping */}
+      {tooltipState && createPortal(
+        <div 
+          style={{
+            position: 'fixed',
+            left: `${tooltipState.x}px`,
+            top: `${tooltipState.y}px`,
+            background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)',
+            padding: isMobile ? '8px 12px' : '12px 16px',
+            borderRadius: isMobile ? '8px' : '12px',
+            border: '2px solid #e2e8f0',
+            boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+            fontSize: isMobile ? '11px' : '13px',
+            minWidth: isMobile ? '140px' : '180px',
+            maxWidth: isMobile ? '200px' : 'none',
+            pointerEvents: 'none',
+            zIndex: 9999,
+            transition: 'opacity 0.1s ease-in-out'
+          }}
+        >
+          <div style={{
+            fontWeight: '700',
+            marginBottom: isMobile ? '4px' : '8px',
+            color: '#1e293b',
+            fontSize: isMobile ? '12px' : '14px',
+            letterSpacing: '-0.025em',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}>
+            {tooltipState.point.data.x}
+          </div>
+          <div style={{
+            color: '#475569',
+            fontSize: isMobile ? '13px' : '15px',
+            fontWeight: '600'
+          }}>
+            {formatValue ? formatValue(tooltipState.point.data.y, valuePrefix) : `${valuePrefix}${tooltipState.point.data.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 };
